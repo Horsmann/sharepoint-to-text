@@ -44,7 +44,6 @@ def test_read_docx() -> None:
 
     test_case_obj.assertEqual(230, len(result["paragraphs"]))
 
-    logger.info(result["metadata"].keys())
     test_case_obj.assertListEqual(
         sorted(
             [
