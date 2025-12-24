@@ -19,10 +19,21 @@ def test_read_ppt() -> None:
         file_like.seek(0)
 
     result = read_ppt(file_like)
-    logger.info(result.keys())
     test_case_obj = unittest.TestCase()
     test_case_obj.assertEqual(48, result["slide_count"])
     test_case_obj.assertEqual(48, len(result["slides"]))
+
+    # test first slide
+    test_case_obj.assertListEqual(
+        sorted(["metadata", "slides", "slide_count", "master_text"]),
+        sorted(result.keys()),
+    )
+    slide_1 = result["slides"][0]
+    test_case_obj.assertEqual("European Union", slide_1["title"])
+    test_case_obj.assertEqual(1, slide_1["slide_number"])
+    test_case_obj.assertListEqual(["Institutions and functions"], slide_1["body_text"])
+    test_case_obj.assertListEqual([], slide_1["other_text"])
+    test_case_obj.assertListEqual([], slide_1["notes"])
 
 
 def test_read_pptx() -> None:
