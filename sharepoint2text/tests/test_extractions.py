@@ -6,8 +6,42 @@ from unittest import TestCase
 from sharepoint2text.extractors.doc_extractor import read_doc
 from sharepoint2text.extractors.docx_extractor import read_docx
 from sharepoint2text.extractors.pdf_extractor import read_pdf
+from sharepoint2text.extractors.pptx_extractor import read_pptx
 
 logger = logging.getLogger(__name__)
+
+
+def test_read_pptx() -> None:
+    filename = "sharepoint2text/tests/resources/eu-visibility_rules_00704232-AF9F-1A18-BD782C469454ADAD_68401.pptx"
+    with open(filename, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    result = read_pptx(file_like)
+    test_case_obj = unittest.TestCase()
+
+    test_case_obj.assertEqual(3, len(result))
+
+    # slide 1
+    test_case_obj.assertEqual("EU-funding visibility - art. 22 GA", result[0]["title"])
+    expected = [
+        'To be applied on all materials and communication activities:\n\nThe correct EU emblem: https://europa.eu/european-union/about-eu/symbols/flag_en; \nThe reference to the correct funding programme (to be put next to the EU emblem): “This [e.g. project, report, publication, conference, website, etc.] was funded by the European Union’s Justice Programme (2014-2020) or by the Rights, Equality and Citizenship Programme (REC 2014-2020)“;\n The following disclaimer: "The content of this [insert appropriate description, e.g. report, publication, conference, etc.] represents the views of the author only and is his/her sole responsibility. The European Commission does not accept any responsibility for use that may be made of the information it contains”.'
+    ]
+    test_case_obj.assertListEqual(expected, result[0]["content_placeholders"])
+
+    test_case_obj.assertListEqual(["1"], result[0]["other_textboxes"])
+    test_case_obj.assertEqual(1, result[0]["slide_number"])
+
+    # slide 2
+    test_case_obj.assertEqual("EU-funding visibility", result[1]["title"])
+
+    expected = [
+        "! Please choose the correct name of the funding Programme, either JUSTICE or REC, depending under which Programme your call for proposals was published and your grant was awarded:\n\nSupported by the Rights, Equality \x0band Citizenship Programme \nof the European Union (2014-2020) \x0b\n     This project is funded by the Justice \n      Programme of the European Union \n      (2014-2020)"
+    ]
+    test_case_obj.assertListEqual(expected, result[1]["content_placeholders"])
+
+    expected = ["This is the wrong EU emblem", "2", "Don’t use this emblem!"]
+    test_case_obj.assertListEqual(expected, result[1]["other_textboxes"])
 
 
 def test_read_docx() -> None:
