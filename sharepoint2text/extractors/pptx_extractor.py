@@ -1,15 +1,20 @@
 import io
+import logging
 
 from pptx import Presentation
 from pptx.enum.shapes import PP_PLACEHOLDER
 
+logger = logging.getLogger(__name__)
+
 
 def read_pptx(file_like: io.BytesIO) -> list[dict]:
+    logger.debug("Reading pptx")
     prs = Presentation(file_like)
 
     result = []
 
     for slide_index, slide in enumerate(prs.slides, start=1):
+        logger.debug(f"Processing slide [{slide_index}]")
         slide_data = {
             "slide_number": slide_index,
             "title": None,
@@ -55,7 +60,7 @@ def read_pptx(file_like: io.BytesIO) -> list[dict]:
                     PP_PLACEHOLDER.SLIDE_IMAGE,
                     PP_PLACEHOLDER.BITMAP,
                 ):
-                    pass
+                    logger.debug(f"Ignoring type [{ptype}]")
 
                 else:
                     slide_data["other_textboxes"].append(text)
