@@ -117,6 +117,7 @@ def test_read_pdf() -> None:
         sorted(["text", "images"]), sorted(result["pages"][1])
     )
 
+    # Text page 1
     expected = (
         "This is a test sentence" + "\n"
         "This is a table" + "\n"
@@ -129,8 +130,13 @@ def test_read_pdf() -> None:
         expected.strip().replace("\n", " "), page_1_text.strip().replace("\n", " ")
     )
 
+    # Text page 2
     expected = "This is page 2" "\n" "An image of the Google landing page"
     page_2_text = result["pages"][2]["text"]
     test_case_obj.assertEqual(
         expected.strip().replace("\n", " "), page_2_text.strip().replace("\n", " ")
     )
+
+    # Image data
+    test_case_obj.assertEqual(0, len(result["pages"][1]["images"]))
+    test_case_obj.assertEqual(1, len(result["pages"][2]["images"]))
