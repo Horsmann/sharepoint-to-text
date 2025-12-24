@@ -36,12 +36,16 @@ def read_docx(file_like: io.BytesIO) -> dict:
         "keywords": props.keywords or "",
         "category": props.category or "",
         "comments": props.comments or "",
-        "created": props.created.isoformat()
-        if isinstance(props.created, datetime.datetime)
-        else "",
-        "modified": props.modified.isoformat()
-        if isinstance(props.modified, datetime.datetime)
-        else "",
+        "created": (
+            props.created.isoformat()
+            if isinstance(props.created, datetime.datetime)
+            else ""
+        ),
+        "modified": (
+            props.modified.isoformat()
+            if isinstance(props.modified, datetime.datetime)
+            else ""
+        ),
         "last_modified_by": props.last_modified_by or "",
         "revision": props.revision,
     }
@@ -63,9 +67,11 @@ def read_docx(file_like: io.BytesIO) -> dict:
                     "underline": run.underline,
                     "font_name": run.font.name,
                     "font_size": run.font.size.pt if run.font.size else None,
-                    "font_color": str(run.font.color.rgb)
-                    if run.font.color and run.font.color.rgb
-                    else None,
+                    "font_color": (
+                        str(run.font.color.rgb)
+                        if run.font.color and run.font.color.rgb
+                        else None
+                    ),
                 }
             )
         result["paragraphs"].append(para_data)
@@ -205,27 +211,27 @@ def read_docx(file_like: io.BytesIO) -> dict:
     for section in doc.sections:
         result["sections"].append(
             {
-                "page_width_inches": section.page_width.inches
-                if section.page_width
-                else None,
-                "page_height_inches": section.page_height.inches
-                if section.page_height
-                else None,
-                "left_margin_inches": section.left_margin.inches
-                if section.left_margin
-                else None,
-                "right_margin_inches": section.right_margin.inches
-                if section.right_margin
-                else None,
-                "top_margin_inches": section.top_margin.inches
-                if section.top_margin
-                else None,
-                "bottom_margin_inches": section.bottom_margin.inches
-                if section.bottom_margin
-                else None,
-                "orientation": str(section.orientation)
-                if section.orientation
-                else None,
+                "page_width_inches": (
+                    section.page_width.inches if section.page_width else None
+                ),
+                "page_height_inches": (
+                    section.page_height.inches if section.page_height else None
+                ),
+                "left_margin_inches": (
+                    section.left_margin.inches if section.left_margin else None
+                ),
+                "right_margin_inches": (
+                    section.right_margin.inches if section.right_margin else None
+                ),
+                "top_margin_inches": (
+                    section.top_margin.inches if section.top_margin else None
+                ),
+                "bottom_margin_inches": (
+                    section.bottom_margin.inches if section.bottom_margin else None
+                ),
+                "orientation": (
+                    str(section.orientation) if section.orientation else None
+                ),
             }
         )
 
