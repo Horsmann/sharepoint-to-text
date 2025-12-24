@@ -7,6 +7,7 @@ requires-python = ">=3.10"
 dependencies = [
     "olefile>=0.47",
     "pypdf>=6.5.0",
+    "python-docx>=1.2.0",
 ]
 
 [dependency-groups]

@@ -2,12 +2,69 @@ import io
 import logging
 import unittest
 
-from sharepoint2text.ms_doc.doc_extractor import read_doc
+from sharepoint2text.extractors.doc_extractor import read_doc
+from sharepoint2text.extractors.docx_extractor import read_docx
 
 logger = logging.getLogger(__name__)
 
 
-def test_read_doc():
+def test_read_docx() -> None:
+    filename = "sharepoint2text/tests/resources/GKIM_Skills_Framework_-_static.docx"
+    with open(filename, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    result = read_docx(file_like)
+    test_case_obj = unittest.TestCase()
+
+    expected = sorted(
+        [
+            "metadata",
+            "paragraphs",
+            "tables",
+            "headers",
+            "footers",
+            "images",
+            "hyperlinks",
+            "footnotes",
+            "endnotes",
+            "comments",
+            "sections",
+            "styles",
+            "full_text",
+        ]
+    )
+    test_case_obj.assertListEqual(expected, sorted(result.keys()))
+
+    # text is long. Verify only beginning and ending of the combined text
+    test_case_obj.assertEqual(
+        "Welcome to the Government", result["full_text"][:25].strip()
+    )
+    test_case_obj.assertEqual("improved records systems.", result["full_text"][-25:])
+
+    test_case_obj.assertEqual(230, len(result["paragraphs"]))
+
+    logger.info(result["metadata"].keys())
+    test_case_obj.assertListEqual(
+        sorted(
+            [
+                "title",
+                "author",
+                "subject",
+                "keywords",
+                "category",
+                "comments",
+                "created",
+                "modified",
+                "last_modified_by",
+                "revision",
+            ]
+        ),
+        sorted(result["metadata"].keys()),
+    )
+
+
+def test_read_doc() -> None:
     with open(
         "sharepoint2text/tests/resources/Speech_Prime_Minister_of_The_Netherlands_EN.doc",
         mode="rb",
