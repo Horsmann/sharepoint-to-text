@@ -16,6 +16,7 @@ DISCLAIMER:
     output is blackbox tested but implementation details may be subject to improvements
 """
 
+import datetime
 import io
 import logging
 import re
@@ -244,9 +245,13 @@ class _DocReader:
                 "author": m.author.decode("utf-8"),
                 "subject": m.subject.decode("utf-8"),
                 "keywords": m.keywords.decode("utf-8"),
-                "last_saved_by": m.last_saved_by,
-                "create_time": m.create_time,
-                "last_saved_time": m.last_saved_time,
+                "last_saved_by": m.last_saved_by.decode("utf-8"),
+                "create_time": m.create_time.isoformat()
+                if isinstance(m.create_time, datetime.datetime)
+                else "",
+                "last_saved_time": m.last_saved_time.isoformat()
+                if isinstance(m.last_saved_time, datetime.datetime)
+                else "",
                 "num_pages": m.num_pages,
                 "num_words": m.num_words,
                 "num_chars": m.num_chars,

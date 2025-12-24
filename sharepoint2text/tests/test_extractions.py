@@ -93,3 +93,7 @@ def test_read_doc() -> None:
     test_case_obj.assertEqual("Toby Screech", content["metadata"]["author"])
     test_case_obj.assertEqual("", content["metadata"]["keywords"])
     test_case_obj.assertEqual(580, content["metadata"]["num_words"])
+    test_case_obj.assertEqual("2003-03-13T09:03:00", content["metadata"]["create_time"])
+    test_case_obj.assertEqual(
+        "2003-03-13T09:03:00", content["metadata"]["last_saved_time"]
+    )
