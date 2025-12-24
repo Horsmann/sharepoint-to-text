@@ -6,9 +6,23 @@ from unittest import TestCase
 from sharepoint2text.extractors.doc_extractor import read_doc
 from sharepoint2text.extractors.docx_extractor import read_docx
 from sharepoint2text.extractors.pdf_extractor import read_pdf
+from sharepoint2text.extractors.ppt_extractor import read_ppt
 from sharepoint2text.extractors.pptx_extractor import read_pptx
 
 logger = logging.getLogger(__name__)
+
+
+def test_read_ppt() -> None:
+    filename = "sharepoint2text/tests/resources/eurouni2.ppt"
+    with open(filename, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    result = read_ppt(file_like)
+    logger.info(result.keys())
+    test_case_obj = unittest.TestCase()
+    test_case_obj.assertEqual(48, result["slide_count"])
+    test_case_obj.assertEqual(48, len(result["slides"]))
 
 
 def test_read_pptx() -> None:
