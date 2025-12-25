@@ -21,12 +21,16 @@ def _read_metadata(file_like: io.BytesIO) -> dict:
         "language": props.language,
         "revision": props.revision,
         "creator": props.creator,
-        "created": props.created.isoformat()
-        if isinstance(props.created, datetime.datetime)
-        else None,
-        "modified": props.modified.isoformat()
-        if isinstance(props.modified, datetime.datetime)
-        else None,
+        "created": (
+            props.created.isoformat()
+            if isinstance(props.created, datetime.datetime)
+            else None
+        ),
+        "modified": (
+            props.modified.isoformat()
+            if isinstance(props.modified, datetime.datetime)
+            else None
+        ),
     }
     wb.close()
     return metadata

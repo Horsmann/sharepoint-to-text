@@ -8,6 +8,7 @@ Based on MS-PPT specification:
 - TextCharsAtom (0x0FA0): Unicode text
 - TextBytesAtom (0x0FA8): ASCII/ANSI text
 """
+
 import logging
 import struct
 from dataclasses import dataclass, field

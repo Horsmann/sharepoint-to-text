@@ -24,9 +24,9 @@ def _read_metadata(file_like: io.BytesIO) -> dict:
 
     result = {
         "author": meta.author.decode("utf-8") if meta.author else "",
-        "last_saved_by": meta.last_saved_by.decode("utf-8")
-        if meta.last_saved_by
-        else "",
+        "last_saved_by": (
+            meta.last_saved_by.decode("utf-8") if meta.last_saved_by else ""
+        ),
         "created": meta.create_time.isoformat(),
         "modified": meta.last_saved_time.isoformat(),
         "title": meta.title.decode("utf-8") if meta.title else "",

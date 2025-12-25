@@ -6,12 +6,39 @@ from unittest import TestCase
 from sharepoint2text.extractors.doc_extractor import read_doc
 from sharepoint2text.extractors.docx_extractor import read_docx
 from sharepoint2text.extractors.pdf_extractor import read_pdf
+from sharepoint2text.extractors.plain_extractor import read_plain_text
 from sharepoint2text.extractors.ppt_extractor import read_ppt
 from sharepoint2text.extractors.pptx_extractor import read_pptx
 from sharepoint2text.extractors.xls_extractor import read_xls
 from sharepoint2text.extractors.xlsx_extractor import read_xlsx
 
 logger = logging.getLogger(__name__)
+
+
+def test_read_text() -> None:
+    test_case_obj = unittest.TestCase()
+
+    filename = "sharepoint2text/tests/resources/plain.txt"
+    with open(filename, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    result = read_plain_text(file_like=file_like)
+    logger.info(result)
+
+    test_case_obj.assertDictEqual({"content": "Hello World"}, result)
+
+    # csv file
+    filename = "sharepoint2text/tests/resources/plain.csv"
+    with open(filename, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    result = read_plain_text(file_like=file_like)
+
+    test_case_obj.assertDictEqual(
+        {"content": 'Text; Date\n"Hello World"; "2025-12-25"\n\n'}, result
+    )
 
 
 def test_read_xlsx() -> None:
