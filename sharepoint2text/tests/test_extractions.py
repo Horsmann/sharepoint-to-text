@@ -8,7 +8,7 @@ from sharepoint2text.extractors.docx_extractor import MicrosoftDocxContent, read
 from sharepoint2text.extractors.pdf_extractor import PdfContent, read_pdf
 from sharepoint2text.extractors.plain_extractor import read_plain_text
 from sharepoint2text.extractors.ppt_extractor import read_ppt
-from sharepoint2text.extractors.pptx_extractor import read_pptx
+from sharepoint2text.extractors.pptx_extractor import MicrosoftPptxContent, read_pptx
 from sharepoint2text.extractors.xls_extractor import MicrosoftXlsContent, read_xls
 from sharepoint2text.extractors.xlsx_extractor import read_xlsx
 
@@ -136,60 +136,65 @@ def test_read_pptx() -> None:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    result = read_pptx(file_like)
+    pptx: MicrosoftPptxContent = read_pptx(file_like)
     test_case_obj = unittest.TestCase()
 
     # metadata
-    test_case_obj.assertEqual("IVAN Anda-Otilia", result["metadata"]["author"])
-    test_case_obj.assertEqual(
-        "MAGLI Mia (JUST)", result["metadata"]["last_modified_by"]
-    )
-    test_case_obj.assertEqual("2011-10-28T10:25:18", result["metadata"]["created"])
-    test_case_obj.assertEqual("2020-07-12T09:25:35", result["metadata"]["modified"])
+    test_case_obj.assertEqual("IVAN Anda-Otilia", pptx.metadata.author)
+    test_case_obj.assertEqual("MAGLI Mia (JUST)", pptx.metadata.last_modified_by)
+    test_case_obj.assertEqual("2011-10-28T10:25:18", pptx.metadata.created)
+    test_case_obj.assertEqual("2020-07-12T09:25:35", pptx.metadata.modified)
 
-    test_case_obj.assertEqual(3, len(result["slides"]))
+    test_case_obj.assertEqual(3, len(pptx.slides))
 
     ##########
     # SLIDES #
     ##########
     # slide 1
     test_case_obj.assertEqual(
-        "EU-funding visibility - art. 22 GA", result["slides"][0]["title"]
+        "EU-funding visibility - art. 22 GA", pptx.slides[0].title
     )
     expected = [
         'To be applied on all materials and communication activities:\n\nThe correct EU emblem: https://europa.eu/european-union/about-eu/symbols/flag_en; \nThe reference to the correct funding programme (to be put next to the EU emblem): “This [e.g. project, report, publication, conference, website, etc.] was funded by the European Union’s Justice Programme (2014-2020) or by the Rights, Equality and Citizenship Programme (REC 2014-2020)“;\n The following disclaimer: "The content of this [insert appropriate description, e.g. report, publication, conference, etc.] represents the views of the author only and is his/her sole responsibility. The European Commission does not accept any responsibility for use that may be made of the information it contains”.'
     ]
-    test_case_obj.assertListEqual(expected, result["slides"][0]["content_placeholders"])
+    test_case_obj.assertListEqual(expected, pptx.slides[0].content_placeholders)
 
-    test_case_obj.assertListEqual(["1"], result["slides"][0]["other_textboxes"])
-    test_case_obj.assertEqual(1, result["slides"][0]["slide_number"])
+    test_case_obj.assertListEqual(["1"], pptx.slides[0].other_textboxes)
+    test_case_obj.assertEqual(1, pptx.slides[0].slide_number)
 
     # images
-    test_case_obj.assertEqual(0, len(result["slides"][0]["images"]))
+    test_case_obj.assertEqual(0, len(pptx.slides[0].images))
 
     # slide 2
-    test_case_obj.assertEqual("EU-funding visibility", result["slides"][1]["title"])
+    test_case_obj.assertEqual("EU-funding visibility", pptx.slides[1].title)
 
     expected = [
         "! Please choose the correct name of the funding Programme, either JUSTICE or REC, depending under which Programme your call for proposals was published and your grant was awarded:\n\nSupported by the Rights, Equality \x0band Citizenship Programme \nof the European Union (2014-2020) \x0b\n     This project is funded by the Justice \n      Programme of the European Union \n      (2014-2020)"
     ]
-    test_case_obj.assertListEqual(expected, result["slides"][1]["content_placeholders"])
+    test_case_obj.assertListEqual(expected, pptx.slides[1].content_placeholders)
 
     expected = ["This is the wrong EU emblem", "2", "Don’t use this emblem!"]
-    test_case_obj.assertListEqual(expected, result["slides"][1]["other_textboxes"])
+    test_case_obj.assertListEqual(expected, pptx.slides[1].other_textboxes)
 
     # images
-    test_case_obj.assertEqual(5, len(result["slides"][1]["images"]))
+    test_case_obj.assertEqual(5, len(pptx.slides[1].images))
     # test presence of metadata for first image only
-    test_case_obj.assertEqual(1, result["slides"][1]["images"][0]["image_index"])
-    test_case_obj.assertEqual(
-        "image.jpeg", result["slides"][1]["images"][0]["filename"]
+    test_case_obj.assertEqual(1, pptx.slides[1].images[0].image_index)
+    test_case_obj.assertEqual("image.jpeg", pptx.slides[1].images[0].filename)
+    test_case_obj.assertEqual("image/jpeg", pptx.slides[1].images[0].content_type)
+    test_case_obj.assertEqual(8947, pptx.slides[1].images[0].size_bytes)
+    test_case_obj.assertIsNotNone(pptx.slides[1].images[0].blob)
+
+    # iterator
+    test_case_obj.assertEqual(3, len(list(pptx.iterator())))
+
+    # full text
+    expected = (
+        "EU-funding visibility - art. 22 GA"
+        + "\n"
+        + "To be applied on all materials and communica"
     )
-    test_case_obj.assertEqual(
-        "image/jpeg", result["slides"][1]["images"][0]["content_type"]
-    )
-    test_case_obj.assertEqual(8947, result["slides"][1]["images"][0]["size_bytes"])
-    test_case_obj.assertIsNotNone(result["slides"][1]["images"][0]["blob"])
+    test_case_obj.assertEqual(expected, pptx.get_full_text()[:79])
 
 
 def test_read_docx() -> None:
