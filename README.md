@@ -36,42 +36,73 @@ pip install sharepoint-to-text
 Or install from source:
 
 ```bash
-git clone https://github.com/your-org/sharepoint-to-text.git
+git clone https://github.com/Horsmann/sharepoint-to-text.git
 cd sharepoint-to-text
 pip install -e .
 ```
 
 ## Quick Start
 
-### Using the Router (Recommended)
+### Using read_file (Recommended)
 
-The router automatically detects the file type and returns the appropriate extractor:
+The simplest way to extract content from any supported file:
 
 ```python
-from sharepoint2text.router import get_extractor
-import io
+import sharepoint2text
 
-# Get the extractor based on filename
-extractor = get_extractor("quarterly_report.docx")
-
-# Extract content from a file
-with open("quarterly_report.docx", "rb") as f:
-    result = extractor(io.BytesIO(f.read()))
-
-# Access extracted text
+# Extract content from any supported file
+result = sharepoint2text.read_file("quarterly_report.docx")
 print(result["full_text"])
+
+# Works with any supported format
+result = sharepoint2text.read_file("budget.xlsx")
+for sheet_name, records in result["content"].items():
+    print(f"Sheet: {sheet_name}, Rows: {len(records)}")
 ```
 
-### Working with Bytes Directly
+### Check if a File is Supported
+
+```python
+import sharepoint2text
+
+if sharepoint2text.is_supported_file("document.docx"):
+    result = sharepoint2text.read_file("document.docx")
+```
+
+### Using Format-Specific Extractors
+
+For more control, use the format-specific extractors directly. These take a `BytesIO` object:
+
+```python
+import sharepoint2text
+import io
+
+# Extract from a Word document
+with open("document.docx", "rb") as f:
+    result = sharepoint2text.read_docx(io.BytesIO(f.read()))
+
+print(f"Author: {result['metadata']['author']}")
+print(f"Paragraphs: {len(result['paragraphs'])}")
+print(f"Tables: {len(result['tables'])}")
+
+# Extract from a PDF
+with open("report.pdf", "rb") as f:
+    result = sharepoint2text.read_pdf(io.BytesIO(f.read()))
+
+for page_num, page_data in result["pages"].items():
+    print(f"Page {page_num}: {page_data['text'][:100]}...")
+```
+
+### Working with Bytes from APIs
 
 Useful when receiving files from APIs or network requests:
 
 ```python
-from sharepoint2text.router import get_extractor
+import sharepoint2text
 import io
 
 def extract_from_sharepoint_response(filename: str, content: bytes) -> dict:
-    extractor = get_extractor(filename)
+    extractor = sharepoint2text.get_extractor(filename)
     return extractor(io.BytesIO(content))
 
 # Example usage
@@ -80,44 +111,32 @@ for sheet_name, records in result["content"].items():
     print(f"Sheet: {sheet_name}, Rows: {len(records)}")
 ```
 
-### Using Extractors Directly
-
-You can also import and use specific extractors:
-
-```python
-from sharepoint2text.extractors.docx_extractor import read_docx
-from sharepoint2text.extractors.pdf_extractor import read_pdf
-import io
-
-# Extract from a Word document
-with open("document.docx", "rb") as f:
-    result = read_docx(io.BytesIO(f.read()))
-
-print(f"Author: {result['metadata']['author']}")
-print(f"Paragraphs: {len(result['paragraphs'])}")
-print(f"Tables: {len(result['tables'])}")
-
-# Extract from a PDF
-with open("report.pdf", "rb") as f:
-    result = read_pdf(io.BytesIO(f.read()))
-
-for page_num, page_data in result["pages"].items():
-    print(f"Page {page_num}: {page_data['text'][:100]}...")
-```
-
 ## API Reference
 
-### Router
+### Functions
 
 ```python
-from sharepoint2text.router import get_extractor
+import sharepoint2text
 
-extractor = get_extractor(path: str) -> Callable[[io.BytesIO], dict]
+# Read any supported file (recommended)
+result = sharepoint2text.read_file(path: str | Path) -> dict
+
+# Check if a file type is supported
+supported = sharepoint2text.is_supported_file(path: str) -> bool
+
+# Get an extractor function for a file type
+extractor = sharepoint2text.get_extractor(path: str) -> Callable[[io.BytesIO], dict]
+
+# Format-specific extractors (take io.BytesIO, return dict)
+sharepoint2text.read_docx(file: io.BytesIO) -> dict
+sharepoint2text.read_doc(file: io.BytesIO) -> dict
+sharepoint2text.read_xlsx(file: io.BytesIO) -> dict
+sharepoint2text.read_xls(file: io.BytesIO) -> dict
+sharepoint2text.read_pptx(file: io.BytesIO) -> dict
+sharepoint2text.read_ppt(file: io.BytesIO) -> dict
+sharepoint2text.read_pdf(file: io.BytesIO) -> dict
+sharepoint2text.read_plain_text(file: io.BytesIO) -> dict
 ```
-
-Returns an extractor function based on the file extension. The file does not need to exist; only the path/filename is used for detection.
-
-**Raises:** `RuntimeError` if the file type is not supported.
 
 ### Return Structures
 
@@ -213,13 +232,10 @@ Returns an extractor function based on the file extension. The file does not nee
 ### Extract All Text from a PowerPoint
 
 ```python
-from sharepoint2text.router import get_extractor
-import io
+import sharepoint2text
 
 def get_presentation_text(filepath: str) -> str:
-    extractor = get_extractor(filepath)
-    with open(filepath, "rb") as f:
-        result = extractor(io.BytesIO(f.read()))
+    result = sharepoint2text.read_file(filepath)
 
     texts = []
     for slide in result["slides"]:
@@ -237,20 +253,16 @@ print(get_presentation_text("presentation.pptx"))
 ### Process Multiple Files
 
 ```python
-from sharepoint2text.router import get_extractor
+import sharepoint2text
 from pathlib import Path
-import io
 
 def extract_all_documents(folder: Path) -> dict[str, dict]:
     results = {}
-    supported = {".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt", ".pdf"}
 
     for file_path in folder.rglob("*"):
-        if file_path.suffix.lower() in supported:
+        if sharepoint2text.is_supported_file(str(file_path)):
             try:
-                extractor = get_extractor(str(file_path))
-                with open(file_path, "rb") as f:
-                    results[str(file_path)] = extractor(io.BytesIO(f.read()))
+                results[str(file_path)] = sharepoint2text.read_file(file_path)
             except Exception as e:
                 print(f"Failed to extract {file_path}: {e}")
 
@@ -262,13 +274,12 @@ documents = extract_all_documents(Path("./sharepoint_export"))
 ### Extract Images from Documents
 
 ```python
-from sharepoint2text.extractors.pdf_extractor import read_pdf
-from sharepoint2text.extractors.pptx_extractor import read_pptx
+import sharepoint2text
 import io
 
 # Extract images from PDF
 with open("document.pdf", "rb") as f:
-    result = read_pdf(io.BytesIO(f.read()))
+    result = sharepoint2text.read_pdf(io.BytesIO(f.read()))
 
 for page_num, page_data in result["pages"].items():
     for img in page_data["images"]:
@@ -277,7 +288,7 @@ for page_num, page_data in result["pages"].items():
 
 # Extract images from PowerPoint
 with open("slides.pptx", "rb") as f:
-    result = read_pptx(io.BytesIO(f.read()))
+    result = sharepoint2text.read_pptx(io.BytesIO(f.read()))
 
 for slide in result["slides"]:
     for img in slide.get("images", []):
