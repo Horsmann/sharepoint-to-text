@@ -23,8 +23,8 @@ import logging
 import re
 import struct
 import typing
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import List, Optional
 
 import olefile
 
@@ -34,12 +34,26 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class MicrosoftDocMetadata:
+    title: str = ""
+    author: str = ""
+    subject: str = ""
+    keywords: str = ""
+    last_saved_by: str = ""
+    create_time: str = None
+    last_saved_time: str = None
+    num_pages: int = 0
+    num_words: int = 0
+    num_chars: int = 0
+
+
+@dataclass
 class MicrosoftDocContent(ExtractionInterface):
     main_text: str = ""
     footnotes: str = ""
     headers_footers: str = ""
     annotations: str = ""
-    metadata: dict = field(default_factory=dict)
+    metadata: MicrosoftDocMetadata = MicrosoftDocMetadata()
 
     def iterate(self) -> typing.Iterator[str]:
         for text in [self.main_text]:
@@ -236,34 +250,34 @@ class _DocReader:
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
 
-    def get_metadata(self) -> Dict[str, Any]:
+    def get_metadata(self) -> MicrosoftDocMetadata:
         if not self.ole:
-            return {}
+            return MicrosoftDocMetadata()
         try:
             m = self.ole.get_metadata()
-            return {
-                "title": m.title.decode("utf-8"),
-                "author": m.author.decode("utf-8"),
-                "subject": m.subject.decode("utf-8"),
-                "keywords": m.keywords.decode("utf-8"),
-                "last_saved_by": m.last_saved_by.decode("utf-8"),
-                "create_time": (
+            return MicrosoftDocMetadata(
+                title=m.title.decode("utf-8"),
+                author=m.author.decode("utf-8"),
+                subject=m.subject.decode("utf-8"),
+                keywords=m.keywords.decode("utf-8"),
+                last_saved_by=m.last_saved_by.decode("utf-8"),
+                create_time=(
                     m.create_time.isoformat()
                     if isinstance(m.create_time, datetime.datetime)
                     else ""
                 ),
-                "last_saved_time": (
+                last_saved_time=(
                     m.last_saved_time.isoformat()
                     if isinstance(m.last_saved_time, datetime.datetime)
                     else ""
                 ),
-                "num_pages": m.num_pages,
-                "num_words": m.num_words,
-                "num_chars": m.num_chars,
-            }
+                num_pages=m.num_pages,
+                num_words=m.num_words,
+                num_chars=m.num_chars,
+            )
         except Exception as e:
             logger.debug(f"Metadata extraction failed: [{e}]")
-            return {}
+            return MicrosoftDocMetadata()
 
     def list_streams(self) -> List[List[str]]:
         return self.ole.listdir() if self.ole else []

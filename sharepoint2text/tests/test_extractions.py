@@ -289,13 +289,13 @@ def test_read_doc() -> None:
     # Metadata
     test_case_obj.assertEqual(
         "Short dinner speech by the Prime Minister of the Kingdom of the Netherlands, Dr Jan Peter Balkenende",
-        ms_doc.metadata["title"],
+        ms_doc.metadata.title,
     )
-    test_case_obj.assertEqual("Toby Screech", ms_doc.metadata["author"])
-    test_case_obj.assertEqual("", ms_doc.metadata["keywords"])
-    test_case_obj.assertEqual(580, ms_doc.metadata["num_words"])
-    test_case_obj.assertEqual("2003-03-13T09:03:00", ms_doc.metadata["create_time"])
-    test_case_obj.assertEqual("2003-03-13T09:03:00", ms_doc.metadata["last_saved_time"])
+    test_case_obj.assertEqual("Toby Screech", ms_doc.metadata.author)
+    test_case_obj.assertEqual("", ms_doc.metadata.keywords)
+    test_case_obj.assertEqual(580, ms_doc.metadata.num_words)
+    test_case_obj.assertEqual("2003-03-13T09:03:00", ms_doc.metadata.create_time)
+    test_case_obj.assertEqual("2003-03-13T09:03:00", ms_doc.metadata.last_saved_time)
 
 
 def test_read_pdf() -> None:
