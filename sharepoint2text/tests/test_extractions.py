@@ -8,8 +8,54 @@ from sharepoint2text.extractors.docx_extractor import read_docx
 from sharepoint2text.extractors.pdf_extractor import read_pdf
 from sharepoint2text.extractors.ppt_extractor import read_ppt
 from sharepoint2text.extractors.pptx_extractor import read_pptx
+from sharepoint2text.extractors.xls_extractor import read_xls
 
 logger = logging.getLogger(__name__)
+
+
+def test_read_xls() -> None:
+    filename = "sharepoint2text/tests/resources/pb_2011_1_gen_web.xls"
+    with open(filename, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    result = read_xls(file_like=file_like)
+
+    test_case_obj = unittest.TestCase()
+    test_case_obj.assertEqual(13, len(result["sheets"]))
+
+    test_case_obj.assertListEqual(
+        sorted(
+            [
+                "Title",
+                "preface",
+                "Part_1",
+                "symbols",
+                "countries",
+                "general",
+                "growth",
+                "empl_rate",
+                "share_sector",
+                "population",
+                "trade_import",
+                "trade_export",
+                "eu_world",
+            ]
+        ),
+        sorted(result["sheets"]),
+    )
+    test_case_obj.assertDictEqual(
+        {
+            "author": "georgpi",
+            "last_saved_by": "Prottlu",
+            "created": "2007-09-19T14:21:02",
+            "modified": "2011-06-01T13:54:08",
+            "title": "",
+            "subject": "",
+            "company": "European Commission",
+        },
+        result["metadata"],
+    )
 
 
 def test_read_ppt() -> None:
