@@ -59,6 +59,10 @@ class MicrosoftDocContent(ExtractionInterface):
         for text in [self.main_text]:
             yield text
 
+    def get_full_text(self) -> str:
+        """The full text of the document including a document title from the metadata if any are provided"""
+        return (self.metadata.title + "\n" + "\n".join(self.iterator())).strip()
+
 
 def read_doc(file_like: io.BytesIO) -> MicrosoftDocContent:
     file_like.seek(0)

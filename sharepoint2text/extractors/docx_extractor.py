@@ -119,6 +119,9 @@ class MicrosoftDocxContent(ExtractionInterface):
         for text in [self.full_text]:
             yield text
 
+    def get_full_text(self) -> str:
+        return "\n".join(self.iterator())
+
 
 def read_docx(file_like: io.BytesIO) -> MicrosoftDocxContent:
     """

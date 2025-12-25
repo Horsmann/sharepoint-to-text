@@ -135,20 +135,22 @@ def test_read_ppt() -> None:
 
     result = read_ppt(file_like)
     test_case_obj = unittest.TestCase()
-    test_case_obj.assertEqual(48, result["slide_count"])
-    test_case_obj.assertEqual(48, len(result["slides"]))
+    test_case_obj.assertEqual(48, result.slide_count)
+    test_case_obj.assertEqual(48, len(result.slides))
 
     # test first slide
-    test_case_obj.assertListEqual(
-        sorted(["metadata", "slides", "slide_count", "master_text"]),
-        sorted(result.keys()),
-    )
-    slide_1 = result["slides"][0]
-    test_case_obj.assertEqual("European Union", slide_1["title"])
-    test_case_obj.assertEqual(1, slide_1["slide_number"])
-    test_case_obj.assertListEqual(["Institutions and functions"], slide_1["body_text"])
-    test_case_obj.assertListEqual([], slide_1["other_text"])
-    test_case_obj.assertListEqual([], slide_1["notes"])
+    slide_1 = result.slides[0]
+    test_case_obj.assertEqual("European Union", slide_1.title)
+    test_case_obj.assertEqual(1, slide_1.slide_number)
+    test_case_obj.assertListEqual(["Institutions and functions"], slide_1.body_text)
+    test_case_obj.assertListEqual([], slide_1.other_text)
+    test_case_obj.assertListEqual([], slide_1.notes)
+
+    # test iterator
+    test_case_obj.assertEqual(48, len(list(result.iterator())))
+
+    # test full text
+    test_case_obj.assertEqual("European Union", result.get_full_text()[:14])
 
 
 def test_read_pptx() -> None:
@@ -235,6 +237,11 @@ def test_read_docx() -> None:
     # test iterator
     test_case_obj.assertEqual(1, len(list(docx.iterator())))
 
+    # test full text
+    test_case_obj.assertEqual(
+        "Welcome to the Government", docx.get_full_text()[:25].strip()
+    )
+
 
 def test_read_doc() -> None:
     with open(
@@ -267,6 +274,14 @@ def test_read_doc() -> None:
 
     # test iterator
     test_case_obj.assertEqual(1, len(list(doc.iterator())))
+
+    # test full text
+    test_case_obj.assertEqual(
+        "Short dinner speech by the Prime Minister of the Kingdom of the Netherlands, Dr Jan Peter Balkenende"
+        + "\n"
+        + "Welcome by the Prime Minister of the Kingdom",
+        doc.get_full_text()[:145],
+    )
 
 
 def test_read_pdf() -> None:
@@ -308,3 +323,6 @@ def test_read_pdf() -> None:
 
     # test iterator
     test_case_obj.assertEqual(2, len(list(pdf.iterator())))
+
+    # test full text
+    test_case_obj.assertEqual("This is a test sentence", pdf.get_full_text()[:23])

@@ -11,11 +11,14 @@ Based on MS-PPT specification:
 
 import logging
 import struct
+import typing
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, BinaryIO
 
 import olefile
+
+from sharepoint2text.extractors.abstract_extractor import ExtractionInterface
 
 logger = logging.getLogger(__name__)
 
@@ -123,19 +126,23 @@ class SlideContent:
 
 
 @dataclass
-class PPTContent:
+class PPTContent(ExtractionInterface):
     """Complete extracted content from a PPT file."""
 
     metadata: dict[str, Any] = field(default_factory=dict)
     slides: list[SlideContent] = field(default_factory=list)
     master_text: list[str] = field(default_factory=list)  # Text from master slides
-    all_text: list[str] = field(default_factory=list)  # All text in order
+    all_text: list[str] = field(default_factory=list)
     streams: list[list[str]] = field(default_factory=list)
 
-    # @property
-    # def text_combined(self) -> str:
-    #     """All text combined."""
-    #     return '\n'.join(self.all_text)
+    def iterator(self) -> typing.Iterator[str]:
+        """Iterate over slide text, yielding combined text per slide."""
+        for slide in self.slides:
+            yield slide.text_combined
+
+    def get_full_text(self) -> str:
+        """Full text of the slide deck as one single block of text"""
+        return "\n".join(self.iterator())
 
     @property
     def slide_count(self) -> int:
@@ -149,13 +156,10 @@ class PPTContent:
             "slides": [s.to_dict() for s in self.slides],
             "slide_count": self.slide_count,
             "master_text": self.master_text,
-            # 'all_text': self.all_text,
-            # 'text_combined': self.text_combined,
-            # 'streams': self.streams,
         }
 
 
-def read_ppt(file_like: BinaryIO) -> dict[str, Any]:
+def read_ppt(file_like: BinaryIO) -> PPTContent:
     """
     Extract text content and metadata from a legacy PowerPoint (.ppt) file.
 
@@ -163,24 +167,19 @@ def read_ppt(file_like: BinaryIO) -> dict[str, Any]:
         file_like: A file-like object (e.g., io.BytesIO) containing the PPT file data.
 
     Returns:
-        A dictionary containing:
-            - 'metadata': Dictionary of document metadata
-            - 'slides': List of slide dictionaries, each with:
-                - 'slide_number': int
-                - 'title': str or None
-                - 'body_text': list of body text strings
-                - 'other_text': list of other text strings
-                - 'notes': list of notes strings
-            - 'slide_count': Number of slides
-            - 'master_text': Text from master slides
+        PPTContent dataclass containing:
+            - metadata: Dictionary of document metadata
+            - slides: List of SlideContent objects
+            - master_text: Text from master slides
+            - all_text: All text in order
+            - streams: List of stream paths
 
     Raises:
         ValueError: If the file is not a valid OLE file or PPT document.
         IOError: If there's an error reading the file.
     """
     file_like.seek(0)
-    content = _extract_ppt_content_structured(file_like)
-    return content.to_dict()
+    return _extract_ppt_content_structured(file_like)
 
 
 def _extract_ppt_content_structured(file_like: BinaryIO) -> PPTContent:

@@ -44,6 +44,9 @@ class PdfContent(ExtractionInterface):
         for page_num in sorted(self.pages.keys()):
             yield self.pages[page_num].text
 
+    def get_full_text(self) -> str:
+        return "\n".join(self.iterator())
+
 
 def read_pdf(file_like: io.BytesIO) -> PdfContent:
     """

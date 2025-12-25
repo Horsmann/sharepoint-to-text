@@ -17,6 +17,10 @@ class ExtractionInterface(Protocol):
         """
         ...
 
+    def get_full_text(self) -> str:
+        """Full text of the slide deck as one single block of text"""
+        ...
+
     # @abstractmethod
     # def get_metadata(self) -> dict:
     #     """ Returns the metadata of the extracted file """
