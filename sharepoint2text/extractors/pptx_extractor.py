@@ -14,6 +14,7 @@ def _dt_to_iso(dt: datetime | None) -> str | None:
 
 def read_pptx(file_like: io.BytesIO) -> dict:
     logger.debug("Reading pptx")
+    file_like.seek(0)
     prs = Presentation(file_like)
 
     cp = prs.core_properties

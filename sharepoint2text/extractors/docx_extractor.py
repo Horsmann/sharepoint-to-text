@@ -24,6 +24,7 @@ def read_docx(file_like: io.BytesIO) -> dict:
     Returns:
         Dictionary with all extracted content including images as BytesIO objects.
     """
+    file_like.seek(0)
     doc = Document(file_like)
     result = {}
 

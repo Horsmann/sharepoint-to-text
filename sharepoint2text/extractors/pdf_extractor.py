@@ -20,7 +20,7 @@ def read_pdf(file_like: io.BytesIO, return_images_as_bytes: bool) -> dict:
     The extraction assumes readable PDF files. If a PDF consist of images of scanned documents
     this function will not return any meaningful result.
     """
-
+    file_like.seek(0)
     reader = PdfReader(file_like)
     result = {"pages": {}, "metadata": {"total_pages": len(reader.pages)}}
 

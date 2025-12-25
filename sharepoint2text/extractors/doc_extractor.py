@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 def read_doc(file_like: io.BytesIO) -> dict:
+    file_like.seek(0)
     with _DocReader(file_like) as doc:
         content = doc.read()
     return content

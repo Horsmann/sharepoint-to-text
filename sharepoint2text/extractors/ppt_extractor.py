@@ -177,6 +177,7 @@ def read_ppt(file_like: BinaryIO) -> dict[str, Any]:
         ValueError: If the file is not a valid OLE file or PPT document.
         IOError: If there's an error reading the file.
     """
+    file_like.seek(0)
     content = _extract_ppt_content_structured(file_like)
     return content.to_dict()
 
