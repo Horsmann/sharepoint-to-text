@@ -4,7 +4,7 @@ import unittest
 from unittest import TestCase
 
 from sharepoint2text.extractors.doc_extractor import MicrosoftDocContent, read_doc
-from sharepoint2text.extractors.docx_extractor import read_docx
+from sharepoint2text.extractors.docx_extractor import MicrosoftDocxContent, read_docx
 from sharepoint2text.extractors.pdf_extractor import read_pdf
 from sharepoint2text.extractors.plain_extractor import read_plain_text
 from sharepoint2text.extractors.ppt_extractor import read_ppt
@@ -219,53 +219,18 @@ def test_read_docx() -> None:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    result = read_docx(file_like)
+    docx: MicrosoftDocxContent = read_docx(file_like)
     test_case_obj = unittest.TestCase()
 
-    expected = sorted(
-        [
-            "metadata",
-            "paragraphs",
-            "tables",
-            "headers",
-            "footers",
-            "images",
-            "hyperlinks",
-            "footnotes",
-            "endnotes",
-            "comments",
-            "sections",
-            "styles",
-            "full_text",
-        ]
-    )
-    test_case_obj.assertListEqual(expected, sorted(result.keys()))
-
     # text is long. Verify only beginning and ending of the combined text
-    test_case_obj.assertEqual(
-        "Welcome to the Government", result["full_text"][:25].strip()
-    )
-    test_case_obj.assertEqual("improved records systems.", result["full_text"][-25:])
+    test_case_obj.assertEqual("Welcome to the Government", docx.full_text[:25].strip())
+    test_case_obj.assertEqual("improved records systems.", docx.full_text[-25:])
 
-    test_case_obj.assertEqual(230, len(result["paragraphs"]))
+    test_case_obj.assertEqual(230, len(docx.paragraphs))
 
-    test_case_obj.assertListEqual(
-        sorted(
-            [
-                "title",
-                "author",
-                "subject",
-                "keywords",
-                "category",
-                "comments",
-                "created",
-                "modified",
-                "last_modified_by",
-                "revision",
-            ]
-        ),
-        sorted(result["metadata"].keys()),
-    )
+    test_case_obj.assertEqual(17, docx.metadata.revision)
+    test_case_obj.assertEqual("2023-01-20T16:07:00+00:00", docx.metadata.modified)
+    test_case_obj.assertEqual("2022-04-19T14:03:00+00:00", docx.metadata.created)
 
 
 def test_read_doc() -> None:
