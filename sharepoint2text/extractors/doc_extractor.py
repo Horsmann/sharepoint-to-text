@@ -23,7 +23,7 @@ import logging
 import re
 import struct
 import typing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional
 
 import olefile
@@ -53,7 +53,7 @@ class MicrosoftDocContent(ExtractionInterface):
     footnotes: str = ""
     headers_footers: str = ""
     annotations: str = ""
-    metadata: MicrosoftDocMetadata = MicrosoftDocMetadata()
+    metadata: MicrosoftDocMetadata = field(default_factory=MicrosoftDocMetadata)
 
     def iterator(self) -> typing.Iterator[str]:
         for text in [self.main_text]:
