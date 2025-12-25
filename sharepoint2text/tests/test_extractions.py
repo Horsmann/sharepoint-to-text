@@ -39,6 +39,18 @@ def test_read_text() -> None:
         {"content": 'Text; Date\n"Hello World"; "2025-12-25"\n'}, result
     )
 
+    # tsv file
+    filename = "sharepoint2text/tests/resources/plain.tsv"
+    with open(filename, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    result = read_plain_text(file_like=file_like)
+
+    test_case_obj.assertDictEqual(
+        {"content": "Text\tDate\nHello World\t2025-12-25\n"}, result
+    )
+
 
 def test_read_xlsx() -> None:
     filename = "sharepoint2text/tests/resources/Country_Codes_and_Names.xlsx"

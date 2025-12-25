@@ -57,6 +57,10 @@ def test_router():
     func = get_extractor("myfile.csv")
     test_case_obj.assertEqual(read_plain_text, func)
 
+    # tsv
+    func = get_extractor("myfile.tsv")
+    test_case_obj.assertEqual(read_plain_text, func)
+
     test_case_obj.assertRaises(
         RuntimeError,
         get_extractor,

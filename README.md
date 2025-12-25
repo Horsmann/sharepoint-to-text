@@ -13,15 +13,19 @@ Enterprise SharePoints often contain decades of accumulated documents in various
 
 ## Supported Formats
 
-| Format | Extension | Description |
-|--------|-----------|-------------|
-| Modern Word | `.docx` | Word 2007+ documents |
-| Legacy Word | `.doc` | Word 97-2003 documents |
-| Modern Excel | `.xlsx` | Excel 2007+ spreadsheets |
-| Legacy Excel | `.xls` | Excel 97-2003 spreadsheets |
-| Modern PowerPoint | `.pptx` | PowerPoint 2007+ presentations |
-| Legacy PowerPoint | `.ppt` | PowerPoint 97-2003 presentations |
-| PDF | `.pdf` | PDF documents |
+| Format            | Extension | Description                      |
+|-------------------|-----------|----------------------------------|
+| Modern Word       | `.docx`   | Word 2007+ documents             |
+| Legacy Word       | `.doc`    | Word 97-2003 documents           |
+| Modern Excel      | `.xlsx`   | Excel 2007+ spreadsheets         |
+| Legacy Excel      | `.xls`    | Excel 97-2003 spreadsheets       |
+| Modern PowerPoint | `.pptx`   | PowerPoint 2007+ presentations   |
+| Legacy PowerPoint | `.ppt`    | PowerPoint 97-2003 presentations |
+| PDF               | `.pdf`    | PDF documents                    |
+| JSON              | `.json`   | JSON                             |
+| Text              | `.txt`    | Plain text                       |
+| CSV               | `.csv`    | CSV                              |
+| TSV               | `.tsv`    | TSV                              |
 
 ## Installation
 

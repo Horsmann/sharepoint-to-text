@@ -26,6 +26,8 @@ mime_type_mapping = {
     "application/json": "json",
     "text/json": "json",
     "text/plain": "txt",
+    "text/tab-separated-values": "tsv",
+    "application/tab-separated-values": "tsv",
 }
 
 extractor_mappings = {
@@ -39,6 +41,7 @@ extractor_mappings = {
     "csv": read_plain_text,
     "json": read_plain_text,
     "txt": read_plain_text,
+    "tsv": read_plain_text,
 }
 
 
