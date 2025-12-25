@@ -36,6 +36,16 @@ def test_file_metadata_extraction() -> None:
     test_case_obj.assertEqual("my/dummy/path.txt", meta.file_path)
     test_case_obj.assertEqual("my/dummy", meta.folder_path)
 
+    test_case_obj.assertDictEqual(
+        {
+            "filename": "path.txt",
+            "file_extension": ".txt",
+            "file_path": "my/dummy/path.txt",
+            "folder_path": "my/dummy",
+        },
+        meta.to_dict(),
+    )
+
 
 def test_read_text() -> None:
     test_case_obj = unittest.TestCase()

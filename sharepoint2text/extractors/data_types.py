@@ -1,7 +1,7 @@
 import io
 import typing
 from abc import abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Protocol
 
@@ -24,6 +24,9 @@ class FileMetadataInterface:
         self.folder_path = (
             str(p.parent.resolve()) if p.parent.exists() else str(p.parent)
         )
+
+    def to_dict(self) -> dict:
+        return asdict(self)
 
 
 class ExtractionInterface(Protocol):
@@ -56,7 +59,7 @@ class ExtractionInterface(Protocol):
 
 
 @dataclass
-class MicrosoftDocMetadata(FileMetadataInterface):
+class DocMetadata(FileMetadataInterface):
     title: str = ""
     author: str = ""
     subject: str = ""
@@ -75,7 +78,7 @@ class DocContent(ExtractionInterface):
     footnotes: str = ""
     headers_footers: str = ""
     annotations: str = ""
-    metadata: MicrosoftDocMetadata = field(default_factory=MicrosoftDocMetadata)
+    metadata: DocMetadata = field(default_factory=DocMetadata)
 
     def iterator(self) -> typing.Iterator[str]:
         for text in [self.main_text]:

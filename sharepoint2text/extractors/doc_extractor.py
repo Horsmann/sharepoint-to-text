@@ -28,7 +28,7 @@ import olefile
 
 from sharepoint2text.extractors.data_types import (
     DocContent,
-    MicrosoftDocMetadata,
+    DocMetadata,
 )
 
 logger = logging.getLogger(__name__)
@@ -235,12 +235,12 @@ class _DocReader:
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
 
-    def get_metadata(self) -> MicrosoftDocMetadata:
+    def get_metadata(self) -> DocMetadata:
         if not self.ole:
-            return MicrosoftDocMetadata()
+            return DocMetadata()
         try:
             m = self.ole.get_metadata()
-            return MicrosoftDocMetadata(
+            return DocMetadata(
                 title=m.title.decode("utf-8"),
                 author=m.author.decode("utf-8"),
                 subject=m.subject.decode("utf-8"),
@@ -262,7 +262,7 @@ class _DocReader:
             )
         except Exception as e:
             logger.debug(f"Metadata extraction failed: [{e}]")
-            return MicrosoftDocMetadata()
+            return DocMetadata()
 
     def list_streams(self) -> List[List[str]]:
         return self.ole.listdir() if self.ole else []
