@@ -1,19 +1,58 @@
 import io
 import logging
+import typing
+from dataclasses import dataclass, field
+from typing import Dict, List
 
 from pypdf import PdfReader
+
+from sharepoint2text.extractors.abstract_extractor import ExtractionInterface
 
 logger = logging.getLogger(__name__)
 
 
-def read_pdf(file_like: io.BytesIO) -> dict:
+@dataclass
+class PdfImage:
+    index: int = 0
+    name: str = ""
+    width: int = 0
+    height: int = 0
+    color_space: str = ""
+    bits_per_component: int = 8
+    filter: str = ""
+    data: bytes = b""
+    format: str = ""
+
+
+@dataclass
+class PdfPage:
+    text: str = ""
+    images: List[PdfImage] = field(default_factory=list)
+
+
+@dataclass
+class PdfMetadata:
+    total_pages: int = 0
+
+
+@dataclass
+class PdfContent(ExtractionInterface):
+    pages: Dict[int, PdfPage] = field(default_factory=dict)
+    metadata: PdfMetadata = field(default_factory=PdfMetadata)
+
+    def iterator(self) -> typing.Iterator[str]:
+        for page_num in sorted(self.pages.keys()):
+            yield self.pages[page_num].text
+
+
+def read_pdf(file_like: io.BytesIO) -> PdfContent:
     """
     Extract text and images from a PDF file.
 
     Args:
         file_like: a loaded binary of the pdf file as file-like object
     Returns:
-        Dictionary containing extracted content organized by page
+        PdfContent dataclass containing extracted content organized by page
 
     Limitations:
     The extraction assumes readable PDF files. If a PDF consist of images of scanned documents
@@ -21,19 +60,22 @@ def read_pdf(file_like: io.BytesIO) -> dict:
     """
     file_like.seek(0)
     reader = PdfReader(file_like)
-    result = {"pages": {}, "metadata": {"total_pages": len(reader.pages)}}
 
+    pages = {}
     for page_num, page in enumerate(reader.pages, start=1):
-        page_data = {"text": page.extract_text() or "", "images": []}
+        images = _extract_image_bytes(page)
+        pages[page_num] = PdfPage(
+            text=page.extract_text() or "",
+            images=images,
+        )
 
-        page_data["images"].extend(_extract_image_bytes(page))
+    return PdfContent(
+        pages=pages,
+        metadata=PdfMetadata(total_pages=len(reader.pages)),
+    )
 
-        result["pages"][page_num] = page_data
 
-    return result
-
-
-def _extract_image_bytes(page) -> list[dict]:
+def _extract_image_bytes(page) -> List[PdfImage]:
     found_images = []
     if "/XObject" in page.get("/Resources", {}):
         x_objects = page["/Resources"]["/XObject"].get_object()
@@ -56,7 +98,7 @@ def _extract_image_bytes(page) -> list[dict]:
     return found_images
 
 
-def _extract_image(image_obj, name: str, index: int) -> dict:
+def _extract_image(image_obj, name: str, index: int) -> PdfImage:
     """Extract image data from a PDF image object."""
 
     width = image_obj.get("/Width", 0)
@@ -88,17 +130,17 @@ def _extract_image(image_obj, name: str, index: int) -> dict:
         logger.warning("Failed to extract image data: %s", e)
         data = image_obj._data if hasattr(image_obj, "_data") else b""
 
-    return {
-        "index": index,
-        "name": str(name),
-        "width": int(width),
-        "height": int(height),
-        "color_space": color_space,
-        "bits_per_component": int(bits),
-        "filter": filter_type,
-        "data": data,
-        "format": img_format,
-    }
+    return PdfImage(
+        index=index,
+        name=str(name),
+        width=int(width),
+        height=int(height),
+        color_space=color_space,
+        bits_per_component=int(bits),
+        filter=filter_type,
+        data=data,
+        format=img_format,
+    )
 
 
 # def save_images(extraction_result: dict, output_dir: str | Path) -> list[str]:

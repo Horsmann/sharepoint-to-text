@@ -115,7 +115,7 @@ class MicrosoftDocxContent(ExtractionInterface):
     styles: List[str] = field(default_factory=list)
     full_text: str = ""
 
-    def iterate(self) -> typing.Iterator[str]:
+    def iterator(self) -> typing.Iterator[str]:
         for text in [self.full_text]:
             yield text
 

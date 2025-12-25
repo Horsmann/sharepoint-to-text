@@ -5,7 +5,7 @@ from unittest import TestCase
 
 from sharepoint2text.extractors.doc_extractor import MicrosoftDocContent, read_doc
 from sharepoint2text.extractors.docx_extractor import MicrosoftDocxContent, read_docx
-from sharepoint2text.extractors.pdf_extractor import read_pdf
+from sharepoint2text.extractors.pdf_extractor import PdfContent, read_pdf
 from sharepoint2text.extractors.plain_extractor import read_plain_text
 from sharepoint2text.extractors.ppt_extractor import read_ppt
 from sharepoint2text.extractors.pptx_extractor import read_pptx
@@ -232,6 +232,9 @@ def test_read_docx() -> None:
     test_case_obj.assertEqual("2023-01-20T16:07:00+00:00", docx.metadata.modified)
     test_case_obj.assertEqual("2022-04-19T14:03:00+00:00", docx.metadata.created)
 
+    # test iterator
+    test_case_obj.assertEqual(1, len(list(docx.iterator())))
+
 
 def test_read_doc() -> None:
     with open(
@@ -241,7 +244,7 @@ def test_read_doc() -> None:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    ms_doc: MicrosoftDocContent = read_doc(file_like=file_like)
+    doc: MicrosoftDocContent = read_doc(file_like=file_like)
 
     test_case_obj = unittest.TestCase()
 
@@ -249,18 +252,21 @@ def test_read_doc() -> None:
     expected = """
     Welcome by the Prime Minister of the Kingdom of the Netherlands, Dr Jan Peter Balkenende, at the Inaugural Session of the International Criminal Court, The Hague, 11 March 2003 \n\n(Check against delivery)\n\nYour Royal Highnesses, Secretary-General, Your Excellencies, ladies and gentlemen,\n\nA very warm welcome to The Hague, the heart of Dutch democracy. The Netherlands is proud to be your host. \n\nAnd a special welcome to today’s eighteen most important people, who will shortly be sworn in as the first judges at the International Criminal Court. My sincere congratulations on your election.\n\nFour hundred and twenty years ago, the great legal thinker Hugo Grotius was born in Delft, less than ten kilometres from this spot. He was active in Dutch and European politics. \n\nFate did not smile on him. He fell victim to internal political conflicts, and was imprisoned in Loevestein castle. But he escaped by hiding in a chest of books. Dutch schoolchildren still love that story.\n\nGrotius fled to France, where he wrote the book that was to make him famous and which was translated into many languages: On the Law of War and Peace. \n\nIn it Grotius sets out his ideal: a system of international law, with clear agreements and procedures for countries to comply with. He believed that a system of this kind was necessary for international justice and stability.\n\nToday, ladies and gentlemen, nearly four centuries later, we move a step closer to that ideal. The International Criminal Court adds a crucial new element to the international legal system. \n\nIt makes it possible to prosecute the most serious crimes (genocide, crimes against humanity and war crimes) if they are not prosecuted at national level.\n\nSo today, the eleventh of March two thousand and three, is a historic day. Today the international community shows that it is still committed to justice, despite the many bloody conflicts and treaty violations we have seen since the Second World War.\n\nSuspicion and pessimism often dominate international politics. But today we are showing the world that there are also grounds for joy, optimism and hope.\n\nOf course, there is still a long way to go. We know that some countries are reluctant to sign up. The International Criminal Court is like a young swan. It needs time to grow bigger and stronger, then it can spread its wings and everyone will see it fly. Our work is not yet done. But with all of our help the ICC will succeed.\n\nMany people have been looking forward to this day. Many people have worked hard to bring it about. In particular, President Arthur Robinson of Trinidad and Tobago, who put the ICC onto the United Nations’ agenda in the late nineteen-eighties. And the UN Secretary-General, Kofi Annan, who did so much to speed up its establishment.\n\nI would also mention the judges and staff of other international courts, especially the Yugoslavia and Rwanda tribunals. Their experience has been and will be most valuable to the ICC.\n\nAnd finally I would mention the non-governmental organisations that have given their backing. Without your enthusiasm and support, it would all have taken far longer.\n\nThe Netherlands, and The Hague in particular, is honoured to be the ICC’s host. Since the first international peace conference was held here, over a century ago, The Hague has developed into the judicial capital of the world. We are proud of that.\n\nBut today, all of us can be proud.\n\nHugo Grotius’s last words were: “I have attempted much but achieved nothing”. \n\nToday we can say we have achieved something Grotius could only dream of: an international criminal court as part of an international legal order. And that takes us a big step closer to international justice.\n\nIt now gives me great pleasure to give the floor to the President of the Assembly of States Parties, His Royal Highness Prince Zeid Ra’ad Zeid al-Hussein.\n\nThank you.
     """
-    test_case_obj.assertEqual(expected.strip(), ms_doc.main_text)
+    test_case_obj.assertEqual(expected.strip(), doc.main_text)
 
     # Metadata
     test_case_obj.assertEqual(
         "Short dinner speech by the Prime Minister of the Kingdom of the Netherlands, Dr Jan Peter Balkenende",
-        ms_doc.metadata.title,
+        doc.metadata.title,
     )
-    test_case_obj.assertEqual("Toby Screech", ms_doc.metadata.author)
-    test_case_obj.assertEqual("", ms_doc.metadata.keywords)
-    test_case_obj.assertEqual(580, ms_doc.metadata.num_words)
-    test_case_obj.assertEqual("2003-03-13T09:03:00", ms_doc.metadata.create_time)
-    test_case_obj.assertEqual("2003-03-13T09:03:00", ms_doc.metadata.last_saved_time)
+    test_case_obj.assertEqual("Toby Screech", doc.metadata.author)
+    test_case_obj.assertEqual("", doc.metadata.keywords)
+    test_case_obj.assertEqual(580, doc.metadata.num_words)
+    test_case_obj.assertEqual("2003-03-13T09:03:00", doc.metadata.create_time)
+    test_case_obj.assertEqual("2003-03-13T09:03:00", doc.metadata.last_saved_time)
+
+    # test iterator
+    test_case_obj.assertEqual(1, len(list(doc.iterator())))
 
 
 def test_read_pdf() -> None:
@@ -270,14 +276,11 @@ def test_read_pdf() -> None:
     ) as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
-    result = read_pdf(file_like=file_like)
+    pdf: PdfContent = read_pdf(file_like=file_like)
 
     test_case_obj = TestCase()
-    test_case_obj.assertEqual(2, result["metadata"]["total_pages"])
-    test_case_obj.assertListEqual(sorted([1, 2]), sorted(result["pages"].keys()))
-    test_case_obj.assertListEqual(
-        sorted(["text", "images"]), sorted(result["pages"][1])
-    )
+    test_case_obj.assertEqual(2, pdf.metadata.total_pages)
+    test_case_obj.assertListEqual(sorted([1, 2]), sorted(pdf.pages.keys()))
 
     # Text page 1
     expected = (
@@ -287,18 +290,21 @@ def test_read_pdf() -> None:
         "R1 V1" + "\n"
         "R2 V2"
     )
-    page_1_text = result["pages"][1]["text"]
+    page_1_text = pdf.pages[1].text
     test_case_obj.assertEqual(
         expected.strip().replace("\n", " "), page_1_text.strip().replace("\n", " ")
     )
 
     # Text page 2
     expected = "This is page 2" "\n" "An image of the Google landing page"
-    page_2_text = result["pages"][2]["text"]
+    page_2_text = pdf.pages[2].text
     test_case_obj.assertEqual(
         expected.strip().replace("\n", " "), page_2_text.strip().replace("\n", " ")
     )
 
     # Image data
-    test_case_obj.assertEqual(0, len(result["pages"][1]["images"]))
-    test_case_obj.assertEqual(1, len(result["pages"][2]["images"]))
+    test_case_obj.assertEqual(0, len(pdf.pages[1].images))
+    test_case_obj.assertEqual(1, len(pdf.pages[2].images))
+
+    # test iterator
+    test_case_obj.assertEqual(2, len(list(pdf.iterator())))

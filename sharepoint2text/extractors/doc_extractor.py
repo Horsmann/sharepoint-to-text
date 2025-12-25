@@ -55,7 +55,7 @@ class MicrosoftDocContent(ExtractionInterface):
     annotations: str = ""
     metadata: MicrosoftDocMetadata = MicrosoftDocMetadata()
 
-    def iterate(self) -> typing.Iterator[str]:
+    def iterator(self) -> typing.Iterator[str]:
         for text in [self.main_text]:
             yield text
 

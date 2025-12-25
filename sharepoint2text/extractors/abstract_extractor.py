@@ -5,7 +5,7 @@ from typing import Protocol
 
 class ExtractionInterface(Protocol):
     @abstractmethod
-    def iterate(self) -> typing.Iterator[str]:
+    def iterator(self) -> typing.Iterator[str]:
         """
         Returns an iterator over the extracted text i.e., the main text body of a file.
         Additional text areas may be missing if they are not part of the main text body of the file.
