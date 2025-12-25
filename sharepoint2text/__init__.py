@@ -19,7 +19,7 @@ from sharepoint2text.extractors.xls_extractor import read_xls
 from sharepoint2text.extractors.xlsx_extractor import read_xlsx
 from sharepoint2text.router import get_extractor, is_supported_file
 
-__version__ = "0.1.1"
+__version__ = "0.1.1.dev2"
 
 
 def read_file(path: str | Path) -> dict:
