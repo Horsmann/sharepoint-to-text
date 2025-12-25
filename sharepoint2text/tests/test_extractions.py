@@ -6,8 +6,8 @@ from unittest import TestCase
 from sharepoint2text.extractors.doc_extractor import MicrosoftDocContent, read_doc
 from sharepoint2text.extractors.docx_extractor import MicrosoftDocxContent, read_docx
 from sharepoint2text.extractors.pdf_extractor import PdfContent, read_pdf
-from sharepoint2text.extractors.plain_extractor import read_plain_text
-from sharepoint2text.extractors.ppt_extractor import read_ppt
+from sharepoint2text.extractors.plain_extractor import PlainTextContent, read_plain_text
+from sharepoint2text.extractors.ppt_extractor import PPTContent, read_ppt
 from sharepoint2text.extractors.pptx_extractor import MicrosoftPptxContent, read_pptx
 from sharepoint2text.extractors.xls_extractor import MicrosoftXlsContent, read_xls
 from sharepoint2text.extractors.xlsx_extractor import MicrosoftXlsxContent, read_xlsx
@@ -23,9 +23,9 @@ def test_read_text() -> None:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    result = read_plain_text(file_like=file_like)
+    plain: PlainTextContent = read_plain_text(file_like=file_like)
 
-    test_case_obj.assertDictEqual({"content": "Hello World\n"}, result)
+    test_case_obj.assertEqual("Hello World\n", plain.content)
 
     # csv file
     filename = "sharepoint2text/tests/resources/plain.csv"
@@ -33,11 +33,13 @@ def test_read_text() -> None:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    result = read_plain_text(file_like=file_like)
+    plain: PlainTextContent = read_plain_text(file_like=file_like)
 
-    test_case_obj.assertDictEqual(
-        {"content": 'Text; Date\n"Hello World"; "2025-12-25"\n'}, result
+    test_case_obj.assertEqual(
+        'Text; Date\n"Hello World"; "2025-12-25"\n', plain.content
     )
+
+    test_case_obj.assertEqual(1, len(list(plain.iterator())))
 
     # tsv file
     filename = "sharepoint2text/tests/resources/plain.tsv"
@@ -45,11 +47,9 @@ def test_read_text() -> None:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    result = read_plain_text(file_like=file_like)
+    plain = read_plain_text(file_like=file_like)
 
-    test_case_obj.assertDictEqual(
-        {"content": "Text\tDate\nHello World\t2025-12-25\n"}, result
-    )
+    test_case_obj.assertEqual("Text\tDate\nHello World\t2025-12-25\n", plain.content)
 
 
 def test_read_xlsx() -> None:
@@ -102,13 +102,13 @@ def test_read_ppt() -> None:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    result = read_ppt(file_like)
+    ppt: PPTContent = read_ppt(file_like)
     test_case_obj = unittest.TestCase()
-    test_case_obj.assertEqual(48, result.slide_count)
-    test_case_obj.assertEqual(48, len(result.slides))
+    test_case_obj.assertEqual(48, ppt.slide_count)
+    test_case_obj.assertEqual(48, len(ppt.slides))
 
     # test first slide
-    slide_1 = result.slides[0]
+    slide_1 = ppt.slides[0]
     test_case_obj.assertEqual("European Union", slide_1.title)
     test_case_obj.assertEqual(1, slide_1.slide_number)
     test_case_obj.assertListEqual(["Institutions and functions"], slide_1.body_text)
@@ -116,10 +116,10 @@ def test_read_ppt() -> None:
     test_case_obj.assertListEqual([], slide_1.notes)
 
     # test iterator
-    test_case_obj.assertEqual(48, len(list(result.iterator())))
+    test_case_obj.assertEqual(48, len(list(ppt.iterator())))
 
     # test full text
-    test_case_obj.assertEqual("European Union", result.get_full_text()[:14])
+    test_case_obj.assertEqual("European Union", ppt.get_full_text()[:14])
 
 
 def test_read_pptx() -> None:
