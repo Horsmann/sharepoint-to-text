@@ -9,39 +9,9 @@ legacy binary formats, plus PDF documents.
 import io
 from pathlib import Path
 
-from sharepoint2text.extractors.data_types import (
-    DocContent,
-    DocMetadata,
-    DocxComment,
-    DocxContent,
-    DocxHeaderFooter,
-    DocxHyperlink,
-    DocxImage,
-    DocxMetadata,
-    DocxNote,
-    DocxParagraph,
-    DocxRun,
-    DocxSection,
-    ExtractionInterface,
-    FileMetadataInterface,
-    PdfContent,
-    PdfImage,
-    PdfMetadata,
-    PdfPage,
-    PlainTextContent,
-    PptContent,
-    PptMetadata,
-    PptxContent,
-    PptxMetadata,
-    XlsContent,
-    XlsMetadata,
-    XlsxContent,
-    XlsxMetadata,
-    XlsxSheet,
-)
 from sharepoint2text.router import get_extractor, is_supported_file
 
-__version__ = "0.1.1.dev33"
+__version__ = "0.1.1.dev34"
 
 
 def read_docx(file_like: io.BytesIO, path: str | None = None):
@@ -155,33 +125,4 @@ __all__ = [
     "read_ppt",
     "read_pdf",
     "read_plain_text",
-    # Format-specific dataclass objects
-    "DocContent",
-    "DocMetadata",
-    "DocxComment",
-    "DocxContent",
-    "DocxHyperlink",
-    "DocxImage",
-    "DocxMetadata",
-    "DocxNote",
-    "DocxParagraph",
-    "DocxRun",
-    "DocxSection",
-    "DocxHeaderFooter",
-    "ExtractionInterface",
-    "FileMetadataInterface",
-    "PdfContent",
-    "PdfImage",
-    "PdfMetadata",
-    "PdfPage",
-    "PptContent",
-    "PptMetadata",
-    "PptxContent",
-    "PptxMetadata",
-    "XlsContent",
-    "XlsMetadata",
-    "XlsxContent",
-    "XlsxMetadata",
-    "XlsxSheet",
-    "PlainTextContent",
 ]
