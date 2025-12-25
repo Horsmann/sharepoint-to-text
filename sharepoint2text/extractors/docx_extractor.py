@@ -5,129 +5,27 @@ DOCX content extractor using python-docx library.
 import datetime
 import io
 import logging
-import typing
-from dataclasses import dataclass, field
-from typing import List, Optional
 
 from docx import Document
 from docx.oxml.ns import qn
 
-from sharepoint2text.extractors.abstract_extractor import (
-    ExtractionInterface,
-    FileMetadataInterface,
+from sharepoint2text.extractors.data_types import (
+    DocxContent,
+    MicrosoftDocxComment,
+    MicrosoftDocxHeaderFooter,
+    MicrosoftDocxHyperlink,
+    MicrosoftDocxImage,
+    MicrosoftDocxMetadata,
+    MicrosoftDocxNote,
+    MicrosoftDocxParagraph,
+    MicrosoftDocxRun,
+    MicrosoftDocxSection,
 )
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class MicrosoftDocxMetadata(FileMetadataInterface):
-    title: str = ""
-    author: str = ""
-    subject: str = ""
-    keywords: str = ""
-    category: str = ""
-    comments: str = ""
-    created: str = ""
-    modified: str = ""
-    last_modified_by: str = ""
-    revision: Optional[int] = None
-
-
-@dataclass
-class MicrosoftDocxRun:
-    text: str = ""
-    bold: Optional[bool] = None
-    italic: Optional[bool] = None
-    underline: Optional[bool] = None
-    font_name: Optional[str] = None
-    font_size: Optional[float] = None
-    font_color: Optional[str] = None
-
-
-@dataclass
-class MicrosoftDocxParagraph:
-    text: str = ""
-    style: Optional[str] = None
-    alignment: Optional[str] = None
-    runs: List[MicrosoftDocxRun] = field(default_factory=list)
-
-
-@dataclass
-class MicrosoftDocxHeaderFooter:
-    type: str = ""
-    text: str = ""
-
-
-@dataclass
-class MicrosoftDocxImage:
-    rel_id: str = ""
-    filename: str = ""
-    content_type: str = ""
-    data: Optional[io.BytesIO] = None
-    size_bytes: int = 0
-    error: Optional[str] = None
-
-
-@dataclass
-class MicrosoftDocxHyperlink:
-    text: str = ""
-    url: str = ""
-
-
-@dataclass
-class MicrosoftDocxNote:
-    id: str = ""
-    text: str = ""
-
-
-@dataclass
-class MicrosoftDocxComment:
-    id: str = ""
-    author: str = ""
-    date: str = ""
-    text: str = ""
-
-
-@dataclass
-class MicrosoftDocxSection:
-    page_width_inches: Optional[float] = None
-    page_height_inches: Optional[float] = None
-    left_margin_inches: Optional[float] = None
-    right_margin_inches: Optional[float] = None
-    top_margin_inches: Optional[float] = None
-    bottom_margin_inches: Optional[float] = None
-    orientation: Optional[str] = None
-
-
-@dataclass
-class MicrosoftDocxContent(ExtractionInterface):
-    metadata: MicrosoftDocxMetadata = field(default_factory=MicrosoftDocxMetadata)
-    paragraphs: List[MicrosoftDocxParagraph] = field(default_factory=list)
-    tables: List[List[List[str]]] = field(default_factory=list)
-    headers: List[MicrosoftDocxHeaderFooter] = field(default_factory=list)
-    footers: List[MicrosoftDocxHeaderFooter] = field(default_factory=list)
-    images: List[MicrosoftDocxImage] = field(default_factory=list)
-    hyperlinks: List[MicrosoftDocxHyperlink] = field(default_factory=list)
-    footnotes: List[MicrosoftDocxNote] = field(default_factory=list)
-    endnotes: List[MicrosoftDocxNote] = field(default_factory=list)
-    comments: List[MicrosoftDocxComment] = field(default_factory=list)
-    sections: List[MicrosoftDocxSection] = field(default_factory=list)
-    styles: List[str] = field(default_factory=list)
-    full_text: str = ""
-
-    def iterator(self) -> typing.Iterator[str]:
-        for text in [self.full_text]:
-            yield text
-
-    def get_full_text(self) -> str:
-        return "\n".join(self.iterator())
-
-    def get_metadata(self) -> FileMetadataInterface:
-        return self.metadata
-
-
-def read_docx(file_like: io.BytesIO, path: str | None = None) -> MicrosoftDocxContent:
+def read_docx(file_like: io.BytesIO, path: str | None = None) -> DocxContent:
     """
     Extract all relevant content from a DOCX file.
 
@@ -375,7 +273,7 @@ def read_docx(file_like: io.BytesIO, path: str | None = None) -> MicrosoftDocxCo
 
     metadata.populate_from_path(path)
 
-    return MicrosoftDocxContent(
+    return DocxContent(
         metadata=metadata,
         paragraphs=paragraphs,
         tables=tables,

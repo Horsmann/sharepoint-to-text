@@ -22,55 +22,19 @@ import io
 import logging
 import re
 import struct
-import typing
-from dataclasses import dataclass, field
 from typing import List, Optional
 
 import olefile
 
-from sharepoint2text.extractors.abstract_extractor import (
-    ExtractionInterface,
-    FileMetadataInterface,
+from sharepoint2text.extractors.data_types import (
+    DocContent,
+    MicrosoftDocMetadata,
 )
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class MicrosoftDocMetadata(FileMetadataInterface):
-    title: str = ""
-    author: str = ""
-    subject: str = ""
-    keywords: str = ""
-    last_saved_by: str = ""
-    create_time: str = None
-    last_saved_time: str = None
-    num_pages: int = 0
-    num_words: int = 0
-    num_chars: int = 0
-
-
-@dataclass
-class MicrosoftDocContent(ExtractionInterface):
-    main_text: str = ""
-    footnotes: str = ""
-    headers_footers: str = ""
-    annotations: str = ""
-    metadata: MicrosoftDocMetadata = field(default_factory=MicrosoftDocMetadata)
-
-    def iterator(self) -> typing.Iterator[str]:
-        for text in [self.main_text]:
-            yield text
-
-    def get_full_text(self) -> str:
-        """The full text of the document including a document title from the metadata if any are provided"""
-        return (self.metadata.title + "\n" + "\n".join(self.iterator())).strip()
-
-    def get_metadata(self) -> FileMetadataInterface:
-        return self.metadata
-
-
-def read_doc(file_like: io.BytesIO, path: str | None = None) -> MicrosoftDocContent:
+def read_doc(file_like: io.BytesIO, path: str | None = None) -> DocContent:
     """
     Extract all relevant content from a DOC file.
 
@@ -93,7 +57,7 @@ class _DocReader:
     def __init__(self, file_like: io.BytesIO):
         self.file_like = file_like
         self.ole = None
-        self._content: Optional[MicrosoftDocContent] = None
+        self._content: Optional[DocContent] = None
         self._is_unicode: Optional[bool] = None
         self._text_start: Optional[int] = None
 
@@ -110,7 +74,7 @@ class _DocReader:
             return self.ole.openstream(name).read()
         return b""
 
-    def _parse_content(self) -> MicrosoftDocContent:
+    def _parse_content(self) -> DocContent:
         if self._content is not None:
             return self._content
 
@@ -167,7 +131,7 @@ class _DocReader:
         # Annotations
         atn_data = word_doc[pos : pos + ccp_atn * mult] if ccp_atn > 0 else b""
 
-        self._content = MicrosoftDocContent(
+        self._content = DocContent(
             main_text=self._clean_text(main_data.decode(encoding, errors="replace")),
             footnotes=(
                 self._clean_text(ftn_data.decode(encoding, errors="replace"))
@@ -188,7 +152,7 @@ class _DocReader:
 
         return self._content
 
-    def read(self) -> MicrosoftDocContent:
+    def read(self) -> DocContent:
         """
         Extracts the text from the document.
         """
@@ -208,7 +172,7 @@ class _DocReader:
     def get_annotations(self) -> str:
         return self._parse_content().annotations
 
-    def get_all_parts(self) -> MicrosoftDocContent:
+    def get_all_parts(self) -> DocContent:
         return self._parse_content()
 
     @staticmethod

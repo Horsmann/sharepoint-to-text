@@ -5,64 +5,22 @@ XLSX content extractor using pandas and openpyxl libraries.
 import datetime
 import io
 import logging
-import typing
-from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import List
 
 import pandas as pd
 from openpyxl import load_workbook
 
-from sharepoint2text.extractors.abstract_extractor import (
-    ExtractionInterface,
-    FileMetadataInterface,
-)
+from sharepoint2text.extractors.data_types import XlsxContent, XlsxMetadata, XlsxSheet
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class MicrosoftXlsxMetadata(FileMetadataInterface):
-    title: str = ""
-    description: str = ""
-    creator: str = ""
-    last_modified_by: str = ""
-    created: str = ""
-    modified: str = ""
-    keywords: str = ""
-    language: str = ""
-    revision: Optional[str] = None
-
-
-@dataclass
-class MicrosoftXlsxSheet:
-    name: str = ""
-    data: List[Dict[str, Any]] = field(default_factory=list)
-    text: str = ""
-
-
-@dataclass
-class MicrosoftXlsxContent(ExtractionInterface):
-    metadata: MicrosoftXlsxMetadata = field(default_factory=MicrosoftXlsxMetadata)
-    sheets: List[MicrosoftXlsxSheet] = field(default_factory=list)
-
-    def iterator(self) -> typing.Iterator[str]:
-        for sheet in self.sheets:
-            yield sheet.name + "\n" + sheet.text.strip()
-
-    def get_full_text(self) -> str:
-        return "\n".join(list(self.iterator()))
-
-    def get_metadata(self) -> FileMetadataInterface:
-        """Returns the metadata of the extracted file."""
-        return self.metadata
-
-
-def _read_metadata(file_like: io.BytesIO) -> MicrosoftXlsxMetadata:
+def _read_metadata(file_like: io.BytesIO) -> XlsxMetadata:
     file_like.seek(0)
     wb = load_workbook(file_like)
     props = wb.properties
 
-    metadata = MicrosoftXlsxMetadata(
+    metadata = XlsxMetadata(
         title=props.title or "",
         description=props.description or "",
         creator=props.creator or "",
@@ -85,7 +43,7 @@ def _read_metadata(file_like: io.BytesIO) -> MicrosoftXlsxMetadata:
     return metadata
 
 
-def _read_content(file_like: io.BytesIO) -> List[MicrosoftXlsxSheet]:
+def _read_content(file_like: io.BytesIO) -> List[XlsxSheet]:
     logger.debug("Reading content")
     file_like.seek(0)
     xls = pd.read_excel(file_like, engine="calamine", sheet_name=None)
@@ -96,7 +54,7 @@ def _read_content(file_like: io.BytesIO) -> List[MicrosoftXlsxSheet]:
         data = df.to_dict(orient="records")
         text = df.to_string(index=False)
         sheets.append(
-            MicrosoftXlsxSheet(
+            XlsxSheet(
                 name=str(sheet_name),
                 data=data,
                 text=text,
@@ -105,7 +63,7 @@ def _read_content(file_like: io.BytesIO) -> List[MicrosoftXlsxSheet]:
     return sheets
 
 
-def read_xlsx(file_like: io.BytesIO, path: str | None = None) -> MicrosoftXlsxContent:
+def read_xlsx(file_like: io.BytesIO, path: str | None = None) -> XlsxContent:
     """
     Extract all relevant content from an XLSX file.
 
@@ -120,4 +78,4 @@ def read_xlsx(file_like: io.BytesIO, path: str | None = None) -> MicrosoftXlsxCo
     metadata = _read_metadata(file_like)
     metadata.populate_from_path(path)
 
-    return MicrosoftXlsxContent(metadata=metadata, sheets=sheets)
+    return XlsxContent(metadata=metadata, sheets=sheets)

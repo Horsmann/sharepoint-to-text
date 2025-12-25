@@ -1,57 +1,17 @@
 import io
 import logging
-import typing
-from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import List
 
 from pypdf import PdfReader
 
-from sharepoint2text.extractors.abstract_extractor import (
-    ExtractionInterface,
-    FileMetadataInterface,
+from sharepoint2text.extractors.data_types import (
+    PdfContent,
+    PdfImage,
+    PdfMetadata,
+    PdfPage,
 )
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class PdfImage:
-    index: int = 0
-    name: str = ""
-    width: int = 0
-    height: int = 0
-    color_space: str = ""
-    bits_per_component: int = 8
-    filter: str = ""
-    data: bytes = b""
-    format: str = ""
-
-
-@dataclass
-class PdfPage:
-    text: str = ""
-    images: List[PdfImage] = field(default_factory=list)
-
-
-@dataclass
-class PdfMetadata(FileMetadataInterface):
-    total_pages: int = 0
-
-
-@dataclass
-class PdfContent(ExtractionInterface):
-    pages: Dict[int, PdfPage] = field(default_factory=dict)
-    metadata: PdfMetadata = field(default_factory=PdfMetadata)
-
-    def iterator(self) -> typing.Iterator[str]:
-        for page_num in sorted(self.pages.keys()):
-            yield self.pages[page_num].text
-
-    def get_full_text(self) -> str:
-        return "\n".join(self.iterator())
-
-    def get_metadata(self) -> FileMetadataInterface:
-        return self.metadata
 
 
 def read_pdf(file_like: io.BytesIO, path: str | None = None) -> PdfContent:

@@ -11,16 +11,23 @@ Based on MS-PPT specification:
 
 import logging
 import struct
-import typing
-from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, BinaryIO
 
 import olefile
 
-from sharepoint2text.extractors.abstract_extractor import (
-    ExtractionInterface,
-    FileMetadataInterface,
+from sharepoint2text.extractors.data_types import (
+    PPT_TEXT_TYPE_BODY,
+    PPT_TEXT_TYPE_CENTER_BODY,
+    PPT_TEXT_TYPE_CENTER_TITLE,
+    PPT_TEXT_TYPE_HALF_BODY,
+    PPT_TEXT_TYPE_NOTES,
+    PPT_TEXT_TYPE_QUARTER_BODY,
+    PPT_TEXT_TYPE_TITLE,
+    PptContent,
+    PptMetadata,
+    PptSlideContent,
+    PptTextBlock,
 )
 
 logger = logging.getLogger(__name__)
@@ -57,129 +64,8 @@ RT_TEXT_INTERACTIVE_INFO_ATOM = 0x0FDF
 # Outline text
 RT_OUTLINE_TEXT_REF_ATOM = 0x0F9E
 
-# Text placeholder types (from TextHeaderAtom)
-TEXT_TYPE_TITLE = 0  # Title
-TEXT_TYPE_BODY = 1  # Body
-TEXT_TYPE_NOTES = 2  # Notes
-TEXT_TYPE_OTHER = 4  # Other (not title/body/notes)
-TEXT_TYPE_CENTER_BODY = 5  # Center body (subtitle)
-TEXT_TYPE_CENTER_TITLE = 6  # Center title
-TEXT_TYPE_HALF_BODY = 7  # Half body
-TEXT_TYPE_QUARTER_BODY = 8  # Quarter body
 
-
-@dataclass
-class PPTMetadata(FileMetadataInterface):
-    """Metadata extracted from a PPT file."""
-
-    title: str = ""
-    subject: str = ""
-    author: str = ""
-    keywords: str = ""
-    comments: str = ""
-    last_saved_by: str = ""
-    created: str = ""
-    modified: str = ""
-    revision_number: str = ""
-    category: str = ""
-    company: str = ""
-    manager: str = ""
-    creating_application: str = ""
-    num_slides: int = 0
-    num_notes: int = 0
-    num_hidden_slides: int = 0
-
-
-@dataclass
-class TextBlock:
-    """Represents a block of text with its type and context."""
-
-    text: str
-    text_type: int | None = None  # From TextHeaderAtom
-    is_title: bool = False
-    is_body: bool = False
-    is_notes: bool = False
-
-    @property
-    def type_name(self) -> str:
-        """Human-readable text type name."""
-        type_names = {
-            TEXT_TYPE_TITLE: "title",
-            TEXT_TYPE_BODY: "body",
-            TEXT_TYPE_NOTES: "notes",
-            TEXT_TYPE_OTHER: "other",
-            TEXT_TYPE_CENTER_BODY: "subtitle",
-            TEXT_TYPE_CENTER_TITLE: "center_title",
-            TEXT_TYPE_HALF_BODY: "half_body",
-            TEXT_TYPE_QUARTER_BODY: "quarter_body",
-        }
-        return type_names.get(self.text_type, "unknown")
-
-
-@dataclass
-class SlideContent:
-    """Represents the content of a single slide."""
-
-    slide_number: int
-    title: str | None = None
-    body_text: list[str] = field(default_factory=list)
-    other_text: list[str] = field(default_factory=list)
-    all_text: list[TextBlock] = field(default_factory=list)
-    notes: list[str] = field(default_factory=list)
-
-    @property
-    def text_combined(self) -> str:
-        """All text from this slide combined."""
-        parts = []
-        if self.title:
-            parts.append(self.title)
-        parts.extend(self.body_text)
-        parts.extend(self.other_text)
-        return "\n".join(parts)
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary representation."""
-        return {
-            "slide_number": self.slide_number,
-            "title": self.title,
-            "body_text": self.body_text,
-            "other_text": self.other_text,
-            # 'all_text': [{'text': tb.text, 'type': tb.type_name} for tb in self.all_text],
-            "notes": self.notes,
-            # 'text_combined': self.text_combined,
-        }
-
-
-@dataclass
-class PPTContent(ExtractionInterface):
-    """Complete extracted content from a PPT file."""
-
-    metadata: PPTMetadata = field(default_factory=PPTMetadata)
-    slides: list[SlideContent] = field(default_factory=list)
-    master_text: list[str] = field(default_factory=list)  # Text from master slides
-    all_text: list[str] = field(default_factory=list)
-    streams: list[list[str]] = field(default_factory=list)
-
-    def iterator(self) -> typing.Iterator[str]:
-        """Iterate over slide text, yielding combined text per slide."""
-        for slide in self.slides:
-            yield slide.text_combined
-
-    def get_full_text(self) -> str:
-        """Full text of the slide deck as one single block of text"""
-        return "\n".join(self.iterator())
-
-    def get_metadata(self) -> FileMetadataInterface:
-        """Returns the metadata of the extracted file."""
-        return self.metadata
-
-    @property
-    def slide_count(self) -> int:
-        """Number of slides extracted."""
-        return len(self.slides)
-
-
-def read_ppt(file_like: BinaryIO, path: str | None = None) -> PPTContent:
+def read_ppt(file_like: BinaryIO, path: str | None = None) -> PptContent:
     """
     Extract text content and metadata from a legacy PowerPoint (.ppt) file.
 
@@ -205,7 +91,7 @@ def read_ppt(file_like: BinaryIO, path: str | None = None) -> PPTContent:
     return content
 
 
-def _extract_ppt_content_structured(file_like: BinaryIO) -> PPTContent:
+def _extract_ppt_content_structured(file_like: BinaryIO) -> PptContent:
     """
     Extract content as structured PPTContent object.
 
@@ -222,7 +108,7 @@ def _extract_ppt_content_structured(file_like: BinaryIO) -> PPTContent:
 
     file_like.seek(0)
 
-    content = PPTContent()
+    content = PptContent()
 
     with olefile.OleFileIO(file_like) as ole:
         content.streams = ole.listdir()
@@ -242,9 +128,9 @@ def _extract_ppt_content_structured(file_like: BinaryIO) -> PPTContent:
     return content
 
 
-def _extract_metadata(ole: olefile.OleFileIO) -> PPTMetadata:
+def _extract_metadata(ole: olefile.OleFileIO) -> PptMetadata:
     """Extract metadata from the OLE file."""
-    result = PPTMetadata()
+    result = PptMetadata()
 
     try:
         meta = ole.get_metadata()
@@ -324,7 +210,7 @@ def _parse_current_user(data: bytes) -> dict[str, Any] | None:
     return None
 
 
-def _parse_ppt_document(data: bytes, content: PPTContent) -> None:
+def _parse_ppt_document(data: bytes, content: PptContent) -> None:
     """
     Parse the PowerPoint Document stream and extract content.
 
@@ -341,24 +227,31 @@ def _parse_ppt_document(data: bytes, content: PPTContent) -> None:
     # Build slides from SlideListWithText (primary source)
     if slide_list_texts:
         for slide_num, texts in enumerate(slide_list_texts, 1):
-            slide = SlideContent(slide_number=slide_num)
+            slide = PptSlideContent(slide_number=slide_num)
 
             for text_block in texts:
                 slide.all_text.append(text_block)
                 content.all_text.append(text_block.text)
 
-                if text_block.text_type in (TEXT_TYPE_TITLE, TEXT_TYPE_CENTER_TITLE):
+                if text_block.text_type in (
+                    PPT_TEXT_TYPE_TITLE,
+                    PPT_TEXT_TYPE_CENTER_TITLE,
+                ):
                     if not slide.title:
                         slide.title = text_block.text
                     else:
                         slide.other_text.append(text_block.text)
-                elif text_block.text_type == TEXT_TYPE_BODY or text_block.text_type in (
-                    TEXT_TYPE_CENTER_BODY,
-                    TEXT_TYPE_HALF_BODY,
-                    TEXT_TYPE_QUARTER_BODY,
+                elif (
+                    text_block.text_type == PPT_TEXT_TYPE_BODY
+                    or text_block.text_type
+                    in (
+                        PPT_TEXT_TYPE_CENTER_BODY,
+                        PPT_TEXT_TYPE_HALF_BODY,
+                        PPT_TEXT_TYPE_QUARTER_BODY,
+                    )
                 ):
                     slide.body_text.append(text_block.text)
-                elif text_block.text_type == TEXT_TYPE_NOTES:
+                elif text_block.text_type == PPT_TEXT_TYPE_NOTES:
                     slide.notes.append(text_block.text)
                 else:
                     slide.other_text.append(text_block.text)
@@ -368,13 +261,13 @@ def _parse_ppt_document(data: bytes, content: PPTContent) -> None:
     # If no SlideListWithText found, fall back to container parsing
     elif container_texts["slides"]:
         for slide_num, texts in enumerate(container_texts["slides"], 1):
-            slide = SlideContent(slide_number=slide_num)
+            slide = PptSlideContent(slide_number=slide_num)
 
             for text_block in texts:
                 slide.all_text.append(text_block)
                 content.all_text.append(text_block.text)
 
-                if text_block.is_title or text_block.text_type == TEXT_TYPE_TITLE:
+                if text_block.is_title or text_block.text_type == PPT_TEXT_TYPE_TITLE:
                     if not slide.title:
                         slide.title = text_block.text
                     else:
@@ -407,21 +300,21 @@ def _parse_ppt_document(data: bytes, content: PPTContent) -> None:
 
         # Create a single slide with all text if we found any
         if raw_texts:
-            slide = SlideContent(slide_number=1)
+            slide = PptSlideContent(slide_number=1)
             for text in raw_texts:
                 slide.other_text.append(text)
-                slide.all_text.append(TextBlock(text=text))
+                slide.all_text.append(PptTextBlock(text=text))
             content.slides.append(slide)
 
 
-def _extract_slide_list_texts(data: bytes) -> list[list[TextBlock]]:
+def _extract_slide_list_texts(data: bytes) -> list[list[PptTextBlock]]:
     """
     Extract text from SlideListWithText containers.
 
     SlideListWithText (0x0FF0) is the most reliable source for slide text
     as it contains text in presentation order with proper slide boundaries.
     """
-    slides_text: list[list[TextBlock]] = []
+    slides_text: list[list[PptTextBlock]] = []
     offset = 0
 
     while offset < len(data) - 8:
@@ -457,10 +350,10 @@ def _extract_slide_list_texts(data: bytes) -> list[list[TextBlock]]:
     return slides_text
 
 
-def _parse_slide_list_container(data: bytes) -> list[list[TextBlock]]:
+def _parse_slide_list_container(data: bytes) -> list[list[PptTextBlock]]:
     """Parse a SlideListWithText container to extract per-slide text."""
-    slides: list[list[TextBlock]] = []
-    current_slide_text: list[TextBlock] = []
+    slides: list[list[PptTextBlock]] = []
+    current_slide_text: list[PptTextBlock] = []
     current_text_type: int | None = None
 
     offset = 0
@@ -498,19 +391,19 @@ def _parse_slide_list_container(data: bytes) -> list[list[TextBlock]]:
                 text = record_data.decode("utf-16-le")
                 text = _clean_text(text)
                 if text:
-                    block = TextBlock(
+                    block = PptTextBlock(
                         text=text,
                         text_type=current_text_type,
                         is_title=current_text_type
-                        in (TEXT_TYPE_TITLE, TEXT_TYPE_CENTER_TITLE),
+                        in (PPT_TEXT_TYPE_TITLE, PPT_TEXT_TYPE_CENTER_TITLE),
                         is_body=current_text_type
                         in (
-                            TEXT_TYPE_BODY,
-                            TEXT_TYPE_CENTER_BODY,
-                            TEXT_TYPE_HALF_BODY,
-                            TEXT_TYPE_QUARTER_BODY,
+                            PPT_TEXT_TYPE_BODY,
+                            PPT_TEXT_TYPE_CENTER_BODY,
+                            PPT_TEXT_TYPE_HALF_BODY,
+                            PPT_TEXT_TYPE_QUARTER_BODY,
                         ),
-                        is_notes=current_text_type == TEXT_TYPE_NOTES,
+                        is_notes=current_text_type == PPT_TEXT_TYPE_NOTES,
                     )
                     current_slide_text.append(block)
             except UnicodeDecodeError:
@@ -521,19 +414,19 @@ def _parse_slide_list_container(data: bytes) -> list[list[TextBlock]]:
                 text = record_data.decode("latin-1")
                 text = _clean_text(text)
                 if text:
-                    block = TextBlock(
+                    block = PptTextBlock(
                         text=text,
                         text_type=current_text_type,
                         is_title=current_text_type
-                        in (TEXT_TYPE_TITLE, TEXT_TYPE_CENTER_TITLE),
+                        in (PPT_TEXT_TYPE_TITLE, PPT_TEXT_TYPE_CENTER_TITLE),
                         is_body=current_text_type
                         in (
-                            TEXT_TYPE_BODY,
-                            TEXT_TYPE_CENTER_BODY,
-                            TEXT_TYPE_HALF_BODY,
-                            TEXT_TYPE_QUARTER_BODY,
+                            PPT_TEXT_TYPE_BODY,
+                            PPT_TEXT_TYPE_CENTER_BODY,
+                            PPT_TEXT_TYPE_HALF_BODY,
+                            PPT_TEXT_TYPE_QUARTER_BODY,
                         ),
-                        is_notes=current_text_type == TEXT_TYPE_NOTES,
+                        is_notes=current_text_type == PPT_TEXT_TYPE_NOTES,
                     )
                     current_slide_text.append(block)
             except UnicodeDecodeError:
@@ -563,9 +456,9 @@ def _parse_containers(data: bytes) -> dict[str, list]:
 
     # Track container stack
     container_stack: list[tuple[int, int, int]] = []  # (type, start_offset, end_offset)
-    current_slide_texts: list[TextBlock] = []
-    current_notes_texts: list[TextBlock] = []
-    current_master_texts: list[TextBlock] = []
+    current_slide_texts: list[PptTextBlock] = []
+    current_notes_texts: list[PptTextBlock] = []
+    current_master_texts: list[PptTextBlock] = []
     current_text_type: int | None = None
 
     in_slide = False
@@ -647,19 +540,19 @@ def _parse_containers(data: bytes) -> dict[str, list]:
             if text:
                 text = _clean_text(text)
                 if text:
-                    block = TextBlock(
+                    block = PptTextBlock(
                         text=text,
                         text_type=current_text_type,
                         is_title=current_text_type
-                        in (TEXT_TYPE_TITLE, TEXT_TYPE_CENTER_TITLE),
+                        in (PPT_TEXT_TYPE_TITLE, PPT_TEXT_TYPE_CENTER_TITLE),
                         is_body=current_text_type
                         in (
-                            TEXT_TYPE_BODY,
-                            TEXT_TYPE_CENTER_BODY,
-                            TEXT_TYPE_HALF_BODY,
-                            TEXT_TYPE_QUARTER_BODY,
+                            PPT_TEXT_TYPE_BODY,
+                            PPT_TEXT_TYPE_CENTER_BODY,
+                            PPT_TEXT_TYPE_HALF_BODY,
+                            PPT_TEXT_TYPE_QUARTER_BODY,
                         ),
-                        is_notes=current_text_type == TEXT_TYPE_NOTES,
+                        is_notes=current_text_type == PPT_TEXT_TYPE_NOTES,
                     )
 
                     if in_notes:
@@ -769,7 +662,7 @@ def _clean_text(text: str) -> str:
     return text.strip()
 
 
-def _extract_ppt_metadata(file_like: BinaryIO) -> PPTMetadata:
+def _extract_ppt_metadata(file_like: BinaryIO) -> PptMetadata:
     """
     Extract only metadata from a PPT file.
 

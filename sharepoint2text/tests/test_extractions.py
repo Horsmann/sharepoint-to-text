@@ -3,16 +3,25 @@ import logging
 import unittest
 from unittest import TestCase
 
-from extractors.abstract_extractor import FileMetadataInterface
-
-from sharepoint2text.extractors.doc_extractor import MicrosoftDocContent, read_doc
-from sharepoint2text.extractors.docx_extractor import MicrosoftDocxContent, read_docx
-from sharepoint2text.extractors.pdf_extractor import PdfContent, read_pdf
-from sharepoint2text.extractors.plain_extractor import PlainTextContent, read_plain_text
-from sharepoint2text.extractors.ppt_extractor import PPTContent, read_ppt
-from sharepoint2text.extractors.pptx_extractor import MicrosoftPptxContent, read_pptx
-from sharepoint2text.extractors.xls_extractor import MicrosoftXlsContent, read_xls
-from sharepoint2text.extractors.xlsx_extractor import MicrosoftXlsxContent, read_xlsx
+from sharepoint2text.extractors.data_types import (
+    DocContent,
+    DocxContent,
+    FileMetadataInterface,
+    PdfContent,
+    PlainTextContent,
+    PptContent,
+    PptxContent,
+    XlsContent,
+    XlsxContent,
+)
+from sharepoint2text.extractors.doc_extractor import read_doc
+from sharepoint2text.extractors.docx_extractor import read_docx
+from sharepoint2text.extractors.pdf_extractor import read_pdf
+from sharepoint2text.extractors.plain_extractor import read_plain_text
+from sharepoint2text.extractors.ppt_extractor import read_ppt
+from sharepoint2text.extractors.pptx_extractor import read_pptx
+from sharepoint2text.extractors.xls_extractor import read_xls
+from sharepoint2text.extractors.xlsx_extractor import read_xlsx
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +80,7 @@ def test_read_xlsx() -> None:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    xlsx: MicrosoftXlsxContent = read_xlsx(file_like=file_like)
+    xlsx: XlsxContent = read_xlsx(file_like=file_like)
 
     test_case_obj = unittest.TestCase()
     test_case_obj.assertEqual("2006-09-16T00:00:00", xlsx.metadata.created)
@@ -93,7 +102,7 @@ def test_read_xls() -> None:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    xls: MicrosoftXlsContent = read_xls(file_like=file_like)
+    xls: XlsContent = read_xls(file_like=file_like)
 
     test_case_obj = unittest.TestCase()
     test_case_obj.assertEqual(13, len(xls.sheets))
@@ -115,7 +124,7 @@ def test_read_ppt() -> None:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    ppt: PPTContent = read_ppt(file_like)
+    ppt: PptContent = read_ppt(file_like)
     test_case_obj = unittest.TestCase()
     test_case_obj.assertEqual(48, ppt.slide_count)
     test_case_obj.assertEqual(48, len(ppt.slides))
@@ -141,7 +150,7 @@ def test_read_pptx() -> None:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    pptx: MicrosoftPptxContent = read_pptx(file_like)
+    pptx: PptxContent = read_pptx(file_like)
     test_case_obj = unittest.TestCase()
 
     # metadata
@@ -208,7 +217,7 @@ def test_read_docx() -> None:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    docx: MicrosoftDocxContent = read_docx(file_like)
+    docx: DocxContent = read_docx(file_like)
     test_case_obj = unittest.TestCase()
 
     # text is long. Verify only beginning and ending of the combined text
@@ -238,7 +247,7 @@ def test_read_doc() -> None:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    doc: MicrosoftDocContent = read_doc(file_like=file_like)
+    doc: DocContent = read_doc(file_like=file_like)
 
     test_case_obj = unittest.TestCase()
 

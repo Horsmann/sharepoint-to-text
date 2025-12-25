@@ -4,17 +4,17 @@ PPTX content extractor using python-pptx library.
 
 import io
 import logging
-import typing
-from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional
+from typing import List
 
 from pptx import Presentation
 from pptx.enum.shapes import PP_PLACEHOLDER
 
-from sharepoint2text.extractors.abstract_extractor import (
-    ExtractionInterface,
-    FileMetadataInterface,
+from sharepoint2text.extractors.data_types import (
+    PptxContent,
+    PPTXImage,
+    PPTXMetadata,
+    PPTXSlide,
 )
 
 logger = logging.getLogger(__name__)
@@ -24,58 +24,7 @@ def _dt_to_iso(dt: datetime | None) -> str:
     return dt.isoformat() if dt else ""
 
 
-@dataclass
-class MicrosoftPptxMetadata(FileMetadataInterface):
-    title: str = ""
-    subject: str = ""
-    author: str = ""
-    last_modified_by: str = ""
-    created: str = ""
-    modified: str = ""
-    keywords: str = ""
-    comments: str = ""
-    category: str = ""
-    revision: Optional[int] = None
-
-
-@dataclass
-class MicrosoftPptxImage:
-    image_index: int = 0
-    filename: str = ""
-    content_type: str = ""
-    size_bytes: int = 0
-    blob: Optional[bytes] = None
-
-
-@dataclass
-class MicrosoftPptxSlide:
-    slide_number: int = 0
-    title: str = ""
-    footer: str = ""
-    content_placeholders: List[str] = field(default_factory=list)
-    other_textboxes: List[str] = field(default_factory=list)
-    images: List[MicrosoftPptxImage] = field(default_factory=list)
-    text: str = ""
-
-
-@dataclass
-class MicrosoftPptxContent(ExtractionInterface):
-    metadata: MicrosoftPptxMetadata = field(default_factory=MicrosoftPptxMetadata)
-    slides: List[MicrosoftPptxSlide] = field(default_factory=list)
-
-    def iterator(self) -> typing.Iterator[str]:
-        for slide in self.slides:
-            yield slide.text.strip()
-
-    def get_full_text(self) -> str:
-        return "\n".join(list(self.iterator()))
-
-    def get_metadata(self) -> FileMetadataInterface:
-        """Returns the metadata of the extracted file."""
-        return self.metadata
-
-
-def read_pptx(file_like: io.BytesIO, path: str | None = None) -> MicrosoftPptxContent:
+def read_pptx(file_like: io.BytesIO, path: str | None = None) -> PptxContent:
     """
     Extract all relevant content from a PPTX file.
 
@@ -91,7 +40,7 @@ def read_pptx(file_like: io.BytesIO, path: str | None = None) -> MicrosoftPptxCo
     prs = Presentation(file_like)
 
     cp = prs.core_properties
-    metadata = MicrosoftPptxMetadata(
+    metadata = PPTXMetadata(
         title=cp.title or "",
         subject=cp.subject or "",
         author=cp.author or "",
@@ -104,7 +53,7 @@ def read_pptx(file_like: io.BytesIO, path: str | None = None) -> MicrosoftPptxCo
         revision=cp.revision,
     )
 
-    slides_result: List[MicrosoftPptxSlide] = []
+    slides_result: List[PPTXSlide] = []
 
     for slide_index, slide in enumerate(prs.slides, start=1):
         logger.debug(f"Processing slide [{slide_index}]")
@@ -113,7 +62,7 @@ def read_pptx(file_like: io.BytesIO, path: str | None = None) -> MicrosoftPptxCo
         slide_footer = ""
         content_placeholders: List[str] = []
         other_textboxes: List[str] = []
-        images: List[MicrosoftPptxImage] = []
+        images: List[PPTXImage] = []
 
         image_counter = 0
 
@@ -127,7 +76,7 @@ def read_pptx(file_like: io.BytesIO, path: str | None = None) -> MicrosoftPptxCo
                     image_counter += 1
 
                     images.append(
-                        MicrosoftPptxImage(
+                        PPTXImage(
                             image_index=image_counter,
                             filename=image.filename,
                             content_type=image.content_type,
@@ -187,7 +136,7 @@ def read_pptx(file_like: io.BytesIO, path: str | None = None) -> MicrosoftPptxCo
         slide_text = "\n".join(slide_text_parts)
 
         slides_result.append(
-            MicrosoftPptxSlide(
+            PPTXSlide(
                 slide_number=slide_index,
                 title=slide_title,
                 footer=slide_footer,
@@ -199,4 +148,4 @@ def read_pptx(file_like: io.BytesIO, path: str | None = None) -> MicrosoftPptxCo
         )
 
     metadata.populate_from_path(path)
-    return MicrosoftPptxContent(metadata=metadata, slides=slides_result)
+    return PptxContent(metadata=metadata, slides=slides_result)
