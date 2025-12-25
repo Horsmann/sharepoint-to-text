@@ -9,20 +9,20 @@ legacy binary formats, plus PDF documents.
 import io
 from pathlib import Path
 
-from sharepoint2text.extractors.doc_extractor import read_doc
-from sharepoint2text.extractors.docx_extractor import read_docx
-from sharepoint2text.extractors.pdf_extractor import read_pdf
-from sharepoint2text.extractors.plain_extractor import read_plain_text
-from sharepoint2text.extractors.ppt_extractor import read_ppt
-from sharepoint2text.extractors.pptx_extractor import read_pptx
-from sharepoint2text.extractors.xls_extractor import read_xls
-from sharepoint2text.extractors.xlsx_extractor import read_xlsx
+from sharepoint2text.extractors.doc_extractor import MicrosoftDocContent, read_doc
+from sharepoint2text.extractors.docx_extractor import MicrosoftDocxContent, read_docx
+from sharepoint2text.extractors.pdf_extractor import PdfContent, read_pdf
+from sharepoint2text.extractors.plain_extractor import PlainTextContent, read_plain_text
+from sharepoint2text.extractors.ppt_extractor import PPTContent, read_ppt
+from sharepoint2text.extractors.pptx_extractor import MicrosoftPptxContent, read_pptx
+from sharepoint2text.extractors.xls_extractor import MicrosoftXlsContent, read_xls
+from sharepoint2text.extractors.xlsx_extractor import MicrosoftXlsxContent, read_xlsx
 from sharepoint2text.router import get_extractor, is_supported_file
 
 __version__ = "0.1.1.dev31"
 
 
-def read_file(path: str | Path) -> dict:
+def read_file(path: str | Path):
     """
     Read and extract content from a file.
 
@@ -33,8 +33,16 @@ def read_file(path: str | Path) -> dict:
         path: Path to the file to read.
 
     Returns:
-        Dictionary containing extracted content and metadata.
-        Structure varies by file type.
+        A dataclass containing extracted content and metadata.
+        The specific type depends on the file format:
+        - .docx -> MicrosoftDocxContent
+        - .doc  -> MicrosoftDocContent
+        - .xlsx -> MicrosoftXlsxContent
+        - .xls  -> MicrosoftXlsContent
+        - .pptx -> MicrosoftPptxContent
+        - .ppt  -> PPTContent
+        - .pdf  -> PdfContent
+        - .txt  -> PlainTextContent
 
     Raises:
         RuntimeError: If the file type is not supported.
@@ -43,7 +51,7 @@ def read_file(path: str | Path) -> dict:
     Example:
         >>> import sharepoint2text
         >>> result = sharepoint2text.read_file("document.docx")
-        >>> print(result["full_text"])
+        >>> print(result.get_full_text())
     """
     path = Path(path)
     extractor = get_extractor(str(path))
@@ -52,8 +60,13 @@ def read_file(path: str | Path) -> dict:
 
 
 __all__ = [
+    # Version
     "__version__",
+    # Main functions
     "read_file",
+    "is_supported_file",
+    "get_extractor",
+    # Format-specific extractors
     "read_docx",
     "read_doc",
     "read_xlsx",
@@ -61,7 +74,14 @@ __all__ = [
     "read_pptx",
     "read_ppt",
     "read_pdf",
-    "is_supported_file",
     "read_plain_text",
-    "get_extractor",
+    # Content dataclasses (return types)
+    "MicrosoftDocxContent",
+    "MicrosoftDocContent",
+    "MicrosoftXlsxContent",
+    "MicrosoftXlsContent",
+    "MicrosoftPptxContent",
+    "PPTContent",
+    "PdfContent",
+    "PlainTextContent",
 ]
