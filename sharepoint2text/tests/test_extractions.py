@@ -10,7 +10,7 @@ from sharepoint2text.extractors.plain_extractor import read_plain_text
 from sharepoint2text.extractors.ppt_extractor import read_ppt
 from sharepoint2text.extractors.pptx_extractor import MicrosoftPptxContent, read_pptx
 from sharepoint2text.extractors.xls_extractor import MicrosoftXlsContent, read_xls
-from sharepoint2text.extractors.xlsx_extractor import read_xlsx
+from sharepoint2text.extractors.xlsx_extractor import MicrosoftXlsxContent, read_xlsx
 
 logger = logging.getLogger(__name__)
 
@@ -58,28 +58,20 @@ def test_read_xlsx() -> None:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    result = read_xlsx(file_like=file_like)
+    xlsx: MicrosoftXlsxContent = read_xlsx(file_like=file_like)
 
     test_case_obj = unittest.TestCase()
-    test_case_obj.assertDictEqual(
-        {
-            "title": None,
-            "description": None,
-            "lastModifiedBy": None,
-            "keywords": None,
-            "language": None,
-            "revision": None,
-            "creator": None,
-            "created": "2006-09-16T00:00:00",
-            "modified": "2015-05-06T11:46:24",
-        },
-        result["metadata"],
+    test_case_obj.assertEqual("2006-09-16T00:00:00", xlsx.metadata.created)
+    test_case_obj.assertEqual("2015-05-06T11:46:24", xlsx.metadata.modified)
+
+    test_case_obj.assertEqual(3, len(xlsx.sheets))
+    test_case_obj.assertListEqual(
+        sorted(["Sheet1", "Sheet2", "Sheet3"]), sorted([s.name for s in xlsx.sheets])
     )
 
-    test_case_obj.assertEqual(3, len(result["content"]))
-    test_case_obj.assertListEqual(
-        sorted(["Sheet1", "Sheet2", "Sheet3"]), sorted(result["content"].keys())
-    )
+    test_case_obj.assertEqual(3, len(list(xlsx.iterator())))
+
+    test_case_obj.assertEqual("Sheet1\nAREA     CODE", xlsx.get_full_text()[:20])
 
 
 def test_read_xls() -> None:
