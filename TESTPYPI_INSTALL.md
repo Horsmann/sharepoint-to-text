@@ -49,13 +49,15 @@ uv pip install --upgrade \
 
 **Note:** TestPyPI normalizes version strings. A version like `0.2.0.rc01` in `pyproject.toml` becomes `0.2.0rc1` on TestPyPI.
 
-### 4. Allow Pre-releases
+### 4. Test Pre-releases
 
-If uv doesn't find the pre-release version, explicitly allow pre-releases:
-
+1) Create a virtual env.
+2) source .venv/bin/activate
+3) Run below command to install latest pre-release in this environment
 ```bash
 uv pip install --prerelease=allow --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ sharepoint-to-text
 ```
+4) python script.py (note: not `uv run python script.py` - we want to use the pre-release we just installed!)
 
 ## Verifying the Installation
 
