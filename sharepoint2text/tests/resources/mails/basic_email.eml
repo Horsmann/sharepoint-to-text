@@ -17,6 +17,8 @@ Received: from [192.0.0.253] (60-241-138-146.static.tpgi.com.au [60.0.0.146])
 Message-Id: <6B7EC235-5B17-4CA8-B2B8-39290DEB43A3@test.lindsaar.net>
 From: Mikel Lindsaar <test@lindsaar.net>
 To: Mikel Lindsaar <raasdnil@gmail.com>
+Cc: Jane Doe <jane.doe@example.test>, Bob Smith <bob.smith@example.test>
+Bcc: Hidden Tester <hidden.tester@example.test>, Silent Observer <silent.observer@example.test>
 Content-Type: text/plain; charset=US-ASCII; format=flowed
 Content-Transfer-Encoding: 7bit
 MIME-Version: 1.0 (Apple Message framework v929.2)

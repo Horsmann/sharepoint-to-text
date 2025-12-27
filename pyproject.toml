@@ -47,6 +47,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
+    "mail-parser>=4.1.4",
     "olefile>=0.47",
     "openpyxl>=3.1.5",
     "pandas>=2.3.3,<3",

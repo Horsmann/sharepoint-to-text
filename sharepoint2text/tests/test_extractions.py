@@ -6,6 +6,7 @@ from unittest import TestCase
 from sharepoint2text.extractors.data_types import (
     DocContent,
     DocxContent,
+    EmailContent,
     FileMetadataInterface,
     PdfContent,
     PlainTextContent,
@@ -16,6 +17,7 @@ from sharepoint2text.extractors.data_types import (
 )
 from sharepoint2text.extractors.doc_extractor import read_doc
 from sharepoint2text.extractors.docx_extractor import read_docx
+from sharepoint2text.extractors.email_extractor import read_mail
 from sharepoint2text.extractors.pdf_extractor import read_pdf
 from sharepoint2text.extractors.plain_extractor import read_plain_text
 from sharepoint2text.extractors.ppt_extractor import read_ppt
@@ -351,3 +353,37 @@ def test_read_pdf() -> None:
 
     # test full text
     test_case_obj.assertEqual("This is a test sentence", pdf.get_full_text()[:23])
+
+
+def test_email__eml_format() -> None:
+    with open(
+        "sharepoint2text/tests/resources/mails/basic_email.eml", mode="rb"
+    ) as file:
+        file_like = io.BytesIO(file.read())
+        mail: EmailContent = read_mail(
+            file_like=file_like,
+            path="sharepoint2text/tests/resources/mails/basic_email.eml",
+        )
+
+    test_case_obj = TestCase()
+    # from
+    test_case_obj.assertEqual("Mikel Lindsaar", mail.from_email.name)
+    test_case_obj.assertEqual("test@lindsaar.net", mail.from_email.address)
+    # to
+    test_case_obj.assertEqual(1, len(mail.to_emails))
+    test_case_obj.assertEqual("Mikel Lindsaar", mail.to_emails[0].name)
+    test_case_obj.assertEqual("raasdnil@gmail.com", mail.to_emails[0].address)
+
+    # to-cc
+    test_case_obj.assertEqual(2, len(mail.to_cc))
+    test_case_obj.assertEqual("Jane Doe", mail.to_cc[0].name)
+    test_case_obj.assertEqual("jane.doe@example.test", mail.to_cc[0].address)
+    test_case_obj.assertEqual("Bob Smith", mail.to_cc[1].name)
+    test_case_obj.assertEqual("bob.smith@example.test", mail.to_cc[1].address)
+
+    # to-bcc
+    test_case_obj.assertEqual(2, len(mail.to_bcc))
+    test_case_obj.assertEqual("Hidden Tester", mail.to_bcc[0].name)
+    test_case_obj.assertEqual("hidden.tester@example.test", mail.to_bcc[0].address)
+    test_case_obj.assertEqual("Silent Observer", mail.to_bcc[1].name)
+    test_case_obj.assertEqual("silent.observer@example.test", mail.to_bcc[1].address)

@@ -54,8 +54,44 @@ class ExtractionInterface(Protocol):
         ...
 
 
-###########
+@dataclass
+class EmailAddress:
+    name: str = ""
+    address: str = ""
+
+
+@dataclass
+class EmailMetadata(FileMetadataInterface):
+    date: str = ""
+    message_id: str = ""
+
+
+@dataclass
+class EmailContent(ExtractionInterface):
+    from_email: EmailAddress
+    subject: str = ""
+    in_reply_to: str = ""
+    reply_to: List[EmailAddress] = field(default_factory=list)
+    to_emails: List[EmailAddress] = field(default_factory=list)
+    to_cc: List[EmailAddress] = field(default_factory=list)
+    to_bcc: List[EmailAddress] = field(default_factory=list)
+    body_plain: str = ""
+    body_html: str = ""
+    metadata: EmailMetadata = field(default_factory=EmailMetadata)
+
+    def iterator(self) -> typing.Iterator[str]:
+        yield self.body_plain
+
+    def get_full_text(self) -> str:
+        return self.body_plain
+
+    def get_metadata(self) -> FileMetadataInterface:
+        return self.metadata
+
+
+############
 # legacy doc
+#############
 
 
 @dataclass
