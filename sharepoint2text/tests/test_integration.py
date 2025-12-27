@@ -11,7 +11,7 @@ tc = unittest.TestCase()
 
 
 def test_read_file():
-    for path in glob.glob("sharepoint2text/tests/resources/*"):
+    for path in glob.glob("sharepoint2text/tests/resources/**/*", recursive=True):
         if not os.path.isfile(path):
             continue
         logger.debug(f"Calling read_file with: [{path}]")
