@@ -246,7 +246,7 @@ class DocxContent(ExtractionInterface):
     def get_full_text(self) -> str:
         return "\n".join(self.iterator())
 
-    def get_metadata(self) -> FileMetadataInterface:
+    def get_metadata(self) -> DocxMetadata:
         return self.metadata
 
 
@@ -291,7 +291,7 @@ class PdfContent(ExtractionInterface):
     def get_full_text(self) -> str:
         return "\n".join(self.iterator())
 
-    def get_metadata(self) -> FileMetadataInterface:
+    def get_metadata(self) -> PdfMetadata:
         return self.metadata
 
 
@@ -431,7 +431,7 @@ class PptContent(ExtractionInterface):
         """Full text of the slide deck as one single block of text"""
         return "\n".join(self.iterator())
 
-    def get_metadata(self) -> FileMetadataInterface:
+    def get_metadata(self) -> PptMetadata:
         """Returns the metadata of the extracted file."""
         return self.metadata
 
@@ -492,7 +492,7 @@ class PptxContent(ExtractionInterface):
     def get_full_text(self) -> str:
         return "\n".join(list(self.iterator()))
 
-    def get_metadata(self) -> FileMetadataInterface:
+    def get_metadata(self) -> PptxMetadata:
         """Returns the metadata of the extracted file."""
         return self.metadata
 
@@ -533,7 +533,7 @@ class XlsContent(ExtractionInterface):
     def get_full_text(self) -> str:
         return self.full_text
 
-    def get_metadata(self) -> FileMetadataInterface:
+    def get_metadata(self) -> XlsMetadata:
         """Returns the metadata of the extracted file."""
         return self.metadata
 
@@ -575,6 +575,6 @@ class XlsxContent(ExtractionInterface):
     def get_full_text(self) -> str:
         return "\n".join(list(self.iterator()))
 
-    def get_metadata(self) -> FileMetadataInterface:
+    def get_metadata(self) -> XlsxMetadata:
         """Returns the metadata of the extracted file."""
         return self.metadata
