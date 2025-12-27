@@ -75,7 +75,9 @@ def _read_eml_format(payload: bytes) -> EmailContent:
     )
 
 
-def read_mail(file_like: io.BytesIO, path: str | None = None) -> EmailContent:
+def read_eml_format_mail(
+    file_like: io.BytesIO, path: str | None = None
+) -> EmailContent:
     """Read an .eml file and extract its content.
 
     Args:
