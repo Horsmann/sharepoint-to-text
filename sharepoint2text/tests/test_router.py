@@ -3,6 +3,9 @@ import unittest
 
 from sharepoint2text.extractors.doc_extractor import read_doc
 from sharepoint2text.extractors.docx_extractor import read_docx
+from sharepoint2text.extractors.mail.eml_email_extractor import read_eml_format_mail
+from sharepoint2text.extractors.mail.mbox_email_extractor import read_mbox_format_mail
+from sharepoint2text.extractors.mail.msg_email_extractor import read_msg_format_mail
 from sharepoint2text.extractors.pdf_extractor import read_pdf
 from sharepoint2text.extractors.plain_extractor import read_plain_text
 from sharepoint2text.extractors.ppt_extractor import read_ppt
@@ -60,6 +63,18 @@ def test_router():
     # tsv
     func = get_extractor("myfile.tsv")
     test_case_obj.assertEqual(read_plain_text, func)
+
+    # msg
+    func = get_extractor("myfile.msg")
+    test_case_obj.assertEqual(read_msg_format_mail, func)
+
+    # eml
+    func = get_extractor("myfile.eml")
+    test_case_obj.assertEqual(read_eml_format_mail, func)
+
+    # mbox
+    func = get_extractor("myfile.mbox")
+    test_case_obj.assertEqual(read_mbox_format_mail, func)
 
     test_case_obj.assertRaises(
         RuntimeError,

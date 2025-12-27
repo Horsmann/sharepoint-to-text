@@ -1,5 +1,6 @@
 import logging
 import mimetypes
+import os
 import typing
 
 logger = logging.getLogger(__name__)
@@ -100,13 +101,17 @@ def get_extractor(path: str) -> typing.Callable:
 
     mime_type, _ = mimetypes.guess_type(path)
 
-    if mime_type in mime_type_mapping:
+    if mime_type is not None and mime_type in mime_type_mapping:
         file_type = mime_type_mapping[mime_type]
         logger.debug(
             f"Detected file type: {file_type} (MIME: {mime_type}) for file: {path}"
         )
         return _get_extractor(file_type)
-
+    elif any([path.endswith(ending) for ending in [".msg", ".eml", ".mbox"]]):
+        # the file types are mapped with leading dot
+        file_type = os.path.splitext(path)[1][1:]
+        logger.debug(f"Detected file type: {file_type} for file: {path}")
+        return _get_extractor(file_type)
     else:
         logger.debug(f"File [{path}] with mime type [{mime_type}] is not supported")
         raise RuntimeError(f"File type not supported: {mime_type}")
