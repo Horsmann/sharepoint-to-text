@@ -4,7 +4,7 @@ XLS content extractor using pandas and olefile libraries.
 
 import io
 import logging
-from typing import List
+from typing import Any, Generator, List
 
 import olefile
 import pandas as pd
@@ -50,7 +50,9 @@ def _read_metadata(file_like: io.BytesIO) -> XlsMetadata:
     return result
 
 
-def read_xls(file_like: io.BytesIO, path: str | None = None) -> XlsContent:
+def read_xls(
+    file_like: io.BytesIO, path: str | None = None
+) -> Generator[XlsContent, Any, None]:
     """
     Extract all relevant content from an XLS file.
 
@@ -58,7 +60,7 @@ def read_xls(file_like: io.BytesIO, path: str | None = None) -> XlsContent:
         file_like: A BytesIO object containing the XLS file data.
         path: Optional file path to populate file metadata fields.
 
-    Returns:
+    Yields:
         MicrosoftXlsContent dataclass with all extracted content.
     """
     file_like.seek(0)
@@ -69,7 +71,7 @@ def read_xls(file_like: io.BytesIO, path: str | None = None) -> XlsContent:
 
     full_text = "\n\n".join(sheet.text for sheet in sheets)
 
-    return XlsContent(
+    yield XlsContent(
         metadata=metadata,
         sheets=sheets,
         full_text=full_text,

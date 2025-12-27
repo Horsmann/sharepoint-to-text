@@ -5,7 +5,7 @@ PPTX content extractor using python-pptx library.
 import io
 import logging
 from datetime import datetime
-from typing import List
+from typing import Any, Generator, List
 
 from pptx import Presentation
 from pptx.enum.shapes import PP_PLACEHOLDER
@@ -24,7 +24,9 @@ def _dt_to_iso(dt: datetime | None) -> str:
     return dt.isoformat() if dt else ""
 
 
-def read_pptx(file_like: io.BytesIO, path: str | None = None) -> PptxContent:
+def read_pptx(
+    file_like: io.BytesIO, path: str | None = None
+) -> Generator[PptxContent, Any, None]:
     """
     Extract all relevant content from a PPTX file.
 
@@ -32,7 +34,7 @@ def read_pptx(file_like: io.BytesIO, path: str | None = None) -> PptxContent:
         file_like: A BytesIO object containing the PPTX file data.
         path: Optional file path to populate file metadata fields.
 
-    Returns:
+    Yields:
         MicrosoftPptxContent dataclass with all extracted content.
     """
     logger.debug("Reading pptx")
@@ -148,4 +150,4 @@ def read_pptx(file_like: io.BytesIO, path: str | None = None) -> PptxContent:
         )
 
     metadata.populate_from_path(path)
-    return PptxContent(metadata=metadata, slides=slides_result)
+    yield PptxContent(metadata=metadata, slides=slides_result)

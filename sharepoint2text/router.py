@@ -1,7 +1,10 @@
+import io
 import logging
 import mimetypes
 import os
-import typing
+from typing import Any, Callable, Generator
+
+from sharepoint2text.extractors.data_types import ExtractionInterface
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +29,9 @@ mime_type_mapping = {
 }
 
 
-def _get_extractor(file_type: str) -> typing.Callable:
+def _get_extractor(
+    file_type: str,
+) -> Callable[[io.BytesIO, str | None], Generator[ExtractionInterface, Any, None]]:
     """Return the extractor function for a file type (lazy import)."""
     if file_type == "xlsx":
         from sharepoint2text.extractors.xlsx_extractor import read_xlsx
@@ -89,7 +94,9 @@ def is_supported_file(path: str) -> bool:
     return mime_type in mime_type_mapping
 
 
-def get_extractor(path: str) -> typing.Callable:
+def get_extractor(
+    path: str,
+) -> Callable[[io.BytesIO, str | None], Generator[ExtractionInterface, Any, None]]:
     """Analysis the path of a file and returns a suited extractor.
        The file MUST not exist (yet). The path or filename alone suffices to return an
        extractor.

@@ -5,6 +5,7 @@ DOCX content extractor using python-docx library.
 import datetime
 import io
 import logging
+from typing import Any, Generator
 
 from docx import Document
 from docx.oxml.ns import qn
@@ -25,7 +26,9 @@ from sharepoint2text.extractors.data_types import (
 logger = logging.getLogger(__name__)
 
 
-def read_docx(file_like: io.BytesIO, path: str | None = None) -> DocxContent:
+def read_docx(
+    file_like: io.BytesIO, path: str | None = None
+) -> Generator[DocxContent, Any, None]:
     """
     Extract all relevant content from a DOCX file.
 
@@ -33,7 +36,7 @@ def read_docx(file_like: io.BytesIO, path: str | None = None) -> DocxContent:
         file_like: A BytesIO object containing the DOCX file data.
         path: Optional file path to populate file metadata fields.
 
-    Returns:
+    Yields:
         MicrosoftDocxContent dataclass with all extracted content.
     """
     file_like.seek(0)
@@ -271,7 +274,7 @@ def read_docx(file_like: io.BytesIO, path: str | None = None) -> DocxContent:
 
     metadata.populate_from_path(path)
 
-    return DocxContent(
+    yield DocxContent(
         metadata=metadata,
         paragraphs=paragraphs,
         tables=tables,

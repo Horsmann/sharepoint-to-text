@@ -1,6 +1,6 @@
 import io
 import logging
-from typing import List
+from typing import Any, Generator, List
 
 from pypdf import PdfReader
 
@@ -14,7 +14,9 @@ from sharepoint2text.extractors.data_types import (
 logger = logging.getLogger(__name__)
 
 
-def read_pdf(file_like: io.BytesIO, path: str | None = None) -> PdfContent:
+def read_pdf(
+    file_like: io.BytesIO, path: str | None = None
+) -> Generator[PdfContent, Any, None]:
     """
     Extract text and images from a PDF file.
 
@@ -22,7 +24,7 @@ def read_pdf(file_like: io.BytesIO, path: str | None = None) -> PdfContent:
         file_like: a loaded binary of the pdf file as file-like object
         path: Optional file path to populate file metadata fields.
 
-    Returns:
+    Yields:
         PdfContent dataclass containing extracted content organized by page
 
     Limitations:
@@ -43,7 +45,7 @@ def read_pdf(file_like: io.BytesIO, path: str | None = None) -> PdfContent:
     metadata = PdfMetadata(total_pages=len(reader.pages))
     metadata.populate_from_path(path)
 
-    return PdfContent(
+    yield PdfContent(
         pages=pages,
         metadata=metadata,
     )

@@ -22,7 +22,7 @@ import io
 import logging
 import re
 import struct
-from typing import List, Optional
+from typing import Any, Generator, List, Optional
 
 import olefile
 
@@ -34,7 +34,9 @@ from sharepoint2text.extractors.data_types import (
 logger = logging.getLogger(__name__)
 
 
-def read_doc(file_like: io.BytesIO, path: str | None = None) -> DocContent:
+def read_doc(
+    file_like: io.BytesIO, path: str | None = None
+) -> Generator[DocContent, Any, None]:
     """
     Extract all relevant content from a DOC file.
 
@@ -42,7 +44,7 @@ def read_doc(file_like: io.BytesIO, path: str | None = None) -> DocContent:
         file_like: A BytesIO object containing the DOC file data.
         path: Optional file path to populate file metadata fields.
 
-    Returns:
+    Yields:
         MicrosoftDocContent dataclass with all extracted content.
     """
     file_like.seek(0)
@@ -50,7 +52,7 @@ def read_doc(file_like: io.BytesIO, path: str | None = None) -> DocContent:
         document = doc.read()
         document.metadata = doc.get_metadata()
         document.metadata.populate_from_path(path)
-        return document
+        yield document
 
 
 class _DocReader:

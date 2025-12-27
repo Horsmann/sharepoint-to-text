@@ -12,7 +12,7 @@ Based on MS-PPT specification:
 import logging
 import struct
 from datetime import datetime
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, Generator
 
 import olefile
 
@@ -65,7 +65,9 @@ RT_TEXT_INTERACTIVE_INFO_ATOM = 0x0FDF
 RT_OUTLINE_TEXT_REF_ATOM = 0x0F9E
 
 
-def read_ppt(file_like: BinaryIO, path: str | None = None) -> PptContent:
+def read_ppt(
+    file_like: BinaryIO, path: str | None = None
+) -> Generator[PptContent, Any, None]:
     """
     Extract text content and metadata from a legacy PowerPoint (.ppt) file.
 
@@ -73,7 +75,7 @@ def read_ppt(file_like: BinaryIO, path: str | None = None) -> PptContent:
         file_like: A file-like object (e.g., io.BytesIO) containing the PPT file data.
         path: Optional file path to populate file metadata fields.
 
-    Returns:
+    Yields:
         PPTContent dataclass containing:
             - metadata: PPTMetadata dataclass with document metadata
             - slides: List of SlideContent objects
@@ -88,7 +90,7 @@ def read_ppt(file_like: BinaryIO, path: str | None = None) -> PptContent:
     file_like.seek(0)
     content = _extract_ppt_content_structured(file_like)
     content.metadata.populate_from_path(path)
-    return content
+    yield content
 
 
 def _extract_ppt_content_structured(file_like: BinaryIO) -> PptContent:

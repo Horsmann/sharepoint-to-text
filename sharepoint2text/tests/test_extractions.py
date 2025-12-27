@@ -58,7 +58,7 @@ def test_read_text() -> None:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    plain: PlainTextContent = read_plain_text(file_like=file_like)
+    plain: PlainTextContent = next(read_plain_text(file_like=file_like))
 
     tc.assertEqual("Hello World\n", plain.content)
 
@@ -68,7 +68,7 @@ def test_read_text() -> None:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    plain: PlainTextContent = read_plain_text(file_like=file_like, path=path)
+    plain: PlainTextContent = next(read_plain_text(file_like=file_like, path=path))
 
     tc.assertEqual('Text; Date\n"Hello World"; "2025-12-25"\n', plain.content)
 
@@ -80,7 +80,7 @@ def test_read_text() -> None:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    plain = read_plain_text(file_like=file_like, path=path)
+    plain = next(read_plain_text(file_like=file_like, path=path))
 
     tc.assertEqual("Text\tDate\nHello World\t2025-12-25\n", plain.content)
 
@@ -91,7 +91,7 @@ def test_read_xlsx() -> None:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    xlsx: XlsxContent = read_xlsx(file_like=file_like)
+    xlsx: XlsxContent = next(read_xlsx(file_like=file_like))
 
     tc.assertEqual("2006-09-16T00:00:00", xlsx.metadata.created)
     tc.assertEqual("2015-05-06T11:46:24", xlsx.metadata.modified)
@@ -131,7 +131,7 @@ def test_read_xls() -> None:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    xls: XlsContent = read_xls(file_like=file_like)
+    xls: XlsContent = next(read_xls(file_like=file_like))
 
     tc.assertEqual(13, len(xls.sheets))
 
@@ -152,7 +152,7 @@ def test_read_ppt() -> None:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    ppt: PptContent = read_ppt(file_like)
+    ppt: PptContent = next(read_ppt(file_like))
 
     tc.assertEqual(48, ppt.slide_count)
     tc.assertEqual(48, len(ppt.slides))
@@ -178,7 +178,7 @@ def test_read_pptx() -> None:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    pptx: PptxContent = read_pptx(file_like)
+    pptx: PptxContent = next(read_pptx(file_like))
 
     # metadata
     tc.assertEqual("IVAN Anda-Otilia", pptx.metadata.author)
@@ -242,7 +242,7 @@ def test_read_docx() -> None:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    docx: DocxContent = read_docx(file_like)
+    docx: DocxContent = next(read_docx(file_like))
 
     # text is long. Verify only beginning and ending of the combined text
     tc.assertEqual("Welcome to the Government", docx.full_text[:25].strip())
@@ -269,7 +269,7 @@ def test_read_doc() -> None:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
 
-    doc: DocContent = read_doc(file_like=file_like)
+    doc: DocContent = next(read_doc(file_like=file_like))
 
     # Text content
     expected = """
@@ -307,7 +307,7 @@ def test_read_pdf() -> None:
     ) as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
-    pdf: PdfContent = read_pdf(file_like=file_like)
+    pdf: PdfContent = next(read_pdf(file_like=file_like))
 
     tc.assertEqual(2, pdf.metadata.total_pages)
     tc.assertListEqual(sorted([1, 2]), sorted(pdf.pages.keys()))

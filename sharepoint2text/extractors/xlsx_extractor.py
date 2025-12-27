@@ -5,7 +5,7 @@ XLSX content extractor using pandas and openpyxl libraries.
 import datetime
 import io
 import logging
-from typing import List
+from typing import Any, Generator, List
 
 import pandas as pd
 from openpyxl import load_workbook
@@ -63,7 +63,9 @@ def _read_content(file_like: io.BytesIO) -> List[XlsxSheet]:
     return sheets
 
 
-def read_xlsx(file_like: io.BytesIO, path: str | None = None) -> XlsxContent:
+def read_xlsx(
+    file_like: io.BytesIO, path: str | None = None
+) -> Generator[XlsxContent, Any, None]:
     """
     Extract all relevant content from an XLSX file.
 
@@ -71,11 +73,11 @@ def read_xlsx(file_like: io.BytesIO, path: str | None = None) -> XlsxContent:
         file_like: A BytesIO object containing the XLSX file data.
         path: Optional file path to populate file metadata fields.
 
-    Returns:
+    Yields:
         MicrosoftXlsxContent dataclass with all extracted content.
     """
     sheets = _read_content(file_like)
     metadata = _read_metadata(file_like)
     metadata.populate_from_path(path)
 
-    return XlsxContent(metadata=metadata, sheets=sheets)
+    yield XlsxContent(metadata=metadata, sheets=sheets)
