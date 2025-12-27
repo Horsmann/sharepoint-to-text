@@ -81,3 +81,9 @@ def test_router():
         get_extractor,
         "not_supported.misc",
     )
+
+    test_case_obj.assertRaises(
+        RuntimeError,
+        get_extractor,
+        "i-have-no-file-type",
+    )

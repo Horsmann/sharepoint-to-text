@@ -109,7 +109,12 @@ def get_extractor(path: str) -> typing.Callable:
         return _get_extractor(file_type)
     elif any([path.endswith(ending) for ending in [".msg", ".eml", ".mbox"]]):
         # the file types are mapped with leading dot
-        file_type = os.path.splitext(path)[1][1:]
+        path_elements = os.path.splitext(path)
+        if len(path_elements) <= 1:
+            raise RuntimeError(
+                f"The file path did not allow to identify the file type [{path}]"
+            )
+        file_type = path_elements[1][1:]
         logger.debug(f"Detected file type: {file_type} for file: {path}")
         return _get_extractor(file_type)
     else:
