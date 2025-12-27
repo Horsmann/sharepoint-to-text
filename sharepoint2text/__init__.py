@@ -72,6 +72,33 @@ def read_plain_text(file_like: io.BytesIO, path: str | None = None):
     return _read_plain_text(file_like, path)
 
 
+def read_email__msg_format(file_like: io.BytesIO, path: str | None = None):
+    """Extract content from an email in msg format."""
+    from sharepoint2text.extractors.mail.msg_email_extractor import (
+        read_msg_format_mail as _read_msg_format_mail,
+    )
+
+    return _read_msg_format_mail(file_like, path)
+
+
+def read_email__eml_format(file_like: io.BytesIO, path: str | None = None):
+    """Extract content from an email in msg format."""
+    from sharepoint2text.extractors.mail.eml_email_extractor import (
+        read_eml_format_mail as _read_eml_format_mail,
+    )
+
+    return _read_eml_format_mail(file_like, path)
+
+
+def read_email__mbox_format(file_like: io.BytesIO, path: str | None = None):
+    """Extract content from an email in msg format."""
+    from sharepoint2text.extractors.mail.mbox_email_extractor import (
+        read_mbox_format_mail as _read_mbox_format_mail,
+    )
+
+    return _read_mbox_format_mail(file_like, path)
+
+
 def read_file(path: str | Path):
     """
     Read and extract content from a file.
@@ -93,10 +120,15 @@ def read_file(path: str | Path):
         - .ppt  -> PPTContent
         - .pdf  -> PdfContent
         - .txt  -> PlainTextContent
+        - .msg -> EmailContent
+        - .mbox -> EmailContent
+        - .eml -> EmailContent
 
     Raises:
         RuntimeError: If the file type is not supported.
         FileNotFoundError: If the file does not exist.
+
+    The individual extractors are callable separately
 
     Example:
         >>> import sharepoint2text
@@ -125,4 +157,7 @@ __all__ = [
     "read_ppt",
     "read_pdf",
     "read_plain_text",
+    "read_email__msg_format",
+    "read_email__eml_format",
+    "read_email__mbox_format",
 ]
