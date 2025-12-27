@@ -103,6 +103,36 @@ Different file formats have different natural structural units:
 
 **Note on generators:** All extractors return generators. Most formats yield a single content object, but `.mbox` files can yield multiple `EmailContent` objects (one per email in the mailbox). Use `next()` for single-item formats or iterate with `for` to handle all cases.
 
+### Choosing Between `get_full_text()` and `iterator()`
+
+The interface provides two methods for accessing text content, and **you must decide which is appropriate for your use case**:
+
+| Method | Returns | Best for |
+|--------|---------|----------|
+| `get_full_text()` | All text as a single string | Simple extraction, full-text search, when structure doesn't matter |
+| `iterator()` | Yields logical units (pages, slides, sheets) | RAG pipelines, per-unit indexing, preserving document structure |
+
+**For RAG and vector storage:** Consider whether storing pages/slides/sheets as separate chunks with metadata (e.g., page numbers) benefits your retrieval strategy. This allows more precise source attribution when users query your system.
+
+```python
+# Option 1: Store entire document as one chunk
+result = next(sharepoint2text.read_file("report.pdf"))
+store_in_vectordb(text=result.get_full_text(), metadata={"source": "report.pdf"})
+
+# Option 2: Store each page separately with page numbers
+result = next(sharepoint2text.read_file("report.pdf"))
+for page_num, page_text in enumerate(result.iterator(), start=1):
+    store_in_vectordb(
+        text=page_text,
+        metadata={"source": "report.pdf", "page": page_num}
+    )
+```
+
+**Trade-offs to consider:**
+- **Per-unit storage** enables citing specific pages/slides in responses, but creates more chunks
+- **Full-text storage** is simpler and may work better for small documents
+- **Word documents** (`.doc`, `.docx`) only yield one unit from `iterator()` since they lack page structure—for these formats, both methods are equivalent
+
 ### Basic Usage Examples
 
 ```python
