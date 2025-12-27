@@ -87,9 +87,7 @@ class EmailContent(ExtractionInterface):
         yield (
             self.body_plain
             if self.body_plain
-            else self.body_html
-            if self.body_html
-            else ""
+            else self.body_html if self.body_html else ""
         )
 
     def get_full_text(self) -> str:
