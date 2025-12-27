@@ -1,0 +1,35 @@
+From sender@example.com Sat Dec 27 10:00:00 2025
+From: John Doe <john@example.com>
+To: Jane Smith <jane@example.com>
+Subject: Test Email 1
+Date: Sat, 27 Dec 2025 10:00:00 +0000
+Message-ID: <msg001@example.com>
+Content-Type: text/plain; charset="utf-8"
+
+This is the body of the first test email.
+It has multiple lines.
+
+Best regards,
+John
+
+From another@example.com Sat Dec 27 11:00:00 2025
+From: =?UTF-8?Q?M=C3=BCller?= <mueller@example.com>
+To: recipient@example.com, "Another Person" <another@example.com>
+Cc: cc-person@example.com
+Subject: =?UTF-8?B?VGVzdCB3aXRoIFVURi04OiDDhMO8w7Y=?=
+Date: Sat, 27 Dec 2025 11:00:00 +0100
+Message-ID: <msg002@example.com>
+In-Reply-To: <msg001@example.com>
+Content-Type: multipart/alternative; boundary="boundary123"
+
+--boundary123
+Content-Type: text/plain; charset="utf-8"
+
+Plain text version of the email.
+
+--boundary123
+Content-Type: text/html; charset="utf-8"
+
+<html><body><p>HTML version of the email.</p></body></html>
+
+--boundary123--

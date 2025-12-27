@@ -17,6 +17,7 @@ from sharepoint2text.extractors.data_types import (
 from sharepoint2text.extractors.doc_extractor import read_doc
 from sharepoint2text.extractors.docx_extractor import read_docx
 from sharepoint2text.extractors.mail.eml_email_extractor import read_eml_format_mail
+from sharepoint2text.extractors.mail.mbox_email_extractor import read_mbox_format_mail
 from sharepoint2text.extractors.mail.msg_email_extractor import read_msg_format_mail
 from sharepoint2text.extractors.pdf_extractor import read_pdf
 from sharepoint2text.extractors.plain_extractor import read_plain_text
@@ -374,10 +375,25 @@ def test_email__eml_format() -> None:
     tc.assertEqual("silent.observer@example.test", mail.to_bcc[1].address)
 
     # body
-    tc.assertEqual("Plain email.\n\nHope it works well!\n\nMikel\n", mail.body_plain)
+    tc.assertEqual("Plain email.\n\nHope it works well!\n\nMikel", mail.body_plain)
 
     # subject
     tc.assertEqual("Testing 123", mail.subject)
+
+    # interface methods
+    tc.assertEqual("Plain email.\n\nHope it works well!\n\nMikel", mail.get_full_text())
+    tc.assertEqual(
+        "Plain email.\n\nHope it works well!\n\nMikel", list(mail.iterator())[0]
+    )
+
+    # metadata
+    mail_meta = mail.get_metadata()
+    tc.assertEqual("basic_email.eml", mail_meta.filename)
+    tc.assertEqual(".eml", mail_meta.file_extension)
+    tc.assertEqual("2008-11-22T04:04:59+00:00", mail_meta.date)
+    tc.assertEqual(
+        "<6B7EC235-5B17-4CA8-B2B8-39290DEB43A3@test.lindsaar.net>", mail_meta.message_id
+    )
 
 
 def test_email__msg_format() -> None:
@@ -411,3 +427,54 @@ def test_email__msg_format() -> None:
     tc.assertEqual("Test for TIF files", mail.subject)
     # body
     tc.assertEqual("This is a test email to experiment with", mail.body_plain[:39])
+
+    # metadata
+    mail_meta = mail.get_metadata()
+    tc.assertEqual("basic_email.msg", mail_meta.filename)
+    tc.assertEqual(".msg", mail_meta.file_extension)
+    tc.assertEqual("2013-11-18T10:26:24+02:00", mail_meta.date)
+    tc.assertEqual(
+        "<CADtJ4eNjQSkGcBtVteCiTF+YFG89+AcHxK3QZ=-Mt48xygkvdQ@mail.gmail.com>",
+        mail_meta.message_id,
+    )
+
+
+def test_email__mbox_format() -> None:
+    with open(
+        "sharepoint2text/tests/resources/mails/basic_email.mbox", mode="rb"
+    ) as file:
+        file_like = io.BytesIO(file.read())
+        mails: list[EmailContent] = read_mbox_format_mail(
+            file_like=file_like,
+            path="sharepoint2text/tests/resources/mails/basic_email.mbox",
+        )
+
+    # number of mails
+    tc.assertEqual(2, len(mails))
+
+    # 1st mail
+    # subject
+    tc.assertEqual("Test Email 1", mails[0].subject)
+    # body
+    tc.assertEqual("This is the body", mails[0].body_plain[:16])
+    # sender
+    tc.assertEqual("John Doe", mails[0].from_email.name)
+    tc.assertEqual("john@example.com", mails[0].from_email.address)
+
+    # receiver
+    tc.assertEqual(1, len(mails[0].to_emails))
+    tc.assertEqual("Jane Smith", mails[0].to_emails[0].name)
+    tc.assertEqual("jane@example.com", mails[0].to_emails[0].address)
+
+    # cc
+    tc.assertEqual(0, len(mails[0].to_cc))
+
+    # bcc
+    tc.assertEqual(0, len(mails[0].to_bcc))
+
+    # metadata
+    mail_meta = mails[0].get_metadata()
+    tc.assertEqual("basic_email.mbox", mail_meta.filename)
+    tc.assertEqual(".mbox", mail_meta.file_extension)
+    tc.assertEqual("2025-12-27T10:00:00+00:00", mail_meta.date)
+    tc.assertEqual("<msg001@example.com>", mail_meta.message_id)

@@ -79,13 +79,23 @@ class EmailContent(ExtractionInterface):
     body_html: str = ""
     metadata: EmailMetadata = field(default_factory=EmailMetadata)
 
+    def __post_init__(self):
+        self.subject = self.subject.strip()
+        self.body_plain = self.body_plain.strip()
+
     def iterator(self) -> typing.Iterator[str]:
-        yield self.body_plain
+        yield (
+            self.body_plain
+            if self.body_plain
+            else self.body_html
+            if self.body_html
+            else ""
+        )
 
     def get_full_text(self) -> str:
-        return self.body_plain
+        return "\n".join(self.iterator())
 
-    def get_metadata(self) -> FileMetadataInterface:
+    def get_metadata(self) -> EmailMetadata:
         return self.metadata
 
 

@@ -1,6 +1,7 @@
 import io
 import logging
 import re
+from email.utils import parsedate_to_datetime
 
 from msg_parser import MsOxMessage
 
@@ -79,7 +80,7 @@ def read_msg_format_mail(
 
     meta = EmailMetadata(
         message_id=msg.message_id,
-        date=msg.sent_date,
+        date=parsedate_to_datetime(msg.sent_date).isoformat(),
     )
 
     content = EmailContent(
