@@ -19,6 +19,9 @@ mime_type_mapping = {
     "text/plain": "txt",
     "text/tab-separated-values": "tsv",
     "application/tab-separated-values": "tsv",
+    "application/vnd.ms-outlook": "msg",
+    "message/rfc822": "eml",
+    "application/mbox": "mbox",
 }
 
 
@@ -56,6 +59,24 @@ def _get_extractor(file_type: str) -> typing.Callable:
         from sharepoint2text.extractors.plain_extractor import read_plain_text
 
         return read_plain_text
+    elif file_type == "msg":
+        from sharepoint2text.extractors.mail.msg_email_extractor import (
+            read_msg_format_mail,
+        )
+
+        return read_msg_format_mail
+    elif file_type == "mbox":
+        from sharepoint2text.extractors.mail.mbox_email_extractor import (
+            read_mbox_format_mail,
+        )
+
+        return read_mbox_format_mail
+    elif file_type == "eml":
+        from sharepoint2text.extractors.mail.eml_email_extractor import (
+            read_eml_format_mail,
+        )
+
+        return read_eml_format_mail
     else:
         raise RuntimeError(f"No extractor for file type: {file_type}")
 

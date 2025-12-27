@@ -1,5 +1,6 @@
 import io
 import logging
+import typing
 from unittest import TestCase
 
 from sharepoint2text.extractors.data_types import (
@@ -347,10 +348,15 @@ def test_email__eml_format() -> None:
         "sharepoint2text/tests/resources/mails/basic_email.eml", mode="rb"
     ) as file:
         file_like = io.BytesIO(file.read())
-        mail: EmailContent = read_eml_format_mail(
+        mail_gen: typing.Generator[EmailContent, None, None] = read_eml_format_mail(
             file_like=file_like,
             path="sharepoint2text/tests/resources/mails/basic_email.eml",
         )
+        mails = list(mail_gen)
+
+    tc.assertEqual(1, len(mails))
+
+    mail = mails[0]
 
     # from
     tc.assertEqual("Mikel Lindsaar", mail.from_email.name)
@@ -401,10 +407,15 @@ def test_email__msg_format() -> None:
         "sharepoint2text/tests/resources/mails/basic_email.msg", mode="rb"
     ) as file:
         file_like = io.BytesIO(file.read())
-        mail: EmailContent = read_msg_format_mail(
+        mail_gen: typing.Generator[EmailContent, None, None] = read_msg_format_mail(
             file_like=file_like,
             path="sharepoint2text/tests/resources/mails/basic_email.msg",
         )
+        mails = list(mail_gen)
+
+    tc.assertEqual(1, len(mails))
+
+    mail = mails[0]
 
     # from
     tc.assertEqual("Brian Zhou", mail.from_email.name)
@@ -444,10 +455,11 @@ def test_email__mbox_format() -> None:
         "sharepoint2text/tests/resources/mails/basic_email.mbox", mode="rb"
     ) as file:
         file_like = io.BytesIO(file.read())
-        mails: list[EmailContent] = read_mbox_format_mail(
+        mail_gen: typing.Generator[EmailContent, None, None] = read_mbox_format_mail(
             file_like=file_like,
             path="sharepoint2text/tests/resources/mails/basic_email.mbox",
         )
+        mails = list(mail_gen)
 
     # number of mails
     tc.assertEqual(2, len(mails))

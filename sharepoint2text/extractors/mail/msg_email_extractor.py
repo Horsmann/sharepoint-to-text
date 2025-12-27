@@ -2,6 +2,7 @@ import io
 import logging
 import re
 from email.utils import parsedate_to_datetime
+from typing import Any, Generator
 
 from msg_parser import MsOxMessage
 
@@ -75,7 +76,7 @@ def _parse_multi_recipients(raw: str | list[str]) -> list[EmailAddress]:
 
 def read_msg_format_mail(
     file_like: io.BytesIO, path: str | None = None
-) -> EmailContent:
+) -> Generator[EmailContent, Any, None]:
     msg = MsOxMessage(file_like)
 
     meta = EmailMetadata(
@@ -98,4 +99,4 @@ def read_msg_format_mail(
     if path:
         content.metadata.populate_from_path(path)
 
-    return content
+    yield content

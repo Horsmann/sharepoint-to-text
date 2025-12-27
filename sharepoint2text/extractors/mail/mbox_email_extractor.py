@@ -6,6 +6,7 @@ import mailbox
 import os
 import tempfile
 from email.utils import parsedate_to_datetime
+from typing import Any, Generator
 
 from sharepoint2text.extractors.data_types import (
     EmailAddress,
@@ -144,7 +145,7 @@ def parse_email_message(message: email.message.Message) -> EmailContent:
 
 def read_mbox_format_mail(
     file_like: io.BytesIO, path: str | None = None
-) -> list[EmailContent]:
+) -> Generator[EmailContent, Any, None]:
     """
     Read all emails from an mbox format file.
 
@@ -161,23 +162,11 @@ def read_mbox_format_mail(
 
     try:
         mbox = mailbox.mbox(tmp_path)
-        emails = []
-
         for message in mbox:
-            emails.append(parse_email_message(message))
+            m = parse_email_message(message)
             if path:
-                emails[-1].metadata.populate_from_path(path)
-
-        return emails
+                m.metadata.populate_from_path(path)
+            yield m
 
     finally:
         os.unlink(tmp_path)
-
-
-if __name__ == "__main__":
-    with open("sharepoint2text/tests/resources/mails/basic_email.mbox", "rb") as f:
-        fl = io.BytesIO(f.read())
-    r = read_mbox_format_mail(
-        fl, "sharepoint2text/tests/resources/mails/basic_email.mbox"
-    )
-    print(r)

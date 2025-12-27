@@ -1,5 +1,6 @@
 import io
 import logging
+from typing import Any, Generator
 
 from mailparser import parse_from_bytes
 
@@ -77,7 +78,7 @@ def _read_eml_format(payload: bytes) -> EmailContent:
 
 def read_eml_format_mail(
     file_like: io.BytesIO, path: str | None = None
-) -> EmailContent:
+) -> Generator[EmailContent, Any, None]:
     """Read an .eml file and extract its content.
 
     Args:
@@ -85,7 +86,7 @@ def read_eml_format_mail(
         path: Optional path to populate file metadata
 
     Returns:
-        EmailContent with parsed email data
+        Generator of EmailContent objects. This accounts for some email formats containing multiple emails.
     """
     file_like.seek(0)
     content = _read_eml_format(file_like.getvalue())
@@ -93,4 +94,4 @@ def read_eml_format_mail(
     if path:
         content.metadata.populate_from_path(path)
 
-    return content
+    yield content
