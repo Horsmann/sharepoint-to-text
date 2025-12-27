@@ -3,6 +3,8 @@ import logging
 import unittest
 from unittest import TestCase
 
+from extractors.mail.eml_email_extractor import read_mail
+
 from sharepoint2text.extractors.data_types import (
     DocContent,
     DocxContent,
@@ -17,7 +19,6 @@ from sharepoint2text.extractors.data_types import (
 )
 from sharepoint2text.extractors.doc_extractor import read_doc
 from sharepoint2text.extractors.docx_extractor import read_docx
-from sharepoint2text.extractors.email_extractor import read_mail
 from sharepoint2text.extractors.pdf_extractor import read_pdf
 from sharepoint2text.extractors.plain_extractor import read_plain_text
 from sharepoint2text.extractors.ppt_extractor import read_ppt
