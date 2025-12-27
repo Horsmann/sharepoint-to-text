@@ -98,8 +98,3 @@ def read_msg_format_mail(
         content.metadata.populate_from_path(path)
 
     return content
-
-
-if __name__ == "__main__":
-    with open("sharepoint2text/tests/resources/mails/basic_email.msg", "rb") as f:
-        read_msg_format_mail(io.BytesIO(f.read()))
