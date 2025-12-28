@@ -872,7 +872,7 @@ wheels = [
 
 [[package]]
 name = "sharepoint-to-text"
-version = "0.1.1"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "mail-parser" },

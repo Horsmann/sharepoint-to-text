@@ -628,7 +628,7 @@ class XlsContent(ExtractionInterface):
             yield sheet.text.strip()
 
     def get_full_text(self) -> str:
-        return self.full_text
+        return self.full_text.strip()
 
     def get_metadata(self) -> XlsMetadata:
         """Returns the metadata of the extracted file."""

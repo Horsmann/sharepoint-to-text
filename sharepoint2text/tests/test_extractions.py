@@ -143,7 +143,7 @@ def test_read_xlsx() -> None:
     )
 
 
-def test_read_xls() -> None:
+def test_read_xls_1() -> None:
     filename = "sharepoint2text/tests/resources/pb_2011_1_gen_web.xls"
     with open(filename, mode="rb") as file:
         file_like = io.BytesIO(file.read())
@@ -163,13 +163,12 @@ def test_read_xls() -> None:
     xls_it = xls.iterator()
     # test first page
     s1 = next(xls_it)
-    tc.assertEqual(
-        """
-    Unnamed: 0                                 EUROPEAN UNION
-        NaN                            European Commission
-    """.strip(),
-        s1[:116],
+    expected = (
+        "EUROPEAN UNION\n"
+        "                             European Commission\n"
+        "  Directorate-General for Mobility and Transport\n"
     )
+    tc.assertEqual(expected, s1[:113])
 
     # test second page
     s2 = next(xls_it)
@@ -180,6 +179,19 @@ def test_read_xls() -> None:
 
     # all text
     tc.assertIsNotNone(xls.get_full_text())
+
+
+def test_read_xls_2() -> None:
+    filename = "sharepoint2text/tests/resources/mwe.xls"
+    with open(filename, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    xls: XlsContent = next(read_xls(file_like=file_like))
+    tc.assertEqual(
+        "colA  colB\n   1     2",
+        xls.get_full_text(),
+    )
 
 
 def test_read_ppt() -> None:
