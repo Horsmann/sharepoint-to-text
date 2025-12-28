@@ -12,6 +12,10 @@ from sharepoint2text.extractors.data_types import (
     EmailContent,
     FileMetadataInterface,
     HtmlContent,
+    OdtAnnotation,
+    OdtContent,
+    OdtHeaderFooter,
+    OdtNote,
     PdfContent,
     PlainTextContent,
     PptContent,
@@ -26,6 +30,7 @@ from sharepoint2text.extractors.html_extractor import read_html
 from sharepoint2text.extractors.mail.eml_email_extractor import read_eml_format_mail
 from sharepoint2text.extractors.mail.mbox_email_extractor import read_mbox_format_mail
 from sharepoint2text.extractors.mail.msg_email_extractor import read_msg_format_mail
+from sharepoint2text.extractors.odt_extractor import read_odt
 from sharepoint2text.extractors.pdf_extractor import read_pdf
 from sharepoint2text.extractors.plain_extractor import read_plain_text
 from sharepoint2text.extractors.ppt_extractor import read_ppt
@@ -671,4 +676,82 @@ def test_read_html() -> None:
             {"text": "Google", "href": "https://www.google.com"},
         ],
         html.links,
+    )
+
+
+def test_read_odt() -> None:
+    path = "sharepoint2text/tests/resources/open_office/sample_document.odt"
+    with open(path, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    odt: OdtContent = next(read_odt(file_like=file_like, path=path))
+
+    tc.assertEqual(".odt", odt.get_metadata().to_dict().get("file_extension"))
+    tc.assertEqual("sample_document.odt", odt.get_metadata().to_dict().get("filename"))
+
+    # comments
+    tc.assertListEqual(
+        [
+            OdtAnnotation(
+                creator="User",
+                date="2025-12-28T12:00:00",
+                text="This is a comment by User on the sample text.",
+            )
+        ],
+        odt.annotations,
+    )
+
+    # footer/headers
+    tc.assertListEqual(
+        [OdtHeaderFooter(type="header", text="Document Header - My ODT Document")],
+        odt.headers,
+    )
+    tc.assertListEqual(
+        [OdtHeaderFooter(type="footer", text="Footer - Page 1 | Confidential")],
+        odt.footers,
+    )
+
+    # endnote
+    tc.assertListEqual(
+        [
+            OdtNote(
+                id="en1",
+                note_class="endnote",
+                text="This is an endnote that appears at the end of the document.",
+            )
+        ],
+        odt.endnotes,
+    )
+    # tables
+    tc.assertListEqual([[["Header 1", "Header 2"], ["Cell A", "Cell B"]]], odt.tables)
+
+    # iterator items
+    tc.assertEqual(1, len(list(odt.iterator())))
+
+    # full text with defaults
+    tc.assertEqual(
+        "Hello World Document\n"
+        "Hello World! This is a sample ODT document created with Python.\n"
+        "This paragraph contains an endnote reference for demonstration purposes.\n"
+        "Header 1\n"
+        "Header 2\n"
+        "Cell A\n"
+        "Cell B\n"
+        "End of document.",
+        odt.get_full_text(),
+    )
+
+    tc.assertEqual(
+        "Hello World Document\n"
+        "Hello World! This is a sample ODT document created with Python.\n"
+        "This paragraph contains an endnote reference for demonstration purposes.\n"
+        "Header 1\n"
+        "Header 2\n"
+        "Cell A\n"
+        "Cell B\n"
+        "End of document.\n"
+        "[Annotation: User@2025-12-28T12:00:00: This is a comment by User on the "
+        "sample text.]",
+        odt.get_full_text(include_annotations=True),
     )

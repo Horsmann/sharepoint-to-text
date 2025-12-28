@@ -714,6 +714,151 @@ class XlsxContent(ExtractionInterface):
         return self.metadata
 
 
+###############
+# OpenDocument ODT
+###############
+
+
+@dataclass
+class OdtMetadata(FileMetadataInterface):
+    """Metadata extracted from an ODT file."""
+
+    title: str = ""
+    description: str = ""
+    subject: str = ""
+    creator: str = ""
+    keywords: str = ""
+    initial_creator: str = ""
+    creation_date: str = ""
+    date: str = ""  # Last modified date
+    language: str = ""
+    editing_cycles: int = 0
+    editing_duration: str = ""
+    generator: str = ""  # Application that created the document
+
+
+@dataclass
+class OdtRun:
+    """Represents a span of text with formatting."""
+
+    text: str = ""
+    style_name: Optional[str] = None
+    font_name: Optional[str] = None
+    font_size: Optional[str] = None
+    bold: Optional[bool] = None
+    italic: Optional[bool] = None
+    underline: Optional[bool] = None
+    color: Optional[str] = None
+
+
+@dataclass
+class OdtParagraph:
+    """Represents a paragraph in the document."""
+
+    text: str = ""
+    style_name: Optional[str] = None
+    outline_level: Optional[int] = None  # For headings
+    runs: List["OdtRun"] = field(default_factory=list)
+
+
+@dataclass
+class OdtHeaderFooter:
+    """Represents a header or footer."""
+
+    type: str = ""  # header, footer, header-left, footer-left
+    text: str = ""
+
+
+@dataclass
+class OdtImage:
+    """Represents an embedded image."""
+
+    href: str = ""
+    name: str = ""
+    content_type: str = ""
+    data: Optional[io.BytesIO] = None
+    size_bytes: int = 0
+    width: Optional[str] = None
+    height: Optional[str] = None
+    error: Optional[str] = None
+
+
+@dataclass
+class OdtHyperlink:
+    """Represents a hyperlink."""
+
+    text: str = ""
+    url: str = ""
+
+
+@dataclass
+class OdtNote:
+    """Represents a footnote or endnote."""
+
+    id: str = ""
+    note_class: str = ""  # footnote or endnote
+    text: str = ""
+
+
+@dataclass
+class OdtAnnotation:
+    """Represents an annotation/comment."""
+
+    creator: str = ""
+    date: str = ""
+    text: str = ""
+
+
+@dataclass
+class OdtBookmark:
+    """Represents a bookmark."""
+
+    name: str = ""
+
+
+@dataclass
+class OdtContent(ExtractionInterface):
+    """Complete extracted content from an ODT file."""
+
+    metadata: OdtMetadata = field(default_factory=OdtMetadata)
+    paragraphs: List[OdtParagraph] = field(default_factory=list)
+    tables: List[List[List[str]]] = field(default_factory=list)
+    headers: List[OdtHeaderFooter] = field(default_factory=list)
+    footers: List[OdtHeaderFooter] = field(default_factory=list)
+    images: List[OdtImage] = field(default_factory=list)
+    hyperlinks: List[OdtHyperlink] = field(default_factory=list)
+    footnotes: List[OdtNote] = field(default_factory=list)
+    endnotes: List[OdtNote] = field(default_factory=list)
+    annotations: List[OdtAnnotation] = field(default_factory=list)
+    bookmarks: List[OdtBookmark] = field(default_factory=list)
+    styles: List[str] = field(default_factory=list)
+    full_text: str = ""
+
+    def iterator(self, include_annotations: bool = False) -> typing.Iterator[str]:
+        """Iterate over document text.
+
+        Args:
+            include_annotations: Include annotations/comments in output
+        """
+        yield self.full_text
+
+        if include_annotations:
+            for annotation in self.annotations:
+                yield f"[Annotation: {annotation.creator}@{annotation.date}: {annotation.text}]"
+
+    def get_full_text(self, include_annotations: bool = False) -> str:
+        """Get full text of the document.
+
+        Args:
+            include_annotations: Include annotations/comments in output (default: False)
+        """
+        return "\n".join(self.iterator(include_annotations))
+
+    def get_metadata(self) -> OdtMetadata:
+        """Returns the metadata of the extracted file."""
+        return self.metadata
+
+
 #######
 # RTF
 #######

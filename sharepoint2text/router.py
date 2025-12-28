@@ -29,6 +29,7 @@ mime_type_mapping = {
     "application/mbox": "mbox",
     "application/rtf": "rtf",
     "text/rtf": "rtf",
+    "application/vnd.oasis.opendocument.text": "odt",
     "text/markdown": "md",
     "text/html": "html",
     "application/xhtml+xml": "html",
@@ -97,6 +98,10 @@ def _get_extractor(
         from sharepoint2text.extractors.html_extractor import read_html
 
         return read_html
+    elif file_type == "odt":
+        from sharepoint2text.extractors.odt_extractor import read_odt
+
+        return read_odt
     else:
         raise ExtractionFileFormatNotSupportedError(
             f"No extractor for file type: {file_type}"
