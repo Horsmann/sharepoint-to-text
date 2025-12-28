@@ -719,6 +719,120 @@ class XlsxContent(ExtractionInterface):
 ###############
 
 
+###############
+# OpenDocument ODP (Presentation)
+###############
+
+
+@dataclass
+class OdpMetadata(FileMetadataInterface):
+    """Metadata extracted from an ODP file."""
+
+    title: str = ""
+    description: str = ""
+    subject: str = ""
+    creator: str = ""
+    keywords: str = ""
+    initial_creator: str = ""
+    creation_date: str = ""
+    date: str = ""  # Last modified date
+    language: str = ""
+    editing_cycles: int = 0
+    editing_duration: str = ""
+    generator: str = ""  # Application that created the document
+
+
+@dataclass
+class OdpAnnotation:
+    """Represents an annotation/comment in a presentation."""
+
+    creator: str = ""
+    date: str = ""
+    text: str = ""
+
+
+@dataclass
+class OdpSlide:
+    """Represents a single slide in the presentation."""
+
+    slide_number: int = 0
+    name: str = ""
+    title: str = ""
+    body_text: List[str] = field(default_factory=list)
+    other_text: List[str] = field(default_factory=list)
+    tables: List[List[List[str]]] = field(default_factory=list)
+    annotations: List[OdpAnnotation] = field(default_factory=list)
+    notes: List[str] = field(default_factory=list)  # Speaker notes
+
+    @property
+    def text_combined(self) -> str:
+        """All text from this slide combined."""
+        parts = []
+        if self.title:
+            parts.append(self.title)
+        parts.extend(self.body_text)
+        parts.extend(self.other_text)
+        return "\n".join(parts)
+
+
+@dataclass
+class OdpContent(ExtractionInterface):
+    """Complete extracted content from an ODP file."""
+
+    metadata: OdpMetadata = field(default_factory=OdpMetadata)
+    slides: List[OdpSlide] = field(default_factory=list)
+
+    def iterator(
+        self, include_annotations: bool = False, include_notes: bool = False
+    ) -> typing.Iterator[str]:
+        """Iterate over slides, yielding combined text per slide.
+
+        Args:
+            include_annotations: Include annotations/comments in output
+            include_notes: Include speaker notes in output
+        """
+        for slide in self.slides:
+            parts = [slide.text_combined]
+
+            if include_annotations:
+                for annotation in slide.annotations:
+                    parts.append(
+                        f"[Annotation: {annotation.creator}@{annotation.date}: {annotation.text}]"
+                    )
+
+            if include_notes:
+                for note in slide.notes:
+                    parts.append(f"[Note: {note}]")
+
+            yield "\n".join(parts)
+
+    def get_full_text(
+        self, include_annotations: bool = False, include_notes: bool = False
+    ) -> str:
+        """Get full text of all slides.
+
+        Args:
+            include_annotations: Include annotations/comments in output (default: False)
+            include_notes: Include speaker notes in output (default: False)
+        """
+        return "\n".join(
+            list(
+                self.iterator(
+                    include_annotations=include_annotations, include_notes=include_notes
+                )
+            )
+        )
+
+    def get_metadata(self) -> OdpMetadata:
+        """Returns the metadata of the extracted file."""
+        return self.metadata
+
+    @property
+    def slide_count(self) -> int:
+        """Number of slides extracted."""
+        return len(self.slides)
+
+
 @dataclass
 class OdtMetadata(FileMetadataInterface):
     """Metadata extracted from an ODT file."""

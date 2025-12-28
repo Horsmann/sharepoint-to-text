@@ -30,6 +30,7 @@ mime_type_mapping = {
     "application/rtf": "rtf",
     "text/rtf": "rtf",
     "application/vnd.oasis.opendocument.text": "odt",
+    "application/vnd.oasis.opendocument.presentation": "odp",
     "text/markdown": "md",
     "text/html": "html",
     "application/xhtml+xml": "html",
@@ -102,6 +103,10 @@ def _get_extractor(
         from sharepoint2text.extractors.odt_extractor import read_odt
 
         return read_odt
+    elif file_type == "odp":
+        from sharepoint2text.extractors.odp_extractor import read_odp
+
+        return read_odp
     else:
         raise ExtractionFileFormatNotSupportedError(
             f"No extractor for file type: {file_type}"

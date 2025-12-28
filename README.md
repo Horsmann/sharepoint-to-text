@@ -38,6 +38,7 @@ Enterprise SharePoints contain decades of accumulated documents. While modern `.
 | Modern PowerPoint | `.pptx`   | PowerPoint 2007+ presentations        |
 | Legacy PowerPoint | `.ppt`    | PowerPoint 97-2003 presentations      |
 | PDF               | `.pdf`    | PDF documents                         |
+| ODP Presentation  | `.odp`    | OpenDocument Presentation             |
 | EML Email         | `.eml`    | RFC 822 email format                  |
 | MSG Email         | `.msg`    | Microsoft Outlook email format        |
 | MBOX Email        | `.mbox`   | Unix mailbox format (multiple emails) |
@@ -95,7 +96,7 @@ Different file formats have different natural structural units:
 |--------|-------------------|-------|
 | `.docx`, `.doc` | 1 item (full text) | Word documents have no page structure in the file format |
 | `.xlsx`, `.xls` | 1 item per **sheet** | Each yield contains sheet content |
-| `.pptx`, `.ppt` | 1 item per **slide** | Each yield contains slide text |
+| `.pptx`, `.ppt`, `.odp` | 1 item per **slide** | Each yield contains slide text |
 | `.pdf` | 1 item per **page** | Each yield contains page text |
 | `.eml`, `.msg` | 1 item (email body) | Plain text or HTML body |
 | `.mbox` | 1 item per **email** | Mailboxes can contain multiple emails |
@@ -248,6 +249,7 @@ sharepoint2text.read_xlsx(file: io.BytesIO, path: str | None = None) -> Generato
 sharepoint2text.read_xls(file: io.BytesIO, path: str | None = None) -> Generator[XlsContent, Any, None]
 sharepoint2text.read_pptx(file: io.BytesIO, path: str | None = None) -> Generator[PptxContent, Any, None]
 sharepoint2text.read_ppt(file: io.BytesIO, path: str | None = None) -> Generator[PptContent, Any, None]
+sharepoint2text.read_odp(file: io.BytesIO, path: str | None = None) -> Generator[OdpContent, Any, None]
 sharepoint2text.read_pdf(file: io.BytesIO, path: str | None = None) -> Generator[PdfContent, Any, None]
 sharepoint2text.read_plain_text(file: io.BytesIO, path: str | None = None) -> Generator[PlainTextContent, Any, None]
 sharepoint2text.read_email__eml_format(file: io.BytesIO, path: str | None = None) -> Generator[EmailContent, Any, None]
@@ -336,6 +338,24 @@ slide.other_text     # List[str]
 slide.notes          # List[str] (speaker notes)
 slide.text_combined  # str (property: title + body + other)
 slide.all_text       # List[PptTextBlock] (with text_type info)
+```
+
+#### OdpContent (.odp)
+
+```python
+result.metadata   # OdpMetadata (title, creator, creation_date, generator, ...)
+result.slides     # List[OdpSlide]
+
+# Each slide:
+slide.slide_number   # int (1-indexed)
+slide.name           # str (slide name)
+slide.title          # str
+slide.body_text      # List[str]
+slide.other_text     # List[str]
+slide.tables         # List[List[List[str]]] (tables on slide)
+slide.annotations    # List[OdpAnnotation] (comments)
+slide.notes          # List[str] (speaker notes)
+slide.text_combined  # str (property: title + body + other)
 ```
 
 #### PdfContent (.pdf)
