@@ -478,15 +478,14 @@ def prepare_for_rag(file_path: str) -> list[dict]:
 ## Requirements
 
 - Python >= 3.10
+- mail-parser >= 4.1.4
+- msg-parser >= 1.2.0
 - olefile >= 0.47
 - openpyxl >= 3.1.5
-- pandas >= 2.3.3
 - pypdf >= 6.5.0
 - python-docx >= 1.2.0
 - python-pptx >= 1.0.2
-- python-calamine >= 0.6.1
-- mail-parser >= 3.15.0
-- msg-parser >= 1.2.0
+- xlrd >= 2.0.2
 
 ## License
 
