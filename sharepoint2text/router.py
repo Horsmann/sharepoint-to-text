@@ -91,7 +91,9 @@ def _get_extractor(
 
         return read_rtf
     else:
-        raise RuntimeError(f"No extractor for file type: {file_type}")
+        raise ExtractionFileFormatNotSupportedError(
+            f"No extractor for file type: {file_type}"
+        )
 
 
 def is_supported_file(path: str) -> bool:
