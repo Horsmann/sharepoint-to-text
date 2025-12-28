@@ -111,7 +111,7 @@ def get_extractor(
        extractor.
 
     :returns a function of an extractor. All extractors take a file-like object as parameter
-    :raises RuntimeError: File is not covered by any extractor
+    :raises ExtractionFileFormatNotSupportedError: File is not covered by any extractor
     """
     path = path.lower()
 
