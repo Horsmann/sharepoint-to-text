@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 def _extract_full_text(file_like: io.BytesIO) -> str:
     """Combines the full text of the docx file into a single text.
     Paragraphs and tables are kept in the order of occurrence."""
+    logger.debug("Extracting document full text")
     file_like.seek(0)
     doc = Document(file_like)
     all_text = []
@@ -59,6 +60,7 @@ def _extract_full_text(file_like: io.BytesIO) -> str:
 
 
 def _extract_footnotes(file_like: io.BytesIO) -> list[DocxNote]:
+    logger.debug("Extracting footnotes")
     footnotes = []
     ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
     w_ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
@@ -84,6 +86,7 @@ def _extract_footnotes(file_like: io.BytesIO) -> list[DocxNote]:
 
 
 def _extract_comments(file_like: io.BytesIO) -> list[DocxComment]:
+    logger.debug("Extracting comments")
     file_like.seek(0)
     comments = []
     ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
@@ -110,6 +113,7 @@ def _extract_comments(file_like: io.BytesIO) -> list[DocxComment]:
 
 
 def _extract_sections(doc: DocumentObject) -> list[DocxSection]:
+    logger.debug("Extracting sections")
     sections = []
     for section in doc.sections:
         sections.append(
@@ -141,6 +145,7 @@ def _extract_sections(doc: DocumentObject) -> list[DocxSection]:
 def _extract_header_footers(
     doc: DocumentObject,
 ) -> tuple[list[DocxHeaderFooter], list[DocxHeaderFooter]]:
+    logger.debug("Extracting header/footer")
     headers = []
     footers = []
     for section in doc.sections:
@@ -177,6 +182,7 @@ def _extract_header_footers(
 
 
 def _extract_paragraphs(doc: DocumentObject) -> list[DocxParagraph]:
+    logger.debug("Extracting paragraphs")
     paragraphs = []
     for para in doc.paragraphs:
         runs = []
@@ -208,6 +214,7 @@ def _extract_paragraphs(doc: DocumentObject) -> list[DocxParagraph]:
 
 
 def _extract_tables(doc: DocumentObject):
+    logger.debug("Extracting tables")
     tables = []
     for table in doc.tables:
         table_data = []
@@ -219,6 +226,35 @@ def _extract_tables(doc: DocumentObject):
             table_data.append(row_data)
         tables.append(table_data)
     return tables
+
+
+def _extract_endnotes(file_like: io.BytesIO) -> list[DocxNote]:
+    """Extracts endnotes which are like footnotes just that they are
+    either forced to appear at the end of a section or at the end of a document"""
+    logger.debug("Extracting endnotes")
+    file_like.seek(0)
+    endnotes = []
+    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    w_ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+
+    with zipfile.ZipFile(file_like, "r") as z:
+        if "word/endnotes.xml" not in z.namelist():
+            return endnotes
+
+        with z.open("word/endnotes.xml") as f:
+            tree = ET.parse(f)
+
+        for en in tree.findall(".//w:endnote", ns):
+            en_id = en.get(f"{w_ns}id") or ""
+            if en_id not in ["-1", "0"]:  # Skip separator and continuation endnotes
+                endnotes.append(
+                    DocxNote(
+                        id=en_id,
+                        text="".join(t.text or "" for t in en.findall(".//w:t", ns)),
+                    )
+                )
+
+    return endnotes
 
 
 def read_docx(
@@ -313,18 +349,7 @@ def read_docx(
     footnotes = _extract_footnotes(file_like=file_like)
 
     # === Endnotes ===
-    endnotes = []
-    try:
-        if doc.part.endnotes_part:
-            ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
-            for en in doc.part.endnotes_part.element.findall(".//w:endnote", ns):
-                en_id = en.get(qn("w:id"))
-                if en_id not in ["-1", "0"]:
-                    text = "".join(t.text or "" for t in en.findall(".//w:t", ns))
-                    endnotes.append(DocxNote(id=en_id, text=text))
-    except AttributeError as e:
-        logger.debug(f"Silently ignoring endnote extraction error {e}")
-
+    endnotes = _extract_endnotes(file_like=file_like)
     # === Comments ===
     comments = _extract_comments(file_like=file_like)
 
