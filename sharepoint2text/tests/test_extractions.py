@@ -656,10 +656,13 @@ def test_read_html() -> None:
 
     html: HtmlContent = next(read_html(file_like=file_like, path=path))
 
+    full_text = "Welcome on my website\n\n\nParticipants\n\n\nName  | Age\nAlice | 25\nBob   | 30\n\n\nThis is a simple example of an HTML page with a table and links.\n\n\nVisit:\nWikipedia |\nGoogle"
+    tc.assertEqual(full_text, html.get_full_text())
     tc.assertListEqual([[["Name", "Age"], ["Alice", "25"], ["Bob", "30"]]], html.tables)
-    # tc.assertEqual("This is a simple example of an HTML page with a table.", html.content)
-    tc.assertDictEqual(
-        {"text": "Wikipedia", "href": "https://www.wikipedia.org"},
-        {"text": "Google", "href": "https://www.google.com"},
+    tc.assertListEqual(
+        [
+            {"text": "Wikipedia", "href": "https://www.wikipedia.org"},
+            {"text": "Google", "href": "https://www.google.com"},
+        ],
         html.links,
     )
