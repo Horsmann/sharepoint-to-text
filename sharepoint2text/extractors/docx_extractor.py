@@ -34,223 +34,248 @@ class _DocxFullTextExtractor:
     Respects paragraphs, tables and formulas and their order of occurrence."""
 
     @classmethod
-    def _omml_to_latex(cls, element) -> str:
-        """Convert OMML element to LaTeX-like string."""
+    def _omml_to_latex(cls, omath_element) -> str:
+        """Convert OMML element to LaTeX-like string.
+
+        Handles malformed bracket placement in sqrt/rad elements by consuming
+        content until the matching closing bracket is found.
+        """
         m_ns = "{http://schemas.openxmlformats.org/officeDocument/2006/math}"
-        tag = element.tag.split("}")[-1]
+        parts = []
+        pending_sqrt_close = None  # Bracket needed to close current sqrt
 
-        # Text content (both w:t and m:t)
-        if tag == "t":
-            return element.text or ""
+        def collect_text(elem) -> str:
+            """Collect all text from element without special handling."""
+            if elem is None:
+                return ""
+            result = []
+            tag = elem.tag.split("}")[-1]
+            if tag == "t":
+                return elem.text or ""
+            if tag in [
+                "rPr",
+                "fPr",
+                "radPr",
+                "ctrlPr",
+                "oMathParaPr",
+                "degHide",
+                "type",
+                "rFonts",
+                "i",
+                "color",
+                "sz",
+                "szCs",
+                "jc",
+            ]:
+                return ""
+            for child in elem:
+                result.append(collect_text(child))
+            return "".join(result)
 
-        # Fraction: m:f contains m:num (numerator) and m:den (denominator)
-        if tag == "f":
-            num = element.find(f"{m_ns}num")
-            den = element.find(f"{m_ns}den")
-            num_text = (
-                "".join(cls._omml_to_latex(c) for c in num) if num is not None else ""
-            )
-            den_text = (
-                "".join(cls._omml_to_latex(c) for c in den) if den is not None else ""
-            )
-            return f"\\frac{{{num_text}}}{{{den_text}}}"
+        def process(elem):
+            nonlocal pending_sqrt_close
+            tag = elem.tag.split("}")[-1]
 
-        # Superscript: m:sSup contains m:e (base) and m:sup (superscript)
-        if tag == "sSup":
-            base = element.find(f"{m_ns}e")
-            sup = element.find(f"{m_ns}sup")
-            base_text = (
-                "".join(cls._omml_to_latex(c) for c in base) if base is not None else ""
-            )
-            sup_text = (
-                "".join(cls._omml_to_latex(c) for c in sup) if sup is not None else ""
-            )
-            return f"{base_text}^{{{sup_text}}}"
+            # Text content (both w:t and m:t)
+            if tag == "t":
+                text = elem.text or ""
+                if pending_sqrt_close and pending_sqrt_close in text:
+                    # Found the closing bracket - split content
+                    idx = text.index(pending_sqrt_close)
+                    parts.append(text[:idx])  # Content inside sqrt
+                    parts.append("}")  # Close the sqrt
+                    parts.append(text[idx + 1 :])  # Content after closing bracket
+                    pending_sqrt_close = None
+                else:
+                    parts.append(text)
+                return
 
-        # Subscript: m:sSub contains m:e (base) and m:sub (subscript)
-        if tag == "sSub":
-            base = element.find(f"{m_ns}e")
-            sub = element.find(f"{m_ns}sub")
-            base_text = (
-                "".join(cls._omml_to_latex(c) for c in base) if base is not None else ""
-            )
-            sub_text = (
-                "".join(cls._omml_to_latex(c) for c in sub) if sub is not None else ""
-            )
-            return f"{base_text}_{{{sub_text}}}"
+            # Fraction: m:f contains m:num (numerator) and m:den (denominator)
+            if tag == "f":
+                num = elem.find(f"{m_ns}num")
+                den = elem.find(f"{m_ns}den")
+                num_text = collect_text(num)
+                den_text = collect_text(den)
+                parts.append(f"\\frac{{{num_text}}}{{{den_text}}}")
+                return
 
-        # Sub-superscript: m:sSubSup contains m:e, m:sub, and m:sup
-        if tag == "sSubSup":
-            base = element.find(f"{m_ns}e")
-            sub = element.find(f"{m_ns}sub")
-            sup = element.find(f"{m_ns}sup")
-            base_text = (
-                "".join(cls._omml_to_latex(c) for c in base) if base is not None else ""
-            )
-            sub_text = (
-                "".join(cls._omml_to_latex(c) for c in sub) if sub is not None else ""
-            )
-            sup_text = (
-                "".join(cls._omml_to_latex(c) for c in sup) if sup is not None else ""
-            )
-            return f"{base_text}_{{{sub_text}}}^{{{sup_text}}}"
+            # Superscript: m:sSup contains m:e (base) and m:sup (superscript)
+            if tag == "sSup":
+                base = elem.find(f"{m_ns}e")
+                sup = elem.find(f"{m_ns}sup")
+                base_text = collect_text(base)
+                sup_text = collect_text(sup)
+                parts.append(f"{base_text}^{{{sup_text}}}")
+                return
 
-        # Square root: m:rad contains m:deg (degree, optional) and m:e (content)
-        if tag == "rad":
-            deg = element.find(f"{m_ns}deg")
-            content = element.find(f"{m_ns}e")
-            content_text = (
-                "".join(cls._omml_to_latex(c) for c in content)
-                if content is not None
-                else ""
-            )
-            deg_text = (
-                "".join(cls._omml_to_latex(c) for c in deg).strip()
-                if deg is not None
-                else ""
-            )
-            if deg_text:
-                return f"\\sqrt[{deg_text}]{{{content_text}}}"
-            return f"\\sqrt{{{content_text}}}"
+            # Subscript: m:sSub contains m:e (base) and m:sub (subscript)
+            if tag == "sSub":
+                base = elem.find(f"{m_ns}e")
+                sub = elem.find(f"{m_ns}sub")
+                base_text = collect_text(base)
+                sub_text = collect_text(sub)
+                parts.append(f"{base_text}_{{{sub_text}}}")
+                return
 
-        # N-ary (sum, product, integral): m:nary
-        if tag == "nary":
-            chr_elem = element.find(f".//{m_ns}chr")
-            op = chr_elem.get(f"{m_ns}val") if chr_elem is not None else "∑"
+            # Sub-superscript: m:sSubSup contains m:e, m:sub, and m:sup
+            if tag == "sSubSup":
+                base = elem.find(f"{m_ns}e")
+                sub = elem.find(f"{m_ns}sub")
+                sup = elem.find(f"{m_ns}sup")
+                base_text = collect_text(base)
+                sub_text = collect_text(sub)
+                sup_text = collect_text(sup)
+                parts.append(f"{base_text}_{{{sub_text}}}^{{{sup_text}}}")
+                return
 
-            sub = element.find(f"{m_ns}sub")
-            sup = element.find(f"{m_ns}sup")
-            content = element.find(f"{m_ns}e")
+            # Square root: m:rad contains m:deg (degree, optional) and m:e (content)
+            if tag == "rad":
+                deg = elem.find(f"{m_ns}deg")
+                content = elem.find(f"{m_ns}e")
+                content_text = collect_text(content)
+                deg_text = collect_text(deg).strip()
 
-            op_map = {
-                "∑": "\\sum",
-                "∏": "\\prod",
-                "∫": "\\int",
-                "∬": "\\iint",
-                "∭": "\\iiint",
-            }
-            latex_op = op_map.get(op, op)
+                # Handle malformed: lone opening bracket inside sqrt
+                if content_text.strip() in ("(", "[", "{"):
+                    bracket_map = {"(": ")", "[": "]", "{": "}"}
+                    pending_sqrt_close = bracket_map.get(content_text.strip(), ")")
+                    if deg_text:
+                        parts.append(f"\\sqrt[{deg_text}]{{")
+                    else:
+                        parts.append("\\sqrt{")
+                else:
+                    if deg_text:
+                        parts.append(f"\\sqrt[{deg_text}]{{{content_text}}}")
+                    else:
+                        parts.append(f"\\sqrt{{{content_text}}}")
+                return
 
-            sub_text = (
-                "".join(cls._omml_to_latex(c) for c in sub) if sub is not None else ""
-            )
-            sup_text = (
-                "".join(cls._omml_to_latex(c) for c in sup) if sup is not None else ""
-            )
-            content_text = (
-                "".join(cls._omml_to_latex(c) for c in content)
-                if content is not None
-                else ""
-            )
+            # N-ary (sum, product, integral): m:nary
+            if tag == "nary":
+                chr_elem = elem.find(f".//{m_ns}chr")
+                op = chr_elem.get(f"{m_ns}val") if chr_elem is not None else "∑"
 
-            result = latex_op
-            if sub_text.strip():
-                result += f"_{{{sub_text}}}"
-            if sup_text.strip():
-                result += f"^{{{sup_text}}}"
-            result += f" {content_text}"
-            return result
+                sub = elem.find(f"{m_ns}sub")
+                sup = elem.find(f"{m_ns}sup")
+                content = elem.find(f"{m_ns}e")
 
-        # Delimiter (parentheses, brackets): m:d
-        if tag == "d":
-            beg_chr = element.find(f".//{m_ns}begChr")
-            end_chr = element.find(f".//{m_ns}endChr")
-            left = beg_chr.get(f"{m_ns}val") if beg_chr is not None else "("
-            right = end_chr.get(f"{m_ns}val") if end_chr is not None else ")"
+                op_map = {
+                    "∑": "\\sum",
+                    "∏": "\\prod",
+                    "∫": "\\int",
+                    "∬": "\\iint",
+                    "∭": "\\iiint",
+                }
+                latex_op = op_map.get(op, op)
 
-            e_elements = element.findall(f"{m_ns}e")
-            content_parts = []
-            for e in e_elements:
-                content_parts.append("".join(cls._omml_to_latex(c) for c in e))
-            content_text = ", ".join(content_parts)
-            return f"{left}{content_text}{right}"
+                sub_text = collect_text(sub)
+                sup_text = collect_text(sup)
+                content_text = collect_text(content)
 
-        # Matrix: m:m contains m:mr (rows) which contain m:e (elements)
-        if tag == "m" and element.find(f"{m_ns}mr") is not None:
-            rows = []
-            for mr in element.findall(f"{m_ns}mr"):
-                cells = []
-                for e in mr.findall(f"{m_ns}e"):
-                    cells.append("".join(cls._omml_to_latex(c) for c in e))
-                rows.append(" & ".join(cells))
-            return "\\begin{matrix}" + " \\\\ ".join(rows) + "\\end{matrix}"
+                result = latex_op
+                if sub_text.strip():
+                    result += f"_{{{sub_text}}}"
+                if sup_text.strip():
+                    result += f"^{{{sup_text}}}"
+                result += f" {content_text}"
+                parts.append(result)
+                return
 
-        # Function: m:func contains m:fName and m:e
-        if tag == "func":
-            fname = element.find(f"{m_ns}fName")
-            content = element.find(f"{m_ns}e")
-            fname_text = (
-                "".join(cls._omml_to_latex(c) for c in fname)
-                if fname is not None
-                else ""
-            )
-            content_text = (
-                "".join(cls._omml_to_latex(c) for c in content)
-                if content is not None
-                else ""
-            )
-            func_map = {
-                "sin": "\\sin",
-                "cos": "\\cos",
-                "tan": "\\tan",
-                "log": "\\log",
-                "ln": "\\ln",
-                "lim": "\\lim",
-            }
-            latex_fname = func_map.get(fname_text.strip(), fname_text)
-            return f"{latex_fname}{{{content_text}}}"
+            # Delimiter (parentheses, brackets): m:d
+            if tag == "d":
+                beg_chr = elem.find(f".//{m_ns}begChr")
+                end_chr = elem.find(f".//{m_ns}endChr")
+                left = beg_chr.get(f"{m_ns}val") if beg_chr is not None else "("
+                right = end_chr.get(f"{m_ns}val") if end_chr is not None else ")"
 
-        # Bar/overline: m:bar
-        if tag == "bar":
-            content = element.find(f"{m_ns}e")
-            content_text = (
-                "".join(cls._omml_to_latex(c) for c in content)
-                if content is not None
-                else ""
-            )
-            return f"\\overline{{{content_text}}}"
+                e_elements = elem.findall(f"{m_ns}e")
+                content_parts = [collect_text(e) for e in e_elements]
+                content_text = ", ".join(content_parts)
+                parts.append(f"{left}{content_text}{right}")
+                return
 
-        # Accent (hat, tilde, etc.): m:acc
-        if tag == "acc":
-            chr_elem = element.find(f".//{m_ns}chr")
-            accent = chr_elem.get(f"{m_ns}val") if chr_elem is not None else "^"
-            content = element.find(f"{m_ns}e")
-            content_text = (
-                "".join(cls._omml_to_latex(c) for c in content)
-                if content is not None
-                else ""
-            )
+            # Matrix: m:m contains m:mr (rows) which contain m:e (elements)
+            if tag == "m" and elem.find(f"{m_ns}mr") is not None:
+                rows = []
+                for mr in elem.findall(f"{m_ns}mr"):
+                    cells = [collect_text(e) for e in mr.findall(f"{m_ns}e")]
+                    rows.append(" & ".join(cells))
+                parts.append("\\begin{matrix}" + " \\\\ ".join(rows) + "\\end{matrix}")
+                return
 
-            accent_map = {
-                "̂": "\\hat",
-                "̃": "\\tilde",
-                "̄": "\\bar",
-                "⃗": "\\vec",
-                "̇": "\\dot",
-            }
-            latex_accent = accent_map.get(accent, "\\hat")
-            return f"{latex_accent}{{{content_text}}}"
+            # Function: m:func contains m:fName and m:e
+            if tag == "func":
+                fname = elem.find(f"{m_ns}fName")
+                content = elem.find(f"{m_ns}e")
+                fname_text = collect_text(fname)
+                content_text = collect_text(content)
+                func_map = {
+                    "sin": "\\sin",
+                    "cos": "\\cos",
+                    "tan": "\\tan",
+                    "log": "\\log",
+                    "ln": "\\ln",
+                    "lim": "\\lim",
+                }
+                latex_fname = func_map.get(fname_text.strip(), fname_text)
+                parts.append(f"{latex_fname}{{{content_text}}}")
+                return
 
-        # Skip property elements
-        if tag in [
-            "rPr",
-            "fPr",
-            "radPr",
-            "ctrlPr",
-            "oMathParaPr",
-            "degHide",
-            "type",
-            "rFonts",
-            "i",
-            "color",
-            "sz",
-            "szCs",
-            "jc",
-        ]:
-            return ""
+            # Bar/overline: m:bar
+            if tag == "bar":
+                content = elem.find(f"{m_ns}e")
+                content_text = collect_text(content)
+                parts.append(f"\\overline{{{content_text}}}")
+                return
 
-        # Default: recurse into children
-        return "".join(cls._omml_to_latex(child) for child in element)
+            # Accent (hat, tilde, etc.): m:acc
+            if tag == "acc":
+                chr_elem = elem.find(f".//{m_ns}chr")
+                accent = chr_elem.get(f"{m_ns}val") if chr_elem is not None else "^"
+                content = elem.find(f"{m_ns}e")
+                content_text = collect_text(content)
+
+                accent_map = {
+                    "̂": "\\hat",
+                    "̃": "\\tilde",
+                    "̄": "\\bar",
+                    "⃗": "\\vec",
+                    "̇": "\\dot",
+                }
+                latex_accent = accent_map.get(accent, "\\hat")
+                parts.append(f"{latex_accent}{{{content_text}}}")
+                return
+
+            # Skip property elements
+            if tag in [
+                "rPr",
+                "fPr",
+                "radPr",
+                "ctrlPr",
+                "oMathParaPr",
+                "degHide",
+                "type",
+                "rFonts",
+                "i",
+                "color",
+                "sz",
+                "szCs",
+                "jc",
+            ]:
+                return
+
+            # Default: recurse into children (handles 'r' runs and other containers)
+            for child in elem:
+                process(child)
+
+        for child in omath_element:
+            process(child)
+
+        # If sqrt was never closed (no matching bracket found), close it now
+        if pending_sqrt_close:
+            parts.append("}")
+
+        return "".join(parts)
 
     @classmethod
     def extract_full_text(cls, file_like: io.BytesIO) -> str:
@@ -263,34 +288,64 @@ class _DocxFullTextExtractor:
 
         w_ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
         m_ns = "{http://schemas.openxmlformats.org/officeDocument/2006/math}"
+        mc_ns = "{http://schemas.openxmlformats.org/markup-compatibility/2006}"
+
+        def process_element(elem, parts: list):
+            """Recursively process element, handling AlternateContent properly.
+
+            Only processes mc:Choice content and skips mc:Fallback to avoid
+            extracting duplicate content from fallback representations.
+            """
+            tag = elem.tag.split("}")[-1]
+
+            # Handle AlternateContent - only use Choice, skip Fallback
+            if tag == "AlternateContent":
+                choice = elem.find(f"{mc_ns}Choice")
+                if choice is not None:
+                    for child in choice:
+                        process_element(child, parts)
+                return
+
+            # Skip Fallback elements entirely to avoid duplicate content
+            if tag == "Fallback":
+                return
+
+            # Regular run of text
+            if tag == "r":
+                for child in elem:
+                    child_tag = child.tag.split("}")[-1]
+                    if child_tag == "t":
+                        if child.text:
+                            parts.append(child.text)
+                    elif child_tag == "AlternateContent":
+                        process_element(child, parts)
+                return
+
+            # Inline equation
+            if tag == "oMath":
+                latex = cls._omml_to_latex(elem)
+                if latex.strip():
+                    parts.append(f"${latex}$")
+                return
+
+            # Display equation
+            if tag == "oMathPara":
+                omath = elem.find(f"{m_ns}oMath")
+                if omath is not None:
+                    latex = cls._omml_to_latex(omath)
+                    if latex.strip():
+                        parts.append(f"$${latex}$$")
+                return
+
+            # Recurse into other elements
+            for child in elem:
+                process_element(child, parts)
 
         def extract_paragraph_content(p_element) -> str:
             """Extract text from paragraph including inline and display equations."""
             parts = []
-
             for child in p_element:
-                tag = child.tag.split("}")[-1]
-
-                # Regular run of text
-                if tag == "r":
-                    for t in child.iter(f"{w_ns}t"):
-                        if t.text:
-                            parts.append(t.text)
-
-                # Inline equation
-                elif tag == "oMath":
-                    latex = cls._omml_to_latex(child)
-                    if latex.strip():
-                        parts.append(f"${latex}$")
-
-                # Display equation (oMathPara inside paragraph)
-                elif tag == "oMathPara":
-                    omath = child.find(f"{m_ns}oMath")
-                    if omath is not None:
-                        latex = cls._omml_to_latex(omath)
-                        if latex.strip():
-                            parts.append(f"$${latex}$$")
-
+                process_element(child, parts)
             return "".join(parts)
 
         def extract_table_text(tbl_element) -> list[str]:

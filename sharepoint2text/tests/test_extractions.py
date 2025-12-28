@@ -273,7 +273,7 @@ def test_read_docx_2() -> None:
 
     docx: DocxContent = next(read_docx(file_like))
     tc.assertEqual(
-        "Hello World!\nIncome\ntax\n119\n19\nAnother sentence after the table.\n$$\\frac{3}{4}×4=\\sqrt{(}9)$$",
+        "Hello World!\nAn image of space\nIncome\ntax\n119\n19\nAnother sentence after the table.\n$$\\frac{3}{4}×4=\\sqrt{9}$$",
         docx.full_text,
     )
     tc.assertListEqual(
