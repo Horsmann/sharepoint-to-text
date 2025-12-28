@@ -14,6 +14,7 @@ from sharepoint2text.extractors.data_types import (
     HtmlContent,
     OdpAnnotation,
     OdpContent,
+    OdsAnnotation,
     OdsContent,
     OdtAnnotation,
     OdtContent,
@@ -902,13 +903,25 @@ def test_read_ods_spreadsheet() -> None:
     # Verify numeric values (from office:value attribute)
     tc.assertIn("1500", ods.sheets[0].text)
     tc.assertIn("2200", ods.sheets[0].text)
-    # Annotations on Sales Data sheet
-    tc.assertGreater(len(ods.sheets[0].annotations), 0)
-    # Check for specific annotation
-    annotation_texts = [a.text for a in ods.sheets[0].annotations]
-    tc.assertTrue(
-        any("best-selling" in text for text in annotation_texts),
-        f"Expected 'best-selling' annotation, got: {annotation_texts}",
+    # Annotations on Sales Data sheet - should have 2 annotations
+    tc.assertEqual(2, len(ods.sheets[0].annotations))
+    # First annotation: on Widget A cell
+    tc.assertEqual(
+        OdsAnnotation(
+            creator="User",
+            date="2025-12-28T12:00:00",
+            text="This is our best-selling product line.",
+        ),
+        ods.sheets[0].annotations[0],
+    )
+    # Second annotation: on the notes row
+    tc.assertEqual(
+        OdsAnnotation(
+            creator="User",
+            date="2025-12-28T14:30:00",
+            text="Remember to update these figures after the quarterly review meeting.",
+        ),
+        ods.sheets[0].annotations[1],
     )
     # No images in this sample
     tc.assertEqual(0, len(ods.sheets[0].images))
@@ -919,8 +932,16 @@ def test_read_ods_spreadsheet() -> None:
     tc.assertIn("Value", ods.sheets[1].text)
     tc.assertIn("Total Revenue", ods.sheets[1].text)
     tc.assertIn("Average per Product", ods.sheets[1].text)
-    # Summary sheet also has an annotation
-    tc.assertGreater(len(ods.sheets[1].annotations), 0)
+    # Summary sheet has 1 annotation
+    tc.assertEqual(1, len(ods.sheets[1].annotations))
+    tc.assertEqual(
+        OdsAnnotation(
+            creator="User",
+            date="2025-12-28T15:00:00",
+            text="These formulas reference the Sales Data sheet. Update source data to refresh.",
+        ),
+        ods.sheets[1].annotations[0],
+    )
 
     # Iterator yields 2 items (one per sheet)
     tc.assertEqual(2, len(list(ods.iterator())))
