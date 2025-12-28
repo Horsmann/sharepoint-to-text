@@ -29,6 +29,7 @@ mime_type_mapping = {
     "application/mbox": "mbox",
     "application/rtf": "rtf",
     "text/rtf": "rtf",
+    "text/markdown": "md",
 }
 
 
@@ -64,7 +65,7 @@ def _get_extractor(
         from sharepoint2text.extractors.pdf_extractor import read_pdf
 
         return read_pdf
-    elif file_type in ("csv", "json", "txt", "tsv"):
+    elif file_type in ("csv", "json", "txt", "tsv", "md"):
         from sharepoint2text.extractors.plain_extractor import read_plain_text
 
         return read_plain_text
@@ -101,7 +102,7 @@ def is_supported_file(path: str) -> bool:
     path = path.lower()
     mime_type, _ = mimetypes.guess_type(path)
     return mime_type in mime_type_mapping or any(
-        [path.endswith(ending) for ending in [".msg", ".eml", ".mbox"]]
+        [path.endswith(ending) for ending in [".msg", ".eml", ".mbox", ".md"]]
     )
 
 
@@ -125,7 +126,7 @@ def get_extractor(
             f"Detected file type: {file_type} (MIME: {mime_type}) for file: {path}"
         )
         return _get_extractor(file_type)
-    elif any([path.endswith(ending) for ending in [".msg", ".eml", ".mbox"]]):
+    elif any([path.endswith(ending) for ending in [".msg", ".eml", ".mbox", ".md"]]):
         # the file types are mapped with leading dot
         path_elements = os.path.splitext(path)
         if len(path_elements) <= 1:

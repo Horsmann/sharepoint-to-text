@@ -34,6 +34,7 @@ def test_is_supported():
     tc.assertTrue(is_supported_file("myfile.msg"))
     tc.assertTrue(is_supported_file("myfile.mbox"))
     tc.assertTrue(is_supported_file("myfile.txt"))
+    tc.assertTrue(is_supported_file("myfile.md"))
     tc.assertTrue(is_supported_file("myfile.csv"))
     tc.assertTrue(is_supported_file("myfile.tsv"))
     tc.assertTrue(is_supported_file("myfile.rtf"))
@@ -80,6 +81,10 @@ def test_router():
 
     # txt
     func = get_extractor("myfile.txt")
+    tc.assertEqual(read_plain_text, func)
+
+    # md
+    func = get_extractor("myfile.md")
     tc.assertEqual(read_plain_text, func)
 
     # csv
