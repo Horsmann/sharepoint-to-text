@@ -35,7 +35,7 @@ def read_docx(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[DocxContent, Any, None]:
     """Extract content from a DOCX file."""
-    from sharepoint2text.extractors.docx_extractor import read_docx as _read_docx
+    from extractors.ms_modern.docx_extractor import read_docx as _read_docx
 
     return _read_docx(file_like, path)
 
@@ -44,7 +44,7 @@ def read_doc(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[DocContent, Any, None]:
     """Extract content from a DOC file."""
-    from sharepoint2text.extractors.doc_extractor import read_doc as _read_doc
+    from extractors.ms_legacy.doc_extractor import read_doc as _read_doc
 
     return _read_doc(file_like, path)
 
@@ -53,7 +53,7 @@ def read_xlsx(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[XlsxContent, Any, None]:
     """Extract content from an XLSX file."""
-    from sharepoint2text.extractors.xlsx_extractor import read_xlsx as _read_xlsx
+    from extractors.ms_modern.xlsx_extractor import read_xlsx as _read_xlsx
 
     return _read_xlsx(file_like, path)
 
@@ -62,7 +62,7 @@ def read_xls(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[XlsContent, Any, None]:
     """Extract content from an XLS file."""
-    from sharepoint2text.extractors.xls_extractor import read_xls as _read_xls
+    from extractors.ms_legacy.xls_extractor import read_xls as _read_xls
 
     return _read_xls(file_like, path)
 
@@ -71,7 +71,7 @@ def read_pptx(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[PptxContent, Any, None]:
     """Extract content from a PPTX file."""
-    from sharepoint2text.extractors.pptx_extractor import read_pptx as _read_pptx
+    from extractors.ms_modern.pptx_extractor import read_pptx as _read_pptx
 
     return _read_pptx(file_like, path)
 
@@ -80,7 +80,7 @@ def read_ppt(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[PptContent, Any, None]:
     """Extract content from a PPT file."""
-    from sharepoint2text.extractors.ppt_extractor import read_ppt as _read_ppt
+    from extractors.ms_legacy.ppt_extractor import read_ppt as _read_ppt
 
     return _read_ppt(file_like, path)
 
@@ -118,7 +118,7 @@ def read_odt(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[OdtContent, Any, None]:
     """Extract content from an ODT (OpenDocument Text) file."""
-    from sharepoint2text.extractors.odt_extractor import read_odt as _read_odt
+    from extractors.open_office.odt_extractor import read_odt as _read_odt
 
     return _read_odt(file_like, path)
 
@@ -127,7 +127,7 @@ def read_odp(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[OdpContent, Any, None]:
     """Extract content from an ODP (OpenDocument Presentation) file."""
-    from sharepoint2text.extractors.odp_extractor import read_odp as _read_odp
+    from extractors.open_office.odp_extractor import read_odp as _read_odp
 
     return _read_odp(file_like, path)
 
@@ -136,7 +136,7 @@ def read_ods(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[OdsContent, Any, None]:
     """Extract content from an ODS (OpenDocument Spreadsheet) file."""
-    from sharepoint2text.extractors.ods_extractor import read_ods as _read_ods
+    from extractors.open_office.ods_extractor import read_ods as _read_ods
 
     return _read_ods(file_like, path)
 
