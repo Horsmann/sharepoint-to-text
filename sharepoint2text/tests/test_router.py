@@ -8,6 +8,7 @@ from sharepoint2text.extractors.html_extractor import read_html
 from sharepoint2text.extractors.mail.eml_email_extractor import read_eml_format_mail
 from sharepoint2text.extractors.mail.mbox_email_extractor import read_mbox_format_mail
 from sharepoint2text.extractors.mail.msg_email_extractor import read_msg_format_mail
+from sharepoint2text.extractors.odt_extractor import read_odt
 from sharepoint2text.extractors.pdf_extractor import read_pdf
 from sharepoint2text.extractors.plain_extractor import read_plain_text
 from sharepoint2text.extractors.ppt_extractor import read_ppt
@@ -41,6 +42,7 @@ def test_is_supported():
     tc.assertTrue(is_supported_file("myfile.rtf"))
     tc.assertTrue(is_supported_file("myfile.html"))
     tc.assertTrue(is_supported_file("myfile.htm"))
+    tc.assertTrue(is_supported_file("myfile.odt"))
     # not supported
     tc.assertFalse(is_supported_file("myfile.zip"))
     tc.assertFalse(is_supported_file("myfile.rar"))
@@ -101,6 +103,10 @@ def test_router():
     # rtf
     func = get_extractor("myfile.rtf")
     tc.assertEqual(read_rtf, func)
+
+    # open office - document - odt
+    func = get_extractor("myfile.odt")
+    tc.assertEqual(read_odt, func)
 
     # html
     func = get_extractor("myfile.html")
