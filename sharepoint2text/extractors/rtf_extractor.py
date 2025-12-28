@@ -82,6 +82,7 @@ class _RtfParser:
         self.images: List[RtfImage] = []
         self.footnotes: List[RtfFootnote] = []
         self.annotations: List[RtfAnnotation] = []
+        self.pages: List[str] = []
         self.raw_text_blocks: List[str] = []
 
         # Parsing state
@@ -137,6 +138,7 @@ class _RtfParser:
                 images=self.images,
                 footnotes=self.footnotes,
                 annotations=self.annotations,
+                pages=self.pages,
                 full_text=full_text,
                 raw_text_blocks=self.raw_text_blocks,
             )
@@ -397,7 +399,11 @@ class _RtfParser:
                         self.footers.append(hf)
 
     def _extract_body_text(self, text: str) -> None:
-        """Extract body text from RTF, building paragraphs."""
+        """Extract body text from RTF, building paragraphs and pages.
+
+        Pages are split on explicit \\page breaks. If no page breaks exist,
+        the entire document is treated as a single page.
+        """
         # Remove destination groups we don't want in the body
         destinations_to_remove = [
             r"\{\\fonttbl[^{}]*(?:\{[^{}]*\}[^{}]*)*\}",
@@ -413,12 +419,11 @@ class _RtfParser:
         for pattern in destinations_to_remove:
             body = re.sub(pattern, "", body, flags=re.DOTALL | re.IGNORECASE)
 
-        # Now extract text from the body
-        extracted = self._strip_rtf_full(body)
+        # Now extract text from the body with page break detection
+        extracted = self._strip_rtf_full_with_pages(body)
 
-        # Split into paragraphs
+        # Split into paragraphs (for backward compatibility)
         para_texts = re.split(r"\n+", extracted)
-
         for para_text in para_texts:
             cleaned = para_text.strip()
             if cleaned:
@@ -606,6 +611,26 @@ class _RtfParser:
                             "object",
                             "datafield",
                             "fldinst",
+                            "ftnsep",
+                            "ftnsepc",
+                            "aftnsep",
+                            "aftnsepc",
+                            "header",
+                            "footer",
+                            "headerl",
+                            "headerr",
+                            "headerf",
+                            "footerl",
+                            "footerr",
+                            "footerf",
+                            "pnseclvl",
+                            "xmlnstbl",
+                            "rsidtbl",
+                            "mmathPr",
+                            "generator",
+                            "listtable",
+                            "listoverridetable",
+                            "revtbl",
                         ]
                     ):
                         skip_group = True
@@ -694,6 +719,188 @@ class _RtfParser:
                 if char not in "\r":  # Skip carriage returns
                     result.append(char)
                 i += 1
+
+        return "".join(result)
+
+    def _strip_rtf_full_with_pages(self, text: str) -> str:
+        """Full RTF stripping with page break detection.
+
+        Detects \\page control words and splits content into pages.
+        Populates self.pages with text content per page.
+        Returns the full text as a single string.
+        """
+        result = []
+        current_page = []
+        i = 0
+        n = len(text)
+        group_depth = 0
+        skip_group = False
+        skip_depth = 0
+
+        def flush_page():
+            """Save current page content and start a new page."""
+            page_text = "".join(current_page).strip()
+            # Normalize whitespace
+            page_text = re.sub(r"[ \t]+", " ", page_text)
+            page_text = re.sub(r"\n{3,}", "\n\n", page_text)
+            if page_text:
+                self.pages.append(page_text)
+            current_page.clear()
+
+        while i < n:
+            char = text[i]
+
+            if char == "{":
+                group_depth += 1
+                # Check if this is a destination to skip
+                if i + 1 < n and text[i + 1] == "\\":
+                    # Look ahead for destination markers
+                    ahead = text[i + 1 : i + 30]
+                    if ahead.startswith("\\*") or any(
+                        ahead.startswith("\\" + kw)
+                        for kw in [
+                            "fonttbl",
+                            "colortbl",
+                            "stylesheet",
+                            "info",
+                            "pict",
+                            "object",
+                            "datafield",
+                            "fldinst",
+                            "ftnsep",
+                            "ftnsepc",
+                            "aftnsep",
+                            "aftnsepc",
+                            "header",
+                            "footer",
+                            "headerl",
+                            "headerr",
+                            "headerf",
+                            "footerl",
+                            "footerr",
+                            "footerf",
+                            "pnseclvl",
+                            "xmlnstbl",
+                            "rsidtbl",
+                            "mmathPr",
+                            "generator",
+                            "listtable",
+                            "listoverridetable",
+                            "revtbl",
+                        ]
+                    ):
+                        skip_group = True
+                        skip_depth = group_depth
+                i += 1
+
+            elif char == "}":
+                if skip_group and group_depth == skip_depth:
+                    skip_group = False
+                group_depth -= 1
+                i += 1
+
+            elif skip_group:
+                i += 1
+
+            elif char == "\\":
+                # Control word or escape
+                if i + 1 >= n:
+                    i += 1
+                    continue
+
+                next_char = text[i + 1]
+
+                # Escape sequences
+                if next_char in "\\{}":
+                    current_page.append(next_char)
+                    result.append(next_char)
+                    i += 2
+
+                # Unicode escape
+                elif next_char == "u":
+                    unicode_match = re.match(r"\\u(-?\d+)\??", text[i:])
+                    if unicode_match:
+                        code = int(unicode_match.group(1))
+                        char_val = chr(code & 0xFFFF)
+                        current_page.append(char_val)
+                        result.append(char_val)
+                        i += len(unicode_match.group(0))
+                    else:
+                        i += 2
+
+                # Hex escape
+                elif next_char == "'":
+                    if i + 3 < n:
+                        hex_val = text[i + 2 : i + 4]
+                        try:
+                            char_val = chr(int(hex_val, 16))
+                            current_page.append(char_val)
+                            result.append(char_val)
+                        except ValueError:
+                            pass
+                        i += 4
+                    else:
+                        i += 2
+
+                # Control word
+                elif next_char.isalpha():
+                    # Find end of control word
+                    j = i + 1
+                    while j < n and text[j].isalpha():
+                        j += 1
+                    # Skip optional numeric parameter
+                    if j < n and (text[j].isdigit() or text[j] == "-"):
+                        while j < n and (text[j].isdigit() or text[j] == "-"):
+                            j += 1
+                    # Skip optional trailing space
+                    if j < n and text[j] == " ":
+                        j += 1
+
+                    control_word = text[i + 1 : j].rstrip()
+                    # Remove numeric suffix for lookup
+                    word_only = re.sub(r"-?\d+$", "", control_word)
+
+                    # Check for page break
+                    # \page is explicit page break
+                    # \sect with \sbkpage is section break with page break
+                    if word_only == "page" or word_only == "sbkpage":
+                        flush_page()
+                    elif word_only in self.SPECIAL_CHARS:
+                        char_val = self.SPECIAL_CHARS[word_only]
+                        current_page.append(char_val)
+                        result.append(char_val)
+
+                    i = j
+
+                else:
+                    # Handle \~ (non-breaking space), \- (optional hyphen), etc.
+                    if next_char == "~":
+                        current_page.append("\u00a0")
+                        result.append("\u00a0")
+                    elif next_char == "-":
+                        pass  # Optional hyphen - don't add
+                    elif next_char == "_":
+                        current_page.append("\u00ad")
+                        result.append("\u00ad")
+                    i += 2
+
+            else:
+                # Regular character
+                if char not in "\r":  # Skip carriage returns
+                    current_page.append(char)
+                    result.append(char)
+                i += 1
+
+        # Flush the last page
+        flush_page()
+
+        # If no page breaks were found, treat the entire document as one page
+        if not self.pages:
+            full_text = "".join(result).strip()
+            full_text = re.sub(r"[ \t]+", " ", full_text)
+            full_text = re.sub(r"\n{3,}", "\n\n", full_text)
+            if full_text:
+                self.pages.append(full_text)
 
         return "".join(result)
 

@@ -438,11 +438,7 @@ def test_read_rtf() -> None:
     tc.assertEqual("c1\nSouth Australia", full_text[:18])
     tc.assertEqual("\non 18 December 2025\nNo 144 of 2025", full_text[-35:])
 
-    # tc.assertEqual(63, len(list(rtf.iterator())))
-    # with open("debug.txt", mode='w') as x:
-    #     for u in rtf.iterator():
-    #         x.write(u)
-    #         x.write("========\n\n")
+    tc.assertEqual(1, len(list(rtf.iterator())))
 
 
 def test_email__eml_format() -> None:

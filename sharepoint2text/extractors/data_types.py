@@ -841,14 +841,27 @@ class RtfContent(ExtractionInterface):
     images: List[RtfImage] = field(default_factory=list)
     footnotes: List[RtfFootnote] = field(default_factory=list)
     annotations: List[RtfAnnotation] = field(default_factory=list)
+    pages: List[str] = field(default_factory=list)  # Text per page (split on \page)
     full_text: str = ""
     raw_text_blocks: List[str] = field(default_factory=list)
 
     def iterator(self) -> typing.Iterator[str]:
-        """Iterate over paragraphs, yielding text per paragraph."""
-        for paragraph in self.paragraphs:
-            if paragraph.text.strip():
-                yield paragraph.text
+        """Iterate over pages, yielding text per page.
+
+        RTF documents are split on explicit page breaks (\\page).
+        If no page breaks exist, yields the full document as a single unit.
+        """
+        if self.pages:
+            for page in self.pages:
+                if page.strip():
+                    yield page
+        elif self.full_text:
+            yield self.full_text
+        else:
+            # Fallback: combine all paragraphs
+            combined = "\n".join(p.text for p in self.paragraphs if p.text.strip())
+            if combined:
+                yield combined
 
     def get_full_text(self) -> str:
         """Full text of the RTF document as one single block of text."""
