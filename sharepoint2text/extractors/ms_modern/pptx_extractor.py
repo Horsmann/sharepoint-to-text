@@ -20,7 +20,7 @@ from sharepoint2text.extractors.data_types import (
     PptxMetadata,
     PPTXSlide,
 )
-from sharepoint2text.extractors.docx_extractor import _DocxFullTextExtractor
+from sharepoint2text.extractors.ms_modern.docx_extractor import _DocxFullTextExtractor
 
 logger = logging.getLogger(__name__)
 

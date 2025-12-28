@@ -12,6 +12,14 @@ from sharepoint2text.extractors.data_types import (
     EmailContent,
     FileMetadataInterface,
     HtmlContent,
+    OdpAnnotation,
+    OdpContent,
+    OdsAnnotation,
+    OdsContent,
+    OdtAnnotation,
+    OdtContent,
+    OdtHeaderFooter,
+    OdtNote,
     PdfContent,
     PlainTextContent,
     PptContent,
@@ -20,19 +28,22 @@ from sharepoint2text.extractors.data_types import (
     XlsContent,
     XlsxContent,
 )
-from sharepoint2text.extractors.doc_extractor import read_doc
-from sharepoint2text.extractors.docx_extractor import read_docx
 from sharepoint2text.extractors.html_extractor import read_html
 from sharepoint2text.extractors.mail.eml_email_extractor import read_eml_format_mail
 from sharepoint2text.extractors.mail.mbox_email_extractor import read_mbox_format_mail
 from sharepoint2text.extractors.mail.msg_email_extractor import read_msg_format_mail
+from sharepoint2text.extractors.ms_legacy.doc_extractor import read_doc
+from sharepoint2text.extractors.ms_legacy.ppt_extractor import read_ppt
+from sharepoint2text.extractors.ms_legacy.rtf_extractor import read_rtf
+from sharepoint2text.extractors.ms_legacy.xls_extractor import read_xls
+from sharepoint2text.extractors.ms_modern.docx_extractor import read_docx
+from sharepoint2text.extractors.ms_modern.pptx_extractor import read_pptx
+from sharepoint2text.extractors.ms_modern.xlsx_extractor import read_xlsx
+from sharepoint2text.extractors.open_office.odp_extractor import read_odp
+from sharepoint2text.extractors.open_office.ods_extractor import read_ods
+from sharepoint2text.extractors.open_office.odt_extractor import read_odt
 from sharepoint2text.extractors.pdf_extractor import read_pdf
 from sharepoint2text.extractors.plain_extractor import read_plain_text
-from sharepoint2text.extractors.ppt_extractor import read_ppt
-from sharepoint2text.extractors.pptx_extractor import read_pptx
-from sharepoint2text.extractors.rtf_extractor import read_rtf
-from sharepoint2text.extractors.xls_extractor import read_xls
-from sharepoint2text.extractors.xlsx_extractor import read_xlsx
 
 logger = logging.getLogger(__name__)
 
@@ -671,4 +682,279 @@ def test_read_html() -> None:
             {"text": "Google", "href": "https://www.google.com"},
         ],
         html.links,
+    )
+
+
+def test_read_odt_document() -> None:
+    path = "sharepoint2text/tests/resources/open_office/sample_document.odt"
+    with open(path, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    odt: OdtContent = next(read_odt(file_like=file_like, path=path))
+
+    tc.assertEqual(".odt", odt.get_metadata().to_dict().get("file_extension"))
+    tc.assertEqual("sample_document.odt", odt.get_metadata().to_dict().get("filename"))
+
+    # comments
+    tc.assertListEqual(
+        [
+            OdtAnnotation(
+                creator="User",
+                date="2025-12-28T12:00:00",
+                text="This is a comment by User on the sample text.",
+            )
+        ],
+        odt.annotations,
+    )
+
+    # footer/headers
+    tc.assertListEqual(
+        [OdtHeaderFooter(type="header", text="Document Header - My ODT Document")],
+        odt.headers,
+    )
+    tc.assertListEqual(
+        [OdtHeaderFooter(type="footer", text="Footer - Page 1 | Confidential")],
+        odt.footers,
+    )
+
+    # endnote
+    tc.assertListEqual(
+        [
+            OdtNote(
+                id="en1",
+                note_class="endnote",
+                text="This is an endnote that appears at the end of the document.",
+            )
+        ],
+        odt.endnotes,
+    )
+
+    # images
+    tc.assertEqual(0, len(list(odt.images)))
+
+    # tables
+    tc.assertListEqual([[["Header 1", "Header 2"], ["Cell A", "Cell B"]]], odt.tables)
+
+    # iterator items
+    tc.assertEqual(1, len(list(odt.iterator())))
+
+    # full text with defaults
+    tc.assertEqual(
+        "Hello World Document\n"
+        "Hello World! This is a sample ODT document created with Python.\n"
+        "This paragraph contains an endnote reference for demonstration purposes.\n"
+        "Header 1\n"
+        "Header 2\n"
+        "Cell A\n"
+        "Cell B\n"
+        "End of document.",
+        odt.get_full_text(),
+    )
+
+    tc.assertEqual(
+        "Hello World Document\n"
+        "Hello World! This is a sample ODT document created with Python.\n"
+        "This paragraph contains an endnote reference for demonstration purposes.\n"
+        "Header 1\n"
+        "Header 2\n"
+        "Cell A\n"
+        "Cell B\n"
+        "End of document.\n"
+        "[Annotation: User@2025-12-28T12:00:00: This is a comment by User on the "
+        "sample text.]",
+        odt.get_full_text(include_annotations=True),
+    )
+
+
+def test_read_odp_presentation() -> None:
+    path = "sharepoint2text/tests/resources/open_office/sample_presentation.odp"
+    with open(path, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    odp: OdpContent = next(read_odp(file_like=file_like, path=path))
+
+    # File metadata
+    tc.assertEqual(".odp", odp.get_metadata().to_dict().get("file_extension"))
+    tc.assertEqual(
+        "sample_presentation.odp", odp.get_metadata().to_dict().get("filename")
+    )
+
+    # Document metadata
+    tc.assertEqual("ODFPY/1.4.1", odp.metadata.generator)
+
+    # Slides
+    tc.assertEqual(3, len(odp.slides))
+    tc.assertEqual(3, odp.slide_count)
+
+    # Slide 1
+    tc.assertEqual(1, odp.slides[0].slide_number)
+    tc.assertEqual("Slide1", odp.slides[0].name)
+    tc.assertEqual("Hello World Presentation", odp.slides[0].title)
+    tc.assertIn("Created with Python and odfpy", odp.slides[0].body_text)
+    tc.assertIn("Sample Presentation - Header", odp.slides[0].other_text)
+    tc.assertIn("Confidential | Page 1 | 2025", odp.slides[0].other_text)
+    tc.assertEqual(
+        ["Speaker notes for Slide 1: Welcome the audience and introduce the topic."],
+        odp.slides[0].notes,
+    )
+    # No images in this sample
+    tc.assertEqual(0, len(odp.slides[0].images))
+
+    # Slide 2
+    tc.assertEqual(2, odp.slides[1].slide_number)
+    tc.assertEqual("Slide2", odp.slides[1].name)
+    tc.assertEqual("Content Slide", odp.slides[1].title)
+    # Body text contains annotation marker that gets extracted separately
+    tc.assertTrue(any("ODP features" in text for text in odp.slides[1].body_text))
+    # Table on slide 2
+    tc.assertEqual(1, len(odp.slides[1].tables))
+    tc.assertEqual(
+        [["Header 1", "Header 2"], ["Cell A", "Cell B"]], odp.slides[1].tables[0]
+    )
+    # Annotation on slide 2
+    tc.assertEqual(1, len(odp.slides[1].annotations))
+    tc.assertEqual(
+        OdpAnnotation(
+            creator="User",
+            date="2025-12-28T12:00:00",
+            text="This is a comment by User on the presentation content.",
+        ),
+        odp.slides[1].annotations[0],
+    )
+    tc.assertEqual(
+        [
+            "Speaker notes for Slide 2: Explain the table data and highlight key features."
+        ],
+        odp.slides[1].notes,
+    )
+
+    # Slide 3
+    tc.assertEqual(3, odp.slides[2].slide_number)
+    tc.assertEqual("Slide3", odp.slides[2].name)
+    tc.assertEqual("Thank You!", odp.slides[2].title)
+    tc.assertIn("Questions? Contact: user@example.com", odp.slides[2].body_text)
+    tc.assertEqual(
+        ["Speaker notes for Slide 3: Thank the audience and open for Q&A."],
+        odp.slides[2].notes,
+    )
+
+    # Iterator yields 3 items (one per slide)
+    tc.assertEqual(3, len(list(odp.iterator())))
+
+    # Full text (default - no annotations, no notes)
+    full_text = odp.get_full_text()
+    tc.assertIn("Hello World Presentation", full_text)
+    tc.assertIn("Content Slide", full_text)
+    tc.assertIn("Thank You!", full_text)
+    tc.assertNotIn("[Annotation:", full_text)
+    tc.assertNotIn("[Note:", full_text)
+
+    # Full text with annotations
+    full_text_with_annotations = odp.get_full_text(include_annotations=True)
+    tc.assertIn(
+        "[Annotation: User@2025-12-28T12:00:00: This is a comment by User on the presentation content.]",
+        full_text_with_annotations,
+    )
+
+    # Full text with notes
+    full_text_with_notes = odp.get_full_text(include_notes=True)
+    tc.assertIn("[Note: Speaker notes for Slide 1:", full_text_with_notes)
+
+
+def test_read_ods_spreadsheet() -> None:
+    path = "sharepoint2text/tests/resources/open_office/sample_spreadsheet.ods"
+    with open(path, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    ods: OdsContent = next(read_ods(file_like=file_like, path=path))
+
+    # File metadata
+    tc.assertEqual(".ods", ods.get_metadata().to_dict().get("file_extension"))
+    tc.assertEqual(
+        "sample_spreadsheet.ods", ods.get_metadata().to_dict().get("filename")
+    )
+
+    # Document metadata
+    tc.assertEqual("ODFPY/1.4.1", ods.metadata.generator)
+
+    # Sheets
+    tc.assertEqual(2, len(ods.sheets))
+    tc.assertEqual(2, ods.sheet_count)
+
+    # Sheet 1: Sales Data
+    tc.assertEqual("Sales Data", ods.sheets[0].name)
+    # Verify data rows exist
+    tc.assertGreater(len(ods.sheets[0].data), 0)
+    # Verify header row content
+    tc.assertIn("Product", ods.sheets[0].text)
+    tc.assertIn("Q1", ods.sheets[0].text)
+    tc.assertIn("Q2", ods.sheets[0].text)
+    tc.assertIn("Q3", ods.sheets[0].text)
+    tc.assertIn("Q4", ods.sheets[0].text)
+    tc.assertIn("Total", ods.sheets[0].text)
+    # Verify product data
+    tc.assertIn("Widget A", ods.sheets[0].text)
+    tc.assertIn("Widget B", ods.sheets[0].text)
+    tc.assertIn("Widget C", ods.sheets[0].text)
+    tc.assertIn("Widget D", ods.sheets[0].text)
+    # Verify numeric values (from office:value attribute)
+    tc.assertIn("1500", ods.sheets[0].text)
+    tc.assertIn("2200", ods.sheets[0].text)
+    # Annotations on Sales Data sheet - should have 2 annotations
+    tc.assertEqual(2, len(ods.sheets[0].annotations))
+    # First annotation: on Widget A cell
+    tc.assertEqual(
+        OdsAnnotation(
+            creator="User",
+            date="2025-12-28T12:00:00",
+            text="This is our best-selling product line.",
+        ),
+        ods.sheets[0].annotations[0],
+    )
+    # Second annotation: on the notes row
+    tc.assertEqual(
+        OdsAnnotation(
+            creator="User",
+            date="2025-12-28T14:30:00",
+            text="Remember to update these figures after the quarterly review meeting.",
+        ),
+        ods.sheets[0].annotations[1],
+    )
+    # No images in this sample
+    tc.assertEqual(0, len(ods.sheets[0].images))
+
+    # Sheet 2: Summary
+    tc.assertEqual("Summary", ods.sheets[1].name)
+    tc.assertIn("Metric", ods.sheets[1].text)
+    tc.assertIn("Value", ods.sheets[1].text)
+    tc.assertIn("Total Revenue", ods.sheets[1].text)
+    tc.assertIn("Average per Product", ods.sheets[1].text)
+    # Summary sheet has 1 annotation
+    tc.assertEqual(1, len(ods.sheets[1].annotations))
+    tc.assertEqual(
+        OdsAnnotation(
+            creator="User",
+            date="2025-12-28T15:00:00",
+            text="These formulas reference the Sales Data sheet. Update source data to refresh.",
+        ),
+        ods.sheets[1].annotations[0],
+    )
+
+    # Iterator yields 2 items (one per sheet)
+    tc.assertEqual(2, len(list(ods.iterator())))
+
+    # check length of full text with length of all sheets
+    total_length_iteration = sum([len(e) for e in ods.iterator()])
+    # one line break is added
+    length_total = len(ods.get_full_text()) - 1
+    tc.assertEqual(total_length_iteration, length_total)
+
+    # Full text contains data from both sheets
+    full_text = ods.get_full_text()
+    tc.assertEqual(
+        "Sales Data\n" "Product\tQ1\tQ2\tQ3\tQ4\tTotal\nWidget",
+        full_text[:44].strip(),
     )

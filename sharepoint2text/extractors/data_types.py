@@ -714,6 +714,363 @@ class XlsxContent(ExtractionInterface):
         return self.metadata
 
 
+###############
+# OpenDocument ODT
+###############
+
+
+###############
+# OpenDocument ODP (Presentation)
+###############
+
+
+@dataclass
+class OdpMetadata(FileMetadataInterface):
+    """Metadata extracted from an ODP file."""
+
+    title: str = ""
+    description: str = ""
+    subject: str = ""
+    creator: str = ""
+    keywords: str = ""
+    initial_creator: str = ""
+    creation_date: str = ""
+    date: str = ""  # Last modified date
+    language: str = ""
+    editing_cycles: int = 0
+    editing_duration: str = ""
+    generator: str = ""  # Application that created the document
+
+
+@dataclass
+class OdpAnnotation:
+    """Represents an annotation/comment in a presentation."""
+
+    creator: str = ""
+    date: str = ""
+    text: str = ""
+
+
+@dataclass
+class OdpImage:
+    """Represents an embedded image in a presentation."""
+
+    href: str = ""
+    name: str = ""
+    content_type: str = ""
+    data: Optional[io.BytesIO] = None
+    size_bytes: int = 0
+    width: Optional[str] = None
+    height: Optional[str] = None
+    error: Optional[str] = None
+
+
+@dataclass
+class OdpSlide:
+    """Represents a single slide in the presentation."""
+
+    slide_number: int = 0
+    name: str = ""
+    title: str = ""
+    body_text: List[str] = field(default_factory=list)
+    other_text: List[str] = field(default_factory=list)
+    tables: List[List[List[str]]] = field(default_factory=list)
+    annotations: List[OdpAnnotation] = field(default_factory=list)
+    images: List[OdpImage] = field(default_factory=list)
+    notes: List[str] = field(default_factory=list)  # Speaker notes
+
+    @property
+    def text_combined(self) -> str:
+        """All text from this slide combined."""
+        parts = []
+        if self.title:
+            parts.append(self.title)
+        parts.extend(self.body_text)
+        parts.extend(self.other_text)
+        return "\n".join(parts)
+
+
+@dataclass
+class OdpContent(ExtractionInterface):
+    """Complete extracted content from an ODP file."""
+
+    metadata: OdpMetadata = field(default_factory=OdpMetadata)
+    slides: List[OdpSlide] = field(default_factory=list)
+
+    def iterator(
+        self, include_annotations: bool = False, include_notes: bool = False
+    ) -> typing.Iterator[str]:
+        """Iterate over slides, yielding combined text per slide.
+
+        Args:
+            include_annotations: Include annotations/comments in output
+            include_notes: Include speaker notes in output
+        """
+        for slide in self.slides:
+            parts = [slide.text_combined]
+
+            if include_annotations:
+                for annotation in slide.annotations:
+                    parts.append(
+                        f"[Annotation: {annotation.creator}@{annotation.date}: {annotation.text}]"
+                    )
+
+            if include_notes:
+                for note in slide.notes:
+                    parts.append(f"[Note: {note}]")
+
+            yield "\n".join(parts)
+
+    def get_full_text(
+        self, include_annotations: bool = False, include_notes: bool = False
+    ) -> str:
+        """Get full text of all slides.
+
+        Args:
+            include_annotations: Include annotations/comments in output (default: False)
+            include_notes: Include speaker notes in output (default: False)
+        """
+        return "\n".join(
+            list(
+                self.iterator(
+                    include_annotations=include_annotations, include_notes=include_notes
+                )
+            )
+        )
+
+    def get_metadata(self) -> OdpMetadata:
+        """Returns the metadata of the extracted file."""
+        return self.metadata
+
+    @property
+    def slide_count(self) -> int:
+        """Number of slides extracted."""
+        return len(self.slides)
+
+
+###############
+# OpenDocument ODS (Spreadsheet)
+###############
+
+
+@dataclass
+class OdsMetadata(FileMetadataInterface):
+    """Metadata extracted from an ODS file."""
+
+    title: str = ""
+    description: str = ""
+    subject: str = ""
+    creator: str = ""
+    keywords: str = ""
+    initial_creator: str = ""
+    creation_date: str = ""
+    date: str = ""  # Last modified date
+    language: str = ""
+    editing_cycles: int = 0
+    editing_duration: str = ""
+    generator: str = ""  # Application that created the document
+
+
+@dataclass
+class OdsAnnotation:
+    """Represents an annotation/comment in a spreadsheet cell."""
+
+    creator: str = ""
+    date: str = ""
+    text: str = ""
+
+
+@dataclass
+class OdsImage:
+    """Represents an embedded image in a spreadsheet."""
+
+    href: str = ""
+    name: str = ""
+    content_type: str = ""
+    data: Optional[io.BytesIO] = None
+    size_bytes: int = 0
+    width: Optional[str] = None
+    height: Optional[str] = None
+    error: Optional[str] = None
+
+
+@dataclass
+class OdsSheet:
+    """Represents a single sheet in the spreadsheet."""
+
+    name: str = ""
+    data: List[Dict[str, typing.Any]] = field(default_factory=list)
+    text: str = ""
+    annotations: List[OdsAnnotation] = field(default_factory=list)
+    images: List[OdsImage] = field(default_factory=list)
+
+
+@dataclass
+class OdsContent(ExtractionInterface):
+    """Complete extracted content from an ODS file."""
+
+    metadata: OdsMetadata = field(default_factory=OdsMetadata)
+    sheets: List[OdsSheet] = field(default_factory=list)
+
+    def iterator(self) -> typing.Iterator[str]:
+        """Iterate over sheets, yielding text per sheet."""
+        for sheet in self.sheets:
+            yield (sheet.name + "\n" + sheet.text.strip()).strip()
+
+    def get_full_text(self) -> str:
+        """Get full text of all sheets."""
+        return "\n".join(list(self.iterator()))
+
+    def get_metadata(self) -> OdsMetadata:
+        """Returns the metadata of the extracted file."""
+        return self.metadata
+
+    @property
+    def sheet_count(self) -> int:
+        """Number of sheets extracted."""
+        return len(self.sheets)
+
+
+@dataclass
+class OdtMetadata(FileMetadataInterface):
+    """Metadata extracted from an ODT file."""
+
+    title: str = ""
+    description: str = ""
+    subject: str = ""
+    creator: str = ""
+    keywords: str = ""
+    initial_creator: str = ""
+    creation_date: str = ""
+    date: str = ""  # Last modified date
+    language: str = ""
+    editing_cycles: int = 0
+    editing_duration: str = ""
+    generator: str = ""  # Application that created the document
+
+
+@dataclass
+class OdtRun:
+    """Represents a span of text with formatting."""
+
+    text: str = ""
+    style_name: Optional[str] = None
+    font_name: Optional[str] = None
+    font_size: Optional[str] = None
+    bold: Optional[bool] = None
+    italic: Optional[bool] = None
+    underline: Optional[bool] = None
+    color: Optional[str] = None
+
+
+@dataclass
+class OdtParagraph:
+    """Represents a paragraph in the document."""
+
+    text: str = ""
+    style_name: Optional[str] = None
+    outline_level: Optional[int] = None  # For headings
+    runs: List["OdtRun"] = field(default_factory=list)
+
+
+@dataclass
+class OdtHeaderFooter:
+    """Represents a header or footer."""
+
+    type: str = ""  # header, footer, header-left, footer-left
+    text: str = ""
+
+
+@dataclass
+class OdtImage:
+    """Represents an embedded image."""
+
+    href: str = ""
+    name: str = ""
+    content_type: str = ""
+    data: Optional[io.BytesIO] = None
+    size_bytes: int = 0
+    width: Optional[str] = None
+    height: Optional[str] = None
+    error: Optional[str] = None
+
+
+@dataclass
+class OdtHyperlink:
+    """Represents a hyperlink."""
+
+    text: str = ""
+    url: str = ""
+
+
+@dataclass
+class OdtNote:
+    """Represents a footnote or endnote."""
+
+    id: str = ""
+    note_class: str = ""  # footnote or endnote
+    text: str = ""
+
+
+@dataclass
+class OdtAnnotation:
+    """Represents an annotation/comment."""
+
+    creator: str = ""
+    date: str = ""
+    text: str = ""
+
+
+@dataclass
+class OdtBookmark:
+    """Represents a bookmark."""
+
+    name: str = ""
+
+
+@dataclass
+class OdtContent(ExtractionInterface):
+    """Complete extracted content from an ODT file."""
+
+    metadata: OdtMetadata = field(default_factory=OdtMetadata)
+    paragraphs: List[OdtParagraph] = field(default_factory=list)
+    tables: List[List[List[str]]] = field(default_factory=list)
+    headers: List[OdtHeaderFooter] = field(default_factory=list)
+    footers: List[OdtHeaderFooter] = field(default_factory=list)
+    images: List[OdtImage] = field(default_factory=list)
+    hyperlinks: List[OdtHyperlink] = field(default_factory=list)
+    footnotes: List[OdtNote] = field(default_factory=list)
+    endnotes: List[OdtNote] = field(default_factory=list)
+    annotations: List[OdtAnnotation] = field(default_factory=list)
+    bookmarks: List[OdtBookmark] = field(default_factory=list)
+    styles: List[str] = field(default_factory=list)
+    full_text: str = ""
+
+    def iterator(self, include_annotations: bool = False) -> typing.Iterator[str]:
+        """Iterate over document text.
+
+        Args:
+            include_annotations: Include annotations/comments in output
+        """
+        yield self.full_text
+
+        if include_annotations:
+            for annotation in self.annotations:
+                yield f"[Annotation: {annotation.creator}@{annotation.date}: {annotation.text}]"
+
+    def get_full_text(self, include_annotations: bool = False) -> str:
+        """Get full text of the document.
+
+        Args:
+            include_annotations: Include annotations/comments in output (default: False)
+        """
+        return "\n".join(self.iterator(include_annotations))
+
+    def get_metadata(self) -> OdtMetadata:
+        """Returns the metadata of the extracted file."""
+        return self.metadata
+
+
 #######
 # RTF
 #######

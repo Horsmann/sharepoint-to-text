@@ -10,28 +10,37 @@ from sharepoint2text.extractors.data_types import ExtractionInterface
 logger = logging.getLogger(__name__)
 
 mime_type_mapping = {
+    # legacy ms
     "application/vnd.ms-powerpoint": "ppt",
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
-    "application/msword": "doc",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
     "application/vnd.ms-excel": "xls",
+    "application/msword": "doc",
+    "application/rtf": "rtf",
+    "text/rtf": "rtf",
+    # modern ms
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
-    "application/pdf": "pdf",
+    # open office
+    "application/vnd.oasis.opendocument.text": "odt",
+    "application/vnd.oasis.opendocument.presentation": "odp",
+    "application/vnd.oasis.opendocument.spreadsheet": "ods",
+    # plain text
     "text/csv": "csv",
     "application/csv": "csv",
     "application/json": "json",
     "text/json": "json",
     "text/plain": "txt",
+    "text/markdown": "md",
     "text/tab-separated-values": "tsv",
     "application/tab-separated-values": "tsv",
+    # email
     "application/vnd.ms-outlook": "msg",
     "message/rfc822": "eml",
     "application/mbox": "mbox",
-    "application/rtf": "rtf",
-    "text/rtf": "rtf",
-    "text/markdown": "md",
+    # other
     "text/html": "html",
     "application/xhtml+xml": "html",
+    "application/pdf": "pdf",
 }
 
 
@@ -40,27 +49,27 @@ def _get_extractor(
 ) -> Callable[[io.BytesIO, str | None], Generator[ExtractionInterface, Any, None]]:
     """Return the extractor function for a file type (lazy import)."""
     if file_type == "xlsx":
-        from sharepoint2text.extractors.xlsx_extractor import read_xlsx
+        from sharepoint2text.extractors.ms_modern.xlsx_extractor import read_xlsx
 
         return read_xlsx
     elif file_type == "xls":
-        from sharepoint2text.extractors.xls_extractor import read_xls
+        from sharepoint2text.extractors.ms_legacy.xls_extractor import read_xls
 
         return read_xls
     elif file_type == "ppt":
-        from sharepoint2text.extractors.ppt_extractor import read_ppt
+        from sharepoint2text.extractors.ms_legacy.ppt_extractor import read_ppt
 
         return read_ppt
     elif file_type == "pptx":
-        from sharepoint2text.extractors.pptx_extractor import read_pptx
+        from sharepoint2text.extractors.ms_modern.pptx_extractor import read_pptx
 
         return read_pptx
     elif file_type == "doc":
-        from sharepoint2text.extractors.doc_extractor import read_doc
+        from sharepoint2text.extractors.ms_legacy.doc_extractor import read_doc
 
         return read_doc
     elif file_type == "docx":
-        from sharepoint2text.extractors.docx_extractor import read_docx
+        from sharepoint2text.extractors.ms_modern.docx_extractor import read_docx
 
         return read_docx
     elif file_type == "pdf":
@@ -90,13 +99,25 @@ def _get_extractor(
 
         return read_eml_format_mail
     elif file_type == "rtf":
-        from sharepoint2text.extractors.rtf_extractor import read_rtf
+        from sharepoint2text.extractors.ms_legacy.rtf_extractor import read_rtf
 
         return read_rtf
     elif file_type == "html":
         from sharepoint2text.extractors.html_extractor import read_html
 
         return read_html
+    elif file_type == "odt":
+        from sharepoint2text.extractors.open_office.odt_extractor import read_odt
+
+        return read_odt
+    elif file_type == "odp":
+        from sharepoint2text.extractors.open_office.odp_extractor import read_odp
+
+        return read_odp
+    elif file_type == "ods":
+        from sharepoint2text.extractors.open_office.ods_extractor import read_ods
+
+        return read_ods
     else:
         raise ExtractionFileFormatNotSupportedError(
             f"No extractor for file type: {file_type}"

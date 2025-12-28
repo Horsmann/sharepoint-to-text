@@ -2,19 +2,22 @@ import logging
 import unittest
 
 from sharepoint2text.exceptions import ExtractionFileFormatNotSupportedError
-from sharepoint2text.extractors.doc_extractor import read_doc
-from sharepoint2text.extractors.docx_extractor import read_docx
 from sharepoint2text.extractors.html_extractor import read_html
 from sharepoint2text.extractors.mail.eml_email_extractor import read_eml_format_mail
 from sharepoint2text.extractors.mail.mbox_email_extractor import read_mbox_format_mail
 from sharepoint2text.extractors.mail.msg_email_extractor import read_msg_format_mail
+from sharepoint2text.extractors.ms_legacy.doc_extractor import read_doc
+from sharepoint2text.extractors.ms_legacy.ppt_extractor import read_ppt
+from sharepoint2text.extractors.ms_legacy.rtf_extractor import read_rtf
+from sharepoint2text.extractors.ms_legacy.xls_extractor import read_xls
+from sharepoint2text.extractors.ms_modern.docx_extractor import read_docx
+from sharepoint2text.extractors.ms_modern.pptx_extractor import read_pptx
+from sharepoint2text.extractors.ms_modern.xlsx_extractor import read_xlsx
+from sharepoint2text.extractors.open_office.odp_extractor import read_odp
+from sharepoint2text.extractors.open_office.ods_extractor import read_ods
+from sharepoint2text.extractors.open_office.odt_extractor import read_odt
 from sharepoint2text.extractors.pdf_extractor import read_pdf
 from sharepoint2text.extractors.plain_extractor import read_plain_text
-from sharepoint2text.extractors.ppt_extractor import read_ppt
-from sharepoint2text.extractors.pptx_extractor import read_pptx
-from sharepoint2text.extractors.rtf_extractor import read_rtf
-from sharepoint2text.extractors.xls_extractor import read_xls
-from sharepoint2text.extractors.xlsx_extractor import read_xlsx
 from sharepoint2text.router import get_extractor, is_supported_file
 
 logger = logging.getLogger(__name__)
@@ -41,6 +44,9 @@ def test_is_supported():
     tc.assertTrue(is_supported_file("myfile.rtf"))
     tc.assertTrue(is_supported_file("myfile.html"))
     tc.assertTrue(is_supported_file("myfile.htm"))
+    tc.assertTrue(is_supported_file("myfile.odt"))
+    tc.assertTrue(is_supported_file("myfile.odp"))
+    tc.assertTrue(is_supported_file("myfile.ods"))
     # not supported
     tc.assertFalse(is_supported_file("myfile.zip"))
     tc.assertFalse(is_supported_file("myfile.rar"))
@@ -101,6 +107,18 @@ def test_router():
     # rtf
     func = get_extractor("myfile.rtf")
     tc.assertEqual(read_rtf, func)
+
+    # open office - document - odt
+    func = get_extractor("myfile.odt")
+    tc.assertEqual(read_odt, func)
+
+    # open office - presentation - odp
+    func = get_extractor("myfile.odp")
+    tc.assertEqual(read_odp, func)
+
+    # open office - spreadsheet - ods
+    func = get_extractor("myfile.ods")
+    tc.assertEqual(read_ods, func)
 
     # html
     func = get_extractor("myfile.html")
