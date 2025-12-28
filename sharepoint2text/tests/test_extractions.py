@@ -159,7 +159,7 @@ def test_read_xlsx_2() -> None:
 
 
 def test_read_xls_1() -> None:
-    filename = "sharepoint2text/tests/resources/pb_2011_1_gen_web.xls"
+    filename = "sharepoint2text/tests/resources/legacy_ms/pb_2011_1_gen_web.xls"
     with open(filename, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
@@ -197,7 +197,7 @@ def test_read_xls_1() -> None:
 
 
 def test_read_xls_2() -> None:
-    filename = "sharepoint2text/tests/resources/mwe.xls"
+    filename = "sharepoint2text/tests/resources/legacy_ms/mwe.xls"
     with open(filename, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
@@ -210,7 +210,7 @@ def test_read_xls_2() -> None:
 
 
 def test_read_ppt() -> None:
-    filename = "sharepoint2text/tests/resources/eurouni2.ppt"
+    filename = "sharepoint2text/tests/resources/legacy_ms/eurouni2.ppt"
     with open(filename, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
@@ -403,7 +403,7 @@ def test_read_docx_2() -> None:
 
 def test_read_doc() -> None:
     with open(
-        "sharepoint2text/tests/resources/Speech_Prime_Minister_of_The_Netherlands_EN.doc",
+        "sharepoint2text/tests/resources/legacy_ms/Speech_Prime_Minister_of_The_Netherlands_EN.doc",
         mode="rb",
     ) as file:
         file_like = io.BytesIO(file.read())
@@ -484,7 +484,9 @@ def test_read_pdf() -> None:
 
 
 def test_read_rtf() -> None:
-    with open("sharepoint2text/tests/resources/2025.144.un.rtf", mode="rb") as file:
+    with open(
+        "sharepoint2text/tests/resources/legacy_ms/2025.144.un.rtf", mode="rb"
+    ) as file:
         file_like = io.BytesIO(file.read())
         rtf_gen: typing.Generator[RtfContent] = read_rtf(file_like=file_like)
 
