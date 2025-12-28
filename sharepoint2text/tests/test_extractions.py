@@ -248,8 +248,9 @@ def test_read_pptx_2() -> None:
 
     pptx: PptxContent = next(read_pptx(file_like))
     logger.info(pptx.get_full_text())
+    # Formula with properly converted Greek letters and nested structures
     tc.assertEqual(
-        "The slide title\n[Comment: 0@2025-12-28T11:15:49.694: Not second?]\nThe first text line\n\n\n\n\nThe last text line\n$$f(x)=\\frac{1}{2πσ2}e^{-(x-μ)22σ2}$$\nA beach",
+        "The slide title\n[Comment: 0@2025-12-28T11:15:49.694: Not second?]\nThe first text line\n\n\n\n\nThe last text line\n$$f(x)=\\frac{1}{\\sqrt{2\\pi\\sigma^{2}}}e^{-\\frac{(x-\\mu)^{2}}{2\\sigma^{2}}}$$\nA beach",
         pptx.get_full_text(),
     )
 
@@ -288,8 +289,9 @@ def test_read_docx_2() -> None:
         file_like.seek(0)
 
     docx: DocxContent = next(read_docx(file_like))
+    # Formula with properly converted multiplication sign
     tc.assertEqual(
-        "Hello World!\nAn image of space\nIncome\ntax\n119\n19\nAnother sentence after the table.\n$$\\frac{3}{4}×4=\\sqrt{9}$$",
+        "Hello World!\nAn image of space\nIncome\ntax\n119\n19\nAnother sentence after the table.\n$$\\frac{3}{4}\\times4=\\sqrt{9}$$",
         docx.full_text,
     )
     tc.assertListEqual(
@@ -306,9 +308,10 @@ def test_read_docx_2() -> None:
     )
     tc.assertListEqual([[["Income", "tax"], ["119", "19"]]], docx.tables)
 
-    # formulas
+    # formulas (with converted multiplication sign)
     tc.assertListEqual(
-        [DocxFormula(latex="\\frac{3}{4}×4=\\sqrt{9}", is_display=True)], docx.formulas
+        [DocxFormula(latex="\\frac{3}{4}\\times4=\\sqrt{9}", is_display=True)],
+        docx.formulas,
     )
 
     # section object

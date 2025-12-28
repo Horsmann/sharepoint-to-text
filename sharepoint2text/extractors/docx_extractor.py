@@ -34,6 +34,111 @@ class _DocxFullTextExtractor:
     """Extracts a full text representation of a docx file.
     Respects paragraphs, tables and formulas and their order of occurrence."""
 
+    # Greek letter and symbol mapping for LaTeX conversion
+    GREEK_TO_LATEX = {
+        # Lowercase Greek
+        "α": "\\alpha",
+        "β": "\\beta",
+        "γ": "\\gamma",
+        "δ": "\\delta",
+        "ε": "\\epsilon",
+        "ζ": "\\zeta",
+        "η": "\\eta",
+        "θ": "\\theta",
+        "ι": "\\iota",
+        "κ": "\\kappa",
+        "λ": "\\lambda",
+        "μ": "\\mu",
+        "ν": "\\nu",
+        "ξ": "\\xi",
+        "ο": "o",  # omicron is just 'o' in LaTeX
+        "π": "\\pi",
+        "ρ": "\\rho",
+        "σ": "\\sigma",
+        "ς": "\\varsigma",
+        "τ": "\\tau",
+        "υ": "\\upsilon",
+        "φ": "\\phi",
+        "χ": "\\chi",
+        "ψ": "\\psi",
+        "ω": "\\omega",
+        # Uppercase Greek
+        "Α": "A",
+        "Β": "B",
+        "Γ": "\\Gamma",
+        "Δ": "\\Delta",
+        "Ε": "E",
+        "Ζ": "Z",
+        "Η": "H",
+        "Θ": "\\Theta",
+        "Ι": "I",
+        "Κ": "K",
+        "Λ": "\\Lambda",
+        "Μ": "M",
+        "Ν": "N",
+        "Ξ": "\\Xi",
+        "Ο": "O",
+        "Π": "\\Pi",
+        "Ρ": "P",
+        "Σ": "\\Sigma",
+        "Τ": "T",
+        "Υ": "\\Upsilon",
+        "Φ": "\\Phi",
+        "Χ": "X",
+        "Ψ": "\\Psi",
+        "Ω": "\\Omega",
+        # Common math symbols
+        "∞": "\\infty",
+        "∂": "\\partial",
+        "∇": "\\nabla",
+        "±": "\\pm",
+        "∓": "\\mp",
+        "×": "\\times",
+        "÷": "\\div",
+        "·": "\\cdot",
+        "≤": "\\leq",
+        "≥": "\\geq",
+        "≠": "\\neq",
+        "≈": "\\approx",
+        "≡": "\\equiv",
+        "∈": "\\in",
+        "∉": "\\notin",
+        "⊂": "\\subset",
+        "⊃": "\\supset",
+        "⊆": "\\subseteq",
+        "⊇": "\\supseteq",
+        "∪": "\\cup",
+        "∩": "\\cap",
+        "∧": "\\land",
+        "∨": "\\lor",
+        "¬": "\\neg",
+        "→": "\\rightarrow",
+        "←": "\\leftarrow",
+        "↔": "\\leftrightarrow",
+        "⇒": "\\Rightarrow",
+        "⇐": "\\Leftarrow",
+        "⇔": "\\Leftrightarrow",
+        "∀": "\\forall",
+        "∃": "\\exists",
+        "∅": "\\emptyset",
+        "ℕ": "\\mathbb{N}",
+        "ℤ": "\\mathbb{Z}",
+        "ℚ": "\\mathbb{Q}",
+        "ℝ": "\\mathbb{R}",
+        "ℂ": "\\mathbb{C}",
+    }
+
+    @classmethod
+    def _convert_greek_and_symbols(cls, text: str) -> str:
+        """Convert Greek letters and math symbols to LaTeX equivalents."""
+        result = []
+        for char in text:
+            if char in cls.GREEK_TO_LATEX:
+                result.append(cls.GREEK_TO_LATEX[char])
+            else:
+                result.append(char)
+        return "".join(result)
+
     @classmethod
     def omml_to_latex(cls, omath_element) -> str:
         """Convert OMML element to LaTeX-like string.
@@ -45,111 +150,109 @@ class _DocxFullTextExtractor:
         parts = []
         pending_sqrt_close = None  # Bracket needed to close current sqrt
 
-        def collect_text(elem) -> str:
-            """Collect all text from element without special handling."""
+        # Property elements to skip
+        skip_tags = {
+            "rPr",
+            "fPr",
+            "radPr",
+            "ctrlPr",
+            "oMathParaPr",
+            "degHide",
+            "type",
+            "rFonts",
+            "i",
+            "color",
+            "sz",
+            "szCs",
+            "jc",
+            "solidFill",
+            "srgbClr",
+            "latin",
+        }
+
+        def process_element(elem) -> str:
+            """Recursively process an element and return its LaTeX representation."""
+            nonlocal pending_sqrt_close
+
             if elem is None:
                 return ""
-            result = []
-            tag = elem.tag.split("}")[-1]
-            if tag == "t":
-                return elem.text or ""
-            if tag in [
-                "rPr",
-                "fPr",
-                "radPr",
-                "ctrlPr",
-                "oMathParaPr",
-                "degHide",
-                "type",
-                "rFonts",
-                "i",
-                "color",
-                "sz",
-                "szCs",
-                "jc",
-            ]:
-                return ""
-            for child in elem:
-                result.append(collect_text(child))
-            return "".join(result)
 
-        def process(elem):
-            nonlocal pending_sqrt_close
             tag = elem.tag.split("}")[-1]
+
+            # Skip property elements
+            if tag in skip_tags:
+                return ""
 
             # Text content (both w:t and m:t)
             if tag == "t":
                 text = elem.text or ""
-                if pending_sqrt_close and pending_sqrt_close in text:
-                    # Found the closing bracket - split content
-                    idx = text.index(pending_sqrt_close)
-                    parts.append(text[:idx])  # Content inside sqrt
-                    parts.append("}")  # Close the sqrt
-                    parts.append(text[idx + 1 :])  # Content after closing bracket
+                converted = cls._convert_greek_and_symbols(text)
+
+                # Handle malformed sqrt: if we're waiting for a closing bracket
+                if pending_sqrt_close and pending_sqrt_close in converted:
+                    idx = converted.index(pending_sqrt_close)
+                    inside = converted[:idx]  # Content inside sqrt
+                    outside = converted[idx + 1 :]  # Content after closing bracket
                     pending_sqrt_close = None
-                else:
-                    parts.append(text)
-                return
+                    return inside + "}" + outside
+
+                return converted
 
             # Fraction: m:f contains m:num (numerator) and m:den (denominator)
             if tag == "f":
                 num = elem.find(f"{m_ns}num")
                 den = elem.find(f"{m_ns}den")
-                num_text = collect_text(num)
-                den_text = collect_text(den)
-                parts.append(f"\\frac{{{num_text}}}{{{den_text}}}")
-                return
+                num_text = process_element(num)
+                den_text = process_element(den)
+                return f"\\frac{{{num_text}}}{{{den_text}}}"
 
             # Superscript: m:sSup contains m:e (base) and m:sup (superscript)
             if tag == "sSup":
                 base = elem.find(f"{m_ns}e")
                 sup = elem.find(f"{m_ns}sup")
-                base_text = collect_text(base)
-                sup_text = collect_text(sup)
-                parts.append(f"{base_text}^{{{sup_text}}}")
-                return
+                base_text = process_element(base)
+                sup_text = process_element(sup)
+                return f"{base_text}^{{{sup_text}}}"
 
             # Subscript: m:sSub contains m:e (base) and m:sub (subscript)
             if tag == "sSub":
                 base = elem.find(f"{m_ns}e")
                 sub = elem.find(f"{m_ns}sub")
-                base_text = collect_text(base)
-                sub_text = collect_text(sub)
-                parts.append(f"{base_text}_{{{sub_text}}}")
-                return
+                base_text = process_element(base)
+                sub_text = process_element(sub)
+                return f"{base_text}_{{{sub_text}}}"
 
             # Sub-superscript: m:sSubSup contains m:e, m:sub, and m:sup
             if tag == "sSubSup":
                 base = elem.find(f"{m_ns}e")
                 sub = elem.find(f"{m_ns}sub")
                 sup = elem.find(f"{m_ns}sup")
-                base_text = collect_text(base)
-                sub_text = collect_text(sub)
-                sup_text = collect_text(sup)
-                parts.append(f"{base_text}_{{{sub_text}}}^{{{sup_text}}}")
-                return
+                base_text = process_element(base)
+                sub_text = process_element(sub)
+                sup_text = process_element(sup)
+                return f"{base_text}_{{{sub_text}}}^{{{sup_text}}}"
 
             # Square root: m:rad contains m:deg (degree, optional) and m:e (content)
             if tag == "rad":
                 deg = elem.find(f"{m_ns}deg")
                 content = elem.find(f"{m_ns}e")
-                content_text = collect_text(content)
-                deg_text = collect_text(deg).strip()
+                content_text = process_element(content)
+                deg_text = process_element(deg).strip()
 
                 # Handle malformed: lone opening bracket inside sqrt
+                # Some OMML has sqrt containing just "(" with content after
                 if content_text.strip() in ("(", "[", "{"):
                     bracket_map = {"(": ")", "[": "]", "{": "}"}
                     pending_sqrt_close = bracket_map.get(content_text.strip(), ")")
                     if deg_text:
-                        parts.append(f"\\sqrt[{deg_text}]{{")
+                        return f"\\sqrt[{deg_text}]{{"
                     else:
-                        parts.append("\\sqrt{")
+                        return "\\sqrt{"
                 else:
                     if deg_text:
-                        parts.append(f"\\sqrt[{deg_text}]{{{content_text}}}")
+                        return f"\\sqrt[{deg_text}]{{{content_text}}}"
                     else:
-                        parts.append(f"\\sqrt{{{content_text}}}")
-                return
+                        return f"\\sqrt{{{content_text}}}"
 
             # N-ary (sum, product, integral): m:nary
             if tag == "nary":
@@ -167,11 +270,11 @@ class _DocxFullTextExtractor:
                     "∬": "\\iint",
                     "∭": "\\iiint",
                 }
-                latex_op = op_map.get(op, op)
+                latex_op = op_map.get(op, cls._convert_greek_and_symbols(op))
 
-                sub_text = collect_text(sub)
-                sup_text = collect_text(sup)
-                content_text = collect_text(content)
+                sub_text = process_element(sub)
+                sup_text = process_element(sup)
+                content_text = process_element(content)
 
                 result = latex_op
                 if sub_text.strip():
@@ -179,8 +282,7 @@ class _DocxFullTextExtractor:
                 if sup_text.strip():
                     result += f"^{{{sup_text}}}"
                 result += f" {content_text}"
-                parts.append(result)
-                return
+                return result
 
             # Delimiter (parentheses, brackets): m:d
             if tag == "d":
@@ -190,26 +292,24 @@ class _DocxFullTextExtractor:
                 right = end_chr.get(f"{m_ns}val") if end_chr is not None else ")"
 
                 e_elements = elem.findall(f"{m_ns}e")
-                content_parts = [collect_text(e) for e in e_elements]
+                content_parts = [process_element(e) for e in e_elements]
                 content_text = ", ".join(content_parts)
-                parts.append(f"{left}{content_text}{right}")
-                return
+                return f"{left}{content_text}{right}"
 
             # Matrix: m:m contains m:mr (rows) which contain m:e (elements)
             if tag == "m" and elem.find(f"{m_ns}mr") is not None:
                 rows = []
                 for mr in elem.findall(f"{m_ns}mr"):
-                    cells = [collect_text(e) for e in mr.findall(f"{m_ns}e")]
+                    cells = [process_element(e) for e in mr.findall(f"{m_ns}e")]
                     rows.append(" & ".join(cells))
-                parts.append("\\begin{matrix}" + " \\\\ ".join(rows) + "\\end{matrix}")
-                return
+                return "\\begin{matrix}" + " \\\\ ".join(rows) + "\\end{matrix}"
 
             # Function: m:func contains m:fName and m:e
             if tag == "func":
                 fname = elem.find(f"{m_ns}fName")
                 content = elem.find(f"{m_ns}e")
-                fname_text = collect_text(fname)
-                content_text = collect_text(content)
+                fname_text = process_element(fname)
+                content_text = process_element(content)
                 func_map = {
                     "sin": "\\sin",
                     "cos": "\\cos",
@@ -217,24 +317,25 @@ class _DocxFullTextExtractor:
                     "log": "\\log",
                     "ln": "\\ln",
                     "lim": "\\lim",
+                    "exp": "\\exp",
+                    "max": "\\max",
+                    "min": "\\min",
                 }
                 latex_fname = func_map.get(fname_text.strip(), fname_text)
-                parts.append(f"{latex_fname}{{{content_text}}}")
-                return
+                return f"{latex_fname}{{{content_text}}}"
 
             # Bar/overline: m:bar
             if tag == "bar":
                 content = elem.find(f"{m_ns}e")
-                content_text = collect_text(content)
-                parts.append(f"\\overline{{{content_text}}}")
-                return
+                content_text = process_element(content)
+                return f"\\overline{{{content_text}}}"
 
             # Accent (hat, tilde, etc.): m:acc
             if tag == "acc":
                 chr_elem = elem.find(f".//{m_ns}chr")
                 accent = chr_elem.get(f"{m_ns}val") if chr_elem is not None else "^"
                 content = elem.find(f"{m_ns}e")
-                content_text = collect_text(content)
+                content_text = process_element(content)
 
                 accent_map = {
                     "̂": "\\hat",
@@ -244,33 +345,21 @@ class _DocxFullTextExtractor:
                     "̇": "\\dot",
                 }
                 latex_accent = accent_map.get(accent, "\\hat")
-                parts.append(f"{latex_accent}{{{content_text}}}")
-                return
+                return f"{latex_accent}{{{content_text}}}"
 
-            # Skip property elements
-            if tag in [
-                "rPr",
-                "fPr",
-                "radPr",
-                "ctrlPr",
-                "oMathParaPr",
-                "degHide",
-                "type",
-                "rFonts",
-                "i",
-                "color",
-                "sz",
-                "szCs",
-                "jc",
-            ]:
-                return
-
-            # Default: recurse into children (handles 'r' runs and other containers)
+            # Default: recurse into children and concatenate results
+            result = []
             for child in elem:
-                process(child)
+                child_result = process_element(child)
+                if child_result:
+                    result.append(child_result)
+            return "".join(result)
 
+        # Process all children of the omath element
         for child in omath_element:
-            process(child)
+            child_result = process_element(child)
+            if child_result:
+                parts.append(child_result)
 
         # If sqrt was never closed (no matching bracket found), close it now
         if pending_sqrt_close:
