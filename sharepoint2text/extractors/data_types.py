@@ -848,6 +848,89 @@ class OdpContent(ExtractionInterface):
         return len(self.slides)
 
 
+###############
+# OpenDocument ODS (Spreadsheet)
+###############
+
+
+@dataclass
+class OdsMetadata(FileMetadataInterface):
+    """Metadata extracted from an ODS file."""
+
+    title: str = ""
+    description: str = ""
+    subject: str = ""
+    creator: str = ""
+    keywords: str = ""
+    initial_creator: str = ""
+    creation_date: str = ""
+    date: str = ""  # Last modified date
+    language: str = ""
+    editing_cycles: int = 0
+    editing_duration: str = ""
+    generator: str = ""  # Application that created the document
+
+
+@dataclass
+class OdsAnnotation:
+    """Represents an annotation/comment in a spreadsheet cell."""
+
+    creator: str = ""
+    date: str = ""
+    text: str = ""
+
+
+@dataclass
+class OdsImage:
+    """Represents an embedded image in a spreadsheet."""
+
+    href: str = ""
+    name: str = ""
+    content_type: str = ""
+    data: Optional[io.BytesIO] = None
+    size_bytes: int = 0
+    width: Optional[str] = None
+    height: Optional[str] = None
+    error: Optional[str] = None
+
+
+@dataclass
+class OdsSheet:
+    """Represents a single sheet in the spreadsheet."""
+
+    name: str = ""
+    data: List[Dict[str, typing.Any]] = field(default_factory=list)
+    text: str = ""
+    annotations: List[OdsAnnotation] = field(default_factory=list)
+    images: List[OdsImage] = field(default_factory=list)
+
+
+@dataclass
+class OdsContent(ExtractionInterface):
+    """Complete extracted content from an ODS file."""
+
+    metadata: OdsMetadata = field(default_factory=OdsMetadata)
+    sheets: List[OdsSheet] = field(default_factory=list)
+
+    def iterator(self) -> typing.Iterator[str]:
+        """Iterate over sheets, yielding text per sheet."""
+        for sheet in self.sheets:
+            yield (sheet.name + "\n" + sheet.text.strip()).strip()
+
+    def get_full_text(self) -> str:
+        """Get full text of all sheets."""
+        return "\n".join(list(self.iterator()))
+
+    def get_metadata(self) -> OdsMetadata:
+        """Returns the metadata of the extracted file."""
+        return self.metadata
+
+    @property
+    def sheet_count(self) -> int:
+        """Number of sheets extracted."""
+        return len(self.sheets)
+
+
 @dataclass
 class OdtMetadata(FileMetadataInterface):
     """Metadata extracted from an ODT file."""

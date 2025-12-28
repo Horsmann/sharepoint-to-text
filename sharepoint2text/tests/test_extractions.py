@@ -14,6 +14,7 @@ from sharepoint2text.extractors.data_types import (
     HtmlContent,
     OdpAnnotation,
     OdpContent,
+    OdsContent,
     OdtAnnotation,
     OdtContent,
     OdtHeaderFooter,
@@ -33,6 +34,7 @@ from sharepoint2text.extractors.mail.eml_email_extractor import read_eml_format_
 from sharepoint2text.extractors.mail.mbox_email_extractor import read_mbox_format_mail
 from sharepoint2text.extractors.mail.msg_email_extractor import read_msg_format_mail
 from sharepoint2text.extractors.odp_extractor import read_odp
+from sharepoint2text.extractors.ods_extractor import read_ods
 from sharepoint2text.extractors.odt_extractor import read_odt
 from sharepoint2text.extractors.pdf_extractor import read_pdf
 from sharepoint2text.extractors.plain_extractor import read_plain_text
@@ -858,3 +860,80 @@ def test_read_odp_presentation() -> None:
     # Full text with notes
     full_text_with_notes = odp.get_full_text(include_notes=True)
     tc.assertIn("[Note: Speaker notes for Slide 1:", full_text_with_notes)
+
+
+def test_read_ods_spreadsheet() -> None:
+    path = "sharepoint2text/tests/resources/open_office/sample_spreadsheet.ods"
+    with open(path, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    ods: OdsContent = next(read_ods(file_like=file_like, path=path))
+
+    # File metadata
+    tc.assertEqual(".ods", ods.get_metadata().to_dict().get("file_extension"))
+    tc.assertEqual(
+        "sample_spreadsheet.ods", ods.get_metadata().to_dict().get("filename")
+    )
+
+    # Document metadata
+    tc.assertEqual("ODFPY/1.4.1", ods.metadata.generator)
+
+    # Sheets
+    tc.assertEqual(2, len(ods.sheets))
+    tc.assertEqual(2, ods.sheet_count)
+
+    # Sheet 1: Sales Data
+    tc.assertEqual("Sales Data", ods.sheets[0].name)
+    # Verify data rows exist
+    tc.assertGreater(len(ods.sheets[0].data), 0)
+    # Verify header row content
+    tc.assertIn("Product", ods.sheets[0].text)
+    tc.assertIn("Q1", ods.sheets[0].text)
+    tc.assertIn("Q2", ods.sheets[0].text)
+    tc.assertIn("Q3", ods.sheets[0].text)
+    tc.assertIn("Q4", ods.sheets[0].text)
+    tc.assertIn("Total", ods.sheets[0].text)
+    # Verify product data
+    tc.assertIn("Widget A", ods.sheets[0].text)
+    tc.assertIn("Widget B", ods.sheets[0].text)
+    tc.assertIn("Widget C", ods.sheets[0].text)
+    tc.assertIn("Widget D", ods.sheets[0].text)
+    # Verify numeric values (from office:value attribute)
+    tc.assertIn("1500", ods.sheets[0].text)
+    tc.assertIn("2200", ods.sheets[0].text)
+    # Annotations on Sales Data sheet
+    tc.assertGreater(len(ods.sheets[0].annotations), 0)
+    # Check for specific annotation
+    annotation_texts = [a.text for a in ods.sheets[0].annotations]
+    tc.assertTrue(
+        any("best-selling" in text for text in annotation_texts),
+        f"Expected 'best-selling' annotation, got: {annotation_texts}",
+    )
+    # No images in this sample
+    tc.assertEqual(0, len(ods.sheets[0].images))
+
+    # Sheet 2: Summary
+    tc.assertEqual("Summary", ods.sheets[1].name)
+    tc.assertIn("Metric", ods.sheets[1].text)
+    tc.assertIn("Value", ods.sheets[1].text)
+    tc.assertIn("Total Revenue", ods.sheets[1].text)
+    tc.assertIn("Average per Product", ods.sheets[1].text)
+    # Summary sheet also has an annotation
+    tc.assertGreater(len(ods.sheets[1].annotations), 0)
+
+    # Iterator yields 2 items (one per sheet)
+    tc.assertEqual(2, len(list(ods.iterator())))
+
+    # check length of full text with length of all sheets
+    total_length_iteration = sum([len(e) for e in ods.iterator()])
+    # one line break is added
+    length_total = len(ods.get_full_text()) - 1
+    tc.assertEqual(total_length_iteration, length_total)
+
+    # Full text contains data from both sheets
+    full_text = ods.get_full_text()
+    tc.assertEqual(
+        "Sales Data\n" "Product\tQ1\tQ2\tQ3\tQ4\tTotal\nWidget",
+        full_text[:44].strip(),
+    )

@@ -17,6 +17,7 @@ from sharepoint2text.extractors.data_types import (
     ExtractionInterface,
     HtmlContent,
     OdpContent,
+    OdsContent,
     OdtContent,
     PdfContent,
     PlainTextContent,
@@ -131,6 +132,15 @@ def read_odp(
     return _read_odp(file_like, path)
 
 
+def read_ods(
+    file_like: io.BytesIO, path: str | None = None
+) -> Generator[OdsContent, Any, None]:
+    """Extract content from an ODS (OpenDocument Spreadsheet) file."""
+    from sharepoint2text.extractors.ods_extractor import read_ods as _read_ods
+
+    return _read_ods(file_like, path)
+
+
 def read_email__msg_format(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[EmailContent, Any, None]:
@@ -191,6 +201,7 @@ def read_file(
         - .htm  -> HtmlContent
         - .odt  -> OdtContent
         - .odp  -> OdpContent
+        - .ods  -> OdsContent
         - .msg  -> EmailContent
         - .mbox -> EmailContent
         - .eml  -> EmailContent
@@ -231,6 +242,7 @@ __all__ = [
     "read_html",
     "read_odt",
     "read_odp",
+    "read_ods",
     "read_email__msg_format",
     "read_email__eml_format",
     "read_email__mbox_format",
