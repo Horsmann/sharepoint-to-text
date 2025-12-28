@@ -38,6 +38,7 @@ Enterprise SharePoints contain decades of accumulated documents. While modern `.
 | Modern PowerPoint | `.pptx`   | PowerPoint 2007+ presentations        |
 | Legacy PowerPoint | `.ppt`    | PowerPoint 97-2003 presentations      |
 | PDF               | `.pdf`    | PDF documents                         |
+| ODT Document      | `.odt`    | OpenDocument Text                     |
 | ODP Presentation  | `.odp`    | OpenDocument Presentation             |
 | ODS Spreadsheet   | `.ods`    | OpenDocument Spreadsheet              |
 | EML Email         | `.eml`    | RFC 822 email format                  |
@@ -95,7 +96,7 @@ Different file formats have different natural structural units:
 
 | Format | `iterator()` yields | Notes |
 |--------|-------------------|-------|
-| `.docx`, `.doc` | 1 item (full text) | Word documents have no page structure in the file format |
+| `.docx`, `.doc`, `.odt` | 1 item (full text) | Word/text documents have no page structure in the file format |
 | `.xlsx`, `.xls`, `.ods` | 1 item per **sheet** | Each yield contains sheet content |
 | `.pptx`, `.ppt`, `.odp` | 1 item per **slide** | Each yield contains slide text |
 | `.pdf` | 1 item per **page** | Each yield contains page text |
@@ -250,6 +251,7 @@ sharepoint2text.read_xlsx(file: io.BytesIO, path: str | None = None) -> Generato
 sharepoint2text.read_xls(file: io.BytesIO, path: str | None = None) -> Generator[XlsContent, Any, None]
 sharepoint2text.read_pptx(file: io.BytesIO, path: str | None = None) -> Generator[PptxContent, Any, None]
 sharepoint2text.read_ppt(file: io.BytesIO, path: str | None = None) -> Generator[PptContent, Any, None]
+sharepoint2text.read_odt(file: io.BytesIO, path: str | None = None) -> Generator[OdtContent, Any, None]
 sharepoint2text.read_odp(file: io.BytesIO, path: str | None = None) -> Generator[OdpContent, Any, None]
 sharepoint2text.read_ods(file: io.BytesIO, path: str | None = None) -> Generator[OdsContent, Any, None]
 sharepoint2text.read_pdf(file: io.BytesIO, path: str | None = None) -> Generator[PdfContent, Any, None]
