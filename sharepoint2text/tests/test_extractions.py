@@ -60,7 +60,7 @@ def test_file_metadata_extraction() -> None:
 
 
 def test_read_text() -> None:
-    path = "sharepoint2text/tests/resources/plain.txt"
+    path = "sharepoint2text/tests/resources/plain_text/plain.txt"
     with open(path, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
@@ -71,7 +71,7 @@ def test_read_text() -> None:
 
 
 def test_read_plain_csv() -> None:
-    path = "sharepoint2text/tests/resources/plain.csv"
+    path = "sharepoint2text/tests/resources/plain_text/plain.csv"
     with open(path, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
@@ -84,7 +84,7 @@ def test_read_plain_csv() -> None:
 
 
 def test_read_plain_tsv() -> None:
-    path = "sharepoint2text/tests/resources/plain.tsv"
+    path = "sharepoint2text/tests/resources/plain_text/plain.tsv"
     with open(path, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
@@ -95,7 +95,7 @@ def test_read_plain_tsv() -> None:
 
 
 def test_read_plain_markdown() -> None:
-    path = "sharepoint2text/tests/resources/document.md"
+    path = "sharepoint2text/tests/resources/plain_text/document.md"
     with open(path, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
