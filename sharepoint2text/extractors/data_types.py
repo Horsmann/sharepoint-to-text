@@ -474,6 +474,20 @@ class PPTXImage:
     content_type: str = ""
     size_bytes: int = 0
     blob: Optional[bytes] = None
+    caption: str = ""  # Alt text / description
+
+
+@dataclass
+class PPTXFormula:
+    latex: str = ""
+    is_display: bool = False  # True for display equations, False for inline
+
+
+@dataclass
+class PPTXComment:
+    author: str = ""
+    text: str = ""
+    date: str = ""
 
 
 @dataclass
@@ -484,6 +498,8 @@ class PPTXSlide:
     content_placeholders: List[str] = field(default_factory=list)
     other_textboxes: List[str] = field(default_factory=list)
     images: List[PPTXImage] = field(default_factory=list)
+    formulas: List[PPTXFormula] = field(default_factory=list)
+    comments: List[PPTXComment] = field(default_factory=list)
     text: str = ""
 
 

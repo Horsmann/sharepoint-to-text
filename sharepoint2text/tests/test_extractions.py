@@ -175,7 +175,7 @@ def test_read_ppt() -> None:
     tc.assertEqual("European Union", ppt.get_full_text()[:14])
 
 
-def test_read_pptx() -> None:
+def test_read_pptx_1() -> None:
     filename = "sharepoint2text/tests/resources/eu-visibility_rules_00704232-AF9F-1A18-BD782C469454ADAD_68401.pptx"
     with open(filename, mode="rb") as file:
         file_like = io.BytesIO(file.read())
@@ -215,16 +215,17 @@ def test_read_pptx() -> None:
     ]
     tc.assertListEqual(expected, pptx.slides[1].content_placeholders)
 
-    expected = ["This is the wrong EU emblem", "2", "Don’t use this emblem!"]
+    # Order reflects visual position on slide (top to bottom, left to right)
+    expected = ["This is the wrong EU emblem", "Don’t use this emblem!", "2"]
     tc.assertListEqual(expected, pptx.slides[1].other_textboxes)
 
-    # images
+    # images (sorted by position on slide)
     tc.assertEqual(5, len(pptx.slides[1].images))
-    # test presence of metadata for first image only
+    # test presence of metadata for first image (now image.png due to position sort)
     tc.assertEqual(1, pptx.slides[1].images[0].image_index)
-    tc.assertEqual("image.jpeg", pptx.slides[1].images[0].filename)
-    tc.assertEqual("image/jpeg", pptx.slides[1].images[0].content_type)
-    tc.assertEqual(8947, pptx.slides[1].images[0].size_bytes)
+    tc.assertEqual("image.png", pptx.slides[1].images[0].filename)
+    tc.assertEqual("image/png", pptx.slides[1].images[0].content_type)
+    tc.assertEqual(12538, pptx.slides[1].images[0].size_bytes)
     tc.assertIsNotNone(pptx.slides[1].images[0].blob)
 
     # iterator
@@ -237,6 +238,20 @@ def test_read_pptx() -> None:
         + "To be applied on all materials and communica"
     )
     tc.assertEqual(expected, pptx.get_full_text()[:79])
+
+
+def test_read_pptx_2() -> None:
+    filename = "sharepoint2text/tests/resources/pptx_formula_image.pptx"
+    with open(filename, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    pptx: PptxContent = next(read_pptx(file_like))
+    logger.info(pptx.get_full_text())
+    tc.assertEqual(
+        "The slide title\n[Comment: 0@2025-12-28T11:15:49.694: Not second?]\nThe first text line\n\n\n\n\nThe last text line\n$$f(x)=\\frac{1}{2πσ2}e^{-(x-μ)22σ2}$$\nA beach",
+        pptx.get_full_text(),
+    )
 
 
 def test_read_docx_1() -> None:
