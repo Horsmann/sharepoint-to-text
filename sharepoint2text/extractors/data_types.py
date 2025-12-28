@@ -337,6 +337,43 @@ class PlainTextContent(ExtractionInterface):
         return self.metadata
 
 
+########
+# HTML
+########
+
+
+@dataclass
+class HtmlMetadata(FileMetadataInterface):
+    title: str = ""
+    language: str = ""
+    charset: str = ""
+    description: str = ""
+    keywords: str = ""
+    author: str = ""
+
+
+@dataclass
+class HtmlContent(ExtractionInterface):
+    content: str = ""
+    tables: List[List[List[str]]] = field(default_factory=list)
+    headings: List[Dict[str, str]] = field(
+        default_factory=list
+    )  # List of {level: "h1", text: "..."}
+    links: List[Dict[str, str]] = field(
+        default_factory=list
+    )  # List of {text: "...", href: "..."}
+    metadata: HtmlMetadata = field(default_factory=HtmlMetadata)
+
+    def iterator(self) -> typing.Iterator[str]:
+        yield self.content.strip()
+
+    def get_full_text(self) -> str:
+        return "\n".join(list(self.iterator()))
+
+    def get_metadata(self) -> HtmlMetadata:
+        return self.metadata
+
+
 #############
 # legacy PPT
 ##############

@@ -30,6 +30,8 @@ mime_type_mapping = {
     "application/rtf": "rtf",
     "text/rtf": "rtf",
     "text/markdown": "md",
+    "text/html": "html",
+    "application/xhtml+xml": "html",
 }
 
 
@@ -91,6 +93,10 @@ def _get_extractor(
         from sharepoint2text.extractors.rtf_extractor import read_rtf
 
         return read_rtf
+    elif file_type == "html":
+        from sharepoint2text.extractors.html_extractor import read_html
+
+        return read_html
     else:
         raise ExtractionFileFormatNotSupportedError(
             f"No extractor for file type: {file_type}"

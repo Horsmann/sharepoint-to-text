@@ -15,6 +15,7 @@ from sharepoint2text.extractors.data_types import (
     DocxContent,
     EmailContent,
     ExtractionInterface,
+    HtmlContent,
     PdfContent,
     PlainTextContent,
     PptContent,
@@ -101,6 +102,15 @@ def read_plain_text(
     return _read_plain_text(file_like, path)
 
 
+def read_html(
+    file_like: io.BytesIO, path: str | None = None
+) -> Generator[HtmlContent, Any, None]:
+    """Extract content from an HTML file."""
+    from sharepoint2text.extractors.html_extractor import read_html as _read_html
+
+    return _read_html(file_like, path)
+
+
 def read_email__msg_format(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[EmailContent, Any, None]:
@@ -157,6 +167,8 @@ def read_file(
         - .ppt  -> PptContent
         - .pdf  -> PdfContent
         - .txt  -> PlainTextContent
+        - .html -> HtmlContent
+        - .htm  -> HtmlContent
         - .msg  -> EmailContent
         - .mbox -> EmailContent
         - .eml  -> EmailContent
@@ -194,6 +206,7 @@ __all__ = [
     "read_ppt",
     "read_pdf",
     "read_plain_text",
+    "read_html",
     "read_email__msg_format",
     "read_email__eml_format",
     "read_email__mbox_format",

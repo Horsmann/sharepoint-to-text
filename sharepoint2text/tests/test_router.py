@@ -4,6 +4,7 @@ import unittest
 from sharepoint2text.exceptions import ExtractionFileFormatNotSupportedError
 from sharepoint2text.extractors.doc_extractor import read_doc
 from sharepoint2text.extractors.docx_extractor import read_docx
+from sharepoint2text.extractors.html_extractor import read_html
 from sharepoint2text.extractors.mail.eml_email_extractor import read_eml_format_mail
 from sharepoint2text.extractors.mail.mbox_email_extractor import read_mbox_format_mail
 from sharepoint2text.extractors.mail.msg_email_extractor import read_msg_format_mail
@@ -38,6 +39,8 @@ def test_is_supported():
     tc.assertTrue(is_supported_file("myfile.csv"))
     tc.assertTrue(is_supported_file("myfile.tsv"))
     tc.assertTrue(is_supported_file("myfile.rtf"))
+    tc.assertTrue(is_supported_file("myfile.html"))
+    tc.assertTrue(is_supported_file("myfile.htm"))
     # not supported
     tc.assertFalse(is_supported_file("myfile.zip"))
     tc.assertFalse(is_supported_file("myfile.rar"))
@@ -98,6 +101,14 @@ def test_router():
     # rtf
     func = get_extractor("myfile.rtf")
     tc.assertEqual(read_rtf, func)
+
+    # html
+    func = get_extractor("myfile.html")
+    tc.assertEqual(read_html, func)
+
+    # htm
+    func = get_extractor("myfile.htm")
+    tc.assertEqual(read_html, func)
 
     # msg
     func = get_extractor("myfile.msg")

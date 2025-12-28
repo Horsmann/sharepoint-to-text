@@ -11,6 +11,7 @@ from sharepoint2text.extractors.data_types import (
     DocxNote,
     EmailContent,
     FileMetadataInterface,
+    HtmlContent,
     PdfContent,
     PlainTextContent,
     PptContent,
@@ -21,6 +22,7 @@ from sharepoint2text.extractors.data_types import (
 )
 from sharepoint2text.extractors.doc_extractor import read_doc
 from sharepoint2text.extractors.docx_extractor import read_docx
+from sharepoint2text.extractors.html_extractor import read_html
 from sharepoint2text.extractors.mail.eml_email_extractor import read_eml_format_mail
 from sharepoint2text.extractors.mail.mbox_email_extractor import read_mbox_format_mail
 from sharepoint2text.extractors.mail.msg_email_extractor import read_msg_format_mail
@@ -644,3 +646,20 @@ def test_email__mbox_format() -> None:
     tc.assertEqual(".mbox", mail_meta.file_extension)
     tc.assertEqual("2025-12-27T10:00:00+00:00", mail_meta.date)
     tc.assertEqual("<msg001@example.com>", mail_meta.message_id)
+
+
+def test_read_html() -> None:
+    path = "sharepoint2text/tests/resources/sample.html"
+    with open(path, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    html: HtmlContent = next(read_html(file_like=file_like, path=path))
+
+    tc.assertListEqual([[["Name", "Age"], ["Alice", "25"], ["Bob", "30"]]], html.tables)
+    # tc.assertEqual("This is a simple example of an HTML page with a table.", html.content)
+    tc.assertDictEqual(
+        {"text": "Wikipedia", "href": "https://www.wikipedia.org"},
+        {"text": "Google", "href": "https://www.google.com"},
+        html.links,
+    )
