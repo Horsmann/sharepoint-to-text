@@ -752,6 +752,20 @@ class OdpAnnotation:
 
 
 @dataclass
+class OdpImage:
+    """Represents an embedded image in a presentation."""
+
+    href: str = ""
+    name: str = ""
+    content_type: str = ""
+    data: Optional[io.BytesIO] = None
+    size_bytes: int = 0
+    width: Optional[str] = None
+    height: Optional[str] = None
+    error: Optional[str] = None
+
+
+@dataclass
 class OdpSlide:
     """Represents a single slide in the presentation."""
 
@@ -762,6 +776,7 @@ class OdpSlide:
     other_text: List[str] = field(default_factory=list)
     tables: List[List[List[str]]] = field(default_factory=list)
     annotations: List[OdpAnnotation] = field(default_factory=list)
+    images: List[OdpImage] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)  # Speaker notes
 
     @property

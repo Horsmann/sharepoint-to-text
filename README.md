@@ -354,6 +354,7 @@ slide.body_text      # List[str]
 slide.other_text     # List[str]
 slide.tables         # List[List[List[str]]] (tables on slide)
 slide.annotations    # List[OdpAnnotation] (comments)
+slide.images         # List[OdpImage] (embedded images with href, name, data, size_bytes)
 slide.notes          # List[str] (speaker notes)
 slide.text_combined  # str (property: title + body + other)
 ```

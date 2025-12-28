@@ -726,6 +726,10 @@ def test_read_odt_document() -> None:
         ],
         odt.endnotes,
     )
+
+    # images
+    tc.assertEqual(0, len(list(odt.images)))
+
     # tables
     tc.assertListEqual([[["Header 1", "Header 2"], ["Cell A", "Cell B"]]], odt.tables)
 
@@ -792,6 +796,8 @@ def test_read_odp_presentation() -> None:
         ["Speaker notes for Slide 1: Welcome the audience and introduce the topic."],
         odp.slides[0].notes,
     )
+    # No images in this sample
+    tc.assertEqual(0, len(odp.slides[0].images))
 
     # Slide 2
     tc.assertEqual(2, odp.slides[1].slide_number)
