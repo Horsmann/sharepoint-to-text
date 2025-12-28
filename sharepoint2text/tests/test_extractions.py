@@ -106,7 +106,7 @@ def test_read_plain_markdown() -> None:
 
 
 def test_read_xlsx_1() -> None:
-    filename = "sharepoint2text/tests/resources/Country_Codes_and_Names.xlsx"
+    filename = "sharepoint2text/tests/resources/modern_ms/Country_Codes_and_Names.xlsx"
     with open(filename, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
@@ -146,7 +146,7 @@ def test_read_xlsx_1() -> None:
 
 
 def test_read_xlsx_2() -> None:
-    filename = "sharepoint2text/tests/resources/mwe.xlsx"
+    filename = "sharepoint2text/tests/resources/modern_ms/mwe.xlsx"
     with open(filename, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
@@ -236,7 +236,7 @@ def test_read_ppt() -> None:
 
 
 def test_read_pptx_1() -> None:
-    filename = "sharepoint2text/tests/resources/eu-visibility_rules_00704232-AF9F-1A18-BD782C469454ADAD_68401.pptx"
+    filename = "sharepoint2text/tests/resources/modern_ms/eu-visibility_rules_00704232-AF9F-1A18-BD782C469454ADAD_68401.pptx"
     with open(filename, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
@@ -301,7 +301,7 @@ def test_read_pptx_1() -> None:
 
 
 def test_read_pptx_2() -> None:
-    filename = "sharepoint2text/tests/resources/pptx_formula_image.pptx"
+    filename = "sharepoint2text/tests/resources/modern_ms/pptx_formula_image.pptx"
     with open(filename, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
@@ -333,7 +333,9 @@ def test_read_pptx_2() -> None:
 
 def test_read_docx_1() -> None:
     # An actual document from the web - this is likely created on a Windows client
-    filename = "sharepoint2text/tests/resources/GKIM_Skills_Framework_-_static.docx"
+    filename = (
+        "sharepoint2text/tests/resources/modern_ms/GKIM_Skills_Framework_-_static.docx"
+    )
     with open(filename, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
@@ -359,7 +361,9 @@ def test_read_docx_1() -> None:
 def test_read_docx_2() -> None:
     # A converted docx from OSX pages - may not populate like a true MS client .docx
     # dedicated test for comment, table and footnote extraction
-    filename = "sharepoint2text/tests/resources/sample_with_comment_and_table.docx"
+    filename = (
+        "sharepoint2text/tests/resources/modern_ms/sample_with_comment_and_table.docx"
+    )
     with open(filename, mode="rb") as file:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
