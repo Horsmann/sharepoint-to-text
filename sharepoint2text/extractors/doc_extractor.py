@@ -26,6 +26,7 @@ from typing import Any, Generator, List, Optional
 
 import olefile
 
+from sharepoint2text.exceptions import LegacyMicrosoftParsingError
 from sharepoint2text.extractors.data_types import (
     DocContent,
     DocMetadata,
@@ -81,24 +82,26 @@ class _DocReader:
             return self._content
 
         if not self.ole:
-            raise RuntimeError("File not opened")
+            raise LegacyMicrosoftParsingError("File not opened")
 
         word_doc = self._get_stream("WordDocument")
         if not word_doc:
-            raise ValueError("No WordDocument Stream")
+            raise LegacyMicrosoftParsingError("No WordDocument Stream")
 
         if len(word_doc) < 0x200:
-            raise ValueError("File too small")
+            raise LegacyMicrosoftParsingError("File too small")
 
         # Magic check
         magic = struct.unpack_from("<H", word_doc, 0)[0]
         if magic != 0xA5EC:
-            raise ValueError(f"Not a valid.doc file (Magic: {hex(magic)})")
+            raise LegacyMicrosoftParsingError(
+                f"Not a valid.doc file (Magic: {hex(magic)})"
+            )
 
         # Check flags
         flags = struct.unpack_from("<H", word_doc, 0x0A)[0]
         if flags & 0x0100:
-            raise ValueError("Fils is encrypted")
+            raise LegacyMicrosoftParsingError("Fils is encrypted")
 
         # Character counts aus FIB
         # Main text

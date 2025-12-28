@@ -16,6 +16,7 @@ from typing import Any, BinaryIO, Generator
 
 import olefile
 
+from sharepoint2text.exceptions import LegacyMicrosoftParsingError
 from sharepoint2text.extractors.data_types import (
     PPT_TEXT_TYPE_BODY,
     PPT_TEXT_TYPE_CENTER_BODY,
@@ -677,7 +678,7 @@ def _extract_ppt_metadata(file_like: BinaryIO) -> PptMetadata:
     file_like.seek(0)
 
     if not olefile.isOleFile(file_like):
-        raise ValueError("Not a valid OLE file")
+        raise LegacyMicrosoftParsingError("Not a valid OLE file")
 
     file_like.seek(0)
 
