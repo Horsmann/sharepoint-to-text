@@ -7,6 +7,7 @@ legacy binary formats, plus PDF documents.
 """
 
 import io
+import logging
 from pathlib import Path
 from typing import Any, Generator
 
@@ -23,75 +24,145 @@ from sharepoint2text.extractors.data_types import (
     PlainTextContent,
     PptContent,
     PptxContent,
+    RtfContent,
     XlsContent,
     XlsxContent,
 )
 from sharepoint2text.router import get_extractor, is_supported_file
 
+logger = logging.getLogger(__name__)
+
 __version__ = "0.4.1"
 
 
+#############
+# Modern MS
+#############
 def read_docx(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[DocxContent, Any, None]:
     """Extract content from a DOCX file."""
-    from extractors.ms_modern.docx_extractor import read_docx as _read_docx
+    from sharepoint2text.extractors.ms_modern.docx_extractor import (
+        read_docx as _read_docx,
+    )
 
+    logger.debug("Reading MS docx file: %s", path)
     return _read_docx(file_like, path)
-
-
-def read_doc(
-    file_like: io.BytesIO, path: str | None = None
-) -> Generator[DocContent, Any, None]:
-    """Extract content from a DOC file."""
-    from extractors.ms_legacy.doc_extractor import read_doc as _read_doc
-
-    return _read_doc(file_like, path)
 
 
 def read_xlsx(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[XlsxContent, Any, None]:
     """Extract content from an XLSX file."""
-    from extractors.ms_modern.xlsx_extractor import read_xlsx as _read_xlsx
+    from sharepoint2text.extractors.ms_modern.xlsx_extractor import (
+        read_xlsx as _read_xlsx,
+    )
 
+    logger.debug("Reading MS xlsx file: %s", path)
     return _read_xlsx(file_like, path)
-
-
-def read_xls(
-    file_like: io.BytesIO, path: str | None = None
-) -> Generator[XlsContent, Any, None]:
-    """Extract content from an XLS file."""
-    from extractors.ms_legacy.xls_extractor import read_xls as _read_xls
-
-    return _read_xls(file_like, path)
 
 
 def read_pptx(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[PptxContent, Any, None]:
     """Extract content from a PPTX file."""
-    from extractors.ms_modern.pptx_extractor import read_pptx as _read_pptx
+    from sharepoint2text.extractors.ms_modern.pptx_extractor import (
+        read_pptx as _read_pptx,
+    )
 
+    logger.debug("Reading MS pptx file: %s", path)
     return _read_pptx(file_like, path)
+
+
+#############
+# Legacy MS
+#############
+
+
+def read_doc(
+    file_like: io.BytesIO, path: str | None = None
+) -> Generator[DocContent, Any, None]:
+    """Extract content from a DOC file."""
+    from sharepoint2text.extractors.ms_legacy.doc_extractor import read_doc as _read_doc
+
+    logger.debug("Reading legacy MS doc file: %s", path)
+    return _read_doc(file_like, path)
+
+
+def read_xls(
+    file_like: io.BytesIO, path: str | None = None
+) -> Generator[XlsContent, Any, None]:
+    """Extract content from an XLS file."""
+    from sharepoint2text.extractors.ms_legacy.xls_extractor import read_xls as _read_xls
+
+    logger.debug("Reading legacy MS xls file: %s", path)
+    return _read_xls(file_like, path)
 
 
 def read_ppt(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[PptContent, Any, None]:
     """Extract content from a PPT file."""
-    from extractors.ms_legacy.ppt_extractor import read_ppt as _read_ppt
+    from sharepoint2text.extractors.ms_legacy.ppt_extractor import read_ppt as _read_ppt
 
+    logger.debug("Reading legacy MS ppt file: %s", path)
     return _read_ppt(file_like, path)
 
 
-def read_pdf(
+def read_rtf(
     file_like: io.BytesIO, path: str | None = None
-) -> Generator[PdfContent, Any, None]:
-    """Extract content from a PDF file."""
-    from sharepoint2text.extractors.pdf_extractor import read_pdf as _read_pdf
+) -> Generator[RtfContent, Any, None]:
+    """Extract content from a RTF file."""
+    from sharepoint2text.extractors.ms_legacy.rtf_extractor import read_rtf as _read_rtf
 
-    return _read_pdf(file_like, path)
+    logger.debug("Reading legacy MS rtf file: %s", path)
+    return _read_rtf(file_like, path)
+
+
+#############
+# Open Office
+#############
+
+
+def read_odt(
+    file_like: io.BytesIO, path: str | None = None
+) -> Generator[OdtContent, Any, None]:
+    """Extract content from an ODT (OpenDocument Text) file."""
+    from sharepoint2text.extractors.open_office.odt_extractor import (
+        read_odt as _read_odt,
+    )
+
+    logger.debug("Reading open office odt file: %s", path)
+    return _read_odt(file_like, path)
+
+
+def read_odp(
+    file_like: io.BytesIO, path: str | None = None
+) -> Generator[OdpContent, Any, None]:
+    """Extract content from an ODP (OpenDocument Presentation) file."""
+    from sharepoint2text.extractors.open_office.odp_extractor import (
+        read_odp as _read_odp,
+    )
+
+    logger.debug("Reading open office odp file: %s", path)
+    return _read_odp(file_like, path)
+
+
+def read_ods(
+    file_like: io.BytesIO, path: str | None = None
+) -> Generator[OdsContent, Any, None]:
+    """Extract content from an ODS (OpenDocument Spreadsheet) file."""
+    from sharepoint2text.extractors.open_office.ods_extractor import (
+        read_ods as _read_ods,
+    )
+
+    logger.debug("Reading open office ods file: %s", path)
+    return _read_ods(file_like, path)
+
+
+#############
+# Plain Text
+#############
 
 
 def read_plain_text(
@@ -102,45 +173,39 @@ def read_plain_text(
         read_plain_text as _read_plain_text,
     )
 
+    logger.debug("Reading plain text file: %s", path)
     return _read_plain_text(file_like, path)
 
 
+#############
+# PDF
+#############
+def read_pdf(
+    file_like: io.BytesIO, path: str | None = None
+) -> Generator[PdfContent, Any, None]:
+    """Extract content from a PDF file."""
+    from sharepoint2text.extractors.pdf_extractor import read_pdf as _read_pdf
+
+    logger.debug("Reading PDF file: %s", path)
+    return _read_pdf(file_like, path)
+
+
+#############
+# HTML
+#############
 def read_html(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[HtmlContent, Any, None]:
     """Extract content from an HTML file."""
     from sharepoint2text.extractors.html_extractor import read_html as _read_html
 
+    logger.debug("Reading HTML file: %s", path)
     return _read_html(file_like, path)
 
 
-def read_odt(
-    file_like: io.BytesIO, path: str | None = None
-) -> Generator[OdtContent, Any, None]:
-    """Extract content from an ODT (OpenDocument Text) file."""
-    from extractors.open_office.odt_extractor import read_odt as _read_odt
-
-    return _read_odt(file_like, path)
-
-
-def read_odp(
-    file_like: io.BytesIO, path: str | None = None
-) -> Generator[OdpContent, Any, None]:
-    """Extract content from an ODP (OpenDocument Presentation) file."""
-    from extractors.open_office.odp_extractor import read_odp as _read_odp
-
-    return _read_odp(file_like, path)
-
-
-def read_ods(
-    file_like: io.BytesIO, path: str | None = None
-) -> Generator[OdsContent, Any, None]:
-    """Extract content from an ODS (OpenDocument Spreadsheet) file."""
-    from extractors.open_office.ods_extractor import read_ods as _read_ods
-
-    return _read_ods(file_like, path)
-
-
+#############
+# Emails
+#############
 def read_email__msg_format(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[EmailContent, Any, None]:
@@ -149,6 +214,7 @@ def read_email__msg_format(
         read_msg_format_mail as _read_msg_format_mail,
     )
 
+    logger.debug("Reading mail .msg file: %s", path)
     return _read_msg_format_mail(file_like, path)
 
 
@@ -160,6 +226,7 @@ def read_email__eml_format(
         read_eml_format_mail as _read_eml_format_mail,
     )
 
+    logger.debug("Reading mail .eml file: %s", path)
     return _read_eml_format_mail(file_like, path)
 
 
@@ -171,6 +238,7 @@ def read_email__mbox_format(
         read_mbox_format_mail as _read_mbox_format_mail,
     )
 
+    logger.debug("Reading mail .mbox file: %s", path)
     return _read_mbox_format_mail(file_like, path)
 
 
@@ -230,20 +298,24 @@ __all__ = [
     "read_file",
     "is_supported_file",
     "get_extractor",
-    # Format-specific extractors
-    "read_docx",
+    # legacy MS office
     "read_doc",
-    "read_xlsx",
     "read_xls",
-    "read_pptx",
     "read_ppt",
-    "read_pdf",
+    # modern office
+    "read_docx",
+    "read_xlsx",
+    "read_pptx",
+    "read_rtf",
     "read_plain_text",
     "read_html",
+    # open office
     "read_odt",
     "read_odp",
     "read_ods",
     "read_email__msg_format",
     "read_email__eml_format",
     "read_email__mbox_format",
+    # other
+    "read_pdf",
 ]
