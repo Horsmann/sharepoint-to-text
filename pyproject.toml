@@ -51,11 +51,10 @@ dependencies = [
     "msg-parser>=1.2.0",
     "olefile>=0.47",
     "openpyxl>=3.1.5",
-    "pandas>=2.3.3,<3",
     "pypdf>=6.5.0",
-    "python-calamine>=0.6.1",
     "python-docx>=1.2.0",
     "python-pptx>=1.0.2",
+    "xlrd>=2.0.2",
 ]
 
 [project.urls]
@@ -65,7 +64,7 @@ Repository = "https://github.com/Horsmann/sharepoint-to-text.git"
 Issues = "https://github.com/Horsmann/sharepoint-to-text/issues"
 Changelog = "https://github.com/Horsmann/sharepoint-to-text/blob/main/CHANGELOG.md"
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "pytest>=8.4.2",
     "pre-commit>=4.3.0",
