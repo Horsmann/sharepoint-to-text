@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sharepoint-to-text"
-version = "0.5.0.dev11"
+version = "0.5.0.dev12"
 description = "Text extraction library for typical file formats found in SharePoint repositories"
 readme = "README.md"
 license = "Apache-2.0"

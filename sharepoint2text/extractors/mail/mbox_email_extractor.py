@@ -91,6 +91,7 @@ import email.utils
 import io
 import logging
 import re
+from email.message import Message
 from email.utils import parsedate_to_datetime
 from typing import Any, Generator
 
@@ -287,7 +288,7 @@ def parse_email_addresses(addr_string: str | None) -> list[EmailAddress]:
     return result
 
 
-def get_body_content(message: email.message.Message) -> tuple[str, str]:
+def get_body_content(message: Message) -> tuple[str, str]:
     """
     Extract plain text and HTML body content from an email message.
 
@@ -296,7 +297,7 @@ def get_body_content(message: email.message.Message) -> tuple[str, str]:
     body content. Attachments are skipped.
 
     Args:
-        message: Parsed email.message.Message object.
+        message: Parsed Message object.
 
     Returns:
         Tuple of (plain_text_body, html_body). Either may be empty string

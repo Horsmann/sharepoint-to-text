@@ -32,7 +32,7 @@ from sharepoint2text.router import get_extractor, is_supported_file
 
 logger = logging.getLogger(__name__)
 
-__version__ = "0.5.0.dev11"
+__version__ = "0.5.0.dev12"
 
 
 #############
