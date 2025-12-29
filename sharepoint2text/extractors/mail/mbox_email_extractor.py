@@ -1,3 +1,90 @@
+"""
+MBOX Email Extractor
+====================
+
+Extracts text content and metadata from Unix mailbox (.mbox) files.
+
+This module handles the mbox format, which stores multiple email messages
+concatenated in a single file. Each message is preceded by a "From " line
+(note the space) that serves as a message delimiter.
+
+File Format Background
+----------------------
+The mbox format originated in Unix systems and remains widely used for
+email archiving and migration. Key characteristics:
+
+    - Plain text format, human-readable
+    - Multiple messages in a single file
+    - Messages separated by "From " lines at the start of each email
+    - Each message follows RFC 5322 format (same as EML)
+    - No standardized escape mechanism (various mbox variants exist)
+
+Common mbox sources include:
+    - Unix mail clients (mutt, pine)
+    - Email exports from Thunderbird, Apple Mail
+    - Google Takeout Gmail exports
+    - Legacy mail server archives
+
+Dependencies
+------------
+Python Standard Library:
+    - mailbox: Core mbox parsing and iteration
+    - email: RFC 5322 message parsing
+    - email.header: Encoded header word handling (RFC 2047)
+    - email.utils: Address parsing and date handling
+    - tempfile: Temporary file creation for mbox processing
+
+No external dependencies required.
+
+Implementation Details
+----------------------
+The Python mailbox module requires a filesystem path, not a file object.
+This necessitates writing the BytesIO contents to a temporary file before
+parsing. The temporary file is cleaned up after processing.
+
+Known Limitations
+-----------------
+- Requires temporary file creation (disk I/O overhead)
+- Attachments are not extracted (only body text)
+- "From " lines within message bodies may cause message boundary issues
+  in poorly-formed mbox files (the "mboxrd" escaping is not handled)
+- Large mbox files may be slow due to sequential processing
+- Memory usage scales with individual message size, not file size
+
+Encoding Handling
+-----------------
+This module uses Python's email library for encoding handling:
+- Headers: RFC 2047 encoded words are decoded automatically
+- Bodies: Charset from Content-Type header, fallback to UTF-8
+- Errors: Replacement characters used for undecodable bytes
+
+Common encoding issues:
+- Legacy emails with CP1252/ISO-8859-1 marked as ASCII
+- Mixed encodings within MIME parts
+- Missing or incorrect charset declarations
+
+The decode_header_value() function handles these gracefully with fallbacks.
+
+Usage
+-----
+    >>> import io
+    >>> from sharepoint2text.extractors.mail.mbox_email_extractor import (
+    ...     read_mbox_format_mail
+    ... )
+    >>>
+    >>> with open("archive.mbox", "rb") as f:
+    ...     mbox_data = io.BytesIO(f.read())
+    ...     for email in read_mbox_format_mail(mbox_data, path="archive.mbox"):
+    ...         print(f"Subject: {email.subject}")
+    ...         print(f"From: {email.from_email.address}")
+    ...         print("---")
+
+See Also
+--------
+- eml_email_extractor: For single RFC 5322 messages
+- msg_email_extractor: For Microsoft Outlook .msg format
+"""
+
 import email
 import email.header
 import email.utils
@@ -16,26 +103,87 @@ from sharepoint2text.extractors.data_types import (
 
 
 def decode_header_value(value: str | None) -> str:
-    """Decode an email header value, handling encoded words."""
+    """
+    Decode an email header value, handling RFC 2047 encoded words.
+
+    Email headers may contain encoded words for non-ASCII characters,
+    formatted as: =?charset?encoding?encoded_text?=
+
+    This function decodes these encoded words and handles various
+    edge cases and malformed encodings.
+
+    Args:
+        value: Raw header value string, potentially containing encoded
+            words. May be None for missing headers.
+
+    Returns:
+        Decoded string with all encoded words converted to Unicode.
+        Returns empty string if value is None or empty.
+
+    Examples:
+        >>> decode_header_value("=?utf-8?B?SGVsbG8gV29ybGQ=?=")
+        'Hello World'
+        >>> decode_header_value("Plain ASCII header")
+        'Plain ASCII header'
+        >>> decode_header_value(None)
+        ''
+
+    Implementation Notes:
+        - email.header.decode_header returns list of (bytes/str, charset) tuples
+        - If charset is None, the part was not encoded
+        - LookupError catches unknown charset names
+        - UnicodeDecodeError catches invalid byte sequences
+        - Fallback to UTF-8 with replacement handles all edge cases
+    """
     if not value:
         return ""
 
     decoded_parts = []
     for part, charset in email.header.decode_header(value):
         if isinstance(part, bytes):
+            # Encoded word - use declared charset or fall back to UTF-8
             charset = charset or "utf-8"
             try:
                 decoded_parts.append(part.decode(charset, errors="replace"))
             except (LookupError, UnicodeDecodeError):
+                # Unknown charset or decode error - force UTF-8
                 decoded_parts.append(part.decode("utf-8", errors="replace"))
         else:
+            # Already a string (unencoded ASCII)
             decoded_parts.append(part)
 
     return "".join(decoded_parts)
 
 
 def parse_email_address(addr_string: str | None) -> EmailAddress:
-    """Parse a single email address string into an EmailAddress object."""
+    """
+    Parse a single email address string into an EmailAddress object.
+
+    Handles standard RFC 5322 address formats:
+        - "Display Name <email@example.com>"
+        - "<email@example.com>"
+        - "email@example.com"
+
+    Args:
+        addr_string: Raw address string from email header.
+            May be None for missing headers.
+
+    Returns:
+        EmailAddress: Parsed address with name and address fields.
+            Returns EmailAddress with empty fields if input is None.
+
+    Examples:
+        >>> parse_email_address("John Doe <john@example.com>")
+        EmailAddress(name='John Doe', address='john@example.com')
+        >>> parse_email_address("<admin@example.com>")
+        EmailAddress(name='', address='admin@example.com')
+        >>> parse_email_address(None)
+        EmailAddress(name='', address='')
+
+    Notes:
+        - Display names may contain RFC 2047 encoded words, which are decoded
+        - Malformed addresses return empty fields rather than raising exceptions
+    """
     if not addr_string:
         return EmailAddress()
 
@@ -44,7 +192,32 @@ def parse_email_address(addr_string: str | None) -> EmailAddress:
 
 
 def parse_email_addresses(addr_string: str | None) -> list[EmailAddress]:
-    """Parse a comma-separated list of email addresses."""
+    """
+    Parse a comma-separated list of email addresses.
+
+    Handles the To, Cc, Bcc header formats which may contain multiple
+    addresses separated by commas or semicolons.
+
+    Args:
+        addr_string: Raw address list string from email header.
+            Example: "Alice <alice@x.com>, Bob <bob@x.com>"
+
+    Returns:
+        List of EmailAddress objects. Empty list if input is None or empty.
+        Only addresses with valid email portions are included.
+
+    Examples:
+        >>> addrs = parse_email_addresses("A <a@x.com>, B <b@x.com>")
+        >>> len(addrs)
+        2
+        >>> addrs[0].name
+        'A'
+
+    Notes:
+        - email.utils.getaddresses handles complex quoting and escaping
+        - Entries without an address portion are filtered out
+        - Display names are decoded for RFC 2047 encoded words
+    """
     if not addr_string:
         return []
 
@@ -57,7 +230,38 @@ def parse_email_addresses(addr_string: str | None) -> list[EmailAddress]:
 
 
 def get_body_content(message: email.message.Message) -> tuple[str, str]:
-    """Extract plain text and HTML body from an email message."""
+    """
+    Extract plain text and HTML body content from an email message.
+
+    Navigates MIME multipart structure to find text/plain and text/html
+    parts. For multipart messages, walks through all parts looking for
+    body content. Attachments are skipped.
+
+    Args:
+        message: Parsed email.message.Message object.
+
+    Returns:
+        Tuple of (plain_text_body, html_body). Either may be empty string
+        if that content type is not present in the message.
+
+    Implementation Details:
+        - For multipart messages, walks all parts recursively
+        - Content-Disposition: attachment parts are skipped
+        - Takes first text/plain and first text/html found
+        - Charset from Content-Type header used for decoding
+        - Unknown charsets fall back to UTF-8 with replacement
+
+    MIME Structure Handling:
+        - multipart/alternative: Contains both plain and HTML versions
+        - multipart/mixed: Contains body plus attachments
+        - multipart/related: HTML with inline images
+        - Non-multipart: Single content type message
+
+    Performance Notes:
+        - Decodes body content from bytes to string
+        - Large attachments are read but discarded if they're text/*
+        - Consider adding size limits for production use
+    """
     body_plain = ""
     body_html = ""
 
@@ -66,7 +270,7 @@ def get_body_content(message: email.message.Message) -> tuple[str, str]:
             content_type = part.get_content_type()
             content_disposition = str(part.get("Content-Disposition", ""))
 
-            # Skip attachments
+            # Skip attachments - we only want inline body content
             if "attachment" in content_disposition:
                 continue
 
@@ -88,6 +292,7 @@ def get_body_content(message: email.message.Message) -> tuple[str, str]:
                     except (LookupError, UnicodeDecodeError):
                         body_html = payload.decode("utf-8", errors="replace")
     else:
+        # Single-part message
         content_type = message.get_content_type()
         payload = message.get_payload(decode=True)
 
@@ -101,22 +306,50 @@ def get_body_content(message: email.message.Message) -> tuple[str, str]:
             if content_type == "text/html":
                 body_html = decoded_payload
             else:
+                # Default to plain text for unknown content types
                 body_plain = decoded_payload
 
     return body_plain, body_html
 
 
 def parse_email_message(message: email.message.Message) -> EmailContent:
-    """Parse an email.message.Message into an EmailContent dataclass."""
+    """
+    Parse an email.message.Message into an EmailContent dataclass.
 
-    # Extract body content
+    Consolidates all message parsing into a single function that extracts
+    headers, addresses, and body content into the standard EmailContent
+    structure.
+
+    Args:
+        message: Parsed email.message.Message object from mailbox iteration.
+
+    Returns:
+        EmailContent: Fully populated dataclass with all extracted data.
+
+    Raises:
+        TypeError: If parsedate_to_datetime receives None (missing Date header).
+            This can happen with malformed emails. Consider adding validation.
+
+    Implementation Notes:
+        - Date is parsed via parsedate_to_datetime and converted to ISO format
+        - All header values are decoded for RFC 2047 encoded words
+        - Address headers (From, To, Cc, Bcc, Reply-To) are parsed specially
+        - Body extraction delegates to get_body_content()
+
+    Maintenance Considerations:
+        - Missing Date header will raise TypeError - may need error handling
+        - Message-ID may be missing in draft or malformed emails
+        - In-Reply-To header links to parent message in thread
+    """
+    # Extract body content first
     body_plain, body_html = get_body_content(message)
 
+    # Parse date - expects RFC 2822 format
     parsed_date = parsedate_to_datetime(
         decode_header_value(message.get("Date"))
     ).isoformat()
 
-    # Parse metadata
+    # Build metadata with date and message ID
     metadata = EmailMetadata(
         date=parsed_date,
         message_id=decode_header_value(message.get("Message-ID", "")),
@@ -149,13 +382,65 @@ def read_mbox_format_mail(
     """
     Read all emails from an mbox format file.
 
-    Args:
-        file_like: A BytesIO object containing mbox data
-        path: Optional path hint (not used for parsing)
+    Primary entry point for mbox extraction. Iterates through all messages
+    in the mailbox and yields EmailContent objects for each.
 
-    Returns:
-        List of EmailContent objects for each email in the mbox
+    Args:
+        file_like: BytesIO object containing complete mbox file data.
+            The entire mbox content, potentially containing many messages.
+        path: Optional filesystem path to source file. If provided, populates
+            file metadata (filename, extension, folder) in each returned
+            EmailContent.metadata. Useful for batch processing and auditing.
+
+    Yields:
+        EmailContent: One object per message in the mbox. Order matches
+            the order of messages in the file.
+
+    Raises:
+        IOError: If temporary file creation or deletion fails.
+        Various email parsing exceptions for malformed messages.
+
+    Implementation Notes:
+        Python's mailbox.mbox requires a filesystem path, not a file object.
+        This function:
+        1. Writes BytesIO content to a temporary file
+        2. Opens the temp file as an mbox
+        3. Iterates through messages, parsing each
+        4. Cleans up the temporary file (in finally block)
+
+    Performance Considerations:
+        - Temporary file is created in system temp directory
+        - For very large mbox files (>100MB), temp disk space needed
+        - Messages are processed one at a time (streaming)
+        - Memory usage is proportional to largest single message
+
+    Example:
+        >>> import io
+        >>> # Mbox with two messages
+        >>> mbox_content = b'''From sender@x.com Mon Jan 1 00:00:00 2024
+        ... From: sender@x.com
+        ... To: recipient@x.com
+        ... Subject: First
+        ...
+        ... Body 1
+        ...
+        ... From other@x.com Tue Jan 2 00:00:00 2024
+        ... From: other@x.com
+        ... To: recipient@x.com
+        ... Subject: Second
+        ...
+        ... Body 2
+        ... '''
+        >>> for email in read_mbox_format_mail(io.BytesIO(mbox_content)):
+        ...     print(email.subject)
+        First
+        Second
+
+    Cleanup Guarantee:
+        The temporary file is deleted in a finally block, ensuring cleanup
+        even if parsing raises an exception.
     """
+    # Create temporary file - mailbox.mbox requires filesystem path
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mbox") as tmp:
         tmp.write(file_like.read())
         tmp_path = tmp.name
@@ -169,4 +454,5 @@ def read_mbox_format_mail(
             yield m
 
     finally:
+        # Ensure temp file cleanup regardless of parsing success
         os.unlink(tmp_path)
