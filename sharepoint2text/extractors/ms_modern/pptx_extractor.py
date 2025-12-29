@@ -139,28 +139,171 @@ FOOTER_TYPES = {"ftr"}
 SKIP_TYPES = {"dt", "sldImg", "hdr"}
 
 
-def _extract_metadata(file_like: io.BytesIO) -> PptxMetadata:
+class _PptxContext:
     """
-    Extract presentation metadata from docProps/core.xml.
+    Cached context for PPTX extraction.
+
+    Opens the ZIP file once and caches all parsed XML documents and
+    extracted data that is reused across multiple extraction functions.
+    This avoids repeatedly opening the ZIP and parsing the same XML files.
+    """
+
+    def __init__(self, file_like: io.BytesIO):
+        self.file_like = file_like
+        file_like.seek(0)
+
+        # Cache for parsed XML roots
+        self._core_root: ET.Element | None = None
+        self._presentation_root: ET.Element | None = None
+        self._presentation_rels_root: ET.Element | None = None
+
+        # Cache for slide-related XML (keyed by path)
+        self._slide_roots: dict[str, ET.Element] = {}
+        self._slide_rels_roots: dict[str, ET.Element] = {}
+        self._comment_roots: dict[str, ET.Element] = {}
+
+        # Cache for extracted data
+        self._namelist: set[str] = set()
+        self._slide_order: list[str] | None = None
+        self._slide_relationships: dict[str, dict[str, dict[str, str]]] = {}
+
+        # Open ZIP once and read all needed files
+        with zipfile.ZipFile(file_like, "r") as z:
+            self._namelist = set(z.namelist())
+            self._load_xml_files(z)
+
+    def _load_xml_files(self, z: zipfile.ZipFile) -> None:
+        """Load and parse all XML files from the ZIP at once."""
+        # Core properties (metadata)
+        if "docProps/core.xml" in self._namelist:
+            with z.open("docProps/core.xml") as f:
+                self._core_root = ET.parse(f).getroot()
+
+        # Presentation XML
+        if "ppt/presentation.xml" in self._namelist:
+            with z.open("ppt/presentation.xml") as f:
+                self._presentation_root = ET.parse(f).getroot()
+
+        # Presentation relationships
+        rels_path = "ppt/_rels/presentation.xml.rels"
+        if rels_path in self._namelist:
+            with z.open(rels_path) as f:
+                self._presentation_rels_root = ET.parse(f).getroot()
+
+        # Pre-compute slide order so we know which slides to load
+        self._slide_order = self._compute_slide_order()
+
+        # Load all slide XML files
+        for slide_path in self._slide_order:
+            if slide_path in self._namelist:
+                with z.open(slide_path) as f:
+                    self._slide_roots[slide_path] = ET.parse(f).getroot()
+
+                # Load slide relationships
+                slide_dir = "/".join(slide_path.rsplit("/", 1)[:-1])
+                slide_name = slide_path.rsplit("/", 1)[-1]
+                rels_path = f"{slide_dir}/_rels/{slide_name}.rels"
+                if rels_path in self._namelist:
+                    with z.open(rels_path) as f:
+                        self._slide_rels_roots[slide_path] = ET.parse(f).getroot()
+
+        # Load all comment files
+        for name in self._namelist:
+            if name.startswith("ppt/comments/comment") and name.endswith(".xml"):
+                with z.open(name) as f:
+                    self._comment_roots[name] = ET.parse(f).getroot()
+
+    def _compute_slide_order(self) -> list[str]:
+        """Compute slide order from cached presentation XML."""
+        slide_paths = []
+
+        if self._presentation_rels_root is None or self._presentation_root is None:
+            return slide_paths
+
+        # Build relationship map from rels
+        rels_map = {}
+        for rel in self._presentation_rels_root.findall(f".//{REL_NS}Relationship"):
+            rel_id = rel.get("Id")
+            target = rel.get("Target")
+            rel_type = rel.get("Type") or ""
+            if rel_id and target and "slide" in rel_type.lower():
+                if target.startswith("slides/"):
+                    full_path = f"ppt/{target}"
+                elif target.startswith("../"):
+                    full_path = target.replace("../", "ppt/")
+                else:
+                    full_path = f"ppt/{target}"
+                rels_map[rel_id] = full_path
+
+        # Get slide order from presentation.xml
+        sld_id_lst = self._presentation_root.find(f".//{P_NS}sldIdLst")
+        if sld_id_lst is not None:
+            for sld_id in sld_id_lst.findall(f"{P_NS}sldId"):
+                r_id = sld_id.get(f"{R_NS}id")
+                if r_id and r_id in rels_map:
+                    slide_paths.append(rels_map[r_id])
+
+        return slide_paths
+
+    @property
+    def slide_order(self) -> list[str]:
+        """Get ordered list of slide paths."""
+        if self._slide_order is None:
+            self._slide_order = self._compute_slide_order()
+        return self._slide_order
+
+    def get_slide_root(self, slide_path: str) -> ET.Element | None:
+        """Get cached slide XML root."""
+        return self._slide_roots.get(slide_path)
+
+    def get_slide_relationships(self, slide_path: str) -> dict[str, dict[str, str]]:
+        """Get cached relationships for a slide."""
+        if slide_path in self._slide_relationships:
+            return self._slide_relationships[slide_path]
+
+        relationships = {}
+        rels_root = self._slide_rels_roots.get(slide_path)
+        if rels_root is not None:
+            for rel in rels_root.findall(f".//{REL_NS}Relationship"):
+                rel_id = rel.get("Id") or ""
+                rel_type = rel.get("Type") or ""
+                rel_target = rel.get("Target") or ""
+                relationships[rel_id] = {"type": rel_type, "target": rel_target}
+
+        self._slide_relationships[slide_path] = relationships
+        return relationships
+
+    def get_comment_root(self, slide_number: int) -> ET.Element | None:
+        """Get cached comment XML root for a slide."""
+        comment_file = f"ppt/comments/comment{slide_number}.xml"
+        return self._comment_roots.get(comment_file)
+
+    def get_image_data(self, image_path: str) -> bytes | None:
+        """Read image data from the ZIP file."""
+        if image_path not in self._namelist:
+            return None
+        self.file_like.seek(0)
+        with zipfile.ZipFile(self.file_like, "r") as z:
+            with z.open(image_path) as img_file:
+                return img_file.read()
+
+
+def _extract_metadata_from_context(ctx: _PptxContext) -> PptxMetadata:
+    """
+    Extract presentation metadata from cached core.xml root.
 
     Args:
-        file_like: BytesIO containing the PPTX file.
+        ctx: PptxContext with cached XML roots.
 
     Returns:
         PptxMetadata object with title, author, dates, revision, etc.
     """
     logger.debug("Extracting metadata")
-    file_like.seek(0)
-
     metadata = PptxMetadata()
 
-    with zipfile.ZipFile(file_like, "r") as z:
-        if "docProps/core.xml" not in z.namelist():
-            return metadata
-
-        with z.open("docProps/core.xml") as f:
-            tree = ET.parse(f)
-            root = tree.getroot()
+    root = ctx._core_root
+    if root is None:
+        return metadata
 
     # Extract metadata fields
     title_elem = root.find(f"{DC_NS}title")
@@ -211,153 +354,42 @@ def _extract_metadata(file_like: io.BytesIO) -> PptxMetadata:
     return metadata
 
 
-def _get_slide_order(file_like: io.BytesIO) -> List[str]:
-    """
-    Get the ordered list of slide paths from presentation.xml.
-
-    The slide order is determined by the order of p:sldId elements
-    in the p:sldIdLst element of presentation.xml.
-
-    Args:
-        file_like: BytesIO containing the PPTX file.
-
-    Returns:
-        List of slide XML file paths in presentation order.
-    """
-    file_like.seek(0)
-    slide_paths = []
-
-    with zipfile.ZipFile(file_like, "r") as z:
-        if "ppt/presentation.xml" not in z.namelist():
-            return slide_paths
-
-        # First, read the relationships to map rId to slide paths
-        rels_map = {}
-        rels_path = "ppt/_rels/presentation.xml.rels"
-        if rels_path in z.namelist():
-            with z.open(rels_path) as f:
-                tree = ET.parse(f)
-                root = tree.getroot()
-                for rel in root.findall(f".//{REL_NS}Relationship"):
-                    rel_id = rel.get("Id")
-                    target = rel.get("Target")
-                    rel_type = rel.get("Type") or ""
-                    if rel_id and target and "slide" in rel_type.lower():
-                        # Convert relative path to full path
-                        if target.startswith("slides/"):
-                            full_path = f"ppt/{target}"
-                        elif target.startswith("../"):
-                            full_path = target.replace("../", "ppt/")
-                        else:
-                            full_path = f"ppt/{target}"
-                        rels_map[rel_id] = full_path
-
-        # Read presentation.xml to get slide order
-        with z.open("ppt/presentation.xml") as f:
-            tree = ET.parse(f)
-            root = tree.getroot()
-
-        # Find sldIdLst and iterate through sldId elements
-        sld_id_lst = root.find(f".//{P_NS}sldIdLst")
-        if sld_id_lst is not None:
-            for sld_id in sld_id_lst.findall(f"{P_NS}sldId"):
-                r_id = sld_id.get(f"{R_NS}id")
-                if r_id and r_id in rels_map:
-                    slide_paths.append(rels_map[r_id])
-
-    return slide_paths
-
-
-def _extract_slide_comments(
-    file_like: io.BytesIO, slide_number: int
+def _extract_slide_comments_from_context(
+    ctx: _PptxContext, slide_number: int
 ) -> List[PPTXComment]:
     """
-    Extract comments for a specific slide by parsing the comments XML.
-
-    Comments in PPTX files are stored in separate XML files, one per slide
-    that has comments (ppt/comments/comment{n}.xml).
+    Extract comments for a specific slide from cached comment XML.
 
     Args:
-        file_like: BytesIO containing the PPTX file.
+        ctx: PptxContext with cached XML roots.
         slide_number: 1-based slide number to extract comments for.
 
     Returns:
         List of PPTXComment objects with author, text, and date fields.
-        Returns empty list if no comment file exists for the slide.
-
-    Notes:
-        - Author is stored as authorId (numeric), not the actual name
-        - Date is in ISO format from the XML
     """
     comments = []
-    file_like.seek(0)
 
     try:
-        with zipfile.ZipFile(file_like, "r") as z:
-            comment_file = f"ppt/comments/comment{slide_number}.xml"
-            if comment_file not in z.namelist():
-                return comments
+        root = ctx.get_comment_root(slide_number)
+        if root is None:
+            return comments
 
-            with z.open(comment_file) as f:
-                tree = ET.parse(f)
-                root = tree.getroot()
-
-            for cm in root.findall(f".//{P_NS}cm"):
-                author_id = cm.get("authorId", "")
-                text_elem = cm.find(f"{P_NS}text")
-                text = text_elem.text if text_elem is not None else ""
-                dt = cm.get("dt", "")
-                comments.append(
-                    PPTXComment(
-                        author=author_id,
-                        text=text or "",
-                        date=dt,
-                    )
+        for cm in root.findall(f".//{P_NS}cm"):
+            author_id = cm.get("authorId", "")
+            text_elem = cm.find(f"{P_NS}text")
+            text = text_elem.text if text_elem is not None else ""
+            dt = cm.get("dt", "")
+            comments.append(
+                PPTXComment(
+                    author=author_id,
+                    text=text or "",
+                    date=dt,
                 )
+            )
     except Exception as e:
         logger.debug(f"Failed to extract comments for slide {slide_number}: {e}")
 
     return comments
-
-
-def _get_slide_relationships(
-    file_like: io.BytesIO, slide_path: str
-) -> dict[str, dict[str, str]]:
-    """
-    Get relationships for a specific slide.
-
-    Args:
-        file_like: BytesIO containing the PPTX file.
-        slide_path: Path to the slide XML file.
-
-    Returns:
-        Dictionary mapping relationship IDs to {type, target} dicts.
-    """
-    file_like.seek(0)
-    relationships = {}
-
-    # Convert slide path to relationships path
-    # e.g., ppt/slides/slide1.xml -> ppt/slides/_rels/slide1.xml.rels
-    slide_dir = "/".join(slide_path.rsplit("/", 1)[:-1])
-    slide_name = slide_path.rsplit("/", 1)[-1]
-    rels_path = f"{slide_dir}/_rels/{slide_name}.rels"
-
-    with zipfile.ZipFile(file_like, "r") as z:
-        if rels_path not in z.namelist():
-            return relationships
-
-        with z.open(rels_path) as f:
-            tree = ET.parse(f)
-            root = tree.getroot()
-
-        for rel in root.findall(f".//{REL_NS}Relationship"):
-            rel_id = rel.get("Id") or ""
-            rel_type = rel.get("Type") or ""
-            rel_target = rel.get("Target") or ""
-
-            relationships[rel_id] = {"type": rel_type, "target": rel_target}
-
-    return relationships
 
 
 def _get_shape_position(shape_elem) -> Tuple[int, int]:
@@ -507,14 +539,14 @@ def _extract_formulas_from_element(elem) -> List[Tuple[str, bool]]:
     return formulas
 
 
-def _process_slide(
-    file_like: io.BytesIO, slide_path: str, slide_number: int
+def _process_slide_from_context(
+    ctx: _PptxContext, slide_path: str, slide_number: int
 ) -> PPTXSlide:
     """
-    Process a single slide and extract all its content.
+    Process a single slide and extract all its content using cached XML.
 
     Args:
-        file_like: BytesIO containing the PPTX file.
+        ctx: PptxContext with cached XML roots.
         slide_path: Path to the slide XML file within the ZIP.
         slide_number: 1-based slide number.
 
@@ -522,8 +554,6 @@ def _process_slide(
         PPTXSlide object containing all extracted content.
     """
     logger.debug(f"Processing slide [{slide_number}]: {slide_path}")
-
-    file_like.seek(0)
 
     slide_title = ""
     slide_footer = ""
@@ -536,190 +566,184 @@ def _process_slide(
     # Each item: (position, content_type, content_text)
     ordered_content: List[Tuple[Tuple[int, int], str, str]] = []
 
-    # Get slide relationships for images
-    slide_rels = _get_slide_relationships(file_like, slide_path)
-    file_like.seek(0)
+    # Get cached slide relationships for images
+    slide_rels = ctx.get_slide_relationships(slide_path)
 
-    with zipfile.ZipFile(file_like, "r") as z:
-        if slide_path not in z.namelist():
-            logger.warning(f"Slide not found: {slide_path}")
-            return PPTXSlide(slide_number=slide_number)
+    # Get cached slide root
+    root = ctx.get_slide_root(slide_path)
+    if root is None:
+        logger.warning(f"Slide not found: {slide_path}")
+        return PPTXSlide(slide_number=slide_number)
 
-        with z.open(slide_path) as f:
-            tree = ET.parse(f)
-            root = tree.getroot()
+    # Find the shape tree
+    sp_tree = root.find(f".//{P_NS}spTree")
+    if sp_tree is None:
+        return PPTXSlide(slide_number=slide_number)
 
-        # Find the shape tree
-        sp_tree = root.find(f".//{P_NS}spTree")
-        if sp_tree is None:
-            return PPTXSlide(slide_number=slide_number)
+    # Collect all shapes and pictures with their positions
+    shape_elements = []
 
-        # Collect all shapes and pictures with their positions
-        shape_elements = []
+    # Regular shapes (p:sp)
+    for sp in sp_tree.findall(f".//{P_NS}sp"):
+        shape_elements.append(("sp", sp, _get_shape_position(sp)))
 
-        # Regular shapes (p:sp)
-        for sp in sp_tree.findall(f".//{P_NS}sp"):
-            shape_elements.append(("sp", sp, _get_shape_position(sp)))
+    # Pictures (p:pic)
+    for pic in sp_tree.findall(f".//{P_NS}pic"):
+        shape_elements.append(("pic", pic, _get_shape_position(pic)))
 
-        # Pictures (p:pic)
-        for pic in sp_tree.findall(f".//{P_NS}pic"):
-            shape_elements.append(("pic", pic, _get_shape_position(pic)))
+    # Sort by position (top to bottom, left to right)
+    shape_elements.sort(key=lambda x: x[2])
 
-        # Sort by position (top to bottom, left to right)
-        shape_elements.sort(key=lambda x: x[2])
+    image_counter = 0
 
-        image_counter = 0
+    for shape_type, elem, position in shape_elements:
+        # ---------------------------
+        # Picture extraction
+        # ---------------------------
+        if shape_type == "pic":
+            try:
+                image_counter += 1
 
-        for shape_type, elem, position in shape_elements:
-            # ---------------------------
-            # Picture extraction
-            # ---------------------------
-            if shape_type == "pic":
-                try:
-                    image_counter += 1
+                # Get image relationship ID
+                blip = elem.find(f".//{A_NS}blip")
+                if blip is None:
+                    continue
 
-                    # Get image relationship ID
-                    blip = elem.find(f".//{A_NS}blip")
-                    if blip is None:
-                        continue
+                r_embed = blip.get(f"{R_NS}embed")
+                if not r_embed or r_embed not in slide_rels:
+                    continue
 
-                    r_embed = blip.get(f"{R_NS}embed")
-                    if not r_embed or r_embed not in slide_rels:
-                        continue
+                rel_info = slide_rels[r_embed]
+                target = rel_info.get("target", "")
 
-                    rel_info = slide_rels[r_embed]
-                    target = rel_info.get("target", "")
+                # Build full image path
+                slide_dir = "/".join(slide_path.rsplit("/", 1)[:-1])
+                if target.startswith("../"):
+                    image_path = f"{slide_dir}/{target}"
+                    # Normalize path to resolve .. segments
+                    parts = image_path.split("/")
+                    normalized = []
+                    for part in parts:
+                        if part == "..":
+                            if normalized:
+                                normalized.pop()
+                        elif part:  # Skip empty parts
+                            normalized.append(part)
+                    image_path = "/".join(normalized)
+                else:
+                    image_path = f"{slide_dir}/{target}"
 
-                    # Build full image path
-                    slide_dir = "/".join(slide_path.rsplit("/", 1)[:-1])
-                    if target.startswith("../"):
-                        image_path = f"{slide_dir}/{target}"
-                        # Normalize path to resolve .. segments
-                        parts = image_path.split("/")
-                        normalized = []
-                        for part in parts:
-                            if part == "..":
-                                if normalized:
-                                    normalized.pop()
-                            elif part:  # Skip empty parts
-                                normalized.append(part)
-                        image_path = "/".join(normalized)
-                    else:
-                        image_path = f"{slide_dir}/{target}"
+                # Extract alt text / description
+                caption = ""
+                cNvPr = elem.find(f".//{P_NS}cNvPr")
+                if cNvPr is not None:
+                    descr = cNvPr.get("descr", "")
+                    if descr:
+                        caption = descr
 
-                    # Extract alt text / description
-                    caption = ""
-                    cNvPr = elem.find(f".//{P_NS}cNvPr")
-                    if cNvPr is not None:
-                        descr = cNvPr.get("descr", "")
-                        if descr:
-                            caption = descr
+                # Read image data from context
+                blob = ctx.get_image_data(image_path)
+                if blob is not None:
+                    # Determine content type and filename from extension
+                    ext = target.split(".")[-1].lower()
+                    content_type_map = {
+                        "png": "image/png",
+                        "jpg": "image/jpeg",
+                        "jpeg": "image/jpeg",
+                        "gif": "image/gif",
+                        "bmp": "image/bmp",
+                        "tiff": "image/tiff",
+                        "tif": "image/tiff",
+                        "emf": "image/x-emf",
+                        "wmf": "image/x-wmf",
+                    }
+                    content_type = content_type_map.get(ext, f"image/{ext}")
 
-                    # Read image data
-                    if image_path in z.namelist():
-                        with z.open(image_path) as img_file:
-                            blob = img_file.read()
+                    # Generate generic filename based on extension
+                    # (matches python-pptx behavior)
+                    generic_filename = f"image.{ext}"
 
-                        # Determine content type and filename from extension
-                        ext = target.split(".")[-1].lower()
-                        content_type_map = {
-                            "png": "image/png",
-                            "jpg": "image/jpeg",
-                            "jpeg": "image/jpeg",
-                            "gif": "image/gif",
-                            "bmp": "image/bmp",
-                            "tiff": "image/tiff",
-                            "tif": "image/tiff",
-                            "emf": "image/x-emf",
-                            "wmf": "image/x-wmf",
-                        }
-                        content_type = content_type_map.get(ext, f"image/{ext}")
-
-                        # Generate generic filename based on extension
-                        # (matches python-pptx behavior)
-                        generic_filename = f"image.{ext}"
-
-                        images.append(
-                            PPTXImage(
-                                image_index=image_counter,
-                                filename=generic_filename,
-                                content_type=content_type,
-                                size_bytes=len(blob),
-                                blob=blob,
-                                caption=caption,
-                            )
+                    images.append(
+                        PPTXImage(
+                            image_index=image_counter,
+                            filename=generic_filename,
+                            content_type=content_type,
+                            size_bytes=len(blob),
+                            blob=blob,
+                            caption=caption,
                         )
+                    )
 
-                        # Add caption to ordered content if present
-                        if caption:
-                            ordered_content.append(
-                                (position, "image_caption", f"[Image: {caption}]")
-                            )
-                except Exception as e:
-                    logger.error(e)
-                    logger.exception(f"Failed to extract image on slide {slide_number}")
-                continue
+                    # Add caption to ordered content if present
+                    if caption:
+                        ordered_content.append(
+                            (position, "image_caption", f"[Image: {caption}]")
+                        )
+            except Exception as e:
+                logger.error(e)
+                logger.exception(f"Failed to extract image on slide {slide_number}")
+            continue
 
-            # ---------------------------
-            # Shape (text) extraction
-            # ---------------------------
-            # Get placeholder info
-            nv_sp_pr = elem.find(f"{P_NS}nvSpPr")
-            if nv_sp_pr is None:
-                continue
+        # ---------------------------
+        # Shape (text) extraction
+        # ---------------------------
+        # Get placeholder info
+        nv_sp_pr = elem.find(f"{P_NS}nvSpPr")
+        if nv_sp_pr is None:
+            continue
 
-            nv_pr = nv_sp_pr.find(f"{P_NS}nvPr")
-            ph = nv_pr.find(f"{P_NS}ph") if nv_pr is not None else None
+        nv_pr = nv_sp_pr.find(f"{P_NS}nvPr")
+        ph = nv_pr.find(f"{P_NS}ph") if nv_pr is not None else None
 
-            # Extract formulas from shape
-            shape_formulas = _extract_formulas_from_element(elem)
-            for latex, is_display in shape_formulas:
-                formula = PPTXFormula(latex=latex, is_display=is_display)
-                formulas.append(formula)
-                if is_display:
-                    ordered_content.append((position, "formula", f"$${latex}$$"))
-                else:
-                    ordered_content.append((position, "formula", f"${latex}$"))
-
-            # Extract text
-            tx_body = elem.find(f"{P_NS}txBody")
-            if tx_body is None:
-                continue
-
-            text = _extract_text_from_paragraphs(tx_body).strip()
-            if not text:
-                continue
-
-            # Determine placeholder type
-            if ph is not None:
-                ph_type = ph.get("type", "")
-                ph_idx = ph.get("idx", "")
-
-                if ph_type in TITLE_TYPES:
-                    slide_title = text
-                    ordered_content.append((position, "title", text))
-                elif ph_type in FOOTER_TYPES:
-                    slide_footer = text
-                    # Footer is typically not included in main text
-                elif ph_type in SKIP_TYPES:
-                    # Skip date, slide number, etc.
-                    pass
-                elif ph_type in BODY_TYPES or (not ph_type and ph_idx):
-                    # Body placeholder or indexed placeholder without type
-                    content_placeholders.append(text)
-                    ordered_content.append((position, "content", text))
-                else:
-                    other_textboxes.append(text)
-                    ordered_content.append((position, "other", text))
+        # Extract formulas from shape
+        shape_formulas = _extract_formulas_from_element(elem)
+        for latex, is_display in shape_formulas:
+            formula = PPTXFormula(latex=latex, is_display=is_display)
+            formulas.append(formula)
+            if is_display:
+                ordered_content.append((position, "formula", f"$${latex}$$"))
             else:
-                # Non-placeholder shape
+                ordered_content.append((position, "formula", f"${latex}$"))
+
+        # Extract text
+        tx_body = elem.find(f"{P_NS}txBody")
+        if tx_body is None:
+            continue
+
+        text = _extract_text_from_paragraphs(tx_body).strip()
+        if not text:
+            continue
+
+        # Determine placeholder type
+        if ph is not None:
+            ph_type = ph.get("type", "")
+            ph_idx = ph.get("idx", "")
+
+            if ph_type in TITLE_TYPES:
+                slide_title = text
+                ordered_content.append((position, "title", text))
+            elif ph_type in FOOTER_TYPES:
+                slide_footer = text
+                # Footer is typically not included in main text
+            elif ph_type in SKIP_TYPES:
+                # Skip date, slide number, etc.
+                pass
+            elif ph_type in BODY_TYPES or (not ph_type and ph_idx):
+                # Body placeholder or indexed placeholder without type
+                content_placeholders.append(text)
+                ordered_content.append((position, "content", text))
+            else:
                 other_textboxes.append(text)
                 ordered_content.append((position, "other", text))
+        else:
+            # Non-placeholder shape
+            other_textboxes.append(text)
+            ordered_content.append((position, "other", text))
 
     # ---------------------------
-    # Comment extraction
+    # Comment extraction (from cached XML)
     # ---------------------------
-    comments = _extract_slide_comments(file_like, slide_number)
+    comments = _extract_slide_comments_from_context(ctx, slide_number)
     # Add comments at the end of the slide content
     for comment in comments:
         ordered_content.append(
@@ -810,23 +834,26 @@ def read_pptx(
         ...             print(f"    Images: {len(slide.images)}")
 
     Performance Notes:
+        - ZIP file is opened once and all XML is cached
+        - All XML documents are parsed once and reused
         - Images are loaded into memory as binary blobs
         - Large presentations with many images may use significant memory
-        - Comments require a separate ZIP file read per slide
     """
     logger.debug("Reading pptx")
-    file_like.seek(0)
 
-    # Extract metadata
-    metadata = _extract_metadata(file_like)
+    # Create context that opens ZIP once and caches all parsed XML
+    ctx = _PptxContext(file_like)
 
-    # Get slide order from presentation.xml
-    slide_paths = _get_slide_order(file_like)
+    # Extract metadata from cached XML
+    metadata = _extract_metadata_from_context(ctx)
 
-    # Process each slide
+    # Get slide order from cached presentation.xml
+    slide_paths = ctx.slide_order
+
+    # Process each slide using cached XML
     slides_result: List[PPTXSlide] = []
     for slide_index, slide_path in enumerate(slide_paths, start=1):
-        slide = _process_slide(file_like, slide_path, slide_index)
+        slide = _process_slide_from_context(ctx, slide_path, slide_index)
         slides_result.append(slide)
 
     metadata.populate_from_path(path)
