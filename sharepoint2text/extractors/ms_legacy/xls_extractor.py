@@ -1,5 +1,111 @@
 """
-XLS content extractor using xlrd and olefile libraries.
+XLS Spreadsheet Extractor
+=========================
+
+Extracts text content and metadata from legacy Microsoft Excel .xls files
+(Excel 97-2003 binary format, also known as BIFF8).
+
+This module uses the xlrd library for cell and sheet parsing, and olefile
+for metadata extraction from the OLE container.
+
+File Format Background
+----------------------
+The .xls format stores spreadsheet data in a binary format called BIFF
+(Binary Interchange File Format). BIFF8, used by Excel 97-2003, stores
+data within an OLE2 compound document structure.
+
+Key Components:
+    - Workbook stream: Contains sheets, cells, formulas, formatting
+    - Sheets: Individual worksheets with rows and columns
+    - Cells: Individual data values (text, numbers, dates, formulas)
+    - Styles: Cell formatting (fonts, colors, borders)
+
+Cell Types (xlrd constants):
+    - XL_CELL_EMPTY (0): Empty cell
+    - XL_CELL_TEXT (1): Text string
+    - XL_CELL_NUMBER (2): Number (float)
+    - XL_CELL_DATE (3): Date (stored as float, needs conversion)
+    - XL_CELL_BOOLEAN (4): Boolean (True/False)
+    - XL_CELL_ERROR (5): Error value
+    - XL_CELL_BLANK (6): Blank (formatted but empty)
+
+Dependencies
+------------
+xlrd: https://github.com/python-excel/xlrd
+    pip install xlrd
+
+    Provides:
+    - BIFF8 format parsing
+    - Cell value extraction with type detection
+    - Date conversion from Excel serial format
+    - Sheet enumeration
+
+    Note: xlrd 2.x only supports .xls, not .xlsx (use openpyxl for .xlsx)
+
+olefile: https://github.com/decalage2/olefile
+    pip install olefile
+
+    Provides:
+    - OLE compound document parsing
+    - Metadata extraction from SummaryInformation
+
+Known Limitations
+-----------------
+- Password-protected/encrypted files are not supported
+- Macros (VBA) are not extracted
+- Charts and images are not extracted
+- External references may not resolve
+- Very large spreadsheets may use significant memory
+- Formulas are not evaluated (only stored results)
+- Merged cells may have unexpected behavior
+
+Data Representation
+-------------------
+Each sheet is represented in two forms:
+
+1. Structured data (list of dicts):
+   - First row is treated as headers
+   - Each subsequent row becomes a dictionary
+   - Keys are header values, values are cell contents
+   - Native Python types are used (int, float, str, bool)
+
+2. Text representation:
+   - Formatted as a text table (similar to pandas to_string)
+   - Columns are aligned and padded
+   - Suitable for display or text search
+
+Date Handling
+-------------
+Excel stores dates as floating-point numbers (days since 1899-12-30 or
+1904-01-01 depending on workbook mode). The extractor converts these
+to ISO format strings (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS).
+
+Usage
+-----
+    >>> import io
+    >>> from sharepoint2text.extractors.ms_legacy.xls_extractor import read_xls
+    >>>
+    >>> with open("data.xls", "rb") as f:
+    ...     for workbook in read_xls(io.BytesIO(f.read()), path="data.xls"):
+    ...         print(f"Title: {workbook.metadata.title}")
+    ...         for sheet in workbook.sheets:
+    ...             print(f"Sheet: {sheet.name}")
+    ...             print(f"Rows: {len(sheet.data)}")
+    ...             print(sheet.text[:200])
+
+See Also
+--------
+- MS-XLS specification: https://docs.microsoft.com/en-us/openspecs/office_file_formats/
+- xlsx_extractor: For modern Excel .xlsx format
+- doc_extractor: For Word documents
+- ppt_extractor: For PowerPoint presentations
+
+Maintenance Notes
+-----------------
+- xlrd is essentially unmaintained but stable for .xls
+- Consider openpyxl for .xlsx files
+- First row is always treated as headers (no detection)
+- Empty sheets produce empty text output
 """
 
 import io
@@ -15,7 +121,34 @@ logger = logging.getLogger(__name__)
 
 
 def _cell_value_to_str(cell: xlrd.sheet.Cell, workbook: xlrd.Book) -> str:
-    """Convert a cell value to a string representation."""
+    """
+    Convert a cell value to a string representation for display.
+
+    Handles all Excel cell types and produces human-readable strings
+    suitable for text output and display.
+
+    Args:
+        cell: xlrd Cell object containing value and type.
+        workbook: xlrd Book object (needed for date conversion).
+
+    Returns:
+        String representation of the cell value:
+        - Empty cells: ""
+        - Text: The string value
+        - Numbers: Integer if whole number, else float as string
+        - Dates: ISO format (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)
+        - Booleans: "True" or "False"
+        - Errors: "#ERROR"
+
+    Date Handling:
+        Excel stores dates as floating-point numbers. The workbook's
+        datemode (0 for 1900 system, 1 for 1904 system) is needed to
+        correctly convert to a date tuple. Dates with no time component
+        (00:00:00) are formatted as date-only.
+
+    Note:
+        Errors during date conversion fall back to the raw float value.
+    """
     if cell.ctype == xlrd.XL_CELL_EMPTY:
         return ""
     elif cell.ctype == xlrd.XL_CELL_TEXT:
@@ -43,7 +176,29 @@ def _cell_value_to_str(cell: xlrd.sheet.Cell, workbook: xlrd.Book) -> str:
 
 
 def _get_cell_native_value(cell: xlrd.sheet.Cell, workbook: xlrd.Book) -> Any:
-    """Get the native Python value of a cell for the data dict."""
+    """
+    Get the native Python value of a cell for structured data output.
+
+    Similar to _cell_value_to_str but returns native Python types
+    suitable for data processing rather than display strings.
+
+    Args:
+        cell: xlrd Cell object containing value and type.
+        workbook: xlrd Book object (needed for date conversion).
+
+    Returns:
+        Native Python value:
+        - Empty cells: None
+        - Text: str
+        - Numbers: int if whole number, else float
+        - Dates: ISO format string (for JSON compatibility)
+        - Booleans: bool (True/False)
+        - Errors: None
+
+    Note:
+        Dates are returned as strings rather than datetime objects
+        for JSON serialization compatibility.
+    """
     if cell.ctype == xlrd.XL_CELL_EMPTY:
         return None
     elif cell.ctype == xlrd.XL_CELL_TEXT:
@@ -69,7 +224,28 @@ def _get_cell_native_value(cell: xlrd.sheet.Cell, workbook: xlrd.Book) -> Any:
 
 
 def _format_sheet_as_text(headers: List[str], rows: List[List[str]]) -> str:
-    """Format sheet data as a text table similar to pandas to_string."""
+    """
+    Format sheet data as a text table with aligned columns.
+
+    Creates a text representation similar to pandas DataFrame.to_string()
+    output, with right-aligned columns and consistent spacing.
+
+    Args:
+        headers: List of header strings (first row of sheet).
+        rows: List of lists of string values (data rows).
+
+    Returns:
+        Formatted text table with:
+        - Right-aligned columns
+        - Two-space column separation
+        - Headers as first row
+        - Empty string if no data
+
+    Example Output:
+        Name  Age  City
+        John   30  NYC
+        Jane   25  LA
+    """
     if not headers and not rows:
         return ""
 
@@ -98,6 +274,26 @@ def _format_sheet_as_text(headers: List[str], rows: List[List[str]]) -> str:
 
 
 def _read_content(file_like: io.BytesIO) -> List[XlsSheet]:
+    """
+    Read all sheets from an XLS file and extract their content.
+
+    Uses xlrd to parse the workbook and extract cell values from each
+    sheet. First row is treated as headers for the structured data output.
+
+    Args:
+        file_like: BytesIO containing the XLS file data.
+
+    Returns:
+        List of XlsSheet objects, one per worksheet, each containing:
+        - name: Sheet name
+        - data: List of dicts (row data with header keys)
+        - text: Formatted text table
+
+    Implementation Notes:
+        - Empty sheets have empty data and text
+        - First row becomes headers for all subsequent rows
+        - Each row is converted to both dict form and text form
+    """
     logger.debug("Reading content")
     workbook = xlrd.open_workbook(file_contents=file_like.read())
 
@@ -151,6 +347,26 @@ def _read_content(file_like: io.BytesIO) -> List[XlsSheet]:
 
 
 def _read_metadata(file_like: io.BytesIO) -> XlsMetadata:
+    """
+    Extract document metadata from the XLS file's OLE container.
+
+    Uses olefile to access the SummaryInformation stream which
+    contains standard document properties.
+
+    Args:
+        file_like: BytesIO containing the XLS file data.
+
+    Returns:
+        XlsMetadata object with:
+        - title, author, subject, company
+        - last_saved_by
+        - created, modified (ISO format dates)
+
+    Notes:
+        - OleFileIO is opened and closed within this function
+        - Bytes values are decoded as UTF-8
+        - Missing properties result in empty strings
+    """
     ole = olefile.OleFileIO(file_like)
     meta = ole.get_metadata()
 
@@ -171,14 +387,51 @@ def read_xls(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[XlsContent, Any, None]:
     """
-    Extract all relevant content from an XLS file.
+    Extract all relevant content from a legacy Excel .xls file.
+
+    Primary entry point for XLS file extraction. Parses all sheets,
+    extracts cell values, and retrieves document metadata.
+
+    This function uses a generator pattern for API consistency with other
+    extractors, even though XLS files contain exactly one workbook.
 
     Args:
-        file_like: A BytesIO object containing the XLS file data.
-        path: Optional file path to populate file metadata fields.
+        file_like: BytesIO object containing the complete XLS file data.
+            The stream position is reset between reads for content and
+            metadata extraction.
+        path: Optional filesystem path to the source file. If provided,
+            populates file metadata (filename, extension, folder) in the
+            returned XlsContent.metadata.
 
     Yields:
-        MicrosoftXlsContent dataclass with all extracted content.
+        XlsContent: Single XlsContent object containing:
+            - metadata: XlsMetadata with title, author, dates
+            - sheets: List of XlsSheet objects (name, data, text)
+            - full_text: All sheet text concatenated with blank lines
+
+    Example:
+        >>> import io
+        >>> with open("sales.xls", "rb") as f:
+        ...     data = io.BytesIO(f.read())
+        ...     for workbook in read_xls(data, path="sales.xls"):
+        ...         print(f"Author: {workbook.metadata.author}")
+        ...         print(f"Sheets: {len(workbook.sheets)}")
+        ...         for sheet in workbook.sheets:
+        ...             print(f"  {sheet.name}: {len(sheet.data)} rows")
+        ...             # Access structured data
+        ...             for row in sheet.data[:3]:
+        ...                 print(f"    {row}")
+
+    Implementation Notes:
+        - File is read twice (once for content, once for metadata)
+        - Stream position is reset between reads
+        - Full text is sheets joined by double newlines
+        - Empty sheets are included with empty data and text
+
+    Performance Notes:
+        - Entire file is loaded into memory by xlrd
+        - Large spreadsheets with many cells may use significant memory
+        - Consider streaming approaches for very large files
     """
     file_like.seek(0)
     sheets = _read_content(file_like=file_like)

@@ -1,20 +1,111 @@
 """
-Legacy .doc Reader (Word 97-2003 / OLE2 Binary Format)
+DOC Document Extractor
+======================
 
-Usage:
-    from doc_reader import read_doc, MicrosoftDocContent
+Extracts text content and metadata from legacy Microsoft Word .doc files
+(Word 97-2003 binary format, also known as the OLE2/CFBF format).
 
-    with MicrosoftDocContent('file.doc') as doc:
-        text = doc.read()
-        main = doc.get_main_text()
-        hf = doc.get_headers_footers()
-        fn = doc.get_footnotes()
-        meta = doc.get_metadata()
+File Format Background
+----------------------
+The .doc format is a complex binary format based on the Compound File Binary
+Format (CFBF). The document content is stored in the "WordDocument" stream
+as a series of binary structures defined by the MS-DOC specification.
 
-DISCLAIMER:
-    the module is 100% AI-generated with Claude Opus 4.5
-    output is blackbox tested but implementation details
-    may be subject to improvements
+Key structures in the WordDocument stream:
+    - FIB (File Information Block): Header at offset 0, contains document
+      metadata and pointers to other structures
+    - Text: Character data stored after the FIB, may be UTF-16LE or CP1252
+    - CLX (Character Property and Paragraph Property structures): Formatting
+    - Data streams for embedded objects, images, etc.
+
+Document Text Regions:
+    The FIB contains character counts (ccp values) for different text regions:
+    - ccpText: Main document body
+    - ccpFtn: Footnotes
+    - ccpHdd: Headers and footers
+    - ccpAtn: Annotations/comments
+
+    These regions are stored contiguously in the stream after the text start.
+
+Dependencies
+------------
+olefile: https://github.com/decalage2/olefile
+    pip install olefile
+
+    Provides:
+    - OLE compound document parsing
+    - Stream enumeration and reading
+    - Metadata extraction from SummaryInformation stream
+
+Known Limitations
+-----------------
+- Encrypted/password-protected files raise LegacyMicrosoftParsingError
+- Complex tables may not preserve structure (extracted as plain text)
+- Embedded images and OLE objects are not extracted
+- Text boxes and shapes may be missing from extraction
+- Files created by very old Word versions (<97) may fail
+- Complex nested structures may not parse correctly
+
+Encoding Detection
+------------------
+The extractor uses heuristic detection to determine text encoding:
+    1. Scans for UTF-16LE patterns (ASCII with null bytes between chars)
+    2. Scans for CP1252 patterns (high-bit characters for Western European)
+    3. Uses scoring system to determine most likely encoding
+    4. Falls back to CP1252 if detection fails
+
+The encoding affects the byte multiplier for text extraction:
+    - UTF-16LE: 2 bytes per character
+    - CP1252: 1 byte per character
+
+Text Cleaning
+-------------
+Extracted text undergoes cleaning to remove/replace control characters:
+    - \\x07 (cell marker) -> tab
+    - \\x0b (vertical tab) -> newline
+    - \\x0c (page break) -> double newline
+    - \\x0d (carriage return) -> newline
+    - \\x13, \\x14, \\x15 (field markers) -> removed or space
+    - Various other control chars -> removed
+
+Usage
+-----
+    >>> import io
+    >>> from sharepoint2text.extractors.ms_legacy.doc_extractor import read_doc
+    >>>
+    >>> with open("document.doc", "rb") as f:
+    ...     for doc in read_doc(io.BytesIO(f.read()), path="document.doc"):
+    ...         print(f"Title: {doc.metadata.title}")
+    ...         print(f"Main text: {doc.main_text[:200]}...")
+    ...         print(f"Footnotes: {doc.footnotes}")
+
+Binary Structure Reference
+--------------------------
+FIB (File Information Block) key offsets:
+    - 0x00: wIdent (magic number, must be 0xA5EC)
+    - 0x0A: flags (bit 8 = encrypted)
+    - 0x4C: ccpText (main text character count)
+    - 0x50: ccpFtn (footnotes character count)
+    - 0x54: ccpHdd (headers/footers character count)
+    - 0x5C: ccpAtn (annotations character count)
+
+Magic Number:
+    Valid .doc files must have 0xA5EC at offset 0. Other values indicate
+    either corruption or a different file type (e.g., .docx or template).
+
+See Also
+--------
+- MS-DOC specification: https://docs.microsoft.com/en-us/openspecs/office_file_formats/
+- ppt_extractor: For PowerPoint files
+- xls_extractor: For Excel files
+
+Maintenance Notes
+-----------------
+- This module was initially AI-generated and has been blackbox tested
+- The text start detection algorithm may need adjustment for edge cases
+- Consider adding support for embedded objects in future versions
+- The _find_text_start_and_enc heuristic works for most files but may
+  fail on documents with unusual character distributions
 """
 
 import datetime
@@ -39,14 +130,51 @@ def read_doc(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[DocContent, Any, None]:
     """
-    Extract all relevant content from a DOC file.
+    Extract all relevant content from a legacy Word .doc file.
+
+    Primary entry point for DOC file extraction. Opens the OLE container,
+    parses the WordDocument stream, and extracts text content from all
+    document regions (main body, footnotes, headers/footers, annotations).
+
+    This function uses a generator pattern for API consistency with other
+    extractors, even though DOC files contain exactly one document.
 
     Args:
-        file_like: A BytesIO object containing the DOC file data.
-        path: Optional file path to populate file metadata fields.
+        file_like: BytesIO object containing the complete DOC file data.
+            The stream position is reset to the beginning before reading.
+        path: Optional filesystem path to the source file. If provided,
+            populates file metadata (filename, extension, folder) in the
+            returned DocContent.metadata. Useful for batch processing.
 
     Yields:
-        MicrosoftDocContent dataclass with all extracted content.
+        DocContent: Single DocContent object containing:
+            - main_text: Primary document body text
+            - footnotes: Footnote text (if any)
+            - headers_footers: Header and footer text (if any)
+            - annotations: Comment/annotation text (if any)
+            - metadata: DocMetadata with title, author, dates, counts
+
+    Raises:
+        LegacyMicrosoftParsingError: For various parsing failures:
+            - Not a valid OLE file
+            - No WordDocument stream found
+            - File too small (<0x200 bytes)
+            - Invalid magic number (not 0xA5EC)
+            - Encrypted file (flag bit 8 set)
+
+    Example:
+        >>> import io
+        >>> with open("report.doc", "rb") as f:
+        ...     data = io.BytesIO(f.read())
+        ...     for doc in read_doc(data, path="report.doc"):
+        ...         print(f"Author: {doc.metadata.author}")
+        ...         print(f"Words: {doc.metadata.num_words}")
+        ...         print(doc.main_text)
+
+    Performance Notes:
+        - Entire file is loaded into memory
+        - OLE container is opened and closed within this function
+        - Large documents may use significant memory during parsing
     """
     file_like.seek(0)
     with _DocReader(file_like) as doc:
@@ -57,7 +185,41 @@ def read_doc(
 
 
 class _DocReader:
+    """
+    Internal reader class for parsing Word .doc binary format.
+
+    This class handles the low-level binary parsing of the WordDocument
+    stream within an OLE container. It implements the context manager
+    protocol for proper resource cleanup.
+
+    The parsing process:
+        1. Open OLE container via olefile
+        2. Read the WordDocument stream
+        3. Validate the FIB (File Information Block) header
+        4. Detect text encoding (UTF-16LE or CP1252)
+        5. Extract text regions based on character counts from FIB
+        6. Clean extracted text of control characters
+
+    Attributes:
+        file_like: Input BytesIO containing the DOC file
+        ole: OleFileIO instance for container access
+        _content: Cached DocContent after first parse
+        _is_unicode: Detected encoding (True=UTF-16LE, False=CP1252)
+        _text_start: Detected offset where text begins in stream
+
+    Implementation Notes:
+        - Results are cached after first parse for efficiency
+        - The FIB header is always at offset 0 in WordDocument stream
+        - Text follows the FIB, but exact start offset varies by file
+    """
+
     def __init__(self, file_like: io.BytesIO):
+        """
+        Initialize the DOC reader with file data.
+
+        Args:
+            file_like: BytesIO containing the complete DOC file.
+        """
         self.file_like = file_like
         self.ole = None
         self._content: Optional[DocContent] = None
@@ -65,19 +227,55 @@ class _DocReader:
         self._text_start: Optional[int] = None
 
     def __enter__(self):
+        """Open the OLE container for reading."""
         self.ole = olefile.OleFileIO(self.file_like)
         return self
 
     def __exit__(self, *args):
+        """Close the OLE container and release resources."""
         if self.ole:
             self.ole.close()
 
     def _get_stream(self, name: str) -> bytes:
+        """
+        Read a named stream from the OLE container.
+
+        Args:
+            name: Stream name (e.g., "WordDocument", "1Table").
+
+        Returns:
+            Raw bytes of the stream, or empty bytes if stream doesn't exist.
+        """
         if self.ole and self.ole.exists(name):
             return self.ole.openstream(name).read()
         return b""
 
     def _parse_content(self) -> DocContent:
+        """
+        Parse the WordDocument stream and extract all text content.
+
+        This is the core parsing method that reads the binary structure,
+        validates the file format, and extracts text from all regions.
+
+        Returns:
+            DocContent: Populated dataclass with main_text, footnotes,
+                headers_footers, and annotations.
+
+        Raises:
+            LegacyMicrosoftParsingError: For parsing failures including:
+                - File not opened (ole is None)
+                - Missing WordDocument stream
+                - File too small (<0x200 bytes)
+                - Invalid magic number
+                - Encrypted file
+
+        Implementation Details:
+            1. Reads character counts from FIB offsets 0x4C-0x5C
+            2. Detects encoding via _find_text_start_and_enc()
+            3. Calculates byte multiplier (2 for Unicode, 1 for CP1252)
+            4. Extracts each text region sequentially
+            5. Decodes and cleans text for each region
+        """
         if self._content is not None:
             return self._content
 
@@ -159,34 +357,68 @@ class _DocReader:
 
     def read(self) -> DocContent:
         """
-        Extracts the text from the document.
+        Extract and return all text content from the document.
+
+        This is the primary extraction method that triggers parsing
+        (if not already done) and returns the complete content.
+
+        Returns:
+            DocContent: Dataclass with all extracted text regions.
         """
         content = self._parse_content()
 
         return content
 
     def get_main_text(self) -> str:
+        """Get only the main document body text."""
         return self._parse_content().main_text
 
     def get_headers_footers(self) -> str:
+        """Get only the header and footer text."""
         return self._parse_content().headers_footers
 
     def get_footnotes(self) -> str:
+        """Get only the footnote text."""
         return self._parse_content().footnotes
 
     def get_annotations(self) -> str:
+        """Get only the annotation/comment text."""
         return self._parse_content().annotations
 
     def get_all_parts(self) -> DocContent:
+        """Get all document parts as a DocContent dataclass."""
         return self._parse_content()
 
     @staticmethod
     def _find_text_start_and_enc(word_doc: bytes) -> tuple:
         """
-        Finds the start of the text and detects whether it is UTF-16LE or CP1252.
+        Detect the text start offset and character encoding in WordDocument stream.
+
+        The text in a .doc file starts somewhere after the FIB header (which
+        ends around offset 0x200). This method scans the stream to find where
+        readable text begins and whether it's encoded as UTF-16LE or CP1252.
+
+        Detection Algorithm:
+            1. Scan in 64-byte chunks starting at offset 0x200
+            2. For each chunk, score both UTF-16LE and CP1252 patterns
+            3. UTF-16LE: Look for ASCII chars followed by null bytes
+            4. CP1252: Look for printable ASCII and high-bit Western chars
+            5. Return when a clear pattern emerges (score threshold met)
+            6. Fall back to offset 0x800, CP1252 if no pattern found
+
+        Args:
+            word_doc: Raw bytes of the WordDocument stream.
 
         Returns:
-            (offset, is_unicode): Start position and True if UTF-16LE
+            Tuple of (offset, is_unicode):
+                - offset: Byte offset where text content begins
+                - is_unicode: True if UTF-16LE, False if CP1252
+
+        Implementation Notes:
+            - UTF-16LE score threshold: >20 matching pairs in 64 bytes
+            - CP1252 score threshold: >45 printable chars in 64 bytes
+            - German umlauts (ä, ö, ü, etc.) are explicitly checked for UTF-16LE
+            - Scan stops at min(file_length - 64, 0x2000) for safety
         """
         for offset in range(0x200, min(len(word_doc) - 64, 0x2000), 0x40):
             sample = word_doc[offset : offset + 64]
@@ -214,6 +446,34 @@ class _DocReader:
 
     @staticmethod
     def _clean_text(text: str) -> str:
+        """
+        Clean extracted text by replacing/removing control characters.
+
+        Word documents contain various control characters that mark
+        formatting, field boundaries, and structure. This method
+        normalizes these to produce readable plain text.
+
+        Character Mappings:
+            - \\x07 (cell marker) -> tab
+            - \\x0b (vertical tab) -> newline
+            - \\x0c (page break) -> double newline
+            - \\x0d (carriage return) -> newline
+            - \\x13 (field begin) -> removed
+            - \\x14 (field separator) -> space
+            - \\x15 (field end) -> removed
+            - \\x01, \\x08, \\x19, \\x1e, \\x1f -> removed
+            - \\xa0 (non-breaking space) -> regular space
+
+        Whitespace Normalization:
+            - Multiple spaces/tabs collapsed to single space
+            - Three or more newlines collapsed to double newline
+
+        Args:
+            text: Raw text extracted from document.
+
+        Returns:
+            Cleaned, normalized text string.
+        """
         if not text:
             return ""
 
@@ -241,6 +501,24 @@ class _DocReader:
         return text.strip()
 
     def get_metadata(self) -> DocMetadata:
+        """
+        Extract document metadata from OLE SummaryInformation stream.
+
+        Uses olefile's built-in metadata extraction to read the standard
+        document properties stored in the OLE container.
+
+        Returns:
+            DocMetadata: Populated metadata including:
+                - title, author, subject, keywords
+                - last_saved_by, create_time, last_saved_time
+                - num_pages, num_words, num_chars
+
+        Notes:
+            - Returns empty DocMetadata if OLE is not open or extraction fails
+            - Dates are converted to ISO format strings
+            - Text fields are decoded from bytes as UTF-8
+            - Failures are logged at debug level but don't raise exceptions
+        """
         if not self.ole:
             return DocMetadata()
         try:
@@ -270,4 +548,13 @@ class _DocReader:
             return DocMetadata()
 
     def list_streams(self) -> List[List[str]]:
+        """
+        List all streams in the OLE container.
+
+        Useful for debugging or exploring document structure.
+
+        Returns:
+            List of stream paths. Each path is a list of directory names
+            (e.g., [['WordDocument'], ['\\x05SummaryInformation']]).
+        """
         return self.ole.listdir() if self.ole else []

@@ -1,8 +1,98 @@
 """
-RTF content extractor.
+RTF Document Extractor
+======================
 
-Parses RTF (Rich Text Format) files and extracts text, metadata, fonts,
-colors, styles, headers/footers, hyperlinks, images, footnotes, and more.
+Extracts text content, metadata, and structure from RTF (Rich Text Format)
+files. RTF is a cross-platform document format developed by Microsoft that
+uses plain text with control words to represent formatting.
+
+File Format Background
+----------------------
+RTF files are plain text documents using ASCII control sequences to encode
+formatting. The format was designed for cross-platform document interchange.
+
+Basic Structure:
+    - Files start with "{\\rtf" header
+    - Content is organized in nested groups (braces { })
+    - Control words start with backslash (e.g., \\par, \\bold)
+    - Control words may have numeric parameters (e.g., \\fs24 for font size)
+    - Special characters are escaped or encoded
+
+Key Control Words:
+    - \\rtf1: RTF version 1 header
+    - \\fonttbl: Font table definition
+    - \\colortbl: Color table definition
+    - \\stylesheet: Style definitions
+    - \\info: Document metadata
+    - \\par: Paragraph break
+    - \\page: Page break
+    - \\header, \\footer: Header/footer content
+    - \\footnote: Footnote content
+    - \\field: Field (hyperlinks, page numbers, etc.)
+
+Text Encoding:
+    - Plain ASCII: Characters 32-127
+    - Hex escapes: \\'xx for bytes (e.g., \\'e4 for ä)
+    - Unicode: \\u<decimal>? for Unicode code points
+    - Code pages specified via \\ansicpgNNNN
+
+Dependencies
+------------
+No external dependencies - uses Python standard library only.
+
+Known Limitations
+-----------------
+- Very complex RTF structures may not parse completely
+- Embedded OLE objects are not extracted
+- Some advanced formatting may be lost in text extraction
+- Equation/math content may not extract properly
+- Right-to-left text handling is basic
+- Nested tables may not preserve structure
+
+Encoding Handling
+-----------------
+The parser attempts multiple encodings in order:
+    1. UTF-8
+    2. CP1252 (Windows-1252)
+    3. Latin-1
+
+Unicode escapes (\\uNNNN) are decoded to proper characters.
+Hex escapes (\\'xx) are decoded using the document's code page.
+
+Destination Groups
+------------------
+Some RTF groups are "destinations" that should be skipped during
+text extraction (they contain metadata or non-text content):
+    - fonttbl, colortbl, stylesheet
+    - info (metadata is extracted separately)
+    - header, footer (extracted separately)
+    - pict (images)
+    - fldinst (field instructions)
+
+Usage
+-----
+    >>> import io
+    >>> from sharepoint2text.extractors.ms_legacy.rtf_extractor import read_rtf
+    >>>
+    >>> with open("document.rtf", "rb") as f:
+    ...     for doc in read_rtf(io.BytesIO(f.read()), path="document.rtf"):
+    ...         print(f"Title: {doc.metadata.title}")
+    ...         print(f"Pages: {len(doc.pages)}")
+    ...         print(doc.full_text[:500])
+
+See Also
+--------
+- RTF 1.9.1 Specification: https://www.microsoft.com/en-us/download/details.aspx?id=10725
+- doc_extractor: For binary Word .doc format
+- docx_extractor: For modern Word .docx format
+
+Maintenance Notes
+-----------------
+- The parser uses regex extensively for pattern matching
+- Some RTF files may have non-standard extensions
+- Error handling is generous - partial content returned on failures
+- The _strip_rtf_full method does character-by-character parsing
+- Page detection relies on \\page control word
 """
 
 import io
@@ -30,9 +120,50 @@ logger = logging.getLogger(__name__)
 
 
 class _RtfParser:
-    """Low-level RTF parser that tokenizes and processes RTF content."""
+    """
+    Low-level RTF parser that tokenizes and processes RTF content.
 
-    # RTF special characters mapping
+    This class handles the parsing of RTF documents, extracting text,
+    formatting information, and metadata. It uses a combination of
+    regex patterns and character-by-character parsing.
+
+    Parsing Process:
+        1. Decode raw bytes to string (UTF-8 -> CP1252 -> Latin-1)
+        2. Validate RTF header ({\\rtf)
+        3. Extract font table (\\fonttbl)
+        4. Extract color table (\\colortbl)
+        5. Extract stylesheet (\\stylesheet)
+        6. Extract metadata (\\info)
+        7. Extract headers/footers
+        8. Extract body text with page break detection
+        9. Extract hyperlinks, fields, images, footnotes
+
+    Attributes:
+        data: Raw RTF file bytes
+        pos: Current parsing position
+        length: Total data length
+        fonts: Extracted font definitions
+        colors: Extracted color definitions
+        styles: Extracted style definitions
+        metadata: Extracted document metadata
+        paragraphs: Extracted paragraph content
+        headers: Header content by type
+        footers: Footer content by type
+        hyperlinks: Extracted hyperlinks
+        bookmarks: Extracted bookmarks
+        fields: Extracted fields (page numbers, dates, etc.)
+        images: Extracted image references
+        footnotes: Extracted footnotes
+        annotations: Extracted annotations/comments
+        pages: Text content split by page breaks
+        raw_text_blocks: All text blocks in order
+
+    Error Handling:
+        If parsing fails at any stage, falls back to simple text
+        extraction, returning whatever content can be retrieved.
+    """
+
+    # RTF special characters mapping - control words to actual characters
     SPECIAL_CHARS = {
         "par": "\n",
         "line": "\n",
@@ -911,12 +1042,48 @@ def read_rtf(
     """
     Extract all relevant content from an RTF file.
 
+    Primary entry point for RTF file extraction. Parses the RTF markup,
+    extracts text content, and builds structured output including pages,
+    paragraphs, and metadata.
+
+    This function uses a generator pattern for API consistency with other
+    extractors, even though RTF files contain exactly one document.
+
     Args:
-        file_like: A BytesIO object containing the RTF file data.
-        path: Optional file path to populate file metadata fields.
+        file_like: BytesIO object containing the complete RTF file data.
+            The stream position is reset to the beginning before reading.
+        path: Optional filesystem path to the source file. If provided,
+            populates file metadata (filename, extension, folder) in the
+            returned RtfContent.metadata.
 
     Yields:
-        RtfContent dataclass with all extracted content.
+        RtfContent: Single RtfContent object containing:
+            - full_text: Complete document text as single string
+            - pages: List of text strings, one per page
+            - paragraphs: List of RtfParagraph objects
+            - metadata: RtfMetadata with title, author, dates, etc.
+            - fonts: List of RtfFont definitions
+            - colors: List of RtfColor definitions
+            - styles: List of RtfStyle definitions
+            - headers, footers: Header/footer content
+            - hyperlinks, bookmarks, fields: Document elements
+            - images: Extracted image references
+            - footnotes: Footnote content
+
+    Example:
+        >>> import io
+        >>> with open("report.rtf", "rb") as f:
+        ...     data = io.BytesIO(f.read())
+        ...     for doc in read_rtf(data, path="report.rtf"):
+        ...         print(f"Author: {doc.metadata.author}")
+        ...         print(f"Pages: {len(doc.pages)}")
+        ...         for i, page in enumerate(doc.pages, 1):
+        ...             print(f"Page {i}: {page[:50]}...")
+
+    Implementation Notes:
+        - Entire file is loaded into memory
+        - Parsing errors fall back to simple text extraction
+        - Invalid RTF files return partial content rather than failing
     """
     logger.debug("Reading RTF file")
     file_like.seek(0)
