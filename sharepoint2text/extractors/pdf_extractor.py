@@ -161,10 +161,13 @@ def read_pdf(
     """
     file_like.seek(0)
     reader = PdfReader(file_like)
+    logger.debug("Parsing PDF with %d pages", len(reader.pages))
 
     pages = {}
+    total_images = 0
     for page_num, page in enumerate(reader.pages, start=1):
         images = _extract_image_bytes(page)
+        total_images += len(images)
         pages[page_num] = PdfPage(
             text=page.extract_text() or "",
             images=images,
@@ -172,6 +175,12 @@ def read_pdf(
 
     metadata = PdfMetadata(total_pages=len(reader.pages))
     metadata.populate_from_path(path)
+
+    logger.info(
+        "Extracted PDF: %d pages, %d images",
+        len(reader.pages),
+        total_images,
+    )
 
     yield PdfContent(
         pages=pages,

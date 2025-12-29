@@ -459,4 +459,11 @@ def read_xlsx(
     metadata = _read_metadata(file_like)
     metadata.populate_from_path(path)
 
+    total_rows = sum(len(sheet.data) for sheet in sheets)
+    logger.info(
+        "Extracted XLSX: %d sheets, %d total rows",
+        len(sheets),
+        total_rows,
+    )
+
     yield XlsxContent(metadata=metadata, sheets=sheets)

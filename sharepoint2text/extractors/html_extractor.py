@@ -456,6 +456,13 @@ def read_html(
     extractor = _HtmlTextExtractor(root)
     text = extractor.extract()
 
+    logger.info(
+        "Extracted HTML: %d characters, %d tables, %d links",
+        len(text),
+        len(extractor.tables),
+        len(extractor.links),
+    )
+
     yield HtmlContent(
         content=text,
         tables=extractor.tables,

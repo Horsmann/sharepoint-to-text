@@ -514,4 +514,12 @@ def read_pptx(
         )
 
     metadata.populate_from_path(path)
+
+    total_images = sum(len(slide.images) for slide in slides_result)
+    logger.info(
+        "Extracted PPTX: %d slides, %d images",
+        len(slides_result),
+        total_images,
+    )
+
     yield PptxContent(metadata=metadata, slides=slides_result)

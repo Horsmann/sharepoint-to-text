@@ -181,6 +181,14 @@ def read_doc(
         document = doc.read()
         document.metadata = doc.get_metadata()
         document.metadata.populate_from_path(path)
+
+        text_len = len(document.main_text)
+        logger.info(
+            "Extracted DOC: %d characters, %d words",
+            text_len,
+            document.metadata.num_words or len(document.main_text.split()),
+        )
+
         yield document
 
 

@@ -172,6 +172,7 @@ def get_extractor(
         logger.debug(
             "Detected file type: %s (MIME: %s) for file: %s", file_type, mime_type, path
         )
+        logger.info("Using extractor for file type: %s", file_type)
         return _get_extractor(file_type)
 
     # Fallback detection: explicit extension checking
@@ -179,7 +180,8 @@ def get_extractor(
     if extension in FALLBACK_EXTENSIONS:
         file_type = extension[1:]  # Remove leading dot
         logger.debug("Detected file type: %s for file: %s", file_type, path)
+        logger.info("Using extractor for file type: %s", file_type)
         return _get_extractor(file_type)
 
-    logger.debug("File [%s] with MIME type [%s] is not supported", path, mime_type)
+    logger.warning("Unsupported file type: %s (MIME: %s)", path, mime_type)
     raise ExtractionFileFormatNotSupportedError(f"File type not supported: {mime_type}")

@@ -89,6 +89,7 @@ import email
 import email.header
 import email.utils
 import io
+import logging
 import mailbox
 import os
 import tempfile
@@ -100,6 +101,8 @@ from sharepoint2text.extractors.data_types import (
     EmailContent,
     EmailMetadata,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def decode_header_value(value: str | None) -> str:
@@ -447,11 +450,20 @@ def read_mbox_format_mail(
 
     try:
         mbox = mailbox.mbox(tmp_path)
+        message_count = 0
         for message in mbox:
             m = parse_email_message(message)
             if path:
                 m.metadata.populate_from_path(path)
+            message_count += 1
+            logger.debug(
+                "Extracted message %d: subject=%s",
+                message_count,
+                m.subject[:50] if m.subject else "(no subject)",
+            )
             yield m
+
+        logger.info("Extracted MBOX: %d messages", message_count)
 
     finally:
         # Ensure temp file cleanup regardless of parsing success

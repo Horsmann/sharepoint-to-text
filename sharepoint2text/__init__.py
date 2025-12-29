@@ -286,9 +286,12 @@ def read_file(
         ...     print(result.get_full_text())
     """
     path = Path(path)
+    logger.info("Starting extraction: %s", path)
     extractor = get_extractor(str(path))
     with open(path, "rb") as f:
-        yield from extractor(io.BytesIO(f.read()), str(path))
+        for result in extractor(io.BytesIO(f.read()), str(path)):
+            logger.info("Extraction complete: %s", path)
+            yield result
 
 
 __all__ = [

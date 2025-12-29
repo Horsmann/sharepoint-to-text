@@ -1178,6 +1178,13 @@ def read_docx(
 
     metadata.populate_from_path(path)
 
+    logger.info(
+        "Extracted DOCX: %d paragraphs, %d tables, %d images",
+        len(paragraphs),
+        len(tables),
+        len(images),
+    )
+
     yield DocxContent(
         metadata=metadata,
         paragraphs=paragraphs,
