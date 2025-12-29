@@ -1,7 +1,105 @@
 """
-ODP (OpenDocument Presentation) content extractor.
+ODP Presentation Extractor
+==========================
 
-Extracts content from .odp files which are ZIP archives containing XML files.
+Extracts text content, metadata, and structure from OpenDocument Presentation
+(.odp) files created by LibreOffice Impress, OpenOffice, and other ODF-compatible
+applications.
+
+File Format Background
+----------------------
+ODP files are ZIP archives containing XML files following the OASIS OpenDocument
+specification (ISO/IEC 26300). Key components:
+
+    content.xml: Presentation content (slides, frames, shapes)
+    meta.xml: Metadata (title, author, dates)
+    styles.xml: Style definitions and master pages
+    Pictures/: Embedded images
+
+Presentation Structure in content.xml:
+    - office:document-content: Root element
+    - office:body: Container for content
+    - office:presentation: Presentation body
+    - draw:page: Individual slides
+    - draw:frame: Containers for text boxes, images, tables
+    - draw:text-box: Text content container
+    - presentation:notes: Speaker notes
+
+Slide Content Model
+-------------------
+Each slide (draw:page) contains frames positioned by x/y coordinates.
+Frames can contain:
+    - draw:text-box: Text paragraphs and lists
+    - draw:image: Embedded or linked images
+    - table:table: Tables with rows and cells
+
+Text is organized in paragraphs (text:p) within text boxes. Paragraph
+styles indicate content type (title, body, subtitle, etc.).
+
+Frame Ordering
+--------------
+Frames are sorted by position (top-to-bottom, left-to-right) to maintain
+logical reading order. Position is determined by svg:y and svg:x attributes.
+
+Dependencies
+------------
+Python Standard Library only:
+    - zipfile: ZIP archive handling
+    - xml.etree.ElementTree: XML parsing
+    - mimetypes: Image content type detection
+
+Extracted Content
+-----------------
+Per-slide content includes:
+    - slide_number: 1-based slide index
+    - name: Slide name attribute
+    - title: Detected from title-style paragraphs
+    - body_text: Content from body-style paragraphs
+    - other_text: Text from non-standard frames
+    - tables: Table data as nested lists
+    - images: Embedded images with binary data
+    - notes: Speaker notes
+    - annotations: Comments with creator and date
+
+Title Detection
+---------------
+Title detection uses paragraph style names containing "Title" or matching
+"TitleText" exactly. The first qualifying paragraph at the top of the
+slide is designated as the title.
+
+Known Limitations
+-----------------
+- Master slide text is not separately extracted
+- Grouped shapes may not extract all text
+- Animations and transitions are ignored
+- Embedded media (audio/video) is not extracted
+- Math formulas are not converted
+- Password-protected files are not supported
+
+Usage
+-----
+    >>> import io
+    >>> from sharepoint2text.extractors.open_office.odp_extractor import read_odp
+    >>>
+    >>> with open("slides.odp", "rb") as f:
+    ...     for ppt in read_odp(io.BytesIO(f.read()), path="slides.odp"):
+    ...         print(f"Title: {ppt.metadata.title}")
+    ...         for slide in ppt.slides:
+    ...             print(f"Slide {slide.slide_number}: {slide.title}")
+    ...             print(f"  Notes: {slide.notes}")
+
+See Also
+--------
+- odt_extractor: For OpenDocument Text files
+- ods_extractor: For OpenDocument Spreadsheet files
+- pptx_extractor: For Microsoft PowerPoint files
+
+Maintenance Notes
+-----------------
+- Frame position parsing handles cm/in/pt units
+- Style-based title detection may need extension for custom templates
+- Speaker notes are in presentation:notes child elements
+- Images stored in Pictures/ folder or as external xlink:href references
 """
 
 import io
@@ -315,14 +413,38 @@ def read_odp(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[OdpContent, Any, None]:
     """
-    Extract all relevant content from an ODP file.
+    Extract all relevant content from an OpenDocument Presentation (.odp) file.
+
+    Primary entry point for ODP file extraction. Opens the ZIP archive,
+    parses content.xml and meta.xml, and extracts slide content organized
+    by slide number.
+
+    This function uses a generator pattern for API consistency with other
+    extractors, even though ODP files contain exactly one presentation.
 
     Args:
-        file_like: A BytesIO object containing the ODP file data.
-        path: Optional file path to populate file metadata fields.
+        file_like: BytesIO object containing the complete ODP file data.
+            The stream position is reset to the beginning before reading.
+        path: Optional filesystem path to the source file. If provided,
+            populates file metadata (filename, extension, folder) in the
+            returned OdpContent.metadata.
 
     Yields:
-        OdpContent dataclass with all extracted content.
+        OdpContent: Single OdpContent object containing:
+            - metadata: OdpMetadata with title, creator, dates
+            - slides: List of OdpSlide objects with per-slide content
+
+    Raises:
+        ValueError: If content.xml is missing or presentation body not found.
+
+    Example:
+        >>> import io
+        >>> with open("presentation.odp", "rb") as f:
+        ...     data = io.BytesIO(f.read())
+        ...     for ppt in read_odp(data, path="presentation.odp"):
+        ...         print(f"Slides: {len(ppt.slides)}")
+        ...         for slide in ppt.slides:
+        ...             print(f"  {slide.slide_number}: {slide.title}")
     """
     file_like.seek(0)
 

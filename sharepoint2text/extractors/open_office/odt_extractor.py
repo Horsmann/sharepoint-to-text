@@ -1,7 +1,108 @@
 """
-ODT (OpenDocument Text) content extractor.
+ODT Document Extractor
+======================
 
-Extracts content from .odt files which are ZIP archives containing XML files.
+Extracts text content, metadata, and structure from OpenDocument Text (.odt)
+files created by LibreOffice, OpenOffice, and other ODF-compatible applications.
+
+File Format Background
+----------------------
+ODT files are ZIP archives containing XML files following the OASIS OpenDocument
+specification (ISO/IEC 26300). Key components:
+
+    content.xml: Document body (paragraphs, tables, lists, drawings)
+    meta.xml: Metadata (title, author, dates, statistics)
+    styles.xml: Style definitions, master pages, headers/footers
+    settings.xml: Application settings
+    Pictures/: Embedded images
+
+Document Structure in content.xml:
+    - office:document-content: Root element
+    - office:body: Container for document content
+    - office:text: Text document body
+    - text:p: Paragraphs
+    - text:h: Headings (with outline-level attribute)
+    - table:table: Tables with rows and cells
+    - text:list: Ordered and unordered lists
+    - draw:frame: Containers for images and text boxes
+
+XML Namespaces
+--------------
+The module uses standard ODF namespaces:
+    - office: Document structure
+    - text: Text content elements
+    - table: Table elements
+    - draw: Drawing/image elements
+    - style: Style definitions
+    - meta: Metadata elements
+    - dc: Dublin Core metadata
+    - xlink: Hyperlink references
+    - fo: XSL-FO compatible properties
+    - svg: SVG compatible properties
+
+Dependencies
+------------
+Python Standard Library only:
+    - zipfile: ZIP archive handling
+    - xml.etree.ElementTree: XML parsing
+    - mimetypes: Image content type detection
+
+Extracted Content
+-----------------
+The extractor retrieves:
+    - paragraphs: Text paragraphs with style information and runs
+    - tables: Table data as nested lists
+    - headers/footers: From styles.xml master pages
+    - footnotes/endnotes: Note content with IDs
+    - annotations: Comments with creator and date
+    - hyperlinks: Link text and URLs
+    - bookmarks: Named locations in document
+    - images: Embedded images with binary data
+    - styles: List of style names used
+    - full_text: Complete text in reading order
+
+Special Element Handling
+------------------------
+ODF uses special elements for whitespace preservation:
+    - text:s: Space element (text:c attribute for count)
+    - text:tab: Tab character
+    - text:line-break: Soft line break
+
+These are converted to appropriate characters during extraction.
+
+Known Limitations
+-----------------
+- Tracked changes (revisions) are not separately reported
+- Text boxes in drawings may not extract all content
+- Math formulas are not converted (extracted as-is)
+- Nested tables may not preserve complete structure
+- Password-protected files are not supported
+- Form controls are not extracted
+
+Usage
+-----
+    >>> import io
+    >>> from sharepoint2text.extractors.open_office.odt_extractor import read_odt
+    >>>
+    >>> with open("document.odt", "rb") as f:
+    ...     for doc in read_odt(io.BytesIO(f.read()), path="document.odt"):
+    ...         print(f"Title: {doc.metadata.title}")
+    ...         print(f"Creator: {doc.metadata.creator}")
+    ...         print(f"Paragraphs: {len(doc.paragraphs)}")
+    ...         print(doc.full_text[:500])
+
+See Also
+--------
+- odp_extractor: For OpenDocument Presentation files
+- ods_extractor: For OpenDocument Spreadsheet files
+- docx_extractor: For Microsoft Word files
+
+Maintenance Notes
+-----------------
+- All extraction functions use the shared NS namespace dictionary
+- _get_text_recursive handles special whitespace elements
+- Headers/footers are in styles.xml, not content.xml
+- Images are stored in Pictures/ folder within the ZIP
 """
 
 import io
@@ -464,14 +565,47 @@ def read_odt(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[OdtContent, Any, None]:
     """
-    Extract all relevant content from an ODT file.
+    Extract all relevant content from an OpenDocument Text (.odt) file.
+
+    Primary entry point for ODT file extraction. Opens the ZIP archive,
+    parses content.xml and meta.xml, and extracts text, formatting,
+    and embedded content.
+
+    This function uses a generator pattern for API consistency with other
+    extractors, even though ODT files contain exactly one document.
 
     Args:
-        file_like: A BytesIO object containing the ODT file data.
-        path: Optional file path to populate file metadata fields.
+        file_like: BytesIO object containing the complete ODT file data.
+            The stream position is reset to the beginning before reading.
+        path: Optional filesystem path to the source file. If provided,
+            populates file metadata (filename, extension, folder) in the
+            returned OdtContent.metadata.
 
     Yields:
-        OdtContent dataclass with all extracted content.
+        OdtContent: Single OdtContent object containing:
+            - metadata: OdtMetadata with title, creator, dates, etc.
+            - paragraphs: List of OdtParagraph with text and runs
+            - tables: List of tables as 3D lists (table > row > cell)
+            - headers/footers: From master pages in styles.xml
+            - images: List of OdtImage with binary data
+            - hyperlinks: List of OdtHyperlink with text and URL
+            - footnotes/endnotes: OdtNote objects
+            - annotations: OdtAnnotation objects with creator and date
+            - bookmarks: OdtBookmark objects
+            - styles: List of style names
+            - full_text: Complete document text
+
+    Raises:
+        ValueError: If content.xml is missing or document body not found.
+
+    Example:
+        >>> import io
+        >>> with open("report.odt", "rb") as f:
+        ...     data = io.BytesIO(f.read())
+        ...     for doc in read_odt(data, path="report.odt"):
+        ...         print(f"Title: {doc.metadata.title}")
+        ...         print(f"Tables: {len(doc.tables)}")
+        ...         print(f"Images: {len(doc.images)}")
     """
     file_like.seek(0)
 

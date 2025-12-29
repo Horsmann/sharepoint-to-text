@@ -1,7 +1,111 @@
 """
-ODS (OpenDocument Spreadsheet) content extractor.
+ODS Spreadsheet Extractor
+=========================
 
-Extracts content from .ods files which are ZIP archives containing XML files.
+Extracts text content, metadata, and structure from OpenDocument Spreadsheet
+(.ods) files created by LibreOffice Calc, OpenOffice, and other ODF-compatible
+applications.
+
+File Format Background
+----------------------
+ODS files are ZIP archives containing XML files following the OASIS OpenDocument
+specification (ISO/IEC 26300). Key components:
+
+    content.xml: Spreadsheet data (sheets, rows, cells)
+    meta.xml: Metadata (title, author, dates)
+    styles.xml: Cell and table styles
+    Pictures/: Embedded images
+
+Spreadsheet Structure in content.xml:
+    - office:document-content: Root element
+    - office:body: Container for content
+    - office:spreadsheet: Spreadsheet body
+    - table:table: Individual sheets
+    - table:table-row: Row containers
+    - table:table-cell: Cell containers with values
+
+Cell Value Types
+----------------
+ODS cells have explicit type information via office:value-type:
+    - float: Numeric values (office:value attribute)
+    - currency: Currency values (office:value + office:currency)
+    - percentage: Percentage values (office:value)
+    - date: Date values (office:date-value in ISO format)
+    - time: Time values (office:time-value in ISO duration)
+    - boolean: Boolean values (office:boolean-value)
+    - string: Text values (content in text:p element)
+
+The extractor prioritizes typed values when available, falling back
+to text content for display values.
+
+Row and Cell Repetition
+-----------------------
+ODS uses repetition attributes for efficient storage:
+    - table:number-rows-repeated: Repeat row N times
+    - table:number-columns-repeated: Repeat cell N times
+
+The extractor handles these to avoid extracting huge empty areas
+while preserving actual data.
+
+Column Naming
+-------------
+Columns are named using Excel-style letters (A, B, ..., Z, AA, AB, ...).
+The _get_column_name function converts 0-based indices to letter names.
+
+Dependencies
+------------
+Python Standard Library only:
+    - zipfile: ZIP archive handling
+    - xml.etree.ElementTree: XML parsing
+    - mimetypes: Image content type detection
+
+Extracted Content
+-----------------
+Per-sheet content includes:
+    - name: Sheet name
+    - data: List of dicts with column-letter keys (A, B, C, ...)
+    - text: Tab-separated text representation
+    - annotations: Cell comments with creator and date
+    - images: Embedded images in the sheet
+
+Data Structure:
+    Each row is a dictionary with column names as keys:
+    {"A": "value1", "B": "value2", "C": "value3"}
+
+Known Limitations
+-----------------
+- Formulas are not extracted (only calculated values)
+- Charts are not extracted
+- Named ranges are not reported
+- Merged cells may have unexpected behavior
+- Very large spreadsheets may use significant memory
+- Password-protected files are not supported
+- Pivot tables show only cached data
+
+Usage
+-----
+    >>> import io
+    >>> from sharepoint2text.extractors.open_office.ods_extractor import read_ods
+    >>>
+    >>> with open("data.ods", "rb") as f:
+    ...     for workbook in read_ods(io.BytesIO(f.read()), path="data.ods"):
+    ...         print(f"Title: {workbook.metadata.title}")
+    ...         for sheet in workbook.sheets:
+    ...             print(f"Sheet: {sheet.name}")
+    ...             print(f"Rows: {len(sheet.data)}")
+
+See Also
+--------
+- odt_extractor: For OpenDocument Text files
+- odp_extractor: For OpenDocument Presentation files
+- xlsx_extractor: For Microsoft Excel files
+
+Maintenance Notes
+-----------------
+- Cell repetition is handled but large repeats are limited to 1
+- Empty rows and cells with repetition are not expanded
+- Column naming uses standard Excel convention
+- Images can be inline in cells or anchored to sheet
 """
 
 import io
@@ -320,14 +424,39 @@ def read_ods(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[OdsContent, Any, None]:
     """
-    Extract all relevant content from an ODS file.
+    Extract all relevant content from an OpenDocument Spreadsheet (.ods) file.
+
+    Primary entry point for ODS file extraction. Opens the ZIP archive,
+    parses content.xml and meta.xml, and extracts sheet data with cell
+    values and annotations.
+
+    This function uses a generator pattern for API consistency with other
+    extractors, even though ODS files contain exactly one workbook.
 
     Args:
-        file_like: A BytesIO object containing the ODS file data.
-        path: Optional file path to populate file metadata fields.
+        file_like: BytesIO object containing the complete ODS file data.
+            The stream position is reset to the beginning before reading.
+        path: Optional filesystem path to the source file. If provided,
+            populates file metadata (filename, extension, folder) in the
+            returned OdsContent.metadata.
 
     Yields:
-        OdsContent dataclass with all extracted content.
+        OdsContent: Single OdsContent object containing:
+            - metadata: OdsMetadata with title, creator, dates
+            - sheets: List of OdsSheet objects with per-sheet data
+
+    Raises:
+        ValueError: If content.xml is missing or spreadsheet body not found.
+
+    Example:
+        >>> import io
+        >>> with open("budget.ods", "rb") as f:
+        ...     data = io.BytesIO(f.read())
+        ...     for workbook in read_ods(data, path="budget.ods"):
+        ...         for sheet in workbook.sheets:
+        ...             print(f"Sheet: {sheet.name}")
+        ...             for row in sheet.data[:5]:
+        ...                 print(row)
     """
     file_like.seek(0)
 

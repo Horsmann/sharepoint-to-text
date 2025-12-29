@@ -1,3 +1,107 @@
+"""
+PDF Content Extractor
+=====================
+
+Extracts text content, metadata, and embedded images from Portable Document
+Format (PDF) files using the pypdf library.
+
+File Format Background
+----------------------
+PDF (Portable Document Format) is a file format developed by Adobe for
+document exchange. Key characteristics:
+    - Fixed-layout format preserving visual appearance
+    - Can contain text, images, vector graphics, annotations
+    - Text may be stored as character codes with font mappings
+    - Images stored as XObject resources with various compressions
+    - Page-based structure with independent page content streams
+
+PDF Internal Structure
+----------------------
+Relevant components for text extraction:
+    - Page objects: Define content streams and resources
+    - Content streams: Drawing operators including text operators
+    - Font resources: Character encoding mappings
+    - XObject resources: Images and reusable graphics
+    - Catalog/Info: Document metadata
+
+Image Compression Types
+-----------------------
+PDF supports multiple image compression filters:
+    - /DCTDecode: JPEG compression (lossy)
+    - /JPXDecode: JPEG 2000 compression
+    - /FlateDecode: PNG-style deflate compression
+    - /CCITTFaxDecode: TIFF Group 3/4 fax compression
+    - /JBIG2Decode: JBIG2 compression for bi-level images
+    - /LZWDecode: LZW compression (legacy)
+
+Dependencies
+------------
+pypdf (https://pypdf.readthedocs.io/):
+    - Pure Python PDF library (no external dependencies)
+    - Successor to PyPDF2
+    - Provides text extraction via content stream parsing
+    - Handles encrypted PDFs (with password)
+    - Image extraction from XObject resources
+
+Extracted Content
+-----------------
+Per-page content includes:
+    - text: Extracted text content (may have layout artifacts)
+    - images: List of PdfImage objects with:
+        - Binary data in original format
+        - Dimensions (width, height)
+        - Color space information
+        - Compression filter type
+
+Metadata extraction includes:
+    - total_pages: Number of pages in document
+    - File metadata from path (if provided)
+
+Text Extraction Caveats
+-----------------------
+PDF text extraction is inherently imperfect:
+    - Text order depends on content stream order, not visual layout
+    - Columns may interleave incorrectly
+    - Hyphenation at line breaks may not be detected
+    - Ligatures may extract as single characters
+    - Some fonts use custom encodings (CID fonts, symbolic)
+    - Rotated text may extract in unexpected order
+
+Known Limitations
+-----------------
+- Scanned PDFs (image-only) return empty text (no OCR)
+- Form field values (AcroForms/XFA) are not extracted
+- Annotations and comments are not extracted
+- Digital signatures are not reported
+- Embedded files/attachments are not extracted
+- Very complex layouts may have garbled text order
+- Password-protected PDFs require the password
+
+Usage
+-----
+    >>> import io
+    >>> from sharepoint2text.extractors.pdf_extractor import read_pdf
+    >>>
+    >>> with open("document.pdf", "rb") as f:
+    ...     for doc in read_pdf(io.BytesIO(f.read()), path="document.pdf"):
+    ...         print(f"Pages: {doc.metadata.total_pages}")
+    ...         for page_num, page in doc.pages.items():
+    ...             print(f"Page {page_num}: {len(page.text)} chars, {len(page.images)} images")
+
+See Also
+--------
+- pypdf documentation: https://pypdf.readthedocs.io/
+- PDF Reference: https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/PDF32000_2008.pdf
+
+Maintenance Notes
+-----------------
+- pypdf handles most PDF quirks internally
+- Image extraction accesses raw XObject data
+- Failed image extractions are logged and skipped (not raised)
+- Color space reported as string for debugging
+- Format detection based on compression filter type
+"""
+
 import io
 import logging
 from typing import Any, Generator, List
@@ -18,18 +122,42 @@ def read_pdf(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[PdfContent, Any, None]:
     """
-    Extract text and images from a PDF file.
+    Extract all relevant content from a PDF file.
+
+    Primary entry point for PDF extraction. Uses pypdf to parse the document
+    structure, extract text from each page's content stream, and extract
+    embedded images from XObject resources.
+
+    This function uses a generator pattern for API consistency with other
+    extractors, even though PDF files contain exactly one document.
 
     Args:
-        file_like: a loaded binary of the pdf file as file-like object
-        path: Optional file path to populate file metadata fields.
+        file_like: BytesIO object containing the complete PDF file data.
+            The stream position is reset to the beginning before reading.
+        path: Optional filesystem path to the source file. If provided,
+            populates file metadata (filename, extension, folder) in the
+            returned PdfContent.metadata.
 
     Yields:
-        PdfContent dataclass containing extracted content organized by page
+        PdfContent: Single PdfContent object containing:
+            - pages: Dict mapping page numbers (1-indexed) to PdfPage objects
+            - metadata: PdfMetadata with total_pages and file info
 
-    Limitations:
-    The extraction assumes readable PDF files. If a PDF consist of images of scanned documents
-    this function will not return any meaningful result.
+    Note:
+        Scanned PDFs containing only images will yield pages with empty
+        text strings. OCR is not performed. For scanned documents, the
+        images are still extracted and could be processed separately.
+
+    Example:
+        >>> import io
+        >>> with open("report.pdf", "rb") as f:
+        ...     data = io.BytesIO(f.read())
+        ...     for doc in read_pdf(data, path="report.pdf"):
+        ...         print(f"Total pages: {doc.metadata.total_pages}")
+        ...         for page_num, page in doc.pages.items():
+        ...             print(f"Page {page_num}:")
+        ...             print(f"  Text: {page.text[:100]}...")
+        ...             print(f"  Images: {len(page.images)}")
     """
     file_like.seek(0)
     reader = PdfReader(file_like)
@@ -52,6 +180,20 @@ def read_pdf(
 
 
 def _extract_image_bytes(page) -> List[PdfImage]:
+    """
+    Extract all images from a PDF page's XObject resources.
+
+    Iterates through the page's /Resources/XObject dictionary, identifies
+    image objects by their /Subtype attribute, and extracts each image's
+    binary data and properties.
+
+    Args:
+        page: A pypdf PageObject to extract images from.
+
+    Returns:
+        List of PdfImage objects for successfully extracted images.
+        Failed extractions are logged and skipped.
+    """
     found_images = []
     if "/XObject" in page.get("/Resources", {}):
         x_objects = page["/Resources"]["/XObject"].get_object()
@@ -75,7 +217,21 @@ def _extract_image_bytes(page) -> List[PdfImage]:
 
 
 def _extract_image(image_obj, name: str, index: int) -> PdfImage:
-    """Extract image data from a PDF image object."""
+    """
+    Extract image data and properties from a PDF image XObject.
+
+    Reads the image object's attributes to determine dimensions, color
+    space, and compression filter. Maps the filter type to a standard
+    image format identifier and extracts the raw binary data.
+
+    Args:
+        image_obj: A pypdf image object from the XObject dictionary.
+        name: The XObject name (e.g., "/Im0") for identification.
+        index: Zero-based index for ordering images on the page.
+
+    Returns:
+        PdfImage with binary data and image properties.
+    """
 
     width = image_obj.get("/Width", 0)
     height = image_obj.get("/Height", 0)

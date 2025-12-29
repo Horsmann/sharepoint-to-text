@@ -1,10 +1,99 @@
 """
-HTML content extractor using lxml.
+HTML Content Extractor
+======================
 
-Extracts text content from HTML files while:
-- Removing all JavaScript and CSS
-- Preserving structural elements (tables, headings, lists)
-- Extracting metadata from <meta> tags
+Extracts text content, metadata, and structure from HTML documents using
+the lxml library for robust parsing and XPath-based extraction.
+
+File Format Background
+----------------------
+HTML (HyperText Markup Language) is the standard markup language for web
+documents. This extractor handles:
+    - HTML5 documents with modern semantic elements
+    - XHTML documents with strict XML syntax
+    - Legacy HTML (4.x and earlier) with lenient parsing
+    - HTML fragments without full document structure
+
+Encoding Detection
+------------------
+The extractor detects character encoding in priority order:
+    1. BOM (Byte Order Mark): UTF-8, UTF-16 LE/BE
+    2. Meta charset tag: <meta charset="...">
+    3. Content-Type meta: <meta http-equiv="Content-Type" content="...;charset=...">
+    4. Fallback: UTF-8 with error replacement
+
+Element Handling
+----------------
+REMOVE_TAGS: Elements removed entirely (including content):
+    - script: JavaScript code
+    - style: CSS stylesheets
+    - noscript: No-script fallback content
+    - iframe, object, embed, applet: Embedded content
+
+BLOCK_TAGS: Block-level elements that receive newline formatting:
+    - Structural: div, section, article, header, footer, nav, aside, main
+    - Headings: h1-h6
+    - Text blocks: p, blockquote, pre, address
+    - Figures: figure, figcaption
+    - Lists: ul, ol, li, dl, dt, dd
+    - Tables: table, tr
+    - Misc: hr, br, form, fieldset
+
+Dependencies
+------------
+lxml (https://lxml.de/):
+    - High-performance XML/HTML parsing library
+    - Uses libxml2 C library for speed
+    - Provides XPath support for element selection
+    - Handles malformed HTML gracefully
+
+Extracted Content
+-----------------
+The extractor produces:
+    - content: Full text with preserved structure (newlines, lists, tables)
+    - tables: Nested lists [table[row[cell]]] for each table
+    - headings: List of {level, text} for h1-h6 elements
+    - links: List of {text, href} for anchor elements
+    - metadata: Title, charset, language, description, keywords, author
+
+Table Formatting
+----------------
+Tables are extracted both as structured data and formatted text:
+    - Structured: List of rows, each row a list of cell strings
+    - Text: Column-aligned with pipe separators for readability
+
+Known Limitations
+-----------------
+- JavaScript-generated content is not captured (no JS execution)
+- CSS-hidden content is extracted (no CSS interpretation)
+- Very deeply nested structures may lose some formatting
+- Inline SVG content is not specially handled
+- Form field values are not extracted
+- Shadow DOM content is not accessible
+
+Usage
+-----
+    >>> import io
+    >>> from sharepoint2text.extractors.html_extractor import read_html
+    >>>
+    >>> with open("page.html", "rb") as f:
+    ...     for doc in read_html(io.BytesIO(f.read()), path="page.html"):
+    ...         print(f"Title: {doc.metadata.title}")
+    ...         print(f"Tables: {len(doc.tables)}")
+    ...         print(doc.content[:500])
+
+See Also
+--------
+- lxml documentation: https://lxml.de/lxmlhtml.html
+- HTML Living Standard: https://html.spec.whatwg.org/
+
+Maintenance Notes
+-----------------
+- lxml.html.fromstring handles malformed HTML better than etree.HTML
+- Parser fallback wraps fragments in html/body structure
+- Tables are processed separately to preserve structure
+- List items are indented with bullet markers for readability
+- Multiple consecutive newlines are collapsed to maximum of 2
 """
 
 import io
@@ -279,14 +368,42 @@ def read_html(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[HtmlContent, Any, None]:
     """
-    Extract content from an HTML file.
+    Extract all relevant content from an HTML document.
+
+    Primary entry point for HTML extraction. Detects encoding, parses the
+    document with lxml, removes unwanted elements (scripts, styles), and
+    extracts text with preserved structure.
+
+    This function uses a generator pattern for API consistency with other
+    extractors, even though HTML files contain exactly one document.
 
     Args:
-        file_like: A BytesIO object containing the HTML file data.
-        path: Optional file path to populate file metadata fields.
+        file_like: BytesIO object containing the complete HTML file data.
+            The stream position is reset to the beginning before reading.
+        path: Optional filesystem path to the source file. If provided,
+            populates file metadata (filename, extension, folder) in the
+            returned HtmlContent.metadata.
 
     Yields:
-        HtmlContent dataclass with the extracted content.
+        HtmlContent: Single HtmlContent object containing:
+            - content: Full extracted text with formatting
+            - tables: Structured table data as nested lists
+            - headings: List of heading elements with level
+            - links: List of anchor elements with href
+            - metadata: HtmlMetadata with title, charset, etc.
+
+    Note:
+        On parse failure, yields empty HtmlContent rather than raising.
+        A warning is logged when parsing fails completely.
+
+    Example:
+        >>> import io
+        >>> with open("report.html", "rb") as f:
+        ...     data = io.BytesIO(f.read())
+        ...     for doc in read_html(data, path="report.html"):
+        ...         print(f"Title: {doc.metadata.title}")
+        ...         for heading in doc.headings:
+        ...             print(f"  {heading['level']}: {heading['text']}")
     """
     logger.debug("Reading HTML file")
     file_like.seek(0)
