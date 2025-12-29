@@ -359,8 +359,9 @@ def test_read_docx_1() -> None:
     tc.assertEqual(230, len(docx.paragraphs))
 
     tc.assertEqual(17, docx.metadata.revision)
-    tc.assertEqual("2023-01-20T16:07:00+00:00", docx.metadata.modified)
-    tc.assertEqual("2022-04-19T14:03:00+00:00", docx.metadata.created)
+    # Raw XML format uses 'Z' for UTC timezone
+    tc.assertEqual("2023-01-20T16:07:00Z", docx.metadata.modified)
+    tc.assertEqual("2022-04-19T14:03:00Z", docx.metadata.created)
 
     # test iterator
     tc.assertEqual(1, len(list(docx.iterator())))

@@ -90,9 +90,7 @@ import email.header
 import email.utils
 import io
 import logging
-import mailbox
-import os
-import tempfile
+import re
 from email.utils import parsedate_to_datetime
 from typing import Any, Generator
 
@@ -103,6 +101,63 @@ from sharepoint2text.extractors.data_types import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Pattern to match mbox "From " separator lines
+# Format: "From sender@example.com Mon Jan  1 00:00:00 2024"
+# The line must start with "From " followed by an address and a date
+MBOX_FROM_PATTERN = re.compile(rb"^From \S+.*\d{4}\r?\n", re.MULTILINE)
+
+
+def _split_mbox_messages(data: bytes) -> list[bytes]:
+    """
+    Split mbox data into individual message bytes without using temp files.
+
+    The mbox format separates messages with "From " lines at the start of a line.
+    This function finds all such separators and splits the data accordingly.
+
+    Args:
+        data: Raw bytes of the entire mbox file.
+
+    Returns:
+        List of bytes, each containing a single email message.
+        Empty list if no valid messages found.
+
+    Implementation Notes:
+        - Uses regex to find "From " separator lines
+        - Each message starts after a "From " line
+        - The "From " line itself is NOT part of the message content
+        - Handles both Unix (LF) and Windows (CRLF) line endings
+    """
+    if not data:
+        return []
+
+    messages = []
+
+    # Find all "From " line positions
+    matches = list(MBOX_FROM_PATTERN.finditer(data))
+
+    if not matches:
+        # No "From " lines found - might be a single message without separator
+        # or not a valid mbox format
+        return []
+
+    for i, match in enumerate(matches):
+        # Message content starts after the "From " line
+        msg_start = match.end()
+
+        # Message ends at the next "From " line or end of data
+        if i + 1 < len(matches):
+            msg_end = matches[i + 1].start()
+        else:
+            msg_end = len(data)
+
+        # Extract message bytes (strip trailing blank lines between messages)
+        msg_bytes = data[msg_start:msg_end].rstrip(b"\r\n")
+
+        if msg_bytes:
+            messages.append(msg_bytes)
+
+    return messages
 
 
 def decode_header_value(value: str | None) -> str:
@@ -400,22 +455,18 @@ def read_mbox_format_mail(
             the order of messages in the file.
 
     Raises:
-        IOError: If temporary file creation or deletion fails.
         Various email parsing exceptions for malformed messages.
 
     Implementation Notes:
-        Python's mailbox.mbox requires a filesystem path, not a file object.
-        This function:
-        1. Writes BytesIO content to a temporary file
-        2. Opens the temp file as an mbox
-        3. Iterates through messages, parsing each
-        4. Cleans up the temporary file (in finally block)
+        This function parses mbox format entirely in memory:
+        1. Splits the mbox data on "From " separator lines
+        2. Parses each message with email.message_from_bytes()
+        3. No temporary files are created (faster than disk I/O)
 
     Performance Considerations:
-        - Temporary file is created in system temp directory
-        - For very large mbox files (>100MB), temp disk space needed
-        - Messages are processed one at a time (streaming)
-        - Memory usage is proportional to largest single message
+        - All parsing happens in memory (no disk I/O)
+        - Memory usage is proportional to mbox file size
+        - Messages are processed sequentially
 
     Example:
         >>> import io
@@ -438,33 +489,28 @@ def read_mbox_format_mail(
         ...     print(email.subject)
         First
         Second
-
-    Cleanup Guarantee:
-        The temporary file is deleted in a finally block, ensuring cleanup
-        even if parsing raises an exception.
     """
-    # Create temporary file - mailbox.mbox requires filesystem path
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mbox") as tmp:
-        tmp.write(file_like.read())
-        tmp_path = tmp.name
+    file_like.seek(0)
+    data = file_like.read()
 
-    try:
-        mbox = mailbox.mbox(tmp_path)
-        message_count = 0
-        for message in mbox:
-            m = parse_email_message(message)
-            if path:
-                m.metadata.populate_from_path(path)
-            message_count += 1
-            logger.debug(
-                "Extracted message %d: subject=%s",
-                message_count,
-                m.subject[:50] if m.subject else "(no subject)",
-            )
-            yield m
+    # Split mbox into individual messages in memory
+    message_bytes_list = _split_mbox_messages(data)
 
-        logger.info("Extracted MBOX: %d messages", message_count)
+    message_count = 0
+    for msg_bytes in message_bytes_list:
+        # Parse message from bytes using standard library
+        message = email.message_from_bytes(msg_bytes)
+        m = parse_email_message(message)
 
-    finally:
-        # Ensure temp file cleanup regardless of parsing success
-        os.unlink(tmp_path)
+        if path:
+            m.metadata.populate_from_path(path)
+
+        message_count += 1
+        logger.debug(
+            "Extracted message %d: subject=%s",
+            message_count,
+            m.subject[:50] if m.subject else "(no subject)",
+        )
+        yield m
+
+    logger.info("Extracted MBOX: %d messages", message_count)

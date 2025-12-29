@@ -3,7 +3,7 @@ HTML Content Extractor
 ======================
 
 Extracts text content, metadata, and structure from HTML documents using
-the lxml library for robust parsing and XPath-based extraction.
+Python's standard library html.parser for parsing.
 
 File Format Background
 ----------------------
@@ -41,11 +41,9 @@ BLOCK_TAGS: Block-level elements that receive newline formatting:
 
 Dependencies
 ------------
-lxml (https://lxml.de/):
-    - High-performance XML/HTML parsing library
-    - Uses libxml2 C library for speed
-    - Provides XPath support for element selection
-    - Handles malformed HTML gracefully
+No external dependencies. Uses Python standard library:
+    - html.parser: HTML parsing
+    - html.entities: HTML entity decoding
 
 Extracted Content
 -----------------
@@ -84,13 +82,12 @@ Usage
 
 See Also
 --------
-- lxml documentation: https://lxml.de/lxmlhtml.html
 - HTML Living Standard: https://html.spec.whatwg.org/
 
 Maintenance Notes
 -----------------
-- lxml.html.fromstring handles malformed HTML better than etree.HTML
-- Parser fallback wraps fragments in html/body structure
+- Uses html.parser from stdlib for parsing
+- Parser is lenient and handles malformed HTML
 - Tables are processed separately to preserve structure
 - List items are indented with bullet markers for readability
 - Multiple consecutive newlines are collapsed to maximum of 2
@@ -99,10 +96,8 @@ Maintenance Notes
 import io
 import logging
 import re
-from typing import Any, Dict, Generator, List
-
-from lxml import etree
-from lxml.html import HtmlElement, fromstring
+from html.parser import HTMLParser
+from typing import Any, Dict, Generator, List, Optional, Tuple
 
 from sharepoint2text.extractors.data_types import (
     HtmlContent,
@@ -151,38 +146,166 @@ BLOCK_TAGS = {
 }
 
 
-class _HtmlTextExtractor:
-    """Helper class to extract text from HTML while preserving structure."""
+class _HtmlTreeBuilder(HTMLParser):
+    """
+    Build a simple tree structure from HTML for processing.
 
-    def __init__(self, root: HtmlElement):
+    Creates a lightweight DOM-like structure that can be traversed
+    for text extraction without external dependencies.
+
+    Each node has:
+        - tag: element tag name
+        - attrs: dictionary of attributes
+        - children: list of child nodes
+        - text: text content before children
+        - tail: text content after this element (before next sibling)
+    """
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        # Root node
+        self.root: Dict = {
+            "tag": "root",
+            "attrs": {},
+            "children": [],
+            "text": "",
+            "tail": "",
+        }
+        # Stack for building tree
+        self.stack: List[Dict] = [self.root]
+        # Track if we're inside a tag whose content should be ignored
+        self.skip_depth = 0
+        # Track the last closed element for tail text
+        self.last_closed: Optional[Dict] = None
+
+    def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]):
+        tag = tag.lower()
+        attrs_dict = {k: v for k, v in attrs if v is not None}
+
+        node = {"tag": tag, "attrs": attrs_dict, "children": [], "text": "", "tail": ""}
+
+        if self.skip_depth > 0:
+            self.skip_depth += 1
+            return
+
+        if tag in REMOVE_TAGS:
+            self.skip_depth = 1
+            return
+
+        # Clear last_closed since we're starting a new element
+        self.last_closed = None
+
+        # Add to parent's children
+        self.stack[-1]["children"].append(node)
+        # Push onto stack (for non-void elements)
+        if tag not in {
+            "br",
+            "hr",
+            "img",
+            "input",
+            "meta",
+            "link",
+            "area",
+            "base",
+            "col",
+            "embed",
+            "param",
+            "source",
+            "track",
+            "wbr",
+        }:
+            self.stack.append(node)
+        else:
+            # For void elements, they become the "last closed" element
+            self.last_closed = node
+
+    def handle_endtag(self, tag: str):
+        tag = tag.lower()
+
+        if self.skip_depth > 0:
+            self.skip_depth -= 1
+            return
+
+        # Pop from stack if this closes the current element
+        if len(self.stack) > 1 and self.stack[-1]["tag"] == tag:
+            self.last_closed = self.stack.pop()
+
+    def handle_data(self, data: str):
+        if self.skip_depth > 0:
+            return
+
+        if self.last_closed is not None:
+            # Text after a closed element goes to its tail
+            self.last_closed["tail"] += data
+        elif self.stack:
+            # Text inside an element goes to its text
+            self.stack[-1]["text"] += data
+
+    def handle_comment(self, data: str):
+        # Ignore comments
+        pass
+
+    def get_tree(self) -> Dict:
+        return self.root
+
+
+class _HtmlTextExtractor:
+    """Helper class to extract text from the parsed HTML tree."""
+
+    def __init__(self, root: Dict):
         self.root = root
         self.tables: List[List[List[str]]] = []
         self.headings: List[Dict[str, str]] = []
         self.links: List[Dict[str, str]] = []
+        self.metadata = HtmlMetadata()
 
-    def _remove_unwanted_elements(self) -> None:
-        """Remove script, style, and other unwanted elements."""
-        for tag in REMOVE_TAGS:
-            for element in self.root.xpath(f"//{tag}"):
-                element.getparent().remove(element)
+    def _get_node_text(
+        self, node: Dict, include_children: bool = True, include_tail: bool = False
+    ) -> str:
+        """Get all text content from a node and its descendants."""
+        parts = []
+        if node.get("text"):
+            parts.append(node["text"])
 
-        # Also remove HTML comments
-        for comment in self.root.xpath("//comment()"):
-            parent = comment.getparent()
-            if parent is not None:
-                parent.remove(comment)
+        if include_children:
+            for child in node.get("children", []):
+                parts.append(self._get_node_text(child, True, include_tail=True))
 
-    def _extract_table(self, table_elem: HtmlElement) -> List[List[str]]:
+        # Include tail text if requested (text after this element)
+        if include_tail and node.get("tail"):
+            parts.append(node["tail"])
+
+        return "".join(parts)
+
+    def _find_nodes(self, node: Dict, tag: str) -> List[Dict]:
+        """Find all descendant nodes with the given tag."""
+        result = []
+        if node.get("tag") == tag:
+            result.append(node)
+        for child in node.get("children", []):
+            result.extend(self._find_nodes(child, tag))
+        return result
+
+    def _find_node(self, node: Dict, tag: str) -> Optional[Dict]:
+        """Find first descendant node with the given tag."""
+        if node.get("tag") == tag:
+            return node
+        for child in node.get("children", []):
+            found = self._find_node(child, tag)
+            if found:
+                return found
+        return None
+
+    def _extract_table(self, table_node: Dict) -> List[List[str]]:
         """Extract table as a list of rows, each row being a list of cell values."""
         rows = []
-        for tr in table_elem.xpath(".//tr"):
+        for tr in self._find_nodes(table_node, "tr"):
             row = []
-            for cell in tr.xpath(".//th | .//td"):
-                # Get text content of the cell, stripping whitespace
-                cell_text = self._get_element_text(cell).strip()
-                # Normalize whitespace within cell
-                cell_text = re.sub(r"\s+", " ", cell_text)
-                row.append(cell_text)
+            for child in tr.get("children", []):
+                if child.get("tag") in ("th", "td"):
+                    cell_text = self._get_node_text(child).strip()
+                    cell_text = re.sub(r"\s+", " ", cell_text)
+                    row.append(cell_text)
             if row:
                 rows.append(row)
         return rows
@@ -216,78 +339,128 @@ class _HtmlTextExtractor:
     def _extract_headings(self) -> None:
         """Extract all headings with their level."""
         for level in range(1, 7):
-            for h in self.root.xpath(f"//h{level}"):
-                text = self._get_element_text(h).strip()
+            for h in self._find_nodes(self.root, f"h{level}"):
+                text = self._get_node_text(h).strip()
                 text = re.sub(r"\s+", " ", text)
                 if text:
                     self.headings.append({"level": f"h{level}", "text": text})
 
     def _extract_links(self) -> None:
         """Extract all links with their text and href."""
-        for a in self.root.xpath("//a[@href]"):
-            href = a.get("href", "")
-            text = self._get_element_text(a).strip()
+        for a in self._find_nodes(self.root, "a"):
+            href = a.get("attrs", {}).get("href", "")
+            text = self._get_node_text(a).strip()
             text = re.sub(r"\s+", " ", text)
             if href and text:
                 self.links.append({"text": text, "href": href})
 
-    def _get_element_text(self, element: HtmlElement) -> str:
-        """Get text content of an element, including tail text of children."""
-        return "".join(element.itertext())
+    def _extract_metadata(self, path: Optional[str]) -> None:
+        """Extract metadata from HTML document."""
+        self.metadata.populate_from_path(path)
 
-    def _process_element(self, element: HtmlElement, depth: int = 0) -> str:
-        """Recursively process an element and return its text representation."""
-        if element.tag in REMOVE_TAGS:
+        # Extract title
+        title_node = self._find_node(self.root, "title")
+        if title_node:
+            self.metadata.title = self._get_node_text(title_node).strip()
+
+        # Extract language from html tag
+        html_node = self._find_node(self.root, "html")
+        if html_node:
+            lang = html_node.get("attrs", {}).get("lang", "")
+            if lang:
+                self.metadata.language = lang
+
+        # Extract from meta tags
+        for meta in self._find_nodes(self.root, "meta"):
+            attrs = meta.get("attrs", {})
+
+            # charset
+            if "charset" in attrs:
+                self.metadata.charset = attrs["charset"]
+
+            # http-equiv content-type
+            if attrs.get("http-equiv", "").lower() == "content-type":
+                content = attrs.get("content", "")
+                match = re.search(r"charset=([^\s;]+)", content)
+                if match:
+                    self.metadata.charset = match.group(1)
+
+            # name-based meta tags
+            name = attrs.get("name", "").lower()
+            content = attrs.get("content", "")
+            if name == "description" and content:
+                self.metadata.description = content
+            elif name == "keywords" and content:
+                self.metadata.keywords = content
+            elif name == "author" and content:
+                self.metadata.author = content
+
+    def _process_node(
+        self, node: Dict, depth: int = 0, include_tail: bool = False
+    ) -> str:
+        """Recursively process a node and return its text representation."""
+        tag = node.get("tag", "")
+
+        if tag in REMOVE_TAGS:
             return ""
 
-        tag = element.tag if isinstance(element.tag, str) else ""
         result_parts = []
 
         # Handle tables specially
         if tag == "table":
-            table_data = self._extract_table(element)
+            table_data = self._extract_table(node)
             self.tables.append(table_data)
             table_text = self._format_table_as_text(table_data)
-            return "\n" + table_text + "\n"
+            result = "\n" + table_text + "\n"
+            # Add tail text
+            if include_tail and node.get("tail"):
+                result += node["tail"]
+            return result
 
         # Handle list items
         if tag == "li":
-            # Get the text content
-            text = ""
-            if element.text:
-                text += element.text
-            for child in element:
-                text += self._process_element(child, depth + 1)
-                if child.tail:
-                    text += child.tail
+            text = node.get("text", "")
+            for child in node.get("children", []):
+                text += self._process_node(child, depth + 1, include_tail=True)
             text = re.sub(r"\s+", " ", text.strip())
-            return "  " * depth + "- " + text + "\n"
+            result = "  " * depth + "- " + text + "\n"
+            # Add tail text
+            if include_tail and node.get("tail"):
+                result += node["tail"]
+            return result
 
         # Handle headings
         if tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
-            text = self._get_element_text(element).strip()
+            text = self._get_node_text(node).strip()
             text = re.sub(r"\s+", " ", text)
-            return "\n" + text + "\n"
+            result = "\n" + text + "\n"
+            # Add tail text
+            if include_tail and node.get("tail"):
+                result += node["tail"]
+            return result
 
         # Handle line breaks
         if tag == "br":
-            return "\n"
+            result = "\n"
+            if include_tail and node.get("tail"):
+                result += node["tail"]
+            return result
 
         # Handle horizontal rules
         if tag == "hr":
-            return "\n---\n"
+            result = "\n---\n"
+            if include_tail and node.get("tail"):
+                result += node["tail"]
+            return result
 
-        # Add element's own text
-        if element.text:
-            result_parts.append(element.text)
+        # Add node's own text
+        if node.get("text"):
+            result_parts.append(node["text"])
 
-        # Process children
-        for child in element:
-            child_text = self._process_element(child, depth)
+        # Process children (include tail for all children)
+        for child in node.get("children", []):
+            child_text = self._process_node(child, depth, include_tail=True)
             result_parts.append(child_text)
-            # Add tail text (text after the child element)
-            if child.tail:
-                result_parts.append(child.tail)
 
         result = "".join(result_parts)
 
@@ -295,20 +468,24 @@ class _HtmlTextExtractor:
         if tag in BLOCK_TAGS:
             result = "\n" + result.strip() + "\n"
 
+        # Add tail text for this node
+        if include_tail and node.get("tail"):
+            result += node["tail"]
+
         return result
 
-    def extract(self) -> str:
+    def extract(self, path: Optional[str] = None) -> str:
         """Extract and return the full text content."""
-        self._remove_unwanted_elements()
+        self._extract_metadata(path)
         self._extract_headings()
         self._extract_links()
 
         # Find the body or use root
-        body = self.root.xpath("//body")
+        body = self._find_node(self.root, "body")
         if body:
-            text = self._process_element(body[0])
+            text = self._process_node(body)
         else:
-            text = self._process_element(self.root)
+            text = self._process_node(self.root)
 
         # Clean up the text
         # Collapse multiple newlines to maximum of 2
@@ -322,48 +499,6 @@ class _HtmlTextExtractor:
         return text
 
 
-def _extract_metadata(root: HtmlElement, path: str | None) -> HtmlMetadata:
-    """Extract metadata from HTML document."""
-    metadata = HtmlMetadata()
-    metadata.populate_from_path(path)
-
-    # Extract title
-    title_elem = root.xpath("//title")
-    if title_elem:
-        metadata.title = title_elem[0].text_content().strip()
-
-    # Extract language from html tag
-    html_elem = root.xpath("//html[@lang]")
-    if html_elem:
-        metadata.language = html_elem[0].get("lang", "")
-
-    # Extract charset
-    charset_meta = root.xpath("//meta[@charset]")
-    if charset_meta:
-        metadata.charset = charset_meta[0].get("charset", "")
-    else:
-        # Try content-type meta
-        content_type_meta = root.xpath('//meta[@http-equiv="Content-Type"]/@content')
-        if content_type_meta:
-            match = re.search(r"charset=([^\s;]+)", content_type_meta[0])
-            if match:
-                metadata.charset = match.group(1)
-
-    # Extract common meta tags
-    meta_mappings = {
-        "description": "description",
-        "keywords": "keywords",
-        "author": "author",
-    }
-
-    for attr_name, meta_name in meta_mappings.items():
-        meta_elem = root.xpath(f'//meta[@name="{meta_name}"]/@content')
-        if meta_elem:
-            setattr(metadata, attr_name, meta_elem[0])
-
-    return metadata
-
-
 def read_html(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[HtmlContent, Any, None]:
@@ -371,8 +506,8 @@ def read_html(
     Extract all relevant content from an HTML document.
 
     Primary entry point for HTML extraction. Detects encoding, parses the
-    document with lxml, removes unwanted elements (scripts, styles), and
-    extracts text with preserved structure.
+    document with Python's html.parser, removes unwanted elements (scripts,
+    styles), and extracts text with preserved structure.
 
     This function uses a generator pattern for API consistency with other
     extractors, even though HTML files contain exactly one document.
@@ -436,25 +571,20 @@ def read_html(
 
     # Parse the HTML
     try:
-        root = fromstring(html_text)
-    except etree.ParserError:
-        # If parsing fails, try wrapping in html tags
-        try:
-            root = fromstring(f"<html><body>{html_text}</body></html>")
-        except etree.ParserError:
-            # Last resort: return empty content
-            logger.warning("Failed to parse HTML content")
-            metadata = HtmlMetadata()
-            metadata.populate_from_path(path)
-            yield HtmlContent(content="", metadata=metadata)
-            return
-
-    # Extract metadata
-    metadata = _extract_metadata(root, path)
+        parser = _HtmlTreeBuilder()
+        parser.feed(html_text)
+        root = parser.get_tree()
+    except Exception:
+        # Last resort: return empty content
+        logger.warning("Failed to parse HTML content")
+        metadata = HtmlMetadata()
+        metadata.populate_from_path(path)
+        yield HtmlContent(content="", metadata=metadata)
+        return
 
     # Extract text content
     extractor = _HtmlTextExtractor(root)
-    text = extractor.extract()
+    text = extractor.extract(path)
 
     logger.info(
         "Extracted HTML: %d characters, %d tables, %d links",
@@ -468,5 +598,5 @@ def read_html(
         tables=extractor.tables,
         headings=extractor.headings,
         links=extractor.links,
-        metadata=metadata,
+        metadata=extractor.metadata,
     )

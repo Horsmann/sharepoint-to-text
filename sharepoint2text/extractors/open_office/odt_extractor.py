@@ -127,6 +127,77 @@ from sharepoint2text.extractors.data_types import (
 
 logger = logging.getLogger(__name__)
 
+
+class _OdtContext:
+    """
+    Cached context for ODT extraction.
+
+    Opens the ZIP file once and caches all parsed XML documents.
+    This avoids repeatedly parsing the same XML files.
+    """
+
+    def __init__(self, file_like: io.BytesIO):
+        self.file_like = file_like
+        file_like.seek(0)
+
+        # Cache for parsed XML roots
+        self._content_root: ET.Element | None = None
+        self._meta_root: ET.Element | None = None
+        self._styles_root: ET.Element | None = None
+
+        # Cache for namelist
+        self._namelist: set[str] = set()
+
+        # Reference to open zipfile for image extraction
+        self._zipfile: zipfile.ZipFile | None = None
+
+    def load(self, z: zipfile.ZipFile) -> None:
+        """Load and parse all XML files from the ZIP."""
+        self._zipfile = z
+        self._namelist = set(z.namelist())
+
+        # Parse content.xml
+        if "content.xml" in self._namelist:
+            with z.open("content.xml") as f:
+                self._content_root = ET.parse(f).getroot()
+
+        # Parse meta.xml
+        if "meta.xml" in self._namelist:
+            with z.open("meta.xml") as f:
+                self._meta_root = ET.parse(f).getroot()
+
+        # Parse styles.xml
+        if "styles.xml" in self._namelist:
+            with z.open("styles.xml") as f:
+                self._styles_root = ET.parse(f).getroot()
+
+    @property
+    def content_root(self) -> ET.Element | None:
+        """Get cached content.xml root."""
+        return self._content_root
+
+    @property
+    def meta_root(self) -> ET.Element | None:
+        """Get cached meta.xml root."""
+        return self._meta_root
+
+    @property
+    def styles_root(self) -> ET.Element | None:
+        """Get cached styles.xml root."""
+        return self._styles_root
+
+    @property
+    def namelist(self) -> set[str]:
+        """Get cached namelist."""
+        return self._namelist
+
+    def open_file(self, path: str) -> io.BufferedReader:
+        """Open a file from the ZIP archive."""
+        if self._zipfile is None:
+            raise RuntimeError("Context not loaded")
+        return self._zipfile.open(path)
+
+
 # ODF namespaces
 NS = {
     "office": "urn:oasis:names:tc:opendocument:xmlns:office:1.0",
@@ -175,17 +246,14 @@ def _get_text_recursive(element: ET.Element) -> str:
     return "".join(parts)
 
 
-def _extract_metadata(z: zipfile.ZipFile) -> OdtMetadata:
-    """Extract metadata from meta.xml."""
+def _extract_metadata_from_context(ctx: _OdtContext) -> OdtMetadata:
+    """Extract metadata from cached meta.xml root."""
     logger.debug("Extracting ODT metadata")
     metadata = OdtMetadata()
 
-    if "meta.xml" not in z.namelist():
+    root = ctx.meta_root
+    if root is None:
         return metadata
-
-    with z.open("meta.xml") as f:
-        tree = ET.parse(f)
-        root = tree.getroot()
 
     # Find the office:meta element
     meta_elem = root.find(".//office:meta", NS)
@@ -397,8 +465,8 @@ def _extract_bookmarks(body: ET.Element) -> list[OdtBookmark]:
     return bookmarks
 
 
-def _extract_images(z: zipfile.ZipFile, body: ET.Element) -> list[OdtImage]:
-    """Extract images from the document."""
+def _extract_images_from_context(ctx: _OdtContext, body: ET.Element) -> list[OdtImage]:
+    """Extract images from the document using cached context."""
     logger.debug("Extracting ODT images")
     images = []
 
@@ -415,8 +483,8 @@ def _extract_images(z: zipfile.ZipFile, body: ET.Element) -> list[OdtImage]:
             if href and not href.startswith("http"):
                 # Internal image reference
                 try:
-                    if href in z.namelist():
-                        with z.open(href) as img_file:
+                    if href in ctx.namelist:
+                        with ctx.open_file(href) as img_file:
                             img_data = img_file.read()
                             content_type = (
                                 mimetypes.guess_type(href)[0]
@@ -450,20 +518,17 @@ def _extract_images(z: zipfile.ZipFile, body: ET.Element) -> list[OdtImage]:
     return images
 
 
-def _extract_headers_footers(
-    z: zipfile.ZipFile,
+def _extract_headers_footers_from_context(
+    ctx: _OdtContext,
 ) -> tuple[list[OdtHeaderFooter], list[OdtHeaderFooter]]:
-    """Extract headers and footers from styles.xml."""
+    """Extract headers and footers from cached styles.xml root."""
     logger.debug("Extracting ODT headers/footers")
     headers = []
     footers = []
 
-    if "styles.xml" not in z.namelist():
+    root = ctx.styles_root
+    if root is None:
         return headers, footers
-
-    with z.open("styles.xml") as f:
-        tree = ET.parse(f)
-        root = tree.getroot()
 
     # Headers and footers are in master-styles
     master_styles = root.find(".//office:master-styles", NS)
@@ -502,21 +567,21 @@ def _extract_headers_footers(
     return headers, footers
 
 
-def _extract_styles(z: zipfile.ZipFile) -> list[str]:
-    """Extract style names used in the document."""
+def _extract_styles_from_context(ctx: _OdtContext) -> list[str]:
+    """Extract style names from cached content.xml and styles.xml roots."""
     logger.debug("Extracting ODT styles")
     styles = set()
 
-    for xml_file in ["content.xml", "styles.xml"]:
-        if xml_file not in z.namelist():
-            continue
+    # Extract from cached content.xml
+    if ctx.content_root is not None:
+        for style in ctx.content_root.findall(".//style:style", NS):
+            name = style.get(f"{{{NS['style']}}}name")
+            if name:
+                styles.add(name)
 
-        with z.open(xml_file) as f:
-            tree = ET.parse(f)
-            root = tree.getroot()
-
-        # Find all style definitions
-        for style in root.findall(".//style:style", NS):
+    # Extract from cached styles.xml
+    if ctx.styles_root is not None:
+        for style in ctx.styles_root.findall(".//style:style", NS):
             name = style.get(f"{{{NS['style']}}}name")
             if name:
                 styles.add(name)
@@ -606,36 +671,39 @@ def read_odt(
         ...         print(f"Title: {doc.metadata.title}")
         ...         print(f"Tables: {len(doc.tables)}")
         ...         print(f"Images: {len(doc.images)}")
+
+    Performance Notes:
+        - ZIP file is opened once and all XML is cached
+        - content.xml and styles.xml are parsed once and reused
     """
-    file_like.seek(0)
+    # Create context and load all XML files once
+    ctx = _OdtContext(file_like)
 
     with zipfile.ZipFile(file_like, "r") as z:
-        # Extract metadata
-        metadata = _extract_metadata(z)
+        ctx.load(z)
 
-        # Parse content.xml
-        if "content.xml" not in z.namelist():
+        # Validate content.xml exists
+        if ctx.content_root is None:
             raise ValueError("Invalid ODT file: content.xml not found")
 
-        with z.open("content.xml") as f:
-            content_tree = ET.parse(f)
-            content_root = content_tree.getroot()
-
         # Find the document body
-        body = content_root.find(".//office:body/office:text", NS)
+        body = ctx.content_root.find(".//office:body/office:text", NS)
         if body is None:
             raise ValueError("Invalid ODT file: document body not found")
 
-        # Extract content
+        # Extract metadata from cached meta.xml
+        metadata = _extract_metadata_from_context(ctx)
+
+        # Extract content from body
         paragraphs = _extract_paragraphs(body)
         tables = _extract_tables(body)
         hyperlinks = _extract_hyperlinks(body)
         footnotes, endnotes = _extract_notes(body)
         annotations = _extract_annotations(body)
         bookmarks = _extract_bookmarks(body)
-        images = _extract_images(z, body)
-        headers, footers = _extract_headers_footers(z)
-        styles = _extract_styles(z)
+        images = _extract_images_from_context(ctx, body)
+        headers, footers = _extract_headers_footers_from_context(ctx)
+        styles = _extract_styles_from_context(ctx)
         full_text = _extract_full_text(body)
 
     # Populate file metadata from path
