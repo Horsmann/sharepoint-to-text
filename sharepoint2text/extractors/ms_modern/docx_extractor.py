@@ -566,19 +566,17 @@ class _DocxFullTextExtractor:
         return "".join(parts)
 
     @classmethod
-    def extract_full_text(
-        cls, file_like: io.BytesIO, include_formulas: bool = True
+    def extract_full_text_from_body(
+        cls, body: ET.Element | None, include_formulas: bool = True
     ) -> str:
         """
-        Extract the complete text content from a DOCX file.
+        Extract the complete text content from a pre-parsed document body.
 
         Combines all text from paragraphs, tables, and equations into a single
-        string, preserving the document order. This method processes the raw
-        XML structure to ensure correct ordering and complete extraction.
+        string, preserving the document order.
 
         Args:
-            file_like: BytesIO object containing the DOCX file. Stream position
-                is reset to beginning before reading.
+            body: Pre-parsed document body element (from cached context).
             include_formulas: Whether to include LaTeX formula representations
                 in the output. If True, inline formulas are wrapped in $...$
                 and display formulas in $$...$$. Default is True.
@@ -586,31 +584,13 @@ class _DocxFullTextExtractor:
         Returns:
             Complete document text as a single string with newlines between
             paragraphs and table cells.
-
-        Processing Details:
-            - Iterates through document body elements in order
-            - Paragraphs: Extracts text runs and inline equations
-            - Tables: Extracts cell content row by row
-            - AlternateContent: Uses Choice only, skips Fallback
-            - oMath/oMathPara: Converts to LaTeX if include_formulas=True
         """
         logger.debug("Extracting document full text")
-        file_like.seek(0)
 
-        all_text = []
-
-        with zipfile.ZipFile(file_like, "r") as z:
-            if "word/document.xml" not in z.namelist():
-                return ""
-
-            with z.open("word/document.xml") as f:
-                tree = ET.parse(f)
-                root = tree.getroot()
-
-        # Find the body element
-        body = root.find(f"{W_NS}body")
         if body is None:
             return ""
+
+        all_text = []
 
         def process_element(elem, parts: list):
             """Recursively process element, handling AlternateContent properly.
@@ -702,28 +682,164 @@ class _DocxFullTextExtractor:
         return "\n".join(all_text)
 
 
-def _extract_metadata(file_like: io.BytesIO) -> DocxMetadata:
+class _DocxContext:
     """
-    Extract document metadata from docProps/core.xml.
+    Cached context for DOCX extraction.
+
+    Opens the ZIP file once and caches all parsed XML documents and
+    extracted data that is reused across multiple extraction functions.
+    This avoids repeatedly opening the ZIP and parsing the same XML files.
+    """
+
+    def __init__(self, file_like: io.BytesIO):
+        self.file_like = file_like
+        file_like.seek(0)
+
+        # Cache for parsed XML roots
+        self._document_root: ET.Element | None = None
+        self._core_root: ET.Element | None = None
+        self._styles_root: ET.Element | None = None
+        self._footnotes_root: ET.Element | None = None
+        self._endnotes_root: ET.Element | None = None
+        self._comments_root: ET.Element | None = None
+        self._rels_root: ET.Element | None = None
+
+        # Cache for extracted data
+        self._relationships: dict[str, dict] | None = None
+        self._styles: dict[str, str] | None = None
+        self._namelist: set[str] | None = None
+
+        # Cache for header/footer roots (keyed by path)
+        self._header_footer_roots: dict[str, ET.Element] = {}
+
+        # Open ZIP once and read all needed files
+        with zipfile.ZipFile(file_like, "r") as z:
+            self._namelist = set(z.namelist())
+            self._load_xml_files(z)
+
+    def _load_xml_files(self, z: zipfile.ZipFile) -> None:
+        """Load and parse all XML files from the ZIP at once."""
+        # Main document
+        if "word/document.xml" in self._namelist:
+            with z.open("word/document.xml") as f:
+                self._document_root = ET.parse(f).getroot()
+
+        # Core properties (metadata)
+        if "docProps/core.xml" in self._namelist:
+            with z.open("docProps/core.xml") as f:
+                self._core_root = ET.parse(f).getroot()
+
+        # Styles
+        if "word/styles.xml" in self._namelist:
+            with z.open("word/styles.xml") as f:
+                self._styles_root = ET.parse(f).getroot()
+
+        # Footnotes
+        if "word/footnotes.xml" in self._namelist:
+            with z.open("word/footnotes.xml") as f:
+                self._footnotes_root = ET.parse(f).getroot()
+
+        # Endnotes
+        if "word/endnotes.xml" in self._namelist:
+            with z.open("word/endnotes.xml") as f:
+                self._endnotes_root = ET.parse(f).getroot()
+
+        # Comments
+        if "word/comments.xml" in self._namelist:
+            with z.open("word/comments.xml") as f:
+                self._comments_root = ET.parse(f).getroot()
+
+        # Relationships
+        rels_path = "word/_rels/document.xml.rels"
+        if rels_path in self._namelist:
+            with z.open(rels_path) as f:
+                self._rels_root = ET.parse(f).getroot()
+
+        # Pre-load header and footer files
+        self._relationships = self._parse_relationships()
+        for rel_id, rel_info in self._relationships.items():
+            rel_type = rel_info.get("type", "")
+            target = rel_info.get("target", "")
+            if "header" in rel_type.lower() or "footer" in rel_type.lower():
+                hf_path = "word/" + target
+                if hf_path in self._namelist:
+                    with z.open(hf_path) as f:
+                        self._header_footer_roots[hf_path] = ET.parse(f).getroot()
+
+    def _parse_relationships(self) -> dict[str, dict]:
+        """Parse relationships from cached rels root."""
+        relationships = {}
+        if self._rels_root is None:
+            return relationships
+
+        for rel in self._rels_root.findall(f".//{REL_NS}Relationship"):
+            rel_id = rel.get("Id") or ""
+            rel_type = rel.get("Type") or ""
+            rel_target = rel.get("Target") or ""
+            target_mode = rel.get("TargetMode") or ""
+            relationships[rel_id] = {
+                "type": rel_type,
+                "target": rel_target,
+                "target_mode": target_mode,
+            }
+        return relationships
+
+    @property
+    def document_body(self) -> ET.Element | None:
+        """Get the document body element."""
+        if self._document_root is None:
+            return None
+        return self._document_root.find(f"{W_NS}body")
+
+    @property
+    def relationships(self) -> dict[str, dict]:
+        """Get cached relationships."""
+        if self._relationships is None:
+            self._relationships = self._parse_relationships()
+        return self._relationships
+
+    @property
+    def styles(self) -> dict[str, str]:
+        """Get cached style map (style_id -> style_name)."""
+        if self._styles is None:
+            self._styles = {}
+            if self._styles_root is not None:
+                for style in self._styles_root.findall(f".//{W_NS}style"):
+                    style_id = style.get(f"{W_NS}styleId") or ""
+                    name_elem = style.find(f"{W_NS}name")
+                    style_name = (
+                        name_elem.get(f"{W_NS}val") if name_elem is not None else ""
+                    )
+                    if style_id:
+                        self._styles[style_id] = style_name or style_id
+        return self._styles
+
+    def get_image_data(self, image_path: str) -> bytes | None:
+        """Read image data from the ZIP file."""
+        if image_path not in self._namelist:
+            return None
+        self.file_like.seek(0)
+        with zipfile.ZipFile(self.file_like, "r") as z:
+            with z.open(image_path) as img_file:
+                return img_file.read()
+
+
+def _extract_metadata_from_context(ctx: _DocxContext) -> DocxMetadata:
+    """
+    Extract document metadata from cached core.xml root.
 
     Args:
-        file_like: BytesIO containing the DOCX file.
+        ctx: DocxContext with cached XML roots.
 
     Returns:
         DocxMetadata object with title, author, dates, revision, etc.
     """
     logger.debug("Extracting metadata")
-    file_like.seek(0)
-
     metadata = DocxMetadata()
 
-    with zipfile.ZipFile(file_like, "r") as z:
-        if "docProps/core.xml" not in z.namelist():
-            return metadata
-
-        with z.open("docProps/core.xml") as f:
-            tree = ET.parse(f)
-            root = tree.getroot()
+    root = ctx._core_root
+    if root is None:
+        return metadata
 
     # Extract metadata fields
     title_elem = root.find(f"{DC_NS}title")
@@ -773,188 +889,114 @@ def _extract_metadata(file_like: io.BytesIO) -> DocxMetadata:
     return metadata
 
 
-def _extract_footnotes(file_like: io.BytesIO) -> list[DocxNote]:
+def _extract_footnotes_from_context(ctx: _DocxContext) -> list[DocxNote]:
     """
-    Extract footnotes from DOCX by parsing word/footnotes.xml directly.
-
-    Footnotes are stored in a separate XML file within the DOCX archive.
-    This function opens the archive and parses the footnotes XML.
+    Extract footnotes from cached footnotes.xml root.
 
     Args:
-        file_like: BytesIO containing the DOCX file.
+        ctx: DocxContext with cached XML roots.
 
     Returns:
         List of DocxNote objects with id and text fields.
         Separator (-1) and continuation (0) footnotes are filtered out.
     """
     logger.debug("Extracting footnotes")
-    file_like.seek(0)
     footnotes = []
 
-    with zipfile.ZipFile(file_like, "r") as z:
-        if "word/footnotes.xml" not in z.namelist():
-            return footnotes
+    root = ctx._footnotes_root
+    if root is None:
+        return footnotes
 
-        with z.open("word/footnotes.xml") as f:
-            tree = ET.parse(f)
-            root = tree.getroot()
-
-        for fn in root.findall(f".//{W_NS}footnote"):
-            fn_id = fn.get(f"{W_NS}id") or ""
-            if fn_id not in ["-1", "0"]:  # Skip separator and continuation footnotes
-                text_parts = []
-                for t in fn.findall(f".//{W_NS}t"):
-                    if t.text:
-                        text_parts.append(t.text)
-                footnotes.append(DocxNote(id=fn_id, text="".join(text_parts)))
+    for fn in root.findall(f".//{W_NS}footnote"):
+        fn_id = fn.get(f"{W_NS}id") or ""
+        if fn_id not in ["-1", "0"]:  # Skip separator and continuation footnotes
+            text_parts = []
+            for t in fn.findall(f".//{W_NS}t"):
+                if t.text:
+                    text_parts.append(t.text)
+            footnotes.append(DocxNote(id=fn_id, text="".join(text_parts)))
 
     return footnotes
 
 
-def _extract_comments(file_like: io.BytesIO) -> list[DocxComment]:
+def _extract_comments_from_context(ctx: _DocxContext) -> list[DocxComment]:
     """
-    Extract comments/annotations from DOCX by parsing word/comments.xml.
-
-    Comments include author information and date stamps in addition to text.
+    Extract comments/annotations from cached comments.xml root.
 
     Args:
-        file_like: BytesIO containing the DOCX file.
+        ctx: DocxContext with cached XML roots.
 
     Returns:
         List of DocxComment objects with id, author, date, and text fields.
-        Returns empty list if comments.xml doesn't exist.
     """
     logger.debug("Extracting comments")
-    file_like.seek(0)
     comments = []
 
-    with zipfile.ZipFile(file_like, "r") as z:
-        if "word/comments.xml" not in z.namelist():
-            return comments
+    root = ctx._comments_root
+    if root is None:
+        return comments
 
-        with z.open("word/comments.xml") as f:
-            tree = ET.parse(f)
-            root = tree.getroot()
-
-        for comment in root.findall(f".//{W_NS}comment"):
-            text_parts = []
-            for t in comment.findall(f".//{W_NS}t"):
-                if t.text:
-                    text_parts.append(t.text)
-            comments.append(
-                DocxComment(
-                    id=comment.get(f"{W_NS}id") or "",
-                    author=comment.get(f"{W_NS}author") or "",
-                    date=comment.get(f"{W_NS}date") or "",
-                    text="".join(text_parts),
-                )
+    for comment in root.findall(f".//{W_NS}comment"):
+        text_parts = []
+        for t in comment.findall(f".//{W_NS}t"):
+            if t.text:
+                text_parts.append(t.text)
+        comments.append(
+            DocxComment(
+                id=comment.get(f"{W_NS}id") or "",
+                author=comment.get(f"{W_NS}author") or "",
+                date=comment.get(f"{W_NS}date") or "",
+                text="".join(text_parts),
             )
+        )
 
     return comments
 
 
-def _extract_endnotes(file_like: io.BytesIO) -> list[DocxNote]:
+def _extract_endnotes_from_context(ctx: _DocxContext) -> list[DocxNote]:
     """
-    Extract endnotes from DOCX by parsing word/endnotes.xml directly.
-
-    Endnotes are similar to footnotes but appear at the end of a section
-    or document rather than at the bottom of the page.
+    Extract endnotes from cached endnotes.xml root.
 
     Args:
-        file_like: BytesIO containing the DOCX file.
+        ctx: DocxContext with cached XML roots.
 
     Returns:
         List of DocxNote objects with id and text fields.
         Separator (-1) and continuation (0) endnotes are filtered out.
     """
     logger.debug("Extracting endnotes")
-    file_like.seek(0)
     endnotes = []
 
-    with zipfile.ZipFile(file_like, "r") as z:
-        if "word/endnotes.xml" not in z.namelist():
-            return endnotes
+    root = ctx._endnotes_root
+    if root is None:
+        return endnotes
 
-        with z.open("word/endnotes.xml") as f:
-            tree = ET.parse(f)
-            root = tree.getroot()
-
-        for en in root.findall(f".//{W_NS}endnote"):
-            en_id = en.get(f"{W_NS}id") or ""
-            if en_id not in ["-1", "0"]:  # Skip separator and continuation endnotes
-                text_parts = []
-                for t in en.findall(f".//{W_NS}t"):
-                    if t.text:
-                        text_parts.append(t.text)
-                endnotes.append(DocxNote(id=en_id, text="".join(text_parts)))
+    for en in root.findall(f".//{W_NS}endnote"):
+        en_id = en.get(f"{W_NS}id") or ""
+        if en_id not in ["-1", "0"]:  # Skip separator and continuation endnotes
+            text_parts = []
+            for t in en.findall(f".//{W_NS}t"):
+                if t.text:
+                    text_parts.append(t.text)
+            endnotes.append(DocxNote(id=en_id, text="".join(text_parts)))
 
     return endnotes
 
 
-def _extract_relationships(file_like: io.BytesIO) -> dict[str, dict]:
+def _extract_sections_from_context(ctx: _DocxContext) -> list[DocxSection]:
     """
-    Extract relationships from word/_rels/document.xml.rels.
-
-    Relationships define connections between document parts and external resources.
+    Extract section properties (page layout) from cached document body.
 
     Args:
-        file_like: BytesIO containing the DOCX file.
-
-    Returns:
-        Dictionary mapping relationship IDs to relationship info (type, target).
-    """
-    file_like.seek(0)
-    relationships = {}
-
-    with zipfile.ZipFile(file_like, "r") as z:
-        rels_path = "word/_rels/document.xml.rels"
-        if rels_path not in z.namelist():
-            return relationships
-
-        with z.open(rels_path) as f:
-            tree = ET.parse(f)
-            root = tree.getroot()
-
-        for rel in root.findall(f".//{REL_NS}Relationship"):
-            rel_id = rel.get("Id") or ""
-            rel_type = rel.get("Type") or ""
-            rel_target = rel.get("Target") or ""
-            target_mode = rel.get("TargetMode") or ""
-
-            relationships[rel_id] = {
-                "type": rel_type,
-                "target": rel_target,
-                "target_mode": target_mode,
-            }
-
-    return relationships
-
-
-def _extract_sections(file_like: io.BytesIO) -> list[DocxSection]:
-    """
-    Extract section properties (page layout) from the document.
-
-    Each section can have different page dimensions, margins, and orientation.
-
-    Args:
-        file_like: BytesIO containing the DOCX file.
+        ctx: DocxContext with cached XML roots.
 
     Returns:
         List of DocxSection objects with page dimensions and margins in inches.
     """
     logger.debug("Extracting sections")
-    file_like.seek(0)
     sections = []
 
-    with zipfile.ZipFile(file_like, "r") as z:
-        if "word/document.xml" not in z.namelist():
-            return sections
-
-        with z.open("word/document.xml") as f:
-            tree = ET.parse(f)
-            root = tree.getroot()
-
-    body = root.find(f"{W_NS}body")
+    body = ctx.document_body
     if body is None:
         return sections
 
@@ -1033,161 +1075,102 @@ def _extract_sections(file_like: io.BytesIO) -> list[DocxSection]:
     return sections
 
 
-def _extract_header_footers(
-    file_like: io.BytesIO,
+def _extract_header_footers_from_context(
+    ctx: _DocxContext,
 ) -> tuple[list[DocxHeaderFooter], list[DocxHeaderFooter]]:
     """
-    Extract headers and footers from all document sections.
-
-    Word supports three types of headers/footers per section:
-        - default: Used for most pages
-        - first: Used for the first page of the section
-        - even: Used for even-numbered pages (when different)
+    Extract headers and footers from cached header/footer XML roots.
 
     Args:
-        file_like: BytesIO containing the DOCX file.
+        ctx: DocxContext with cached XML roots.
 
     Returns:
         Tuple of (headers_list, footers_list) where each list contains
         DocxHeaderFooter objects with type and text fields.
     """
     logger.debug("Extracting header/footer")
-    file_like.seek(0)
     headers = []
     footers = []
 
-    with zipfile.ZipFile(file_like, "r") as z:
-        # Get relationships to find header/footer files
-        rels = _extract_relationships(file_like)
+    rels = ctx.relationships
 
-        # Find header and footer files
-        header_files = []
-        footer_files = []
+    # Find header and footer files
+    header_files = []
+    footer_files = []
 
-        for rel_id, rel_info in rels.items():
-            rel_type = rel_info.get("type", "")
-            target = rel_info.get("target", "")
+    for rel_id, rel_info in rels.items():
+        rel_type = rel_info.get("type", "")
+        target = rel_info.get("target", "")
 
-            if "header" in rel_type.lower():
-                header_files.append(("word/" + target, rel_type))
-            elif "footer" in rel_type.lower():
-                footer_files.append(("word/" + target, rel_type))
+        if "header" in rel_type.lower():
+            header_files.append(("word/" + target, rel_type))
+        elif "footer" in rel_type.lower():
+            footer_files.append(("word/" + target, rel_type))
 
-        # Extract text from header files
-        for header_path, rel_type in header_files:
-            if header_path in z.namelist():
-                with z.open(header_path) as f:
-                    tree = ET.parse(f)
-                    root = tree.getroot()
+    # Extract text from header files
+    for header_path, rel_type in header_files:
+        root = ctx._header_footer_roots.get(header_path)
+        if root is not None:
+            text_parts = []
+            for t in root.findall(f".//{W_NS}t"):
+                if t.text:
+                    text_parts.append(t.text)
 
-                text_parts = []
-                for t in root.findall(f".//{W_NS}t"):
-                    if t.text:
-                        text_parts.append(t.text)
+            if text_parts:
+                # Determine type from filename or relationship
+                hdr_type = "default"
+                if "first" in header_path.lower() or "first" in rel_type.lower():
+                    hdr_type = "first_page"
+                elif "even" in header_path.lower() or "even" in rel_type.lower():
+                    hdr_type = "even_page"
 
-                if text_parts:
-                    # Determine type from filename or relationship
-                    hdr_type = "default"
-                    if "first" in header_path.lower() or "first" in rel_type.lower():
-                        hdr_type = "first_page"
-                    elif "even" in header_path.lower() or "even" in rel_type.lower():
-                        hdr_type = "even_page"
+                headers.append(
+                    DocxHeaderFooter(type=hdr_type, text="".join(text_parts))
+                )
 
-                    headers.append(
-                        DocxHeaderFooter(type=hdr_type, text="".join(text_parts))
-                    )
+    # Extract text from footer files
+    for footer_path, rel_type in footer_files:
+        root = ctx._header_footer_roots.get(footer_path)
+        if root is not None:
+            text_parts = []
+            for t in root.findall(f".//{W_NS}t"):
+                if t.text:
+                    text_parts.append(t.text)
 
-        # Extract text from footer files
-        for footer_path, rel_type in footer_files:
-            if footer_path in z.namelist():
-                with z.open(footer_path) as f:
-                    tree = ET.parse(f)
-                    root = tree.getroot()
+            if text_parts:
+                # Determine type from filename or relationship
+                ftr_type = "default"
+                if "first" in footer_path.lower() or "first" in rel_type.lower():
+                    ftr_type = "first_page"
+                elif "even" in footer_path.lower() or "even" in rel_type.lower():
+                    ftr_type = "even_page"
 
-                text_parts = []
-                for t in root.findall(f".//{W_NS}t"):
-                    if t.text:
-                        text_parts.append(t.text)
-
-                if text_parts:
-                    # Determine type from filename or relationship
-                    ftr_type = "default"
-                    if "first" in footer_path.lower() or "first" in rel_type.lower():
-                        ftr_type = "first_page"
-                    elif "even" in footer_path.lower() or "even" in rel_type.lower():
-                        ftr_type = "even_page"
-
-                    footers.append(
-                        DocxHeaderFooter(type=ftr_type, text="".join(text_parts))
-                    )
+                footers.append(
+                    DocxHeaderFooter(type=ftr_type, text="".join(text_parts))
+                )
 
     return headers, footers
 
 
-def _extract_styles(file_like: io.BytesIO) -> dict[str, str]:
-    """
-    Extract style definitions from word/styles.xml.
-
-    Args:
-        file_like: BytesIO containing the DOCX file.
-
-    Returns:
-        Dictionary mapping style IDs to style names.
-    """
-    file_like.seek(0)
-    styles = {}
-
-    with zipfile.ZipFile(file_like, "r") as z:
-        if "word/styles.xml" not in z.namelist():
-            return styles
-
-        with z.open("word/styles.xml") as f:
-            tree = ET.parse(f)
-            root = tree.getroot()
-
-        for style in root.findall(f".//{W_NS}style"):
-            style_id = style.get(f"{W_NS}styleId") or ""
-            name_elem = style.find(f"{W_NS}name")
-            style_name = name_elem.get(f"{W_NS}val") if name_elem is not None else ""
-            if style_id:
-                styles[style_id] = style_name or style_id
-
-    return styles
-
-
-def _extract_paragraphs(file_like: io.BytesIO) -> list[DocxParagraph]:
+def _extract_paragraphs_from_context(ctx: _DocxContext) -> list[DocxParagraph]:
     """
     Extract paragraphs with their formatting and run information.
 
-    Each paragraph contains runs (text segments with consistent formatting).
-    This function extracts both the plain text and detailed run information.
-
     Args:
-        file_like: BytesIO containing the DOCX file.
+        ctx: DocxContext with cached XML roots.
 
     Returns:
         List of DocxParagraph objects containing text, style, alignment,
         and a list of DocxRun objects with formatting details.
     """
     logger.debug("Extracting paragraphs")
-    file_like.seek(0)
     paragraphs = []
 
-    # Get style definitions
-    style_map = _extract_styles(file_like)
-    file_like.seek(0)
-
-    with zipfile.ZipFile(file_like, "r") as z:
-        if "word/document.xml" not in z.namelist():
-            return paragraphs
-
-        with z.open("word/document.xml") as f:
-            tree = ET.parse(f)
-            root = tree.getroot()
-
-    body = root.find(f"{W_NS}body")
+    body = ctx.document_body
     if body is None:
         return paragraphs
+
+    style_map = ctx.styles
 
     # Only iterate through direct children of body to get top-level paragraphs
     # This excludes paragraphs nested inside tables (which are extracted separately)
@@ -1297,33 +1280,21 @@ def _extract_paragraphs(file_like: io.BytesIO) -> list[DocxParagraph]:
     return paragraphs
 
 
-def _extract_tables(file_like: io.BytesIO) -> list[list[list[str]]]:
+def _extract_tables_from_context(ctx: _DocxContext) -> list[list[list[str]]]:
     """
     Extract tables as lists of lists of cell text.
 
-    Each table is represented as a 2D list where each inner list is a row
-    and each element is the text content of a cell.
-
     Args:
-        file_like: BytesIO containing the DOCX file.
+        ctx: DocxContext with cached XML roots.
 
     Returns:
         List of tables, where each table is a list of rows, and each row
         is a list of cell text strings.
     """
     logger.debug("Extracting tables")
-    file_like.seek(0)
     tables = []
 
-    with zipfile.ZipFile(file_like, "r") as z:
-        if "word/document.xml" not in z.namelist():
-            return tables
-
-        with z.open("word/document.xml") as f:
-            tree = ET.parse(f)
-            root = tree.getroot()
-
-    body = root.find(f"{W_NS}body")
+    body = ctx.document_body
     if body is None:
         return tables
 
@@ -1346,98 +1317,81 @@ def _extract_tables(file_like: io.BytesIO) -> list[list[list[str]]]:
     return tables
 
 
-def _extract_images(file_like: io.BytesIO) -> list[DocxImage]:
+def _extract_images_from_context(ctx: _DocxContext) -> list[DocxImage]:
     """
     Extract images from the document.
 
     Args:
-        file_like: BytesIO containing the DOCX file.
+        ctx: DocxContext with cached XML roots.
 
     Returns:
         List of DocxImage objects with binary data and metadata.
     """
     logger.debug("Extracting images")
-    file_like.seek(0)
     images = []
 
-    # Get relationships
-    rels = _extract_relationships(file_like)
-    file_like.seek(0)
+    rels = ctx.relationships
 
-    with zipfile.ZipFile(file_like, "r") as z:
-        for rel_id, rel_info in rels.items():
-            rel_type = rel_info.get("type", "")
-            target = rel_info.get("target", "")
+    for rel_id, rel_info in rels.items():
+        rel_type = rel_info.get("type", "")
+        target = rel_info.get("target", "")
 
-            if "image" in rel_type.lower():
-                image_path = "word/" + target
-                if image_path in z.namelist():
-                    try:
-                        with z.open(image_path) as img_file:
-                            img_data = img_file.read()
+        if "image" in rel_type.lower():
+            image_path = "word/" + target
+            try:
+                img_data = ctx.get_image_data(image_path)
+                if img_data is None:
+                    continue
 
-                        # Determine content type from extension
-                        ext = target.split(".")[-1].lower()
-                        content_type_map = {
-                            "png": "image/png",
-                            "jpg": "image/jpeg",
-                            "jpeg": "image/jpeg",
-                            "gif": "image/gif",
-                            "bmp": "image/bmp",
-                            "tiff": "image/tiff",
-                            "tif": "image/tiff",
-                            "emf": "image/x-emf",
-                            "wmf": "image/x-wmf",
-                        }
-                        content_type = content_type_map.get(ext, f"image/{ext}")
+                # Determine content type from extension
+                ext = target.split(".")[-1].lower()
+                content_type_map = {
+                    "png": "image/png",
+                    "jpg": "image/jpeg",
+                    "jpeg": "image/jpeg",
+                    "gif": "image/gif",
+                    "bmp": "image/bmp",
+                    "tiff": "image/tiff",
+                    "tif": "image/tiff",
+                    "emf": "image/x-emf",
+                    "wmf": "image/x-wmf",
+                }
+                content_type = content_type_map.get(ext, f"image/{ext}")
 
-                        images.append(
-                            DocxImage(
-                                rel_id=rel_id,
-                                filename=target.split("/")[-1],
-                                content_type=content_type,
-                                data=io.BytesIO(img_data),
-                                size_bytes=len(img_data),
-                            )
-                        )
-                    except Exception as e:
-                        logger.debug(
-                            f"Image extraction failed for rel_id {rel_id} - {e}"
-                        )
-                        images.append(DocxImage(rel_id=rel_id, error=str(e)))
+                images.append(
+                    DocxImage(
+                        rel_id=rel_id,
+                        filename=target.split("/")[-1],
+                        content_type=content_type,
+                        data=io.BytesIO(img_data),
+                        size_bytes=len(img_data),
+                    )
+                )
+            except Exception as e:
+                logger.debug(f"Image extraction failed for rel_id {rel_id} - {e}")
+                images.append(DocxImage(rel_id=rel_id, error=str(e)))
 
     return images
 
 
-def _extract_hyperlinks(file_like: io.BytesIO) -> list[DocxHyperlink]:
+def _extract_hyperlinks_from_context(ctx: _DocxContext) -> list[DocxHyperlink]:
     """
     Extract hyperlinks from the document.
 
     Args:
-        file_like: BytesIO containing the DOCX file.
+        ctx: DocxContext with cached XML roots.
 
     Returns:
         List of DocxHyperlink objects with text and URL.
     """
     logger.debug("Extracting hyperlinks")
-    file_like.seek(0)
     hyperlinks = []
 
-    # Get relationships
-    rels = _extract_relationships(file_like)
-    file_like.seek(0)
-
-    with zipfile.ZipFile(file_like, "r") as z:
-        if "word/document.xml" not in z.namelist():
-            return hyperlinks
-
-        with z.open("word/document.xml") as f:
-            tree = ET.parse(f)
-            root = tree.getroot()
-
-    body = root.find(f"{W_NS}body")
+    body = ctx.document_body
     if body is None:
         return hyperlinks
+
+    rels = ctx.relationships
 
     for hyperlink in body.findall(f".//{W_NS}hyperlink"):
         r_id = hyperlink.get(f"{R_NS}id")
@@ -1457,39 +1411,22 @@ def _extract_hyperlinks(file_like: io.BytesIO) -> list[DocxHyperlink]:
     return hyperlinks
 
 
-def _extract_formulas(file_like: io.BytesIO) -> list[DocxFormula]:
+def _extract_formulas_from_context(ctx: _DocxContext) -> list[DocxFormula]:
     """
     Extract all mathematical formulas from the document as LaTeX.
 
-    Formulas in Word documents are stored in OMML (Office Math Markup Language).
-    This function finds all formula elements and converts them to LaTeX.
-
     Args:
-        file_like: BytesIO containing the DOCX file.
+        ctx: DocxContext with cached XML roots.
 
     Returns:
         List of DocxFormula objects with:
         - latex: LaTeX representation of the formula
         - is_display: True for display equations (oMathPara), False for inline
-
-    Notes:
-        - Display equations (oMathPara) are meant to be on their own line
-        - Inline equations (oMath not in oMathPara) appear within text
-        - Uses _DocxFullTextExtractor.omml_to_latex for conversion
     """
     logger.debug("Extracting formulas")
-    file_like.seek(0)
     formulas = []
 
-    with zipfile.ZipFile(file_like, "r") as z:
-        if "word/document.xml" not in z.namelist():
-            return formulas
-
-        with z.open("word/document.xml") as f:
-            tree = ET.parse(f)
-            root = tree.getroot()
-
-    body = root.find(f"{W_NS}body")
+    body = ctx.document_body
     if body is None:
         return formulas
 
@@ -1562,44 +1499,46 @@ def read_docx(
         ...         print(doc.full_text[:500])
 
     Performance Notes:
-        - Multiple passes through the file for different content types
+        - ZIP file is opened once and all XML is cached
+        - All XML documents are parsed once and reused
         - Images are loaded into memory as BytesIO objects
         - Large documents may use significant memory
     """
-    file_like.seek(0)
+    # Create context that opens ZIP once and caches all parsed XML
+    ctx = _DocxContext(file_like)
 
     # === Core Properties (Metadata) ===
-    metadata = _extract_metadata(file_like)
+    metadata = _extract_metadata_from_context(ctx)
 
     # === Paragraphs ===
-    paragraphs = _extract_paragraphs(file_like)
+    paragraphs = _extract_paragraphs_from_context(ctx)
 
     # === Tables ===
-    tables = _extract_tables(file_like)
+    tables = _extract_tables_from_context(ctx)
 
     # === Headers and Footers ===
-    headers, footers = _extract_header_footers(file_like)
+    headers, footers = _extract_header_footers_from_context(ctx)
 
     # === Images ===
-    images = _extract_images(file_like)
+    images = _extract_images_from_context(ctx)
 
     # === Hyperlinks ===
-    hyperlinks = _extract_hyperlinks(file_like)
+    hyperlinks = _extract_hyperlinks_from_context(ctx)
 
     # === Footnotes ===
-    footnotes = _extract_footnotes(file_like)
+    footnotes = _extract_footnotes_from_context(ctx)
 
     # === Endnotes ===
-    endnotes = _extract_endnotes(file_like)
+    endnotes = _extract_endnotes_from_context(ctx)
 
     # === Formulas ===
-    formulas = _extract_formulas(file_like)
+    formulas = _extract_formulas_from_context(ctx)
 
     # === Comments ===
-    comments = _extract_comments(file_like)
+    comments = _extract_comments_from_context(ctx)
 
     # === Sections (page layout) ===
-    sections = _extract_sections(file_like)
+    sections = _extract_sections_from_context(ctx)
 
     # === Styles used ===
     styles_set = set()
@@ -1608,12 +1547,13 @@ def read_docx(
             styles_set.add(para.style)
     styles = list(styles_set)
 
-    # === Full text (convenience) ===
-    full_text = _DocxFullTextExtractor.extract_full_text(
-        file_like=file_like, include_formulas=True
+    # === Full text (convenience) - use cached body for both ===
+    body = ctx.document_body
+    full_text = _DocxFullTextExtractor.extract_full_text_from_body(
+        body=body, include_formulas=True
     )
-    base_full_text = _DocxFullTextExtractor.extract_full_text(
-        file_like=file_like, include_formulas=False
+    base_full_text = _DocxFullTextExtractor.extract_full_text_from_body(
+        body=body, include_formulas=False
     )
 
     metadata.populate_from_path(path)
