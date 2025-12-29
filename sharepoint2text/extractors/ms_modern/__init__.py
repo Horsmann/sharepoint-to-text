@@ -16,9 +16,9 @@ Supported Formats
     images, footnotes, comments, and math formulas (converted to LaTeX).
 
 .pptx (PowerPoint 2007+):
-    Office Open XML Presentation. Uses `python-pptx` for parsing with
-    additional XML handling for comments and embedded formulas. Extracts
-    slides, shapes, images, speaker notes, and formulas.
+    Office Open XML Presentation. Uses direct XML parsing of the ZIP archive
+    for all content extraction. Extracts slides, shapes, images, comments,
+    and math formulas (converted to LaTeX).
 
 .xlsx (Excel 2007+):
     Office Open XML Spreadsheet. Uses `openpyxl` for parsing cells and
@@ -68,14 +68,14 @@ docx_extractor: No external dependencies (uses stdlib zipfile and xml.etree)
     - Comment extraction
     - Formula conversion to LaTeX
 
-python-pptx: https://github.com/scanny/python-pptx
-    pip install python-pptx
-
-    Provides:
-    - Slide enumeration
+pptx_extractor: No external dependencies (uses stdlib zipfile and xml.etree)
+    Direct XML parsing of OOXML structure provides:
+    - Slide enumeration and ordering
     - Shape parsing (text, images, placeholders)
-    - Slide layout handling
-    - Core properties access
+    - Image extraction with metadata
+    - Core properties (metadata) access
+    - Comment extraction
+    - Formula conversion to LaTeX
 
 openpyxl: https://github.com/theorchard/openpyxl
     pip install openpyxl
