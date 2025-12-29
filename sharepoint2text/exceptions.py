@@ -1,19 +1,50 @@
-class ExtractionFileFormatNotSupportedError(Exception):
-    """Raised when the file format for extraction is not supported."""
+"""
+Custom exceptions for the sharepoint2text extraction library.
 
-    def __init__(self, message: str, *, cause: Exception = None):
-        # Use exception chaining if cause is provided
+These exceptions provide clear error semantics for common failure modes
+during document extraction.
+"""
+
+from typing import Optional
+
+
+class ExtractionFileFormatNotSupportedError(Exception):
+    """
+    Raised when the file format is not supported for extraction.
+
+    This exception indicates that the library does not have an extractor
+    capable of handling the given file type.
+
+    Attributes:
+        message: Human-readable description of the error.
+        __cause__: Optional underlying exception that triggered this error.
+    """
+
+    def __init__(self, message: str, *, cause: Optional[Exception] = None):
         super().__init__(message)
-        self.__cause__ = cause  # Optional chaining for debugging
+        if cause is not None:
+            self.__cause__ = cause
 
 
 class LegacyMicrosoftParsingError(Exception):
-    """Raised when parsing a legacy doc file."""
+    """
+    Raised when parsing a legacy Microsoft Office file fails.
 
-    def __init__(self, message: str = None, *, cause: Exception = None):
-        if message is None:
-            message = "Error when processing legacy doc file"
-        # Use exception chaining if cause is provided
+    This exception indicates issues with parsing binary formats such as
+    .doc, .xls, or .ppt files. Common causes include corrupted files,
+    encrypted content, or unsupported format variations.
+
+    Attributes:
+        message: Human-readable description of the error.
+        __cause__: Optional underlying exception that triggered this error.
+    """
+
+    def __init__(
+        self,
+        message: str = "Error when processing legacy Microsoft Office file",
+        *,
+        cause: Optional[Exception] = None,
+    ):
         super().__init__(message)
-        # Optional chaining for debugging
-        self.__cause__ = cause
+        if cause is not None:
+            self.__cause__ = cause

@@ -715,18 +715,20 @@ class XlsxContent(ExtractionInterface):
 
 
 ###############
-# OpenDocument ODT
-###############
-
-
-###############
-# OpenDocument ODP (Presentation)
+# OpenDocument Shared Types
 ###############
 
 
 @dataclass
-class OdpMetadata(FileMetadataInterface):
-    """Metadata extracted from an ODP file."""
+class OpenDocumentMetadata(FileMetadataInterface):
+    """
+    Base metadata class for OpenDocument formats (ODT, ODS, ODP).
+
+    OpenDocument files share a common metadata structure defined by the
+    ODF (Open Document Format) specification. This base class captures
+    the standard metadata fields found in the meta.xml file within
+    ODF archives.
+    """
 
     title: str = ""
     description: str = ""
@@ -743,8 +745,12 @@ class OdpMetadata(FileMetadataInterface):
 
 
 @dataclass
-class OdpAnnotation:
-    """Represents an annotation/comment in a presentation."""
+class OpenDocumentAnnotation:
+    """
+    Represents an annotation/comment in an OpenDocument file.
+
+    Annotations follow the same structure across all ODF formats.
+    """
 
     creator: str = ""
     date: str = ""
@@ -752,8 +758,13 @@ class OdpAnnotation:
 
 
 @dataclass
-class OdpImage:
-    """Represents an embedded image in a presentation."""
+class OpenDocumentImage:
+    """
+    Represents an embedded image in an OpenDocument file.
+
+    Images are stored in the Pictures/ directory within the ODF archive
+    and referenced via href attributes in the content.xml.
+    """
 
     href: str = ""
     name: str = ""
@@ -763,6 +774,23 @@ class OdpImage:
     width: Optional[str] = None
     height: Optional[str] = None
     error: Optional[str] = None
+
+
+# Type aliases for backwards compatibility and semantic clarity
+OdpMetadata = OpenDocumentMetadata
+OdsMetadata = OpenDocumentMetadata
+OdtMetadata = OpenDocumentMetadata
+OdpAnnotation = OpenDocumentAnnotation
+OdsAnnotation = OpenDocumentAnnotation
+OdtAnnotation = OpenDocumentAnnotation
+OdpImage = OpenDocumentImage
+OdsImage = OpenDocumentImage
+OdtImage = OpenDocumentImage
+
+
+###############
+# OpenDocument ODP (Presentation)
+###############
 
 
 @dataclass
@@ -854,47 +882,6 @@ class OdpContent(ExtractionInterface):
 
 
 @dataclass
-class OdsMetadata(FileMetadataInterface):
-    """Metadata extracted from an ODS file."""
-
-    title: str = ""
-    description: str = ""
-    subject: str = ""
-    creator: str = ""
-    keywords: str = ""
-    initial_creator: str = ""
-    creation_date: str = ""
-    date: str = ""  # Last modified date
-    language: str = ""
-    editing_cycles: int = 0
-    editing_duration: str = ""
-    generator: str = ""  # Application that created the document
-
-
-@dataclass
-class OdsAnnotation:
-    """Represents an annotation/comment in a spreadsheet cell."""
-
-    creator: str = ""
-    date: str = ""
-    text: str = ""
-
-
-@dataclass
-class OdsImage:
-    """Represents an embedded image in a spreadsheet."""
-
-    href: str = ""
-    name: str = ""
-    content_type: str = ""
-    data: Optional[io.BytesIO] = None
-    size_bytes: int = 0
-    width: Optional[str] = None
-    height: Optional[str] = None
-    error: Optional[str] = None
-
-
-@dataclass
 class OdsSheet:
     """Represents a single sheet in the spreadsheet."""
 
@@ -931,22 +918,9 @@ class OdsContent(ExtractionInterface):
         return len(self.sheets)
 
 
-@dataclass
-class OdtMetadata(FileMetadataInterface):
-    """Metadata extracted from an ODT file."""
-
-    title: str = ""
-    description: str = ""
-    subject: str = ""
-    creator: str = ""
-    keywords: str = ""
-    initial_creator: str = ""
-    creation_date: str = ""
-    date: str = ""  # Last modified date
-    language: str = ""
-    editing_cycles: int = 0
-    editing_duration: str = ""
-    generator: str = ""  # Application that created the document
+###############
+# OpenDocument ODT (Text Document)
+###############
 
 
 @dataclass
@@ -982,20 +956,6 @@ class OdtHeaderFooter:
 
 
 @dataclass
-class OdtImage:
-    """Represents an embedded image."""
-
-    href: str = ""
-    name: str = ""
-    content_type: str = ""
-    data: Optional[io.BytesIO] = None
-    size_bytes: int = 0
-    width: Optional[str] = None
-    height: Optional[str] = None
-    error: Optional[str] = None
-
-
-@dataclass
 class OdtHyperlink:
     """Represents a hyperlink."""
 
@@ -1009,15 +969,6 @@ class OdtNote:
 
     id: str = ""
     note_class: str = ""  # footnote or endnote
-    text: str = ""
-
-
-@dataclass
-class OdtAnnotation:
-    """Represents an annotation/comment."""
-
-    creator: str = ""
-    date: str = ""
     text: str = ""
 
 
