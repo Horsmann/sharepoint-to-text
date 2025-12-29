@@ -11,9 +11,9 @@ Supported Formats
 -----------------
 
 .docx (Word 2007+):
-    Office Open XML Word document. Uses `python-docx` for parsing with
-    additional XML handling for footnotes, comments, and math formulas.
-    Extracts paragraphs, tables, headers/footers, images, and more.
+    Office Open XML Word document. Uses direct XML parsing of the ZIP archive
+    for all content extraction. Extracts paragraphs, tables, headers/footers,
+    images, footnotes, comments, and math formulas (converted to LaTeX).
 
 .pptx (PowerPoint 2007+):
     Office Open XML Presentation. Uses `python-pptx` for parsing with
@@ -57,15 +57,16 @@ XML Namespaces:
 
 Dependencies
 ------------
-python-docx: https://github.com/python-openxml/python-docx
-    pip install python-docx
-
-    Provides:
-    - Document structure navigation
-    - Paragraph and run extraction
+docx_extractor: No external dependencies (uses stdlib zipfile and xml.etree)
+    Direct XML parsing of OOXML structure provides:
+    - Paragraph and run extraction with formatting
     - Table parsing
-    - Image relationship handling
-    - Core properties access
+    - Header/footer extraction
+    - Image extraction with metadata
+    - Core properties (metadata) access
+    - Footnote and endnote extraction
+    - Comment extraction
+    - Formula conversion to LaTeX
 
 python-pptx: https://github.com/scanny/python-pptx
     pip install python-pptx
