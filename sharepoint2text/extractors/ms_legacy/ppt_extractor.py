@@ -194,10 +194,10 @@ def read_ppt(
             - streams: List of OLE stream paths (for debugging)
 
     Raises:
-        ValueError: If the file is not a valid OLE file or lacks the
-            required "PowerPoint Document" stream.
-        IOError: If there's an error reading the file.
-        LegacyMicrosoftParsingError: For corrupted or unsupported files.
+        LegacyMicrosoftParsingError: For various parsing failures:
+            - File is not a valid OLE file
+            - Missing required "PowerPoint Document" stream
+            - Corrupted or unsupported file structure
 
     Example:
         >>> import io
@@ -235,7 +235,8 @@ def _extract_ppt_content_structured(file_like: BinaryIO) -> PptContent:
         PptContent: Populated object with slides, metadata, and all text.
 
     Raises:
-        ValueError: If file is not valid OLE or lacks PowerPoint Document stream.
+        LegacyMicrosoftParsingError: If file is not valid OLE or lacks
+            PowerPoint Document stream.
 
     Implementation Steps:
         1. Validate OLE file format
