@@ -129,7 +129,7 @@ from sharepoint2text.extractors.data_types import (
     DocxRun,
     DocxSection,
 )
-from sharepoint2text.extractors.omml_to_latex import (
+from sharepoint2text.extractors.util.omml_to_latex import (
     GREEK_TO_LATEX,
     convert_greek_and_symbols,
     omml_to_latex,

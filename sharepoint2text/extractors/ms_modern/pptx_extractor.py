@@ -111,7 +111,7 @@ from sharepoint2text.extractors.data_types import (
     PptxMetadata,
     PPTXSlide,
 )
-from sharepoint2text.extractors.omml_to_latex import omml_to_latex
+from sharepoint2text.extractors.util.omml_to_latex import omml_to_latex
 
 logger = logging.getLogger(__name__)
 
