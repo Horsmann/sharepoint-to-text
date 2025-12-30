@@ -266,23 +266,53 @@ def test_read_pptx_1() -> None:
     tc.assertEqual(3, len(pptx.slides))
     tc.assertEqual(5, len(list(pptx.iterate_images())))
     tc.assertEqual(
-        ImageMetadata(unit_index=2, image_index=1, content_type="image/png"),
+        ImageMetadata(
+            unit_index=2,
+            image_index=1,
+            content_type="image/png",
+            width=130,
+            height=111,
+        ),
         list(pptx.iterate_images())[0].get_metadata(),
     )
     tc.assertEqual(
-        ImageMetadata(unit_index=2, image_index=2, content_type="image/jpeg"),
+        ImageMetadata(
+            unit_index=2,
+            image_index=2,
+            content_type="image/jpeg",
+            width=264,
+            height=255,
+        ),
         list(pptx.iterate_images())[1].get_metadata(),
     )
     tc.assertEqual(
-        ImageMetadata(unit_index=2, image_index=3, content_type="image/jpeg"),
+        ImageMetadata(
+            unit_index=2,
+            image_index=3,
+            content_type="image/jpeg",
+            width=279,
+            height=186,
+        ),
         list(pptx.iterate_images())[2].get_metadata(),
     )
     tc.assertEqual(
-        ImageMetadata(unit_index=2, image_index=4, content_type="image/jpeg"),
+        ImageMetadata(
+            unit_index=2,
+            image_index=4,
+            content_type="image/jpeg",
+            width=305,
+            height=250,
+        ),
         list(pptx.iterate_images())[3].get_metadata(),
     )
     tc.assertEqual(
-        ImageMetadata(unit_index=2, image_index=5, content_type="image/jpeg"),
+        ImageMetadata(
+            unit_index=2,
+            image_index=5,
+            content_type="image/jpeg",
+            width=286,
+            height=191,
+        ),
         list(pptx.iterate_images())[4].get_metadata(),
     )
     ##########
@@ -376,7 +406,13 @@ def test_read_pptx_2() -> None:
     )
     tc.assertEqual(1535390, len(pptx.slides[0].images[0].get_bytes().getvalue()))
     tc.assertEqual(
-        ImageMetadata(unit_index=1, image_index=1, content_type="image/jpeg"),
+        ImageMetadata(
+            unit_index=1,
+            image_index=1,
+            content_type="image/jpeg",
+            width=1647,
+            height=1098,
+        ),
         pptx.slides[0].images[0].get_metadata(),
     )
 

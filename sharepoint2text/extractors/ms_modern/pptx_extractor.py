@@ -100,7 +100,7 @@ Maintenance Notes
 import io
 import logging
 import zipfile
-from typing import Any, Generator, List, Tuple
+from typing import Any, Generator, List, Optional, Tuple
 from xml.etree import ElementTree as ET
 
 from sharepoint2text.extractors.data_types import (
@@ -137,6 +137,70 @@ FOOTER_TYPES = {"ftr"}
 # Placeholder types to skip (not useful for text extraction)
 # Note: sldNum (slide number) is NOT skipped - it goes to other_textboxes
 SKIP_TYPES = {"dt", "sldImg", "hdr"}
+
+
+def _get_image_pixel_dimensions(
+    image_data: bytes,
+) -> tuple[Optional[int], Optional[int]]:
+    """Best-effort extraction of pixel dimensions from common raster formats."""
+    if not image_data:
+        return None, None
+
+    # PNG
+    if image_data.startswith(b"\x89PNG\r\n\x1a\n") and len(image_data) >= 24:
+        width = int.from_bytes(image_data[16:20], "big")
+        height = int.from_bytes(image_data[20:24], "big")
+        return (width or None, height or None)
+
+    # GIF
+    if image_data[:6] in (b"GIF87a", b"GIF89a") and len(image_data) >= 10:
+        width = int.from_bytes(image_data[6:8], "little")
+        height = int.from_bytes(image_data[8:10], "little")
+        return (width or None, height or None)
+
+    # BMP
+    if image_data[:2] == b"BM" and len(image_data) >= 26:
+        width = int.from_bytes(image_data[18:22], "little", signed=True)
+        height = int.from_bytes(image_data[22:26], "little", signed=True)
+        return (abs(width) or None, abs(height) or None)
+
+    # JPEG
+    if image_data.startswith(b"\xff\xd8"):
+        i = 2
+        size = len(image_data)
+        while i + 4 <= size:
+            if image_data[i] != 0xFF:
+                i += 1
+                continue
+            marker = image_data[i + 1]
+            if marker in (0xD9, 0xDA):
+                break
+            length = int.from_bytes(image_data[i + 2 : i + 4], "big")
+            if length < 2:
+                break
+            if marker in (
+                0xC0,
+                0xC1,
+                0xC2,
+                0xC3,
+                0xC5,
+                0xC6,
+                0xC7,
+                0xC9,
+                0xCA,
+                0xCB,
+                0xCD,
+                0xCE,
+                0xCF,
+            ):
+                if i + 2 + length <= size:
+                    height = int.from_bytes(image_data[i + 5 : i + 7], "big")
+                    width = int.from_bytes(image_data[i + 7 : i + 9], "big")
+                    return (width or None, height or None)
+                break
+            i += 2 + length
+
+    return None, None
 
 
 class _PptxContext:
@@ -669,6 +733,8 @@ def _process_slide_from_context(
                     # (matches python-pptx behavior)
                     generic_filename = f"image.{ext}"
 
+                    width, height = _get_image_pixel_dimensions(blob)
+
                     images.append(
                         PptxImage(
                             image_index=image_counter,
@@ -676,6 +742,8 @@ def _process_slide_from_context(
                             content_type=content_type,
                             size_bytes=len(blob),
                             blob=blob,
+                            width=width,
+                            height=height,
                             caption=caption,
                             description=description,
                             slide_number=slide_number,

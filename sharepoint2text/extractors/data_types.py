@@ -678,6 +678,8 @@ class PptxImage(ImageInterface):
     content_type: str = ""
     size_bytes: int = 0
     blob: Optional[bytes] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
     caption: str = ""  # Title/name of the image shape
     description: str = ""  # Alt text / description for accessibility
     slide_number: int = 0
@@ -695,8 +697,8 @@ class PptxImage(ImageInterface):
             image_index=self.image_index,
             content_type=self.content_type,
             unit_index=self.slide_number,
-            width=None,
-            height=None,
+            width=self.width if self.width is not None and self.width > 0 else None,
+            height=self.height if self.height is not None and self.height > 0 else None,
         )
 
     def get_caption(self) -> str:
