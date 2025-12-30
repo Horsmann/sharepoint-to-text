@@ -1059,7 +1059,7 @@ def test_read_ods_spreadsheet() -> None:
     )
 
 
-def test_open_office_presentation_image_interface() -> None:
+def test_open_office_document_image_interface() -> None:
     """Test that OpenDocumentImage correctly implements ImageInterface."""
     # Create an OpenDocumentImage with test data
     path = "sharepoint2text/tests/resources/open_office/image_extraction.odt"
@@ -1090,7 +1090,7 @@ def test_open_office_presentation_image_interface() -> None:
     tc.assertEqual(82881, len(odt.images[1].get_bytes().getvalue()))
 
 
-def test_open_presentation_image_interface() -> None:
+def test_open_office_presentation_image_interface() -> None:
     """Test that OpenDocumentImage correctly implements ImageInterface."""
     # Create an OpenDocumentImage with test data
     path = "sharepoint2text/tests/resources/open_office/image_extraction.odp"
@@ -1100,7 +1100,11 @@ def test_open_presentation_image_interface() -> None:
 
     odp: OdpContent = next(read_odp(file_like=file_like, path=path))
     tc.assertEqual(1, len(odp.slides[0].images))
-    # tc.assertEqual(
-    #     "Illustration 1: Screenshot from the Open Office download website",
-    #     odt.images[0].get_caption(),
-    # )
+    tc.assertEqual(
+        "",
+        odp.slides[0].images[0].get_caption(),
+    )
+    tc.assertEqual(
+        "Screenshot test image\nA test image from the Internet",
+        odp.slides[0].images[0].get_description(),
+    )

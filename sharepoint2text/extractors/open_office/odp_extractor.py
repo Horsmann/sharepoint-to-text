@@ -287,8 +287,8 @@ def _extract_image(
     """Extract image data from a frame element.
 
     Extracts images with their metadata:
-    - caption: From svg:title element or frame name
-    - description: From svg:desc element (alt text)
+    - caption: Always empty (ODP slides don't have captions like ODT documents)
+    - description: Combined from svg:title and svg:desc elements (with newline separator)
     - image_index: Sequential index of the image in the presentation
     - unit_index: The slide number where the image appears
     """
@@ -297,16 +297,23 @@ def _extract_image(
     width = frame.get(f"{{{NS['svg']}}}width")
     height = frame.get(f"{{{NS['svg']}}}height")
 
-    # Extract title (caption) and description from frame
+    # Extract title and description from frame
     # ODF uses svg:title and svg:desc elements for accessibility
+    # In ODP, we combine title and desc into description (no caption support)
     title_elem = frame.find("svg:title", NS)
-    caption = title_elem.text if title_elem is not None and title_elem.text else ""
-    # Fall back to frame name if no title
-    if not caption and name:
-        caption = name
+    title = title_elem.text if title_elem is not None and title_elem.text else ""
 
     desc_elem = frame.find("svg:desc", NS)
-    description = desc_elem.text if desc_elem is not None and desc_elem.text else ""
+    desc = desc_elem.text if desc_elem is not None and desc_elem.text else ""
+
+    # Combine title and description with newline separator
+    if title and desc:
+        description = f"{title}\n{desc}"
+    else:
+        description = title or desc
+
+    # ODP slides don't have captions like ODT documents
+    caption = ""
 
     # Find image element
     image_elem = frame.find("draw:image", NS)
