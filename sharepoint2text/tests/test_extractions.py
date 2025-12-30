@@ -722,7 +722,7 @@ def test_read_doc() -> None:
     )
 
 
-def test_read_doc__image_extraction() -> None:
+def test_read_doc__image_extraction_1() -> None:
     with open(
         "sharepoint2text/tests/resources/legacy_ms/legacy_doc_image.doc",
         mode="rb",
@@ -733,7 +733,7 @@ def test_read_doc__image_extraction() -> None:
     doc: DocContent = next(read_doc(file_like=file_like))
 
     images = list(doc.iterate_images())
-    tc.assertEqual(2, len(images))
+    tc.assertEqual(1, len(images))
 
     tc.assertEqual("image/bmp", images[0].get_content_type())
     tc.assertEqual("Illustration 1: A GitHub screenshot", images[0].get_caption())
@@ -748,16 +748,6 @@ def test_read_doc__image_extraction() -> None:
             height=660,
         ),
         images[0].get_metadata(),
-    )
-    tc.assertEqual(
-        ImageMetadata(
-            unit_index=None,
-            image_index=2,
-            content_type="image/bmp",
-            width=1304,
-            height=660,
-        ),
-        images[1].get_metadata(),
     )
 
 

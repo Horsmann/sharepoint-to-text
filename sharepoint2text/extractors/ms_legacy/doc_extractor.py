@@ -356,7 +356,49 @@ class _DocReader:
             )
             i += dib_len
 
+        images = _DocReader._filter_low_entropy_images(images)
+        for idx, image in enumerate(images, start=1):
+            image.image_index = idx
         return images
+
+    @staticmethod
+    def _filter_low_entropy_images(images: List[DocImage]) -> List[DocImage]:
+        """Filter likely mask/placeholder bitmaps when duplicates exist."""
+        if len(images) < 2:
+            return images
+
+        grouped: dict[tuple[Optional[int], Optional[int], int, str], List[DocImage]] = (
+            {}
+        )
+        for image in images:
+            key = (image.width, image.height, image.size_bytes, image.content_type)
+            grouped.setdefault(key, []).append(image)
+
+        filtered: List[DocImage] = []
+        for group in grouped.values():
+            if len(group) == 1:
+                filtered.extend(group)
+                continue
+
+            diversities = []
+            for image in group:
+                data = image.data
+                payload = (
+                    data[54:] if data.startswith(b"BM") and len(data) > 54 else data
+                )
+                sample = payload[:100000]
+                diversities.append(len(set(sample)))
+
+            max_diversity = max(diversities) if diversities else 0
+            if max_diversity <= 8:
+                filtered.extend(group)
+                continue
+
+            for image, diversity in zip(group, diversities):
+                if diversity > 8:
+                    filtered.append(image)
+
+        return filtered
 
     @staticmethod
     def _extract_image_captions(text: str) -> List[str]:
@@ -364,10 +406,6 @@ class _DocReader:
         if not text:
             return []
 
-        caption_pattern = re.compile(
-            r"^(illustration|figure|fig\.?|image|photo|abb\.?|bild)\b",
-            re.IGNORECASE,
-        )
         seq_field_pattern = re.compile(
             r"\bSEQ\b\s+\"?[^\"\\]+\"?\s+(?:\\\*\w+\s+)?",
             re.IGNORECASE,
@@ -379,12 +417,14 @@ class _DocReader:
             cleaned = line.strip()
             if not cleaned:
                 continue
-            cleaned = seq_field_pattern.sub("", cleaned).strip()
-            cleaned = re.sub(r"\\s+", " ", cleaned)
-            if caption_pattern.match(cleaned):
-                if cleaned not in seen:
-                    seen.add(cleaned)
-                    captions.append(cleaned)
+            cleaned, count = seq_field_pattern.subn("", cleaned)
+            if count == 0:
+                continue
+            cleaned = cleaned.strip()
+            cleaned = re.sub(r"\s+", " ", cleaned)
+            if cleaned and cleaned not in seen:
+                seen.add(cleaned)
+                captions.append(cleaned)
         return captions
 
     def _parse_content(self) -> DocContent:
