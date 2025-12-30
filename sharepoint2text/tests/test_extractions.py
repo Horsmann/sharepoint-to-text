@@ -1108,3 +1108,23 @@ def test_open_office_presentation_image_interface() -> None:
         "Screenshot test image\nA test image from the Internet",
         odp.slides[0].images[0].get_description(),
     )
+
+
+def test_open_office_spreadsheet_image_interface() -> None:
+    """Test that OpenDocumentImage correctly implements ImageInterface."""
+    # Create an OpenDocumentImage with test data
+    path = "sharepoint2text/tests/resources/open_office/image_extraction.ods"
+    with open(path, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    ods: OdsContent = next(read_ods(file_like=file_like, path=path))
+    tc.assertEqual(1, len(ods.sheets[0].images))
+    tc.assertEqual(
+        "",
+        ods.sheets[0].images[0].get_caption(),
+    )
+    tc.assertEqual(
+        "A description title\nThe description text of the image",
+        ods.sheets[0].images[0].get_description(),
+    )
