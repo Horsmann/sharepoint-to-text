@@ -1349,7 +1349,7 @@ def test_open_office__spreadsheet_image_interface() -> None:
 
 def test_read_pdf() -> None:
     with open(
-        "sharepoint2text/tests/resources/sample.pdf",
+        "sharepoint2text/tests/resources/pdf/sample.pdf",
         mode="rb",
     ) as file:
         file_like = io.BytesIO(file.read())

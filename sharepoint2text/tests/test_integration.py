@@ -171,7 +171,7 @@ def test_read_redirects_from_top_level():
     # other
     ##############
     # pdf
-    fl = _load_as_bytes(path="sharepoint2text/tests/resources/sample.pdf")
+    fl = _load_as_bytes(path="sharepoint2text/tests/resources/pdf/sample.pdf")
     result = next(read_pdf(fl))
     tc.assertTrue(isinstance(result, PdfContent))
 
