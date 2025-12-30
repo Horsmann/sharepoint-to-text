@@ -1275,7 +1275,7 @@ def test_read_pdf() -> None:
     tc.assertEqual(2, len(list(pdf.iterator())))
     tc.assertEqual(1, len(list(pdf.iterate_images())))
     tc.assertEqual(
-        ImageMetadata(unit_index=0, image_index=0, content_type=""),
+        ImageMetadata(unit_index=0, image_index=0, content_type="image/png"),
         list(pdf.iterate_images())[0].get_metadata(),
     )
 

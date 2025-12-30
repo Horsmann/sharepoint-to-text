@@ -250,7 +250,7 @@ def _extract_image(image_obj, name: str, index: int) -> PdfImage:
     # Determine image format based on filter
     filter_type = image_obj.get("/Filter", "")
     if isinstance(filter_type, list):
-        filter_type = filter_type[0] if filter_type else ""
+        filter_type = filter_type[-1] if filter_type else ""
     filter_type = str(filter_type)
 
     # Map filter to format
@@ -263,6 +263,16 @@ def _extract_image(image_obj, name: str, index: int) -> PdfImage:
         "/LZWDecode": "png",
     }
     img_format = format_map.get(filter_type, "raw")
+
+    content_type_map = {
+        "/DCTDecode": "image/jpeg",
+        "/JPXDecode": "image/jp2",
+        "/FlateDecode": "image/png",
+        "/CCITTFaxDecode": "image/tiff",
+        "/JBIG2Decode": "image/jbig2",
+        "/LZWDecode": "image/png",
+    }
+    content_type = content_type_map.get(filter_type, "image/unknown")
 
     # Get raw image data
     try:
@@ -281,4 +291,5 @@ def _extract_image(image_obj, name: str, index: int) -> PdfImage:
         filter=filter_type,
         data=data,
         format=img_format,
+        content_type=content_type,
     )

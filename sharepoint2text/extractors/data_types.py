@@ -385,6 +385,7 @@ class PdfImage(ImageInterface):
     filter: str = ""
     data: bytes = b""
     format: str = ""
+    content_type: str = ""
 
     def get_bytes(self) -> io.BytesIO:
         """Returns the bytes of the image as a BytesIO object."""
@@ -394,7 +395,7 @@ class PdfImage(ImageInterface):
 
     def get_content_type(self) -> str:
         """Returns the content type of the image as a string."""
-        return ""
+        return self.content_type.strip()
 
     def get_caption(self) -> str:
         """Returns the caption of the image as a string."""
