@@ -1409,7 +1409,7 @@ def test_read_pdf_2() -> None:
     pdf: PdfContent = next(read_pdf(file_like=file_like, path=path))
 
     tc.assertEqual(1, len(pdf.pages))
-    tc.assertEqual(3, len(pdf.pages[0].images))
+    tc.assertEqual(2, len(pdf.pages[0].images))
 
     images = pdf.pages[0].images
     img_1 = images[0]
@@ -1418,12 +1418,25 @@ def test_read_pdf_2() -> None:
             unit_index=1,
             image_index=1,
             content_type="image/png",
-            width=1172,
-            height=430,
+            width=1030,
+            height=454,
         ),
         img_1.get_metadata(),
     )
-    tc.assertEqual("", img_1.get_caption())
+    tc.assertEqual("The OpenDocument table", img_1.get_caption())
+
+    img_2 = images[1]
+    tc.assertEqual(
+        ImageMetadata(
+            unit_index=1,
+            image_index=2,
+            content_type="image/png",
+            width=1172,
+            height=430,
+        ),
+        img_2.get_metadata(),
+    )
+    tc.assertEqual("The modern office table", img_2.get_caption())
 
     metadata = pdf.get_metadata()
     tc.assertEqual(1, metadata.total_pages)

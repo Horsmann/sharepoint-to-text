@@ -107,6 +107,7 @@ import logging
 from typing import Any, Generator, List
 
 from pypdf import PdfReader
+from pypdf.generic import ContentStream
 
 from sharepoint2text.extractors.data_types import (
     PdfContent,
@@ -206,29 +207,73 @@ def _extract_image_bytes(page, page_num: int) -> List[PdfImage]:
         Failed extractions are logged and skipped.
     """
     found_images = []
-    if "/XObject" in page.get("/Resources", {}):
-        x_objects = page["/Resources"]["/XObject"].get_object()
+    if "/XObject" not in page.get("/Resources", {}):
+        return found_images
 
-        attempt_index = 1
+    x_objects = page["/Resources"]["/XObject"].get_object()
+    image_occurrences, mcid_order, mcid_text = _extract_page_mcid_data(page)
+
+    if image_occurrences:
         image_index = 1
-        for obj_name in x_objects:
-            obj = x_objects[obj_name]
+        for occurrence in image_occurrences:
+            obj_name = occurrence["name"]
+            obj = x_objects.get(obj_name)
+            if obj is None or obj.get("/Subtype") != "/Image":
+                continue
+            caption = _lookup_caption(
+                occurrence.get("mcid"),
+                mcid_order,
+                mcid_text,
+            )
+            try:
+                image_data = _extract_image(
+                    obj,
+                    obj_name,
+                    image_index,
+                    page_num,
+                    caption,
+                )
+                found_images.append(image_data)
+                image_index += 1
+            except Exception as e:
+                logger.warning(
+                    f"Silently ignoring - Failed to extract image [{obj_name}] [{image_index}]: %s",
+                    e,
+                )
+        return found_images
 
-            if obj.get("/Subtype") == "/Image":
-                try:
-                    image_data = _extract_image(obj, obj_name, image_index, page_num)
-                    found_images.append(image_data)
-                    image_index += 1
-                except Exception as e:
-                    logger.warning(
-                        f"Silently ignoring - Failed to extract image [{obj_name}] [{attempt_index}]: %s",
-                        e,
-                    )
-                attempt_index += 1
+    attempt_index = 1
+    image_index = 1
+    for obj_name in x_objects:
+        obj = x_objects[obj_name]
+
+        if obj.get("/Subtype") == "/Image":
+            try:
+                image_data = _extract_image(
+                    obj,
+                    obj_name,
+                    image_index,
+                    page_num,
+                    "",
+                )
+                found_images.append(image_data)
+                image_index += 1
+            except Exception as e:
+                logger.warning(
+                    f"Silently ignoring - Failed to extract image [{obj_name}] [{attempt_index}]: %s",
+                    e,
+                )
+            attempt_index += 1
     return found_images
 
 
-def _extract_image(image_obj, name: str, index: int, page_num: int) -> PdfImage:
+def _extract_image(
+    image_obj,
+    name,
+    index: int,
+    page_num: int,
+    caption: str,
+) -> PdfImage:
     """
     Extract image data and properties from a PDF image XObject.
 
@@ -284,10 +329,12 @@ def _extract_image(image_obj, name: str, index: int, page_num: int) -> PdfImage:
         logger.warning("Failed to extract image data: %s", e)
         data = image_obj._data if hasattr(image_obj, "_data") else b""
 
+    resolved_caption = caption or _extract_image_alt_text(image_obj)
+
     return PdfImage(
         index=index,
         name=str(name),
-        caption=_extract_image_caption(image_obj),
+        caption=resolved_caption,
         width=int(width),
         height=int(height),
         color_space=color_space,
@@ -300,8 +347,129 @@ def _extract_image(image_obj, name: str, index: int, page_num: int) -> PdfImage:
     )
 
 
-def _extract_image_caption(image_obj) -> str:
-    """Extract a caption/alt text for a PDF image XObject if present."""
+def _extract_page_mcid_data(page) -> tuple[list[dict], list[int], dict[int, str]]:
+    """Collect MCID text and image occurrence order from the page content stream."""
+    contents = page.get_contents()
+    if contents is None:
+        return [], [], {}
+
+    try:
+        stream = ContentStream(contents, page.pdf)
+    except Exception as e:
+        logger.debug("Failed to parse content stream: %s", e)
+        return [], [], {}
+
+    mcid_stack: list[int | None] = []
+    actual_text_stack: list[str | None] = []
+    mcid_order: list[int] = []
+    mcid_text: dict[int, str] = {}
+    image_occurrences: list[dict] = []
+
+    for operands, operator in stream.operations:
+        op = (
+            operator.decode("utf-8", errors="ignore")
+            if isinstance(operator, bytes)
+            else operator
+        )
+        if op in ("BDC", "BMC"):
+            current_mcid = mcid_stack[-1] if mcid_stack else None
+            actual_text = None
+            if op == "BDC" and len(operands) >= 2:
+                props = operands[1]
+                if isinstance(props, dict):
+                    if "/MCID" in props:
+                        current_mcid = props.get("/MCID")
+                    actual_text = props.get("/ActualText")
+            mcid_stack.append(current_mcid)
+            actual_text_stack.append(actual_text)
+            if current_mcid is not None and current_mcid not in mcid_order:
+                mcid_order.append(current_mcid)
+            continue
+
+        if op == "EMC":
+            if mcid_stack:
+                mcid_stack.pop()
+            if actual_text_stack:
+                actual_text_stack.pop()
+            continue
+
+        if op == "Do":
+            if not operands:
+                continue
+            current_mcid = mcid_stack[-1] if mcid_stack else None
+            image_occurrences.append(
+                {
+                    "name": operands[0],
+                    "mcid": current_mcid,
+                }
+            )
+            continue
+
+        if op in ("Tj", "TJ", "'", '"'):
+            current_mcid = mcid_stack[-1] if mcid_stack else None
+            if current_mcid is None:
+                continue
+            actual_text = actual_text_stack[-1] if actual_text_stack else None
+            if actual_text:
+                text = str(actual_text)
+                actual_text_stack[-1] = None
+            else:
+                text = _extract_text_from_operands(op, operands)
+            if text:
+                mcid_text[current_mcid] = mcid_text.get(current_mcid, "") + text
+                if current_mcid not in mcid_order:
+                    mcid_order.append(current_mcid)
+
+    return image_occurrences, mcid_order, mcid_text
+
+
+def _extract_text_from_operands(operator: str, operands: list) -> str:
+    if not operands:
+        return ""
+    if operator == "TJ":
+        parts = []
+        for item in operands[0]:
+            if isinstance(item, (str, bytes)):
+                parts.append(_normalize_text(item))
+        return "".join(parts)
+    if isinstance(operands[0], (str, bytes)):
+        return _normalize_text(operands[0])
+    return ""
+
+
+def _normalize_text(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="ignore")
+    return str(value)
+
+
+def _lookup_caption(
+    mcid: int | None,
+    mcid_order: list[int],
+    mcid_text: dict[int, str],
+) -> str:
+    if mcid is None:
+        return ""
+    text = mcid_text.get(mcid, "").strip()
+    if text:
+        return text
+    if not mcid_order:
+        return ""
+    try:
+        start_index = mcid_order.index(mcid)
+    except ValueError:
+        return ""
+    for next_mcid in mcid_order[start_index + 1 :]:
+        next_text = mcid_text.get(next_mcid, "").strip()
+        if next_text:
+            return next_text
+    return ""
+
+
+def _extract_image_alt_text(image_obj) -> str:
+    """Extract alt text or title for a PDF image XObject if present."""
     caption_keys = ("/Alt", "/Title", "/Caption", "/TU")
     for key in caption_keys:
         value = image_obj.get(key)
