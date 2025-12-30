@@ -129,6 +129,11 @@ from sharepoint2text.extractors.data_types import (
     DocxRun,
     DocxSection,
 )
+from sharepoint2text.extractors.omml_to_latex import (
+    GREEK_TO_LATEX,
+    convert_greek_and_symbols,
+    omml_to_latex,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -181,106 +186,15 @@ class _DocxFullTextExtractor:
 
     Class Attributes:
         GREEK_TO_LATEX: Mapping of Greek letters and math symbols to LaTeX
+            (imported from omml_to_latex module)
 
     Usage:
         >>> text = _DocxFullTextExtractor.extract_full_text(file_like)
         >>> latex = _DocxFullTextExtractor.omml_to_latex(omath_element)
     """
 
-    # Greek letter and symbol mapping for LaTeX conversion
-    # Lowercase and uppercase Greek, plus common mathematical symbols
-    GREEK_TO_LATEX = {
-        # Lowercase Greek
-        "α": "\\alpha",
-        "β": "\\beta",
-        "γ": "\\gamma",
-        "δ": "\\delta",
-        "ε": "\\epsilon",
-        "ζ": "\\zeta",
-        "η": "\\eta",
-        "θ": "\\theta",
-        "ι": "\\iota",
-        "κ": "\\kappa",
-        "λ": "\\lambda",
-        "μ": "\\mu",
-        "ν": "\\nu",
-        "ξ": "\\xi",
-        "ο": "o",  # omicron is just 'o' in LaTeX
-        "π": "\\pi",
-        "ρ": "\\rho",
-        "σ": "\\sigma",
-        "ς": "\\varsigma",
-        "τ": "\\tau",
-        "υ": "\\upsilon",
-        "φ": "\\phi",
-        "χ": "\\chi",
-        "ψ": "\\psi",
-        "ω": "\\omega",
-        # Uppercase Greek
-        "Α": "A",
-        "Β": "B",
-        "Γ": "\\Gamma",
-        "Δ": "\\Delta",
-        "Ε": "E",
-        "Ζ": "Z",
-        "Η": "H",
-        "Θ": "\\Theta",
-        "Ι": "I",
-        "Κ": "K",
-        "Λ": "\\Lambda",
-        "Μ": "M",
-        "Ν": "N",
-        "Ξ": "\\Xi",
-        "Ο": "O",
-        "Π": "\\Pi",
-        "Ρ": "P",
-        "Σ": "\\Sigma",
-        "Τ": "T",
-        "Υ": "\\Upsilon",
-        "Φ": "\\Phi",
-        "Χ": "X",
-        "Ψ": "\\Psi",
-        "Ω": "\\Omega",
-        # Common math symbols
-        "∞": "\\infty",
-        "∂": "\\partial",
-        "∇": "\\nabla",
-        "±": "\\pm",
-        "∓": "\\mp",
-        "×": "\\times",
-        "÷": "\\div",
-        "·": "\\cdot",
-        "≤": "\\leq",
-        "≥": "\\geq",
-        "≠": "\\neq",
-        "≈": "\\approx",
-        "≡": "\\equiv",
-        "∈": "\\in",
-        "∉": "\\notin",
-        "⊂": "\\subset",
-        "⊃": "\\supset",
-        "⊆": "\\subseteq",
-        "⊇": "\\supseteq",
-        "∪": "\\cup",
-        "∩": "\\cap",
-        "∧": "\\land",
-        "∨": "\\lor",
-        "¬": "\\neg",
-        "→": "\\rightarrow",
-        "←": "\\leftarrow",
-        "↔": "\\leftrightarrow",
-        "⇒": "\\Rightarrow",
-        "⇐": "\\Leftarrow",
-        "⇔": "\\Leftrightarrow",
-        "∀": "\\forall",
-        "∃": "\\exists",
-        "∅": "\\emptyset",
-        "ℕ": "\\mathbb{N}",
-        "ℤ": "\\mathbb{Z}",
-        "ℚ": "\\mathbb{Q}",
-        "ℝ": "\\mathbb{R}",
-        "ℂ": "\\mathbb{C}",
-    }
+    # Re-export from omml_to_latex module for backwards compatibility
+    GREEK_TO_LATEX = GREEK_TO_LATEX
 
     @classmethod
     def _convert_greek_and_symbols(cls, text: str) -> str:
@@ -297,21 +211,14 @@ class _DocxFullTextExtractor:
             >>> _DocxFullTextExtractor._convert_greek_and_symbols("αβγ")
             '\\alpha\\beta\\gamma'
         """
-        result = []
-        for char in text:
-            if char in cls.GREEK_TO_LATEX:
-                result.append(cls.GREEK_TO_LATEX[char])
-            else:
-                result.append(char)
-        return "".join(result)
+        return convert_greek_and_symbols(text)
 
     @classmethod
     def omml_to_latex(cls, omath_element) -> str:
         """
         Convert an OMML (Office Math Markup Language) element to LaTeX notation.
 
-        This method recursively processes the OMML XML structure and produces
-        a LaTeX string representation suitable for rendering or display.
+        This method delegates to the omml_to_latex module for the actual conversion.
 
         Args:
             omath_element: An ElementTree Element representing an m:oMath or m:oMathPara
@@ -320,250 +227,10 @@ class _DocxFullTextExtractor:
         Returns:
             LaTeX string representation of the mathematical expression.
 
-        Supported OMML Elements:
-            - m:f -> \\frac{numerator}{denominator}
-            - m:sSup -> base^{superscript}
-            - m:sSub -> base_{subscript}
-            - m:sSubSup -> base_{sub}^{sup}
-            - m:rad -> \\sqrt{content} or \\sqrt[n]{content}
-            - m:nary -> \\sum, \\int, \\prod with limits
-            - m:d -> (content) or other delimiters
-            - m:m -> \\begin{matrix}...\\end{matrix}
-            - m:func -> \\sin, \\cos, etc.
-            - m:bar -> \\overline{content}
-            - m:acc -> \\hat, \\tilde, etc.
-
-        Malformed Input Handling:
-            Some Word-generated OMML has malformed sqrt elements where the
-            radical contains only an opening bracket with the content following.
-            This method detects this pattern and consumes content until the
-            matching closing bracket is found.
-
-        Implementation Notes:
-            - Uses recursive element processing
-            - Skips property elements (rPr, fPr, etc.)
-            - Converts Greek letters via _convert_greek_and_symbols
-            - Tracks pending sqrt closures for malformed input
+        See Also:
+            sharepoint2text.extractors.omml_to_latex.omml_to_latex for full documentation.
         """
-        parts = []
-        pending_sqrt_close = None  # Bracket needed to close current sqrt
-
-        # Property elements to skip
-        skip_tags = {
-            "rPr",
-            "fPr",
-            "radPr",
-            "ctrlPr",
-            "oMathParaPr",
-            "degHide",
-            "type",
-            "rFonts",
-            "i",
-            "color",
-            "sz",
-            "szCs",
-            "jc",
-            "solidFill",
-            "srgbClr",
-            "latin",
-        }
-
-        def process_element(elem) -> str:
-            """Recursively process an element and return its LaTeX representation."""
-            nonlocal pending_sqrt_close
-
-            if elem is None:
-                return ""
-
-            tag = elem.tag.split("}")[-1]
-
-            # Skip property elements
-            if tag in skip_tags:
-                return ""
-
-            # Text content (both w:t and m:t)
-            if tag == "t":
-                text = elem.text or ""
-                converted = cls._convert_greek_and_symbols(text)
-
-                # Handle malformed sqrt: if we're waiting for a closing bracket
-                if pending_sqrt_close and pending_sqrt_close in converted:
-                    idx = converted.index(pending_sqrt_close)
-                    inside = converted[:idx]  # Content inside sqrt
-                    outside = converted[idx + 1 :]  # Content after closing bracket
-                    pending_sqrt_close = None
-                    return inside + "}" + outside
-
-                return converted
-
-            # Fraction: m:f contains m:num (numerator) and m:den (denominator)
-            if tag == "f":
-                num = elem.find(f"{M_NS}num")
-                den = elem.find(f"{M_NS}den")
-                num_text = process_element(num)
-                den_text = process_element(den)
-                return f"\\frac{{{num_text}}}{{{den_text}}}"
-
-            # Superscript: m:sSup contains m:e (base) and m:sup (superscript)
-            if tag == "sSup":
-                base = elem.find(f"{M_NS}e")
-                sup = elem.find(f"{M_NS}sup")
-                base_text = process_element(base)
-                sup_text = process_element(sup)
-                return f"{base_text}^{{{sup_text}}}"
-
-            # Subscript: m:sSub contains m:e (base) and m:sub (subscript)
-            if tag == "sSub":
-                base = elem.find(f"{M_NS}e")
-                sub = elem.find(f"{M_NS}sub")
-                base_text = process_element(base)
-                sub_text = process_element(sub)
-                return f"{base_text}_{{{sub_text}}}"
-
-            # Sub-superscript: m:sSubSup contains m:e, m:sub, and m:sup
-            if tag == "sSubSup":
-                base = elem.find(f"{M_NS}e")
-                sub = elem.find(f"{M_NS}sub")
-                sup = elem.find(f"{M_NS}sup")
-                base_text = process_element(base)
-                sub_text = process_element(sub)
-                sup_text = process_element(sup)
-                return f"{base_text}_{{{sub_text}}}^{{{sup_text}}}"
-
-            # Square root: m:rad contains m:deg (degree, optional) and m:e (content)
-            if tag == "rad":
-                deg = elem.find(f"{M_NS}deg")
-                content = elem.find(f"{M_NS}e")
-                content_text = process_element(content)
-                deg_text = process_element(deg).strip()
-
-                # Handle malformed: lone opening bracket inside sqrt
-                # Some OMML has sqrt containing just "(" with content after
-                if content_text.strip() in ("(", "[", "{"):
-                    bracket_map = {"(": ")", "[": "]", "{": "}"}
-                    pending_sqrt_close = bracket_map.get(content_text.strip(), ")")
-                    if deg_text:
-                        return f"\\sqrt[{deg_text}]{{"
-                    else:
-                        return "\\sqrt{"
-                else:
-                    if deg_text:
-                        return f"\\sqrt[{deg_text}]{{{content_text}}}"
-                    else:
-                        return f"\\sqrt{{{content_text}}}"
-
-            # N-ary (sum, product, integral): m:nary
-            if tag == "nary":
-                chr_elem = elem.find(f".//{M_NS}chr")
-                op = chr_elem.get(f"{M_NS}val") if chr_elem is not None else "∑"
-
-                sub = elem.find(f"{M_NS}sub")
-                sup = elem.find(f"{M_NS}sup")
-                content = elem.find(f"{M_NS}e")
-
-                op_map = {
-                    "∑": "\\sum",
-                    "∏": "\\prod",
-                    "∫": "\\int",
-                    "∬": "\\iint",
-                    "∭": "\\iiint",
-                }
-                latex_op = op_map.get(op, cls._convert_greek_and_symbols(op))
-
-                sub_text = process_element(sub)
-                sup_text = process_element(sup)
-                content_text = process_element(content)
-
-                result = latex_op
-                if sub_text.strip():
-                    result += f"_{{{sub_text}}}"
-                if sup_text.strip():
-                    result += f"^{{{sup_text}}}"
-                result += f" {content_text}"
-                return result
-
-            # Delimiter (parentheses, brackets): m:d
-            if tag == "d":
-                beg_chr = elem.find(f".//{M_NS}begChr")
-                end_chr = elem.find(f".//{M_NS}endChr")
-                left = beg_chr.get(f"{M_NS}val") if beg_chr is not None else "("
-                right = end_chr.get(f"{M_NS}val") if end_chr is not None else ")"
-
-                e_elements = elem.findall(f"{M_NS}e")
-                content_parts = [process_element(e) for e in e_elements]
-                content_text = ", ".join(content_parts)
-                return f"{left}{content_text}{right}"
-
-            # Matrix: m:m contains m:mr (rows) which contain m:e (elements)
-            if tag == "m" and elem.find(f"{M_NS}mr") is not None:
-                rows = []
-                for mr in elem.findall(f"{M_NS}mr"):
-                    cells = [process_element(e) for e in mr.findall(f"{M_NS}e")]
-                    rows.append(" & ".join(cells))
-                return "\\begin{matrix}" + " \\\\ ".join(rows) + "\\end{matrix}"
-
-            # Function: m:func contains m:fName and m:e
-            if tag == "func":
-                fname = elem.find(f"{M_NS}fName")
-                content = elem.find(f"{M_NS}e")
-                fname_text = process_element(fname)
-                content_text = process_element(content)
-                func_map = {
-                    "sin": "\\sin",
-                    "cos": "\\cos",
-                    "tan": "\\tan",
-                    "log": "\\log",
-                    "ln": "\\ln",
-                    "lim": "\\lim",
-                    "exp": "\\exp",
-                    "max": "\\max",
-                    "min": "\\min",
-                }
-                latex_fname = func_map.get(fname_text.strip(), fname_text)
-                return f"{latex_fname}{{{content_text}}}"
-
-            # Bar/overline: m:bar
-            if tag == "bar":
-                content = elem.find(f"{M_NS}e")
-                content_text = process_element(content)
-                return f"\\overline{{{content_text}}}"
-
-            # Accent (hat, tilde, etc.): m:acc
-            if tag == "acc":
-                chr_elem = elem.find(f".//{M_NS}chr")
-                accent = chr_elem.get(f"{M_NS}val") if chr_elem is not None else "^"
-                content = elem.find(f"{M_NS}e")
-                content_text = process_element(content)
-
-                accent_map = {
-                    "̂": "\\hat",
-                    "̃": "\\tilde",
-                    "̄": "\\bar",
-                    "⃗": "\\vec",
-                    "̇": "\\dot",
-                }
-                latex_accent = accent_map.get(accent, "\\hat")
-                return f"{latex_accent}{{{content_text}}}"
-
-            # Default: recurse into children and concatenate results
-            result = []
-            for child in elem:
-                child_result = process_element(child)
-                if child_result:
-                    result.append(child_result)
-            return "".join(result)
-
-        # Process all children of the omath element
-        for child in omath_element:
-            child_result = process_element(child)
-            if child_result:
-                parts.append(child_result)
-
-        # If sqrt was never closed (no matching bracket found), close it now
-        if pending_sqrt_close:
-            parts.append("}")
-
-        return "".join(parts)
+        return omml_to_latex(omath_element)
 
     @classmethod
     def extract_full_text_from_body(

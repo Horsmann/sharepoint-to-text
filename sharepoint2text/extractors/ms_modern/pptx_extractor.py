@@ -111,7 +111,7 @@ from sharepoint2text.extractors.data_types import (
     PptxMetadata,
     PPTXSlide,
 )
-from sharepoint2text.extractors.ms_modern.docx_extractor import _DocxFullTextExtractor
+from sharepoint2text.extractors.omml_to_latex import omml_to_latex
 
 logger = logging.getLogger(__name__)
 
@@ -525,14 +525,14 @@ def _extract_formulas_from_element(elem) -> List[Tuple[str, bool]]:
         omath = omath_para.find(f"{M_NS}oMath")
         if omath is not None:
             omath_in_para.add(omath)
-            latex = _DocxFullTextExtractor.omml_to_latex(omath)
+            latex = omml_to_latex(omath)
             if latex.strip():
                 formulas.append((latex, True))
 
     # Then find inline oMath elements (not in oMathPara)
     for omath in elem.iter(f"{M_NS}oMath"):
         if omath not in omath_in_para:
-            latex = _DocxFullTextExtractor.omml_to_latex(omath)
+            latex = omml_to_latex(omath)
             if latex.strip():
                 formulas.append((latex, False))
 
