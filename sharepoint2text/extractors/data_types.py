@@ -29,6 +29,38 @@ class FileMetadataInterface:
         return asdict(self)
 
 
+@dataclass
+class ImageMetadata:
+    # the index of the unit where this image occurs
+    # will be zero for formats with no page/slide units e.g. word
+    unit_index: int = 0
+    # A sequential index which shows which nth image this is
+    image_index: int = 0
+    content_type: str = ""
+
+
+class ImageInterface(Protocol):
+
+    @abstractmethod
+    def get_bytes(self) -> io.BytesIO:
+        """Returns the bytes of the image as a BytesIO object."""
+        pass
+
+    @abstractmethod
+    def get_content_type(self) -> str:
+        """Returns the content type of the image as a string."""
+        pass
+
+    @abstractmethod
+    def get_caption(self) -> str:
+        """Returns the caption and descriptive text of the image as a string."""
+        pass
+
+    @abstractmethod
+    def get_metadata(self) -> ImageMetadata:
+        pass
+
+
 class ExtractionInterface(Protocol):
     @abstractmethod
     def iterator(self) -> typing.Iterator[str]:
@@ -520,13 +552,32 @@ class PptxMetadata(FileMetadataInterface):
 
 
 @dataclass
-class PPTXImage:
+class PPTXImage(ImageInterface):
     image_index: int = 0
     filename: str = ""
     content_type: str = ""
     size_bytes: int = 0
     blob: Optional[bytes] = None
     caption: str = ""  # Alt text / description
+    slide_number: int = 0
+
+    def get_bytes(self) -> io.BytesIO:
+        fl = io.BytesIO(self.blob)
+        fl.seek(0)
+        return fl
+
+    def get_content_type(self) -> str:
+        return self.content_type
+
+    def get_metadata(self) -> ImageMetadata:
+        return ImageMetadata(
+            image_index=self.image_index,
+            content_type=self.content_type,
+            unit_index=self.slide_number,
+        )
+
+    def get_caption(self) -> str:
+        return self.caption
 
 
 @dataclass

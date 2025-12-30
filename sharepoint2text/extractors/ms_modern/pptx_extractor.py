@@ -671,6 +671,7 @@ def _process_slide_from_context(
                             size_bytes=len(blob),
                             blob=blob,
                             caption=caption,
+                            slide_number=slide_number,
                         )
                     )
 

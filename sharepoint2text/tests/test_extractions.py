@@ -12,6 +12,7 @@ from sharepoint2text.extractors.data_types import (
     EmailContent,
     FileMetadataInterface,
     HtmlContent,
+    ImageMetadata,
     OdpAnnotation,
     OdpContent,
     OdsAnnotation,
@@ -325,6 +326,28 @@ def test_read_pptx_2() -> None:
     tc.assertEqual(
         "The slide title\nThe first text line\n\n\n\n\nThe last text line\nA beach",
         base_text,
+    )
+
+    # images
+    tc.assertEqual(1, len(pptx.slides[0].images))
+    tc.assertEqual(1, pptx.slides[0].images[0].image_index)
+    tc.assertEqual("image/jpeg", pptx.slides[0].images[0].content_type)
+    tc.assertEqual(1, pptx.slides[0].images[0].slide_number)
+    tc.assertEqual(1535390, pptx.slides[0].images[0].size_bytes)
+    tc.assertEqual(
+        "Sandiger Weg zwischen zwei Hügeln, die ans Meer führen",
+        pptx.slides[0].images[0].caption,
+    )
+
+    # image interface
+    tc.assertEqual(
+        "Sandiger Weg zwischen zwei Hügeln, die ans Meer führen",
+        pptx.slides[0].images[0].get_caption(),
+    )
+    tc.assertEqual(1535390, len(pptx.slides[0].images[0].get_bytes().getvalue()))
+    tc.assertEqual(
+        ImageMetadata(unit_index=1, image_index=1, content_type="image/jpeg"),
+        pptx.slides[0].images[0].get_metadata(),
     )
 
     # Test with formulas included
