@@ -216,6 +216,24 @@ def test_read_xlsx_3() -> None:
     )
 
 
+def test_read_xlsx_4__image_extraction() -> None:
+    filename = "sharepoint2text/tests/resources/modern_ms/image_in_excel.xlsx"
+    with open(filename, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    xlsx: XlsxContent = next(read_xlsx(file_like=file_like))
+    tc.assertEqual("Image Sheet", xlsx.sheets[0].name)
+    tc.assertEqual(1, len(xlsx.sheets[0].images))
+
+    image = xlsx.sheets[0].images[0]
+    tc.assertEqual(7280, len(image.get_bytes().getvalue()))
+    tc.assertEqual("Image 1", image.get_caption())
+    tc.assertEqual("Picture", image.get_description())
+    tc.assertEqual(600, image.width)
+    tc.assertEqual(300, image.height)
+
+
 def test_read_pptx_1() -> None:
     filename = "sharepoint2text/tests/resources/modern_ms/eu-visibility_rules_00704232-AF9F-1A18-BD782C469454ADAD_68401.pptx"
     with open(filename, mode="rb") as file:

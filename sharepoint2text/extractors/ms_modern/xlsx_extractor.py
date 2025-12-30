@@ -34,6 +34,7 @@ openpyxl: https://github.com/theorchard/openpyxl
     - Row/column iteration
     - Core properties (metadata)
     - Date handling and formatting
+    - Embedded image extraction
 
 Data Representation
 -------------------
@@ -69,7 +70,7 @@ processing large numbers of empty cells in sparse spreadsheets.
 Known Limitations
 -----------------
 - Formulas are not extracted (only calculated values)
-- Charts and images are not extracted
+- Charts are not extracted
 - Conditional formatting is not applied to text output
 - Pivot tables show only cached data
 - Very large spreadsheets may use significant memory
@@ -105,12 +106,19 @@ Maintenance Notes
 import datetime
 import io
 import logging
+import zipfile
 from typing import Any, Dict, Generator, List
+from xml.etree import ElementTree as ET
 
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
-from sharepoint2text.extractors.data_types import XlsxContent, XlsxMetadata, XlsxSheet
+from sharepoint2text.extractors.data_types import (
+    XlsxContent,
+    XlsxImage,
+    XlsxMetadata,
+    XlsxSheet,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -401,12 +409,245 @@ def _format_sheet_as_text(all_rows: List[List[Any]]) -> str:
     return "\n".join(lines)
 
 
+def _get_content_type(filename: str) -> str:
+    """
+    Determine MIME content type from image filename extension.
+
+    Args:
+        filename: Image filename with extension.
+
+    Returns:
+        MIME type string (e.g., 'image/png', 'image/jpeg').
+    """
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    content_types = {
+        "png": "image/png",
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "gif": "image/gif",
+        "bmp": "image/bmp",
+        "tiff": "image/tiff",
+        "tif": "image/tiff",
+        "emf": "image/x-emf",
+        "wmf": "image/x-wmf",
+    }
+    return content_types.get(ext, "image/unknown")
+
+
+def _extract_images_from_zip(
+    file_like: io.BytesIO, sheet_names: List[str]
+) -> Dict[int, List[XlsxImage]]:
+    """
+    Extract all images from an XLSX file by parsing the ZIP archive directly.
+
+    XLSX files store images in xl/media/ and reference them via drawings.
+    Each sheet may have a drawing (xl/drawings/drawingN.xml) that contains
+    image references with metadata like name and description.
+
+    Args:
+        file_like: BytesIO containing the XLSX file.
+        sheet_names: List of sheet names in order (to map drawing to sheet index).
+
+    Returns:
+        Dictionary mapping sheet_index to list of XlsxImage objects.
+    """
+    # XML namespaces used in XLSX drawings
+    NS = {
+        "xdr": "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing",
+        "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
+        "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+        "rel": "http://schemas.openxmlformats.org/package/2006/relationships",
+    }
+
+    images_by_sheet: Dict[int, List[XlsxImage]] = {}
+    image_counter = 0
+
+    file_like.seek(0)
+    try:
+        with zipfile.ZipFile(file_like, "r") as zf:
+            namelist = zf.namelist()
+
+            # Build mapping of sheet index to drawing file
+            # Parse xl/worksheets/_rels/sheetN.xml.rels to find drawing references
+            sheet_to_drawing: Dict[int, str] = {}
+
+            for sheet_idx in range(len(sheet_names)):
+                sheet_num = sheet_idx + 1
+                rels_path = f"xl/worksheets/_rels/sheet{sheet_num}.xml.rels"
+                if rels_path not in namelist:
+                    continue
+
+                rels_xml = zf.read(rels_path).decode("utf-8")
+                rels_root = ET.fromstring(rels_xml)
+
+                # Find Relationship elements - try with and without namespace prefix
+                relationships = rels_root.findall("rel:Relationship", NS)
+                if not relationships:
+                    relationships = rels_root.findall(
+                        "{http://schemas.openxmlformats.org/package/2006/relationships}Relationship"
+                    )
+
+                for rel in relationships:
+                    rel_type = rel.get("Type", "")
+                    if "drawing" in rel_type:
+                        target = rel.get("Target", "")
+                        # Target can be:
+                        # - Absolute: "/xl/drawings/drawing1.xml"
+                        # - Relative: "../drawings/drawing1.xml"
+                        if target.startswith("/"):
+                            drawing_path = target[1:]  # Remove leading /
+                        elif target.startswith(".."):
+                            drawing_path = "xl/" + target[3:]  # Remove "../"
+                        else:
+                            drawing_path = "xl/worksheets/" + target
+                        sheet_to_drawing[sheet_idx] = drawing_path
+                        break
+
+            # Process each drawing file
+            for sheet_idx, drawing_path in sheet_to_drawing.items():
+                if drawing_path not in namelist:
+                    continue
+
+                # Parse drawing relationships to get image file paths
+                drawing_rels_path = drawing_path.replace(
+                    "drawings/", "drawings/_rels/"
+                ).replace(".xml", ".xml.rels")
+
+                rid_to_image: Dict[str, str] = {}
+                if drawing_rels_path in namelist:
+                    rels_xml = zf.read(drawing_rels_path).decode("utf-8")
+                    rels_root = ET.fromstring(rels_xml)
+
+                    # Find Relationship elements - try with and without namespace prefix
+                    relationships = rels_root.findall("rel:Relationship", NS)
+                    if not relationships:
+                        relationships = rels_root.findall(
+                            "{http://schemas.openxmlformats.org/package/2006/relationships}Relationship"
+                        )
+
+                    for rel in relationships:
+                        rel_type = rel.get("Type", "")
+                        if "image" in rel_type:
+                            rid = rel.get("Id", "")
+                            target = rel.get("Target", "")
+                            # Target might be absolute (/xl/media/...) or relative
+                            if target.startswith("/"):
+                                image_path = target[1:]  # Remove leading /
+                            else:
+                                # Relative to drawings folder
+                                image_path = "xl/media/" + target.rsplit("/", 1)[-1]
+                            rid_to_image[rid] = image_path
+
+                # Parse the drawing XML to get image metadata
+                drawing_xml = zf.read(drawing_path).decode("utf-8")
+                drawing_root = ET.fromstring(drawing_xml)
+
+                sheet_images: List[XlsxImage] = []
+
+                # EMUs to pixels conversion factor (9525 EMUs = 1 pixel at 96 DPI)
+                EMU_PER_PIXEL = 9525
+
+                # Find all anchor elements (oneCellAnchor, twoCellAnchor, absoluteAnchor)
+                anchor_types = [
+                    f"{{{NS['xdr']}}}oneCellAnchor",
+                    f"{{{NS['xdr']}}}twoCellAnchor",
+                    f"{{{NS['xdr']}}}absoluteAnchor",
+                ]
+
+                for anchor_type in anchor_types:
+                    for anchor in drawing_root.iter(anchor_type):
+                        # Find the pic element within this anchor
+                        pic = anchor.find("xdr:pic", NS)
+                        if pic is None:
+                            continue
+
+                        try:
+                            # Get dimensions from ext element (sibling of pic)
+                            width = 0
+                            height = 0
+                            ext = anchor.find("xdr:ext", NS)
+                            if ext is not None:
+                                cx = ext.get("cx", "0")
+                                cy = ext.get("cy", "0")
+                                try:
+                                    width = int(cx) // EMU_PER_PIXEL
+                                    height = int(cy) // EMU_PER_PIXEL
+                                except ValueError:
+                                    pass
+
+                            # Get non-visual properties for name and description
+                            nvPicPr = pic.find("xdr:nvPicPr", NS)
+                            caption = ""
+                            description = ""
+
+                            if nvPicPr is not None:
+                                cNvPr = nvPicPr.find("xdr:cNvPr", NS)
+                                if cNvPr is not None:
+                                    caption = cNvPr.get("name", "")
+                                    description = cNvPr.get("descr", "")
+
+                            # Get the blip reference to find the image file
+                            blipFill = pic.find("xdr:blipFill", NS)
+                            if blipFill is None:
+                                continue
+
+                            blip = blipFill.find("a:blip", NS)
+                            if blip is None:
+                                continue
+
+                            # Get the relationship ID
+                            embed_rid = blip.get(f"{{{NS['r']}}}embed", "")
+                            if not embed_rid or embed_rid not in rid_to_image:
+                                continue
+
+                            image_path = rid_to_image[embed_rid]
+                            if image_path not in namelist:
+                                continue
+
+                            # Read the image data
+                            image_bytes = zf.read(image_path)
+                            image_data = io.BytesIO(image_bytes)
+                            size_bytes = len(image_bytes)
+
+                            # Get filename from path
+                            filename = image_path.rsplit("/", 1)[-1]
+                            content_type = _get_content_type(filename)
+
+                            sheet_images.append(
+                                XlsxImage(
+                                    image_index=image_counter,
+                                    sheet_index=sheet_idx,
+                                    filename=filename,
+                                    content_type=content_type,
+                                    data=image_data,
+                                    size_bytes=size_bytes,
+                                    width=width,
+                                    height=height,
+                                    caption=caption,
+                                    description=description,
+                                )
+                            )
+                            image_counter += 1
+
+                        except Exception as e:
+                            logger.warning(f"Failed to extract image from drawing: {e}")
+                            continue
+
+                if sheet_images:
+                    images_by_sheet[sheet_idx] = sheet_images
+
+    except Exception as e:
+        logger.warning(f"Failed to extract images from XLSX: {e}")
+
+    return images_by_sheet
+
+
 def _read_content(file_like: io.BytesIO) -> List[XlsxSheet]:
     """
     Read all sheets from an XLSX file and extract their content.
 
-    Uses openpyxl in read_only mode for memory efficiency. Each sheet
-    is processed to extract both structured data and text representation.
+    Uses openpyxl in read_only mode for text/data extraction (memory efficient),
+    then parses the ZIP archive directly for image extraction.
 
     Args:
         file_like: BytesIO containing the XLSX file.
@@ -416,9 +657,11 @@ def _read_content(file_like: io.BytesIO) -> List[XlsxSheet]:
         - name: Sheet name
         - data: List of dicts (row data with header keys)
         - text: Formatted text table
+        - images: List of XlsxImage objects
 
     Notes:
-        - Workbook is opened in read_only and data_only mode
+        - Workbook is opened in read_only and data_only mode for text
+        - Images are extracted by parsing the ZIP archive directly
         - Empty sheets have empty data and text
         - Workbook is closed after extraction
     """
@@ -426,8 +669,9 @@ def _read_content(file_like: io.BytesIO) -> List[XlsxSheet]:
     file_like.seek(0)
     wb = load_workbook(file_like, read_only=True, data_only=True)
 
+    sheet_names = list(wb.sheetnames)
     sheets = []
-    for sheet_name in wb.sheetnames:
+    for sheet_name in sheet_names:
         logger.debug(f"Reading sheet: [{sheet_name}]")
         ws = wb[sheet_name]
         records, all_rows = _read_sheet_data(ws)
@@ -444,10 +688,22 @@ def _read_content(file_like: io.BytesIO) -> List[XlsxSheet]:
                 name=str(sheet_name),
                 data=data_rows,
                 text=text,
+                images=[],  # Will be populated in the image extraction pass
             )
         )
 
     wb.close()
+
+    # Extract images by parsing the ZIP archive directly
+    images_by_sheet = _extract_images_from_zip(file_like, sheet_names)
+
+    for sheet_idx, sheet_images in images_by_sheet.items():
+        if sheet_idx < len(sheets):
+            sheets[sheet_idx].images = sheet_images
+            logger.debug(
+                f"Extracted {len(sheet_images)} images from sheet: [{sheet_names[sheet_idx]}]"
+            )
+
     return sheets
 
 
@@ -498,10 +754,12 @@ def read_xlsx(
     metadata.populate_from_path(path)
 
     total_rows = sum(len(sheet.data) for sheet in sheets)
+    total_images = sum(len(sheet.images) for sheet in sheets)
     logger.info(
-        "Extracted XLSX: %d sheets, %d total rows",
+        "Extracted XLSX: %d sheets, %d total rows, %d images",
         len(sheets),
         total_rows,
+        total_images,
     )
 
     yield XlsxContent(metadata=metadata, sheets=sheets)
