@@ -238,7 +238,7 @@ def test_read_xlsx_4__image_extraction() -> None:
 
     tc.assertEqual(1, len(list(xlsx.iterate_images())))
     tc.assertEqual(
-        ImageMetadata(unit_index=0, image_index=0, content_type="image/png"),
+        ImageMetadata(unit_index=None, image_index=0, content_type="image/png"),
         list(xlsx.iterate_images())[0].get_metadata(),
     )
 
@@ -415,7 +415,7 @@ def test_read_docx_1() -> None:
     tc.assertEqual(1, len(docx.images))
     tc.assertEqual(1, len(list(docx.iterate_images())))
     tc.assertEqual(
-        ImageMetadata(unit_index=0, image_index=1, content_type="image/png"),
+        ImageMetadata(unit_index=None, image_index=1, content_type="image/png"),
         list(docx.iterate_images())[0].get_metadata(),
     )
 
@@ -491,7 +491,7 @@ def test_read_docx_2() -> None:
     # get_metadata returns ImageMetadata
     img_meta = docx.images[0].get_metadata()
     tc.assertEqual(
-        ImageMetadata(unit_index=0, image_index=1, content_type="image/png"),
+        ImageMetadata(unit_index=None, image_index=1, content_type="image/png"),
         img_meta,
     )
 
@@ -1169,7 +1169,7 @@ def test_open_office__document_image_interface() -> None:
         odt.images[0].get_caption(),
     )
     tc.assertEqual(
-        ImageMetadata(unit_index=1, image_index=1, content_type="image/png"),
+        ImageMetadata(unit_index=None, image_index=1, content_type="image/png"),
         odt.images[0].get_metadata(),
     )
     tc.assertEqual(90038, len(odt.images[0].get_bytes().getvalue()))
@@ -1178,7 +1178,7 @@ def test_open_office__document_image_interface() -> None:
         odt.images[1].get_caption(),
     )
     tc.assertEqual(
-        ImageMetadata(unit_index=1, image_index=2, content_type="image/png"),
+        ImageMetadata(unit_index=None, image_index=2, content_type="image/png"),
         odt.images[1].get_metadata(),
     )
     tc.assertEqual(82881, len(odt.images[1].get_bytes().getvalue()))
@@ -1275,7 +1275,7 @@ def test_read_pdf() -> None:
     tc.assertEqual(2, len(list(pdf.iterator())))
     tc.assertEqual(1, len(list(pdf.iterate_images())))
     tc.assertEqual(
-        ImageMetadata(unit_index=0, image_index=0, content_type="image/png"),
+        ImageMetadata(unit_index=2, image_index=0, content_type="image/png"),
         list(pdf.iterate_images())[0].get_metadata(),
     )
 

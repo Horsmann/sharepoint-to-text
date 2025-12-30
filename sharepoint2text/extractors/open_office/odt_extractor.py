@@ -588,7 +588,7 @@ def _extract_images_from_context(ctx: _OdtContext, body: ET.Element) -> list[Odt
                                 image_index=image_counter,
                                 caption=caption,
                                 description=description,
-                                unit_index=1,
+                                unit_index=None,
                             )
                         )
             except Exception as e:
@@ -644,7 +644,7 @@ def _extract_images_from_context(ctx: _OdtContext, body: ET.Element) -> list[Odt
                                     image_index=image_counter,
                                     caption=caption,
                                     description=description,
-                                    unit_index=1,
+                                    unit_index=None,
                                 )
                             )
                 except Exception as e:
@@ -661,7 +661,7 @@ def _extract_images_from_context(ctx: _OdtContext, body: ET.Element) -> list[Odt
                         image_index=image_counter,
                         caption=caption,
                         description=description,
-                        unit_index=1,
+                        unit_index=None,
                     )
                 )
 

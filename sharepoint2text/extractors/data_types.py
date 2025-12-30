@@ -44,10 +44,10 @@ class TableInterface(Protocol):
 
 @dataclass
 class ImageMetadata:
-    # the index of the unit where this image occurs
-    # will be zero for formats with no page/slide units e.g. word
-    unit_index: int = 0
-    # A sequential index which shows which nth image this is
+    # the index of the unit where this image occurs (1-based for pages/slides)
+    # None for formats without pages/slides (e.g. docx, odt, ods, xlsx)
+    unit_index: Optional[int] = None
+    # A sequential index which shows which nth image this is. The first image has value 1
     image_index: int = 0
     content_type: str = ""
 
@@ -281,7 +281,7 @@ class DocxImage(ImageInterface):
         return ImageMetadata(
             image_index=self.image_index,
             content_type=self.content_type,
-            unit_index=0,  # DOCX has no page/slide units
+            unit_index=None,  # DOCX has no page/slide units
         )
 
 
@@ -386,6 +386,7 @@ class PdfImage(ImageInterface):
     data: bytes = b""
     format: str = ""
     content_type: str = ""
+    unit_index: Optional[int] = None
 
     def get_bytes(self) -> io.BytesIO:
         """Returns the bytes of the image as a BytesIO object."""
@@ -407,7 +408,9 @@ class PdfImage(ImageInterface):
 
     def get_metadata(self) -> ImageMetadata:
         return ImageMetadata(
-            image_index=self.index, content_type=self.get_content_type()
+            image_index=self.index,
+            content_type=self.get_content_type(),
+            unit_index=self.unit_index,
         )
 
 
@@ -899,7 +902,7 @@ class XlsxImage(ImageInterface):
         return ImageMetadata(
             image_index=self.image_index,
             content_type=self.content_type,
-            unit_index=self.sheet_index,
+            unit_index=None,  # XLSX has sheets, not pages/slides
         )
 
 
@@ -1001,7 +1004,7 @@ class OpenDocumentImage(ImageInterface):
     image_index: int = 0
     caption: str = ""  # From svg:title or frame name
     description: str = ""  # From svg:desc (alt text)
-    unit_index: int = 0  # Page/slide number (0 for ODT documents)
+    unit_index: Optional[int] = None  # Page/slide number (None for ODT/ODS)
 
     def get_bytes(self) -> io.BytesIO:
         """Returns the bytes of the image as a BytesIO object."""

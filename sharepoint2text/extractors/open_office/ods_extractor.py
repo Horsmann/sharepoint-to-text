@@ -329,7 +329,7 @@ def _extract_images(
     - caption: Always empty (ODS sheets don't have captions like ODT documents)
     - description: Combined from svg:title and svg:desc elements (with newline separator)
     - image_index: Sequential index of the image across all sheets
-    - unit_index: The sheet number where the image appears
+    - unit_index: None (ODS has sheets, not pages/slides)
 
     Args:
         z: The open zipfile containing the spreadsheet.
@@ -386,7 +386,7 @@ def _extract_images(
                     image_index=image_counter,
                     caption=caption,
                     description=description,
-                    unit_index=sheet_number,
+                    unit_index=None,
                 )
             )
         else:
@@ -410,7 +410,7 @@ def _extract_images(
                                 image_index=image_counter,
                                 caption=caption,
                                 description=description,
-                                unit_index=sheet_number,
+                                unit_index=None,
                             )
                         )
             except Exception as e:

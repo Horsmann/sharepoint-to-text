@@ -166,7 +166,7 @@ def read_pdf(
     pages = {}
     total_images = 0
     for page_num, page in enumerate(reader.pages, start=1):
-        images = _extract_image_bytes(page)
+        images = _extract_image_bytes(page, page_num)
         total_images += len(images)
         pages[page_num] = PdfPage(
             text=page.extract_text() or "",
@@ -188,7 +188,7 @@ def read_pdf(
     )
 
 
-def _extract_image_bytes(page) -> List[PdfImage]:
+def _extract_image_bytes(page, page_num: int) -> List[PdfImage]:
     """
     Extract all images from a PDF page's XObject resources.
 
@@ -213,7 +213,7 @@ def _extract_image_bytes(page) -> List[PdfImage]:
 
             if obj.get("/Subtype") == "/Image":
                 try:
-                    image_data = _extract_image(obj, obj_name, img_index)
+                    image_data = _extract_image(obj, obj_name, img_index, page_num)
                     found_images.append(image_data)
                     img_index += 1
                 except Exception as e:
@@ -225,7 +225,7 @@ def _extract_image_bytes(page) -> List[PdfImage]:
     return found_images
 
 
-def _extract_image(image_obj, name: str, index: int) -> PdfImage:
+def _extract_image(image_obj, name: str, index: int, page_num: int) -> PdfImage:
     """
     Extract image data and properties from a PDF image XObject.
 
@@ -292,4 +292,5 @@ def _extract_image(image_obj, name: str, index: int) -> PdfImage:
         data=data,
         format=img_format,
         content_type=content_type,
+        unit_index=page_num,
     )
