@@ -992,10 +992,11 @@ def _extract_images_from_context(ctx: _DocxContext) -> list[DocxImage]:
     with their captions and descriptions (alt text).
 
     Caption is extracted from (in order of priority):
-    1. A following paragraph with a caption-like style (e.g., "Caption",
-       "Bildunterschrift", etc.)
-    2. Text boxes associated with the image (wps:wsp with wps:txbx)
-    3. Falls back to the name attribute of pic:cNvPr
+    1. A preceding paragraph with caption-like style AND keepNext attribute
+       (indicates it should stay with the following element - the image)
+    2. A following paragraph with caption-like style
+    3. Text boxes associated with the image (wps:wsp with wps:txbx)
+    4. Falls back to the name attribute of pic:cNvPr
 
     Description (alt text) is extracted from:
     - The descr attribute of pic:cNvPr (the picture's non-visual properties)
@@ -1031,6 +1032,17 @@ def _extract_images_from_context(ctx: _DocxContext) -> list[DocxImage]:
             if pStyle is not None:
                 return pStyle.get(f"{W_NS}val", "")
         return ""
+
+    def _has_keep_next(para) -> bool:
+        """Check if a paragraph has the keepNext property."""
+        pPr = para.find(f"{W_NS}pPr")
+        if pPr is not None:
+            keep_next = pPr.find(f"{W_NS}keepNext")
+            # keepNext is present and not explicitly set to false
+            if keep_next is not None:
+                val = keep_next.get(f"{W_NS}val", "true")
+                return val.lower() not in ("false", "0")
+        return False
 
     def _extract_paragraph_text(para) -> str:
         """Extract all text from a paragraph."""
@@ -1082,16 +1094,34 @@ def _extract_images_from_context(ctx: _DocxContext) -> list[DocxImage]:
                             caption = "".join(text_parts)
                             break  # Use the first text box as caption
 
-                # Check for caption in following paragraph with caption-like style
-                # This handles Word's standard caption feature where the caption
-                # is a separate paragraph below the image
+                # Check for caption in PRECEDING paragraph with caption-like style
+                # AND keepNext attribute (indicates it should stay with the image)
+                # This is the most reliable indicator of a title caption
+                preceding_caption = None
+                if para_idx > 0:
+                    prev_para = paragraphs[para_idx - 1]
+                    prev_style = _get_paragraph_style(prev_para)
+                    if _is_caption_style(prev_style) and _has_keep_next(prev_para):
+                        caption_text = _extract_paragraph_text(prev_para)
+                        if caption_text:
+                            preceding_caption = caption_text
+
+                # Check for caption in FOLLOWING paragraph with caption-like style
+                following_caption = None
                 if para_idx + 1 < len(paragraphs):
                     next_para = paragraphs[para_idx + 1]
                     next_style = _get_paragraph_style(next_para)
                     if _is_caption_style(next_style):
                         caption_text = _extract_paragraph_text(next_para)
                         if caption_text:
-                            caption = caption_text
+                            following_caption = caption_text
+
+                # Priority: preceding caption (with keepNext) > following caption
+                # > text box caption > name attribute
+                if preceding_caption:
+                    caption = preceding_caption
+                elif following_caption:
+                    caption = following_caption
 
                 # Find the relationship ID for the image
                 # Path: a:graphic > a:graphicData > pic:pic > pic:blipFill
