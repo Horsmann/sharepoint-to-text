@@ -848,12 +848,14 @@ class OpenDocumentAnnotation:
 
 
 @dataclass
-class OpenDocumentImage:
+class OpenDocumentImage(ImageInterface):
     """
     Represents an embedded image in an OpenDocument file.
 
     Images are stored in the Pictures/ directory within the ODF archive
     and referenced via href attributes in the content.xml.
+
+    Implements ImageInterface for consistent image handling across formats.
     """
 
     href: str = ""
@@ -864,6 +866,37 @@ class OpenDocumentImage:
     width: Optional[str] = None
     height: Optional[str] = None
     error: Optional[str] = None
+    image_index: int = 0
+    caption: str = ""  # From svg:title or frame name
+    description: str = ""  # From svg:desc (alt text)
+    unit_index: int = 0  # Page/slide number (0 for ODT documents)
+
+    def get_bytes(self) -> io.BytesIO:
+        """Returns the bytes of the image as a BytesIO object."""
+        if self.data is None:
+            return io.BytesIO()
+        self.data.seek(0)
+        return self.data
+
+    def get_content_type(self) -> str:
+        """Returns the content type of the image as a string."""
+        return self.content_type
+
+    def get_caption(self) -> str:
+        """Returns the caption of the image as a string."""
+        return self.caption
+
+    def get_description(self) -> str:
+        """Returns the descriptive text of the image as a string."""
+        return self.description
+
+    def get_metadata(self) -> ImageMetadata:
+        """Returns the metadata of the image."""
+        return ImageMetadata(
+            image_index=self.image_index,
+            content_type=self.content_type,
+            unit_index=self.unit_index,
+        )
 
 
 # Type aliases for backwards compatibility and semantic clarity

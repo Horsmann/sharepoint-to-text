@@ -465,25 +465,167 @@ def _extract_bookmarks(body: ET.Element) -> list[OdtBookmark]:
     return bookmarks
 
 
+def _extract_caption_from_paragraph(para: ET.Element) -> str:
+    """Extract caption text from a paragraph containing an image.
+
+    In ODT files with image captions, the paragraph contains both the image frame
+    and the caption text. This function extracts just the text content, properly
+    handling text:sequence elements (used for auto-numbering like "Illustration 1").
+    """
+    parts = []
+
+    # Get text before any child elements
+    if para.text:
+        parts.append(para.text)
+
+    for child in para:
+        tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+
+        # Skip image frames - we only want the caption text
+        if tag == "frame":
+            pass
+        elif tag == "sequence":
+            # text:sequence elements contain auto-numbers like "1", "2"
+            if child.text:
+                parts.append(child.text)
+        elif tag == "s":
+            # Space element
+            count = int(child.get(f"{{{NS['text']}}}c", "1"))
+            parts.append(" " * count)
+        elif tag == "tab":
+            parts.append("\t")
+        elif tag == "line-break":
+            parts.append("\n")
+        else:
+            # Other elements - extract their text recursively
+            parts.append(_get_text_recursive(child))
+
+        # Get tail text after this element
+        if child.tail:
+            parts.append(child.tail)
+
+    # Join and clean up whitespace
+    caption = "".join(parts).strip()
+    # Normalize internal whitespace
+    caption = " ".join(caption.split())
+    return caption
+
+
 def _extract_images_from_context(ctx: _OdtContext, body: ET.Element) -> list[OdtImage]:
-    """Extract images from the document using cached context."""
+    """Extract images from the document using cached context.
+
+    Extracts images with their metadata:
+    - caption: From text-box paragraph text, svg:title element, or frame name
+    - description: From svg:desc element (alt text)
+    - image_index: Sequential index of the image in the document
+
+    ODT files can have images in two formats:
+    1. Simple: draw:frame > draw:image (caption from svg:title or frame name)
+    2. Captioned: draw:frame > draw:text-box > text:p > draw:frame > draw:image
+       (caption is the text content of the containing paragraph)
+    """
     logger.debug("Extracting ODT images")
     images = []
+    image_counter = 0
 
+    # Track which image hrefs we've already processed (to avoid duplicates)
+    processed_hrefs = set()
+
+    # First, find images inside text-boxes (captioned images)
+    for outer_frame in body.findall(".//draw:frame", NS):
+        text_box = outer_frame.find("draw:text-box", NS)
+        if text_box is None:
+            continue
+
+        # Look for paragraphs in the text-box that contain images
+        for para in text_box.findall(".//text:p", NS):
+            inner_frame = para.find("draw:frame", NS)
+            if inner_frame is None:
+                continue
+
+            image_elem = inner_frame.find("draw:image", NS)
+            if image_elem is None:
+                continue
+
+            # Extract image properties from the inner frame
+            name = inner_frame.get(f"{{{NS['draw']}}}name", "")
+            width = inner_frame.get(f"{{{NS['svg']}}}width")
+            height = inner_frame.get(f"{{{NS['svg']}}}height")
+            href = image_elem.get(f"{{{NS['xlink']}}}href", "")
+
+            if not href or href.startswith("http"):
+                continue
+
+            # Mark as processed
+            processed_hrefs.add(href)
+
+            # Extract caption from the paragraph text
+            caption = _extract_caption_from_paragraph(para)
+
+            # Extract description from svg:desc if present
+            desc_elem = inner_frame.find("svg:desc", NS)
+            description = (
+                desc_elem.text if desc_elem is not None and desc_elem.text else ""
+            )
+
+            try:
+                if href in ctx.namelist:
+                    image_counter += 1
+                    with ctx.open_file(href) as img_file:
+                        img_data = img_file.read()
+                        content_type = (
+                            mimetypes.guess_type(href)[0] or "application/octet-stream"
+                        )
+                        images.append(
+                            OdtImage(
+                                href=href,
+                                name=name or href.split("/")[-1],
+                                content_type=content_type,
+                                data=io.BytesIO(img_data),
+                                size_bytes=len(img_data),
+                                width=width,
+                                height=height,
+                                image_index=image_counter,
+                                caption=caption,
+                                description=description,
+                                unit_index=0,
+                            )
+                        )
+            except Exception as e:
+                logger.debug(f"Failed to extract image {href}: {e}")
+                images.append(OdtImage(href=href, name=name, error=str(e)))
+
+    # Then, find simple images (not in text-boxes)
     for frame in body.findall(".//draw:frame", NS):
+        # Skip if this is a text-box frame
+        if frame.find("draw:text-box", NS) is not None:
+            continue
+
         name = frame.get(f"{{{NS['draw']}}}name", "")
         width = frame.get(f"{{{NS['svg']}}}width")
         height = frame.get(f"{{{NS['svg']}}}height")
 
-        # Find image element
+        # Extract title (caption) and description from frame
+        title_elem = frame.find("svg:title", NS)
+        caption = title_elem.text if title_elem is not None and title_elem.text else ""
+        if not caption and name:
+            caption = name
+
+        desc_elem = frame.find("svg:desc", NS)
+        description = desc_elem.text if desc_elem is not None and desc_elem.text else ""
+
         image_elem = frame.find("draw:image", NS)
         if image_elem is not None:
             href = image_elem.get(f"{{{NS['xlink']}}}href", "")
 
+            # Skip if already processed
+            if href in processed_hrefs:
+                continue
+
             if href and not href.startswith("http"):
-                # Internal image reference
                 try:
                     if href in ctx.namelist:
+                        image_counter += 1
                         with ctx.open_file(href) as img_file:
                             img_data = img_file.read()
                             content_type = (
@@ -499,19 +641,27 @@ def _extract_images_from_context(ctx: _OdtContext, body: ET.Element) -> list[Odt
                                     size_bytes=len(img_data),
                                     width=width,
                                     height=height,
+                                    image_index=image_counter,
+                                    caption=caption,
+                                    description=description,
+                                    unit_index=0,
                                 )
                             )
                 except Exception as e:
                     logger.debug(f"Failed to extract image {href}: {e}")
                     images.append(OdtImage(href=href, name=name, error=str(e)))
             elif href:
-                # External image reference
+                image_counter += 1
                 images.append(
                     OdtImage(
                         href=href,
                         name=name,
                         width=width,
                         height=height,
+                        image_index=image_counter,
+                        caption=caption,
+                        description=description,
+                        unit_index=0,
                     )
                 )
 

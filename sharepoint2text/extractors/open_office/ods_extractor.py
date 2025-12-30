@@ -301,14 +301,46 @@ def _extract_annotations(cell: ET.Element) -> list[OdsAnnotation]:
     return annotations
 
 
-def _extract_images(z: zipfile.ZipFile, table: ET.Element) -> list[OdsImage]:
-    """Extract images from a table/sheet."""
+def _extract_images(
+    z: zipfile.ZipFile,
+    table: ET.Element,
+    sheet_number: int,
+    image_counter: int,
+) -> tuple[list[OdsImage], int]:
+    """Extract images from a table/sheet.
+
+    Extracts images with their metadata:
+    - caption: From svg:title element or frame name
+    - description: From svg:desc element (alt text)
+    - image_index: Sequential index of the image across all sheets
+    - unit_index: The sheet number where the image appears
+
+    Args:
+        z: The open zipfile containing the spreadsheet.
+        table: The table:table XML element for this sheet.
+        sheet_number: The 1-based sheet number.
+        image_counter: The current global image counter across all sheets.
+
+    Returns:
+        A tuple of (list of OdsImage, updated image_counter).
+    """
     images = []
 
     for frame in table.findall(".//draw:frame", NS):
         name = frame.get(f"{{{NS['draw']}}}name", "")
         width = frame.get(f"{{{NS['svg']}}}width")
         height = frame.get(f"{{{NS['svg']}}}height")
+
+        # Extract title (caption) and description from frame
+        # ODF uses svg:title and svg:desc elements for accessibility
+        title_elem = frame.find("svg:title", NS)
+        caption = title_elem.text if title_elem is not None and title_elem.text else ""
+        # Fall back to frame name if no title
+        if not caption and name:
+            caption = name
+
+        desc_elem = frame.find("svg:desc", NS)
+        description = desc_elem.text if desc_elem is not None and desc_elem.text else ""
 
         image_elem = frame.find("draw:image", NS)
         if image_elem is None:
@@ -318,6 +350,8 @@ def _extract_images(z: zipfile.ZipFile, table: ET.Element) -> list[OdsImage]:
         if not href:
             continue
 
+        image_counter += 1
+
         if href.startswith("http"):
             # External image reference
             images.append(
@@ -326,6 +360,10 @@ def _extract_images(z: zipfile.ZipFile, table: ET.Element) -> list[OdsImage]:
                     name=name,
                     width=width,
                     height=height,
+                    image_index=image_counter,
+                    caption=caption,
+                    description=description,
+                    unit_index=sheet_number,
                 )
             )
         else:
@@ -346,13 +384,17 @@ def _extract_images(z: zipfile.ZipFile, table: ET.Element) -> list[OdsImage]:
                                 size_bytes=len(img_data),
                                 width=width,
                                 height=height,
+                                image_index=image_counter,
+                                caption=caption,
+                                description=description,
+                                unit_index=sheet_number,
                             )
                         )
             except Exception as e:
                 logger.debug(f"Failed to extract image {href}: {e}")
                 images.append(OdsImage(href=href, name=name, error=str(e)))
 
-    return images
+    return images, image_counter
 
 
 def _get_column_name(index: int) -> str:
@@ -364,8 +406,23 @@ def _get_column_name(index: int) -> str:
     return result
 
 
-def _extract_sheet(z: zipfile.ZipFile, table: ET.Element) -> OdsSheet:
-    """Extract content from a single sheet (table:table element)."""
+def _extract_sheet(
+    z: zipfile.ZipFile,
+    table: ET.Element,
+    sheet_number: int,
+    image_counter: int,
+) -> tuple[OdsSheet, int]:
+    """Extract content from a single sheet (table:table element).
+
+    Args:
+        z: The open zipfile containing the spreadsheet.
+        table: The table:table XML element for this sheet.
+        sheet_number: The 1-based sheet number.
+        image_counter: The current global image counter across all sheets.
+
+    Returns:
+        A tuple of (OdsSheet, updated_image_counter).
+    """
     sheet = OdsSheet()
 
     # Get sheet name
@@ -415,9 +472,9 @@ def _extract_sheet(z: zipfile.ZipFile, table: ET.Element) -> OdsSheet:
     sheet.data = rows_data
     sheet.text = "\n".join(text_lines)
     sheet.annotations = all_annotations
-    sheet.images = _extract_images(z, table)
+    sheet.images, image_counter = _extract_images(z, table, sheet_number, image_counter)
 
-    return sheet
+    return sheet, image_counter
 
 
 def read_ods(
@@ -479,8 +536,9 @@ def read_ods(
 
         # Extract sheets
         sheets = []
-        for table in body.findall("table:table", NS):
-            sheet = _extract_sheet(z, table)
+        image_counter = 0
+        for sheet_num, table in enumerate(body.findall("table:table", NS), start=1):
+            sheet, image_counter = _extract_sheet(z, table, sheet_num, image_counter)
             sheets.append(sheet)
 
     # Populate file metadata from path

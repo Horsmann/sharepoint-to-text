@@ -1057,3 +1057,53 @@ def test_read_ods_spreadsheet() -> None:
         "Sales Data\n" "Product\tQ1\tQ2\tQ3\tQ4\tTotal\nWidget",
         full_text[:44].strip(),
     )
+
+
+def test_open_document_image_interface() -> None:
+    """Test that OpenDocumentImage correctly implements ImageInterface."""
+    # Create an OpenDocumentImage with test data
+    path = "sharepoint2text/tests/resources/open_office/image_extraction.odt"
+    with open(path, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    odt: OdtContent = next(read_odt(file_like=file_like, path=path))
+
+    # tc.assertEqual(2, len(odt.images))
+    # tc.assertEqual(
+    #     "Illustration 1: Screenshot from the Open Office download website",
+    #     odt.images[0].get_caption(),
+    # )
+    # TODO: Units should start counting at 1
+    tc.assertEqual(
+        ImageMetadata(unit_index=0, image_index=1, content_type="image/png"),
+        odt.images[0].get_metadata(),
+    )
+    tc.assertEqual(90038, len(odt.images[0].get_bytes().getvalue()))
+    # tc.assertEqual("", odt.images[0].get_caption())
+    # tc.assertEqual(
+    #     "Illustration 2: Another Image from the download website",
+    #     odt.images[1].get_caption(),
+    # )
+    # tc.assertEqual("", odt.images[1].get_caption())
+    tc.assertEqual(
+        ImageMetadata(unit_index=0, image_index=2, content_type="image/png"),
+        odt.images[1].get_metadata(),
+    )
+    tc.assertEqual(82881, len(odt.images[1].get_bytes().getvalue()))
+
+
+def test_open_presentation_image_interface() -> None:
+    """Test that OpenDocumentImage correctly implements ImageInterface."""
+    # Create an OpenDocumentImage with test data
+    path = "sharepoint2text/tests/resources/open_office/image_extraction.odp"
+    with open(path, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    odp: OdpContent = next(read_odp(file_like=file_like, path=path))
+    tc.assertEqual(1, len(odp.slides[0].images))
+    # tc.assertEqual(
+    #     "Illustration 1: Screenshot from the Open Office download website",
+    #     odt.images[0].get_caption(),
+    # )

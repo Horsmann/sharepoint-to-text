@@ -278,12 +278,35 @@ def _extract_table(table_elem: ET.Element) -> list[list[str]]:
     return table_data
 
 
-def _extract_image(z: zipfile.ZipFile, frame: ET.Element) -> OdpImage | None:
-    """Extract image data from a frame element."""
+def _extract_image(
+    z: zipfile.ZipFile,
+    frame: ET.Element,
+    slide_number: int,
+    image_index: int,
+) -> OdpImage | None:
+    """Extract image data from a frame element.
+
+    Extracts images with their metadata:
+    - caption: From svg:title element or frame name
+    - description: From svg:desc element (alt text)
+    - image_index: Sequential index of the image in the presentation
+    - unit_index: The slide number where the image appears
+    """
     # Get frame attributes
     name = frame.get(f"{{{NS['draw']}}}name", "")
     width = frame.get(f"{{{NS['svg']}}}width")
     height = frame.get(f"{{{NS['svg']}}}height")
+
+    # Extract title (caption) and description from frame
+    # ODF uses svg:title and svg:desc elements for accessibility
+    title_elem = frame.find("svg:title", NS)
+    caption = title_elem.text if title_elem is not None and title_elem.text else ""
+    # Fall back to frame name if no title
+    if not caption and name:
+        caption = name
+
+    desc_elem = frame.find("svg:desc", NS)
+    description = desc_elem.text if desc_elem is not None and desc_elem.text else ""
 
     # Find image element
     image_elem = frame.find("draw:image", NS)
@@ -301,6 +324,10 @@ def _extract_image(z: zipfile.ZipFile, frame: ET.Element) -> OdpImage | None:
             name=name,
             width=width,
             height=height,
+            image_index=image_index,
+            caption=caption,
+            description=description,
+            unit_index=slide_number,
         )
 
     # Internal image reference
@@ -319,6 +346,10 @@ def _extract_image(z: zipfile.ZipFile, frame: ET.Element) -> OdpImage | None:
                     size_bytes=len(img_data),
                     width=width,
                     height=height,
+                    image_index=image_index,
+                    caption=caption,
+                    description=description,
+                    unit_index=slide_number,
                 )
     except Exception as e:
         logger.debug(f"Failed to extract image {href}: {e}")
@@ -327,8 +358,23 @@ def _extract_image(z: zipfile.ZipFile, frame: ET.Element) -> OdpImage | None:
     return None
 
 
-def _extract_slide(z: zipfile.ZipFile, page: ET.Element, slide_number: int) -> OdpSlide:
-    """Extract content from a single slide (draw:page element)."""
+def _extract_slide(
+    z: zipfile.ZipFile,
+    page: ET.Element,
+    slide_number: int,
+    image_counter: int = 0,
+) -> tuple[OdpSlide, int]:
+    """Extract content from a single slide (draw:page element).
+
+    Args:
+        z: The open zipfile containing the presentation.
+        page: The draw:page XML element for this slide.
+        slide_number: The 1-based slide number.
+        image_counter: The current global image counter across all slides.
+
+    Returns:
+        A tuple of (OdpSlide, updated_image_counter).
+    """
     slide = OdpSlide(slide_number=slide_number)
 
     # Get slide name
@@ -391,8 +437,9 @@ def _extract_slide(z: zipfile.ZipFile, page: ET.Element, slide_number: int) -> O
                 slide.tables.append(table_data)
 
         # Check for image
-        image = _extract_image(z, frame)
+        image = _extract_image(z, frame, slide_number, image_counter + 1)
         if image is not None:
+            image_counter += 1
             slide.images.append(image)
 
     # Extract speaker notes
@@ -406,7 +453,7 @@ def _extract_slide(z: zipfile.ZipFile, page: ET.Element, slide_number: int) -> O
                     if note_text:
                         slide.notes.append(note_text)
 
-    return slide
+    return slide, image_counter
 
 
 def read_odp(
@@ -467,8 +514,9 @@ def read_odp(
 
         # Extract slides
         slides = []
+        image_counter = 0
         for slide_num, page in enumerate(body.findall("draw:page", NS), start=1):
-            slide = _extract_slide(z, page, slide_num)
+            slide, image_counter = _extract_slide(z, page, slide_num, image_counter)
             slides.append(slide)
 
     # Populate file metadata from path
