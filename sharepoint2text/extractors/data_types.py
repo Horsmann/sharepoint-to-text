@@ -29,6 +29,43 @@ class FileMetadataInterface:
         return asdict(self)
 
 
+@dataclass
+class ImageMetadata:
+    # the index of the unit where this image occurs
+    # will be zero for formats with no page/slide units e.g. word
+    unit_index: int = 0
+    # A sequential index which shows which nth image this is
+    image_index: int = 0
+    content_type: str = ""
+
+
+class ImageInterface(Protocol):
+
+    @abstractmethod
+    def get_bytes(self) -> io.BytesIO:
+        """Returns the bytes of the image as a BytesIO object."""
+        pass
+
+    @abstractmethod
+    def get_content_type(self) -> str:
+        """Returns the content type of the image as a string."""
+        pass
+
+    @abstractmethod
+    def get_caption(self) -> str:
+        """Returns the caption of the image as a string."""
+        pass
+
+    @abstractmethod
+    def get_description(self) -> str:
+        """Returns the descriptive text of the image as a string."""
+        pass
+
+    @abstractmethod
+    def get_metadata(self) -> ImageMetadata:
+        pass
+
+
 class ExtractionInterface(Protocol):
     @abstractmethod
     def iterator(self) -> typing.Iterator[str]:
@@ -181,13 +218,43 @@ class DocxHeaderFooter:
 
 
 @dataclass
-class DocxImage:
+class DocxImage(ImageInterface):
     rel_id: str = ""
     filename: str = ""
     content_type: str = ""
     data: Optional[io.BytesIO] = None
     size_bytes: int = 0
     error: Optional[str] = None
+    image_index: int = 0
+    caption: str = ""  # Title/name of the image shape
+    description: str = ""  # Alt text / description for accessibility
+
+    def get_bytes(self) -> io.BytesIO:
+        """Returns the bytes of the image as a BytesIO object."""
+        if self.data is None:
+            return io.BytesIO()
+        self.data.seek(0)
+        return self.data
+
+    def get_content_type(self) -> str:
+        """Returns the content type of the image as a string."""
+        return self.content_type.strip()
+
+    def get_caption(self) -> str:
+        """Returns the caption of the image as a string."""
+        return self.caption.strip()
+
+    def get_description(self) -> str:
+        """Returns the descriptive text of the image as a string."""
+        return self.description.strip()
+
+    def get_metadata(self) -> ImageMetadata:
+        """Returns the metadata of the image."""
+        return ImageMetadata(
+            image_index=self.image_index,
+            content_type=self.content_type,
+            unit_index=0,  # DOCX has no page/slide units
+        )
 
 
 @dataclass
@@ -520,13 +587,36 @@ class PptxMetadata(FileMetadataInterface):
 
 
 @dataclass
-class PPTXImage:
+class PPTXImage(ImageInterface):
     image_index: int = 0
     filename: str = ""
     content_type: str = ""
     size_bytes: int = 0
     blob: Optional[bytes] = None
-    caption: str = ""  # Alt text / description
+    caption: str = ""  # Title/name of the image shape
+    description: str = ""  # Alt text / description for accessibility
+    slide_number: int = 0
+
+    def get_bytes(self) -> io.BytesIO:
+        fl = io.BytesIO(self.blob)
+        fl.seek(0)
+        return fl
+
+    def get_content_type(self) -> str:
+        return self.content_type
+
+    def get_metadata(self) -> ImageMetadata:
+        return ImageMetadata(
+            image_index=self.image_index,
+            content_type=self.content_type,
+            unit_index=self.slide_number,
+        )
+
+    def get_caption(self) -> str:
+        return self.caption
+
+    def get_description(self) -> str:
+        return self.description
 
 
 @dataclass
@@ -573,8 +663,8 @@ class PPTXSlide:
 
         if include_image_captions:
             for image in self.images:
-                if image.caption:
-                    parts.append(f"[Image: {image.caption}]")
+                if image.description:
+                    parts.append(f"[Image: {image.description}]")
 
         if include_comments:
             for comment in self.comments:
@@ -693,7 +783,7 @@ class XlsxMetadata(FileMetadataInterface):
 @dataclass
 class XlsxSheet:
     name: str = ""
-    data: List[Dict[str, typing.Any]] = field(default_factory=list)
+    data: List[List[typing.Any]] = field(default_factory=list)
     text: str = ""
 
 
@@ -758,12 +848,14 @@ class OpenDocumentAnnotation:
 
 
 @dataclass
-class OpenDocumentImage:
+class OpenDocumentImage(ImageInterface):
     """
     Represents an embedded image in an OpenDocument file.
 
     Images are stored in the Pictures/ directory within the ODF archive
     and referenced via href attributes in the content.xml.
+
+    Implements ImageInterface for consistent image handling across formats.
     """
 
     href: str = ""
@@ -774,6 +866,37 @@ class OpenDocumentImage:
     width: Optional[str] = None
     height: Optional[str] = None
     error: Optional[str] = None
+    image_index: int = 0
+    caption: str = ""  # From svg:title or frame name
+    description: str = ""  # From svg:desc (alt text)
+    unit_index: int = 0  # Page/slide number (0 for ODT documents)
+
+    def get_bytes(self) -> io.BytesIO:
+        """Returns the bytes of the image as a BytesIO object."""
+        if self.data is None:
+            return io.BytesIO()
+        self.data.seek(0)
+        return self.data
+
+    def get_content_type(self) -> str:
+        """Returns the content type of the image as a string."""
+        return self.content_type
+
+    def get_caption(self) -> str:
+        """Returns the caption of the image as a string."""
+        return self.caption
+
+    def get_description(self) -> str:
+        """Returns the descriptive text of the image as a string."""
+        return self.description
+
+    def get_metadata(self) -> ImageMetadata:
+        """Returns the metadata of the image."""
+        return ImageMetadata(
+            image_index=self.image_index,
+            content_type=self.content_type,
+            unit_index=self.unit_index,
+        )
 
 
 # Type aliases for backwards compatibility and semantic clarity
