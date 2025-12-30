@@ -242,40 +242,56 @@ def _extract_metadata(z: zipfile.ZipFile) -> OdsMetadata:
     return metadata
 
 
-def _extract_cell_value(cell: ET.Element) -> str:
-    """Extract the value from a table cell."""
+def _extract_cell_value(cell: ET.Element) -> tuple[Any, str]:
+    """Extract the value from a table cell.
+
+    Returns:
+        A tuple of (typed_value, display_text) where:
+        - typed_value: The value in appropriate Python type (int, float, str, None)
+        - display_text: The string representation for text output
+    """
     # Check for value type attribute
     value_type = cell.get(f"{{{NS['office']}}}value-type", "")
 
-    # For numeric values, get the value attribute
+    # For numeric values, get the value attribute and convert to proper type
     if value_type in ("float", "currency", "percentage"):
         value = cell.get(f"{{{NS['office']}}}value", "")
         if value:
-            return value
+            try:
+                float_val = float(value)
+                # Return int if it's a whole number
+                if float_val == int(float_val):
+                    return int(float_val), value
+                return float_val, value
+            except ValueError:
+                return value, value
 
     # For date/time values
     if value_type == "date":
         value = cell.get(f"{{{NS['office']}}}date-value", "")
         if value:
-            return value
+            return value, value
 
     if value_type == "time":
         value = cell.get(f"{{{NS['office']}}}time-value", "")
         if value:
-            return value
+            return value, value
 
     # For boolean values
     if value_type == "boolean":
         value = cell.get(f"{{{NS['office']}}}boolean-value", "")
         if value:
-            return value
+            return value.lower() == "true", value
 
     # For string values or fallback, get text from paragraphs
     text_parts = []
     for p in cell.findall(".//text:p", NS):
         text_parts.append(_get_text_recursive(p))
 
-    return "\n".join(text_parts)
+    text = "\n".join(text_parts)
+    if text:
+        return text, text
+    return None, ""
 
 
 def _extract_annotations(cell: ET.Element) -> list[OdsAnnotation]:
@@ -435,15 +451,13 @@ def _extract_sheet(
     # Get sheet name
     sheet.name = table.get(f"{{{NS['table']}}}name", "")
 
-    # Extract data rows
-    rows_data = []
+    # First pass: collect all rows and find max column count
+    raw_rows: list[list[tuple[Any, str]]] = []  # list of (typed_value, display_text)
     all_annotations = []
-    text_lines = []
+    max_cols = 0
 
     for row in table.findall("table:table-row", NS):
-        row_data = {}
-        row_texts = []
-        col_index = 0
+        row_values: list[tuple[Any, str]] = []
 
         # Check for repeated rows
         row_repeat = int(row.get(f"{{{NS['table']}}}number-rows-repeated", "1"))
@@ -454,27 +468,66 @@ def _extract_sheet(
                 cell.get(f"{{{NS['table']}}}number-columns-repeated", "1")
             )
 
-            cell_value = _extract_cell_value(cell)
+            typed_value, display_text = _extract_cell_value(cell)
 
             # Extract annotations from cell
             cell_annotations = _extract_annotations(cell)
             all_annotations.extend(cell_annotations)
 
-            # Add value to row data for each repeated cell
-            for _ in range(cell_repeat):
-                if cell_value:
-                    col_name = _get_column_name(col_index)
-                    row_data[col_name] = cell_value
-                    row_texts.append(cell_value)
-                col_index += 1
+            # Add value for each repeated cell (but limit large repeats for empty cells)
+            if typed_value is None and cell_repeat > 100:
+                # Large repeat of empty cells - just add one to track column position
+                row_values.append((None, ""))
+            else:
+                for _ in range(cell_repeat):
+                    row_values.append((typed_value, display_text))
 
-        # Add row data for each repeated row (but limit to avoid huge empty areas)
-        if row_data:
-            actual_repeats = min(row_repeat, 1)  # Only add once for data rows
-            for _ in range(actual_repeats):
-                rows_data.append(row_data.copy())
-            if row_texts:
-                text_lines.append("\t".join(row_texts))
+        # Add row for each repeated row (but limit to avoid huge empty areas)
+        if row_repeat > 100 and all(v[0] is None for v in row_values):
+            # Large repeat of empty rows - add just one
+            raw_rows.append(row_values)
+        else:
+            for _ in range(row_repeat):
+                raw_rows.append(row_values.copy())
+
+        if row_values:
+            max_cols = max(max_cols, len(row_values))
+
+    # Trim trailing empty rows
+    while raw_rows and all(v[0] is None for v in raw_rows[-1]):
+        raw_rows.pop()
+
+    # Trim trailing empty columns
+    if raw_rows:
+        # Find the last column with any data
+        last_data_col = 0
+        for row in raw_rows:
+            for i in range(len(row) - 1, -1, -1):
+                if row[i][0] is not None:
+                    last_data_col = max(last_data_col, i + 1)
+                    break
+        max_cols = last_data_col
+
+    # Build final data as list of lists, padding rows to have same column count
+    rows_data: list[list[Any]] = []
+    text_lines = []
+
+    for row_values in raw_rows:
+        # Build row with proper padding
+        row_data = []
+        row_texts = []
+        for i in range(max_cols):
+            if i < len(row_values):
+                typed_value, display_text = row_values[i]
+                row_data.append(typed_value)
+                if display_text:
+                    row_texts.append(display_text)
+            else:
+                row_data.append(None)
+
+        rows_data.append(row_data)
+        if row_texts:
+            text_lines.append("\t".join(row_texts))
 
     sheet.data = rows_data
     sheet.text = "\n".join(text_lines)

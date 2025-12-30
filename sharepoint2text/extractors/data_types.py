@@ -30,6 +30,19 @@ class FileMetadataInterface:
 
 
 @dataclass
+class TableInterface(Protocol):
+    @abstractmethod
+    def get_table(self) -> list[list[str]]:
+        """Returns a table as a list.
+
+        The list is a list of rows.
+        You can create a pandas/polars dataframe from this list of lists
+        via this command.
+        """
+        pass
+
+
+@dataclass
 class ImageMetadata:
     # the index of the unit where this image occurs
     # will be zero for formats with no page/slide units e.g. word
@@ -1009,7 +1022,7 @@ class OdsSheet:
     """Represents a single sheet in the spreadsheet."""
 
     name: str = ""
-    data: List[Dict[str, typing.Any]] = field(default_factory=list)
+    data: List[List[typing.Any]] = field(default_factory=list)
     text: str = ""
     annotations: List[OdsAnnotation] = field(default_factory=list)
     images: List[OdsImage] = field(default_factory=list)

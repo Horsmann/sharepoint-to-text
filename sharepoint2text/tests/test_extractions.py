@@ -189,6 +189,30 @@ def test_read_xlsx_2() -> None:
     tc.assertListEqual([["ColA", "ColB"], [1, 2]], xlsx.sheets[0].data)
 
 
+def test_read_xlsx_3() -> None:
+    """Verifies the treatment of empty rows and columns in a sheet
+
+    We want that the list of rows is easily processable with Pandas or Polars to create
+    dataframes. This requires that None/Nulls are not accidentally pruned. The rows must have
+    the same number of columns for this to work
+    """
+    filename = "sharepoint2text/tests/resources/modern_ms/empty_row_columns.xlsx"
+    with open(filename, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    xlsx: XlsxContent = next(read_xlsx(file_like=file_like))
+    tc.assertListEqual(
+        [
+            [None, "Name", None, "Age"],
+            [None, "A", None, 25],
+            [None, None, None, None],
+            [None, "B", None, 28],
+        ],
+        xlsx.sheets[0].data,
+    )
+
+
 def test_read_pptx_1() -> None:
     filename = "sharepoint2text/tests/resources/modern_ms/eu-visibility_rules_00704232-AF9F-1A18-BD782C469454ADAD_68401.pptx"
     with open(filename, mode="rb") as file:
@@ -1025,6 +1049,30 @@ def test_read_open_office__spreadsheet() -> None:
     tc.assertEqual(
         "Sales Data\n" "Product\tQ1\tQ2\tQ3\tQ4\tTotal\nWidget",
         full_text[:44].strip(),
+    )
+
+
+def test_read_open_office__spreadsheet_2() -> None:
+    """Verifies the treatment of empty rows and columns in a sheet
+
+    We want that the list of rows is easily processable with Pandas or Polars to create
+    dataframes. This requires that None/Nulls are not accidentally pruned. The rows must have
+    the same number of columns for this to work
+    """
+    filename = "sharepoint2text/tests/resources/modern_ms/empty_row_columns.ods"
+    with open(filename, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    ods: OdsContent = next(read_ods(file_like=file_like))
+    tc.assertListEqual(
+        [
+            [None, "Name", None, "Age"],
+            [None, "A", None, 25],
+            [None, None, None, None],
+            [None, "B", None, 28],
+        ],
+        ods.sheets[0].data,
     )
 
 
