@@ -358,6 +358,35 @@ class _DocReader:
 
         return images
 
+    @staticmethod
+    def _extract_image_captions(text: str) -> List[str]:
+        """Extract caption-like lines from document text for image mapping."""
+        if not text:
+            return []
+
+        caption_pattern = re.compile(
+            r"^(illustration|figure|fig\.?|image|photo|abb\.?|bild)\b",
+            re.IGNORECASE,
+        )
+        seq_field_pattern = re.compile(
+            r"\bSEQ\b\s+\"?[^\"\\]+\"?\s+(?:\\\*\w+\s+)?",
+            re.IGNORECASE,
+        )
+
+        captions: List[str] = []
+        seen: set[str] = set()
+        for line in text.splitlines():
+            cleaned = line.strip()
+            if not cleaned:
+                continue
+            cleaned = seq_field_pattern.sub("", cleaned).strip()
+            cleaned = re.sub(r"\\s+", " ", cleaned)
+            if caption_pattern.match(cleaned):
+                if cleaned not in seen:
+                    seen.add(cleaned)
+                    captions.append(cleaned)
+        return captions
+
     def _parse_content(self) -> DocContent:
         """
         Parse the WordDocument stream and extract all text content.
@@ -444,23 +473,37 @@ class _DocReader:
 
         images = self._extract_images_from_word_document(word_doc)
 
+        main_text = self._clean_text(main_data.decode(encoding, errors="replace"))
+        footnotes_text = (
+            self._clean_text(ftn_data.decode(encoding, errors="replace"))
+            if ftn_data
+            else ""
+        )
+        headers_text = (
+            self._clean_text(hdd_data.decode(encoding, errors="replace"))
+            if hdd_data
+            else ""
+        )
+        annotations_text = (
+            self._clean_text(atn_data.decode(encoding, errors="replace"))
+            if atn_data
+            else ""
+        )
+        caption_source = "\n".join(
+            part
+            for part in [main_text, footnotes_text, headers_text, annotations_text]
+            if part
+        )
+        captions = self._extract_image_captions(caption_source)
+        for idx, image in enumerate(images):
+            if idx < len(captions):
+                image.caption = captions[idx]
+
         self._content = DocContent(
-            main_text=self._clean_text(main_data.decode(encoding, errors="replace")),
-            footnotes=(
-                self._clean_text(ftn_data.decode(encoding, errors="replace"))
-                if ftn_data
-                else ""
-            ),
-            headers_footers=(
-                self._clean_text(hdd_data.decode(encoding, errors="replace"))
-                if hdd_data
-                else ""
-            ),
-            annotations=(
-                self._clean_text(atn_data.decode(encoding, errors="replace"))
-                if atn_data
-                else ""
-            ),
+            main_text=main_text,
+            footnotes=(footnotes_text),
+            headers_footers=(headers_text),
+            annotations=(annotations_text),
             images=images,
         )
 

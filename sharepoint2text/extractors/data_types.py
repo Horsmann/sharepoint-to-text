@@ -187,6 +187,7 @@ class DocImage(ImageInterface):
     size_bytes: int = 0
     width: Optional[int] = None
     height: Optional[int] = None
+    caption: str = ""
 
     def get_bytes(self) -> io.BytesIO:
         fl = io.BytesIO(self.data)
@@ -197,7 +198,7 @@ class DocImage(ImageInterface):
         return self.content_type.strip()
 
     def get_caption(self) -> str:
-        return ""
+        return self.caption.strip()
 
     def get_description(self) -> str:
         return ""
