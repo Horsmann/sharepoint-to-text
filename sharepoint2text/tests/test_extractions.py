@@ -334,15 +334,22 @@ def test_read_pptx_2() -> None:
     tc.assertEqual("image/jpeg", pptx.slides[0].images[0].content_type)
     tc.assertEqual(1, pptx.slides[0].images[0].slide_number)
     tc.assertEqual(1535390, pptx.slides[0].images[0].size_bytes)
+    # description is the alt text for accessibility (from descr attribute)
+    tc.assertEqual(
+        "Sandiger Weg zwischen zwei Hügeln, die ans Meer führen",
+        pptx.slides[0].images[0].description,
+    )
+    # caption is the shape name/title (from name attribute)
+    # Note: in this file, name and descr have the same value
     tc.assertEqual(
         "Sandiger Weg zwischen zwei Hügeln, die ans Meer führen",
         pptx.slides[0].images[0].caption,
     )
 
-    # image interface
+    # image interface - get_description() returns the caption (title/name)
     tc.assertEqual(
         "Sandiger Weg zwischen zwei Hügeln, die ans Meer führen",
-        pptx.slides[0].images[0].get_caption(),
+        pptx.slides[0].images[0].get_description(),
     )
     tc.assertEqual(1535390, len(pptx.slides[0].images[0].get_bytes().getvalue()))
     tc.assertEqual(

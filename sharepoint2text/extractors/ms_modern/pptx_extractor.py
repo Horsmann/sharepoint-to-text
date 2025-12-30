@@ -633,13 +633,19 @@ def _process_slide_from_context(
                 else:
                     image_path = f"{slide_dir}/{target}"
 
-                # Extract alt text / description
+                # Extract caption (name/title) and description (alt text)
                 caption = ""
+                description = ""
                 cNvPr = elem.find(f".//{P_NS}cNvPr")
                 if cNvPr is not None:
+                    # name attribute is the shape title/caption
+                    name = cNvPr.get("name", "")
+                    if name:
+                        caption = name
+                    # descr attribute is the alt text/description for accessibility
                     descr = cNvPr.get("descr", "")
                     if descr:
-                        caption = descr
+                        description = descr
 
                 # Read image data from context
                 blob = ctx.get_image_data(image_path)
@@ -671,14 +677,15 @@ def _process_slide_from_context(
                             size_bytes=len(blob),
                             blob=blob,
                             caption=caption,
+                            description=description,
                             slide_number=slide_number,
                         )
                     )
 
-                    # Add caption to ordered content if present
-                    if caption:
+                    # Add description to ordered content if present
+                    if description:
                         ordered_content.append(
-                            (position, "image_caption", f"[Image: {caption}]")
+                            (position, "image_caption", f"[Image: {description}]")
                         )
             except Exception as e:
                 logger.error(e)

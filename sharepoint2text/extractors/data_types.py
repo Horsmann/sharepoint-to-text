@@ -53,7 +53,12 @@ class ImageInterface(Protocol):
 
     @abstractmethod
     def get_caption(self) -> str:
-        """Returns the caption and descriptive text of the image as a string."""
+        """Returns the caption of the image as a string."""
+        pass
+
+    @abstractmethod
+    def get_description(self) -> str:
+        """Returns the descriptive text of the image as a string."""
         pass
 
     @abstractmethod
@@ -558,7 +563,8 @@ class PPTXImage(ImageInterface):
     content_type: str = ""
     size_bytes: int = 0
     blob: Optional[bytes] = None
-    caption: str = ""  # Alt text / description
+    caption: str = ""  # Title/name of the image shape
+    description: str = ""  # Alt text / description for accessibility
     slide_number: int = 0
 
     def get_bytes(self) -> io.BytesIO:
@@ -578,6 +584,9 @@ class PPTXImage(ImageInterface):
 
     def get_caption(self) -> str:
         return self.caption
+
+    def get_description(self) -> str:
+        return self.description
 
 
 @dataclass
@@ -624,8 +633,8 @@ class PPTXSlide:
 
         if include_image_captions:
             for image in self.images:
-                if image.caption:
-                    parts.append(f"[Image: {image.caption}]")
+                if image.description:
+                    parts.append(f"[Image: {image.description}]")
 
         if include_comments:
             for comment in self.comments:
