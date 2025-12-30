@@ -237,6 +237,7 @@ def test_read_xlsx_4__image_extraction() -> None:
     tc.assertEqual(300, image.height)
 
     tc.assertEqual(1, len(list(xlsx.iterate_images())))
+    img_meta = list(xlsx.iterate_images())[0].get_metadata()
     tc.assertEqual(
         ImageMetadata(
             unit_index=None,
@@ -245,8 +246,11 @@ def test_read_xlsx_4__image_extraction() -> None:
             width=600,
             height=300,
         ),
-        list(xlsx.iterate_images())[0].get_metadata(),
+        img_meta,
     )
+    tc.assertIsNone(img_meta.unit_index)
+    tc.assertEqual(600, img_meta.width)
+    tc.assertEqual(300, img_meta.height)
 
 
 def test_read_pptx_1() -> None:

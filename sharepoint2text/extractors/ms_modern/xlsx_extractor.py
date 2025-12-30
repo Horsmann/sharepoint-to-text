@@ -107,7 +107,7 @@ import datetime
 import io
 import logging
 import zipfile
-from typing import Any, Dict, Generator, List
+from typing import Any, Dict, Generator, List, Optional
 from xml.etree import ElementTree as ET
 
 from openpyxl import load_workbook
@@ -434,6 +434,70 @@ def _get_content_type(filename: str) -> str:
     return content_types.get(ext, "image/unknown")
 
 
+def _get_image_pixel_dimensions(
+    image_data: bytes,
+) -> tuple[Optional[int], Optional[int]]:
+    """Best-effort extraction of pixel dimensions from common raster formats."""
+    if not image_data:
+        return None, None
+
+    # PNG
+    if image_data.startswith(b"\x89PNG\r\n\x1a\n") and len(image_data) >= 24:
+        width = int.from_bytes(image_data[16:20], "big")
+        height = int.from_bytes(image_data[20:24], "big")
+        return (width or None, height or None)
+
+    # GIF
+    if image_data[:6] in (b"GIF87a", b"GIF89a") and len(image_data) >= 10:
+        width = int.from_bytes(image_data[6:8], "little")
+        height = int.from_bytes(image_data[8:10], "little")
+        return (width or None, height or None)
+
+    # BMP
+    if image_data[:2] == b"BM" and len(image_data) >= 26:
+        width = int.from_bytes(image_data[18:22], "little", signed=True)
+        height = int.from_bytes(image_data[22:26], "little", signed=True)
+        return (abs(width) or None, abs(height) or None)
+
+    # JPEG
+    if image_data.startswith(b"\xff\xd8"):
+        i = 2
+        size = len(image_data)
+        while i + 4 <= size:
+            if image_data[i] != 0xFF:
+                i += 1
+                continue
+            marker = image_data[i + 1]
+            if marker in (0xD9, 0xDA):
+                break
+            length = int.from_bytes(image_data[i + 2 : i + 4], "big")
+            if length < 2:
+                break
+            if marker in (
+                0xC0,
+                0xC1,
+                0xC2,
+                0xC3,
+                0xC5,
+                0xC6,
+                0xC7,
+                0xC9,
+                0xCA,
+                0xCB,
+                0xCD,
+                0xCE,
+                0xCF,
+            ):
+                if i + 2 + length <= size:
+                    height = int.from_bytes(image_data[i + 5 : i + 7], "big")
+                    width = int.from_bytes(image_data[i + 7 : i + 9], "big")
+                    return (width or None, height or None)
+                break
+            i += 2 + length
+
+    return None, None
+
+
 def _extract_images_from_zip(
     file_like: io.BytesIO, sheet_names: List[str]
 ) -> Dict[int, List[XlsxImage]]:
@@ -612,6 +676,8 @@ def _extract_images_from_zip(
                             # Get filename from path
                             filename = image_path.rsplit("/", 1)[-1]
                             content_type = _get_content_type(filename)
+                            if width <= 0 or height <= 0:
+                                width, height = _get_image_pixel_dimensions(image_bytes)
 
                             sheet_images.append(
                                 XlsxImage(
