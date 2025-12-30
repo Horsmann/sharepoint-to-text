@@ -33,11 +33,11 @@ class FileMetadataInterface:
 class TableInterface(Protocol):
     @abstractmethod
     def get_table(self) -> list[list[str]]:
-        """Returns a table as a list.
+        """Return the table data as a list of rows.
 
-        The list is a list of rows.
-        You can create a pandas/polars dataframe from this list of lists
-        via this command.
+        The outer list contains rows, and each inner list contains the
+        string values for a single row. This format is compatible with
+        pandas and polars DataFrame constructors.
         """
         pass
 
@@ -794,10 +794,13 @@ class XlsxMetadata(FileMetadataInterface):
 
 
 @dataclass
-class XlsxSheet:
+class XlsxSheet(TableInterface):
     name: str = ""
     data: List[List[typing.Any]] = field(default_factory=list)
     text: str = ""
+
+    def get_table(self) -> list[list[str]]:
+        return self.data
 
 
 @dataclass
@@ -1018,7 +1021,7 @@ class OdpContent(ExtractionInterface):
 
 
 @dataclass
-class OdsSheet:
+class OdsSheet(TableInterface):
     """Represents a single sheet in the spreadsheet."""
 
     name: str = ""
@@ -1026,6 +1029,9 @@ class OdsSheet:
     text: str = ""
     annotations: List[OdsAnnotation] = field(default_factory=list)
     images: List[OdsImage] = field(default_factory=list)
+
+    def get_table(self) -> list[list[str]]:
+        return self.data
 
 
 @dataclass

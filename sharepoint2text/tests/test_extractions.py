@@ -144,11 +144,14 @@ def test_read_xlsx_1() -> None:
     tc.assertListEqual(
         sorted(["Sheet1", "Sheet2", "Sheet3"]), sorted([s.name for s in xlsx.sheets])
     )
+
+    # check raw data and table interface
     # check that the first row in the first sheet is the headline
     tc.assertListEqual(["AREA", "CODE", "COUNTRY NAME"], xlsx.sheets[0].data[0])
+    tc.assertListEqual(["AREA", "CODE", "COUNTRY NAME"], xlsx.sheets[0].get_table()[0])
     tc.assertListEqual(
         ["European Union (EU)", "EU-28 ", "European Union (28 countries)"],
-        xlsx.sheets[0].data[1],
+        xlsx.sheets[0].get_table()[1],
     )
 
     tc.assertEqual(3, len(list(xlsx.iterator())))
@@ -1065,15 +1068,17 @@ def test_read_open_office__spreadsheet_2() -> None:
         file_like.seek(0)
 
     ods: OdsContent = next(read_ods(file_like=file_like))
+    expected_rows = [
+        [None, "Name", None, "Age"],
+        [None, "A", None, 25],
+        [None, None, None, None],
+        [None, "B", None, 28],
+    ]
     tc.assertListEqual(
-        [
-            [None, "Name", None, "Age"],
-            [None, "A", None, 25],
-            [None, None, None, None],
-            [None, "B", None, 28],
-        ],
+        expected_rows,
         ods.sheets[0].data,
     )
+    tc.assertListEqual(expected_rows, ods.sheets[0].get_table())
 
 
 def test_open_office__document_image_interface() -> None:
