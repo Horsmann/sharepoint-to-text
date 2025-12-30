@@ -722,6 +722,45 @@ def test_read_doc() -> None:
     )
 
 
+def test_read_doc__image_extraction() -> None:
+    with open(
+        "sharepoint2text/tests/resources/legacy_ms/legacy_doc_image.doc",
+        mode="rb",
+    ) as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    doc: DocContent = next(read_doc(file_like=file_like))
+
+    images = list(doc.iterate_images())
+    tc.assertEqual(2, len(images))
+
+    tc.assertEqual("image/bmp", images[0].get_content_type())
+    tc.assertEqual("Illustration 1: A GitHub screenshot", images[0].get_caption())
+    tc.assertEqual(1304, images[0].width)
+    tc.assertEqual(660, images[0].height)
+    tc.assertEqual(
+        ImageMetadata(
+            unit_index=None,
+            image_index=1,
+            content_type="image/bmp",
+            width=1304,
+            height=660,
+        ),
+        images[0].get_metadata(),
+    )
+    tc.assertEqual(
+        ImageMetadata(
+            unit_index=None,
+            image_index=2,
+            content_type="image/bmp",
+            width=1304,
+            height=660,
+        ),
+        images[1].get_metadata(),
+    )
+
+
 def test_read_rtf() -> None:
     with open(
         "sharepoint2text/tests/resources/legacy_ms/2025.144.un.rtf", mode="rb"

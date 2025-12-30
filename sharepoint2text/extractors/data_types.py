@@ -180,11 +180,45 @@ class DocMetadata(FileMetadataInterface):
 
 
 @dataclass
+class DocImage(ImageInterface):
+    image_index: int = 0
+    content_type: str = ""
+    data: bytes = b""
+    size_bytes: int = 0
+    width: Optional[int] = None
+    height: Optional[int] = None
+
+    def get_bytes(self) -> io.BytesIO:
+        fl = io.BytesIO(self.data)
+        fl.seek(0)
+        return fl
+
+    def get_content_type(self) -> str:
+        return self.content_type.strip()
+
+    def get_caption(self) -> str:
+        return ""
+
+    def get_description(self) -> str:
+        return ""
+
+    def get_metadata(self) -> ImageMetadata:
+        return ImageMetadata(
+            image_index=self.image_index,
+            content_type=self.content_type,
+            unit_index=None,  # DOC has no page/slide units
+            width=self.width if self.width is not None and self.width > 0 else None,
+            height=self.height if self.height is not None and self.height > 0 else None,
+        )
+
+
+@dataclass
 class DocContent(ExtractionInterface):
     main_text: str = ""
     footnotes: str = ""
     headers_footers: str = ""
     annotations: str = ""
+    images: List[DocImage] = field(default_factory=list)
     metadata: DocMetadata = field(default_factory=DocMetadata)
 
     def iterator(self) -> typing.Iterator[str]:
@@ -199,9 +233,8 @@ class DocContent(ExtractionInterface):
         return self.metadata
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
-        # not supported
-        yield from ()
-        return
+        for img in self.images:
+            yield img
 
 
 ##############

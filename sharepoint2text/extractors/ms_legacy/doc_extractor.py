@@ -41,7 +41,7 @@ Known Limitations
 -----------------
 - Encrypted/password-protected files raise LegacyMicrosoftParsingError
 - Complex tables may not preserve structure (extracted as plain text)
-- Embedded images and OLE objects are not extracted
+- OLE objects are not extracted
 - Text boxes and shapes may be missing from extraction
 - Files created by very old Word versions (<97) may fail
 - Complex nested structures may not parse correctly
@@ -109,6 +109,7 @@ Maintenance Notes
 """
 
 import datetime
+import hashlib
 import io
 import logging
 import re
@@ -120,6 +121,7 @@ import olefile
 from sharepoint2text.exceptions import LegacyMicrosoftParsingError
 from sharepoint2text.extractors.data_types import (
     DocContent,
+    DocImage,
     DocMetadata,
 )
 
@@ -258,6 +260,104 @@ class _DocReader:
             return self.ole.openstream(name).read()
         return b""
 
+    @staticmethod
+    def _build_bmp_from_dib(
+        dib_data: bytes, header_size: int, color_table_size: int
+    ) -> bytes:
+        """Wrap DIB data in a BMP header to produce a valid BMP file."""
+        file_size = 14 + len(dib_data)
+        pixel_offset = 14 + header_size + color_table_size
+        bmp_header = b"BM" + struct.pack("<IHHI", file_size, 0, 0, pixel_offset)
+        return bmp_header + dib_data
+
+    @staticmethod
+    def _extract_images_from_word_document(word_doc: bytes) -> List[DocImage]:
+        """
+        Extract embedded images from the WordDocument stream.
+
+        This implementation targets DIB (bitmap) payloads commonly embedded in
+        legacy .doc files and wraps them as BMP for consistent image handling.
+        """
+        images: List[DocImage] = []
+        seen_hashes: set[str] = set()
+        image_counter = 0
+
+        i = 0
+        data_len = len(word_doc)
+        while i + 40 <= data_len:
+            if word_doc[i : i + 4] != b"\x28\x00\x00\x00":
+                i += 1
+                continue
+
+            header_size = struct.unpack_from("<I", word_doc, i)[0]
+            if header_size != 40:
+                i += 1
+                continue
+
+            width = struct.unpack_from("<i", word_doc, i + 4)[0]
+            height = struct.unpack_from("<i", word_doc, i + 8)[0]
+            planes = struct.unpack_from("<H", word_doc, i + 12)[0]
+            bits_per_pixel = struct.unpack_from("<H", word_doc, i + 14)[0]
+            compression = struct.unpack_from("<I", word_doc, i + 16)[0]
+            size_image = struct.unpack_from("<I", word_doc, i + 20)[0]
+
+            if (
+                planes != 1
+                or bits_per_pixel not in (1, 4, 8, 16, 24, 32)
+                or compression not in (0, 1, 2, 3, 4, 5)
+            ):
+                i += 1
+                continue
+
+            abs_width = abs(width)
+            abs_height = abs(height)
+            if (
+                abs_width == 0
+                or abs_height == 0
+                or abs_width > 10000
+                or abs_height > 10000
+            ):
+                i += 1
+                continue
+
+            if size_image == 0:
+                row_size = ((bits_per_pixel * abs_width + 31) // 32) * 4
+                size_image = row_size * abs_height
+
+            color_table_size = 0
+            if bits_per_pixel <= 8:
+                color_table_size = (1 << bits_per_pixel) * 4
+
+            dib_len = header_size + color_table_size + size_image
+            if dib_len <= 0 or i + dib_len > data_len:
+                i += 1
+                continue
+
+            dib_data = word_doc[i : i + dib_len]
+            bmp_data = _DocReader._build_bmp_from_dib(
+                dib_data, header_size, color_table_size
+            )
+            digest = hashlib.sha1(bmp_data).hexdigest()
+            if digest in seen_hashes:
+                i += dib_len
+                continue
+
+            seen_hashes.add(digest)
+            image_counter += 1
+            images.append(
+                DocImage(
+                    image_index=image_counter,
+                    content_type="image/bmp",
+                    data=bmp_data,
+                    size_bytes=len(bmp_data),
+                    width=abs_width,
+                    height=abs_height,
+                )
+            )
+            i += dib_len
+
+        return images
+
     def _parse_content(self) -> DocContent:
         """
         Parse the WordDocument stream and extract all text content.
@@ -299,7 +399,7 @@ class _DocReader:
 
         # Magic check
         magic = struct.unpack_from("<H", word_doc, 0)[0]
-        if magic != 0xA5EC:
+        if magic not in (0xA5EC, 0xA5DC):
             raise LegacyMicrosoftParsingError(
                 f"Not a valid.doc file (Magic: {hex(magic)})"
             )
@@ -342,6 +442,8 @@ class _DocReader:
         # Annotations
         atn_data = word_doc[pos : pos + ccp_atn * mult] if ccp_atn > 0 else b""
 
+        images = self._extract_images_from_word_document(word_doc)
+
         self._content = DocContent(
             main_text=self._clean_text(main_data.decode(encoding, errors="replace")),
             footnotes=(
@@ -359,6 +461,7 @@ class _DocReader:
                 if atn_data
                 else ""
             ),
+            images=images,
         )
 
         return self._content
