@@ -94,6 +94,11 @@ class ExtractionInterface(Protocol):
         ...
 
     @abstractmethod
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        """Iterates over the extracted images"""
+        ...
+
+    @abstractmethod
     def get_full_text(self) -> str:
         """Full text of the slide deck as one single block of text"""
         ...
@@ -140,6 +145,11 @@ class EmailContent(ExtractionInterface):
             else self.body_html if self.body_html else ""
         )
 
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        # not supported
+        yield from ()
+        return
+
     def get_full_text(self) -> str:
         return "\n".join(self.iterator())
 
@@ -184,6 +194,11 @@ class DocContent(ExtractionInterface):
 
     def get_metadata(self) -> FileMetadataInterface:
         return self.metadata
+
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        # not supported
+        yield from ()
+        return
 
 
 ##############
@@ -337,6 +352,10 @@ class DocxContent(ExtractionInterface):
             for comment in self.comments:
                 yield f"[Comment: {comment.author}@{comment.date}: {comment.text}]"
 
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        for img in self.images:
+            yield img
+
     def get_full_text(
         self, include_formulas: bool = False, include_comments: bool = False
     ) -> str:
@@ -355,10 +374,8 @@ class DocxContent(ExtractionInterface):
 ######
 # PDF
 ######
-
-
 @dataclass
-class PdfImage:
+class PdfImage(ImageInterface):
     index: int = 0
     name: str = ""
     width: int = 0
@@ -368,6 +385,29 @@ class PdfImage:
     filter: str = ""
     data: bytes = b""
     format: str = ""
+
+    def get_bytes(self) -> io.BytesIO:
+        """Returns the bytes of the image as a BytesIO object."""
+        fl = io.BytesIO(self.data)
+        fl.seek(0)
+        return fl
+
+    def get_content_type(self) -> str:
+        """Returns the content type of the image as a string."""
+        return ""
+
+    def get_caption(self) -> str:
+        """Returns the caption of the image as a string."""
+        return ""
+
+    def get_description(self) -> str:
+        """Returns the descriptive text of the image as a string."""
+        return self.name
+
+    def get_metadata(self) -> ImageMetadata:
+        return ImageMetadata(
+            image_index=self.index, content_type=self.get_content_type()
+        )
 
 
 @dataclass
@@ -396,6 +436,13 @@ class PdfContent(ExtractionInterface):
     def get_metadata(self) -> PdfMetadata:
         return self.metadata
 
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        sorted_pages = [(idx, img) for idx, img in self.pages.items()]
+        sorted_pages.sort(key=lambda x: x[0])
+        for _, page in sorted_pages:
+            for img in page.images:
+                yield img
+
 
 #########
 # Plain
@@ -415,6 +462,10 @@ class PlainTextContent(ExtractionInterface):
 
     def get_metadata(self) -> FileMetadataInterface:
         return self.metadata
+
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        yield from ()
+        return
 
 
 ########
@@ -452,6 +503,10 @@ class HtmlContent(ExtractionInterface):
 
     def get_metadata(self) -> HtmlMetadata:
         return self.metadata
+
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        yield from ()
+        return
 
 
 #############
@@ -578,6 +633,10 @@ class PptContent(ExtractionInterface):
     def slide_count(self) -> int:
         """Number of slides extracted."""
         return len(self.slides)
+
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        yield from ()
+        return
 
 
 ##############
@@ -733,6 +792,11 @@ class PptxContent(ExtractionInterface):
         """Returns the metadata of the extracted file."""
         return self.metadata
 
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        for slide in self.slides:
+            for img in slide.images:
+                yield img
+
 
 #############
 # Legacy XLS
@@ -773,6 +837,10 @@ class XlsContent(ExtractionInterface):
     def get_metadata(self) -> XlsMetadata:
         """Returns the metadata of the extracted file."""
         return self.metadata
+
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        yield from ()
+        return
 
 
 ##############
@@ -861,10 +929,15 @@ class XlsxContent(ExtractionInterface):
         """Returns the metadata of the extracted file."""
         return self.metadata
 
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        for sheet in self.sheets:
+            for img in sheet.images:
+                yield img
 
-###############
-# OpenDocument Shared Types
-###############
+
+#############################
+# OpenDocument Shared Types #
+#############################
 
 
 @dataclass
@@ -1056,10 +1129,15 @@ class OdpContent(ExtractionInterface):
         """Number of slides extracted."""
         return len(self.slides)
 
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        for slides in self.slides:
+            for img in slides.images:
+                yield img
 
-###############
-# OpenDocument ODS (Spreadsheet)
-###############
+
+##################################
+# OpenDocument ODS (Spreadsheet) #
+##################################
 
 
 @dataclass
@@ -1101,10 +1179,15 @@ class OdsContent(ExtractionInterface):
         """Number of sheets extracted."""
         return len(self.sheets)
 
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        for sheet in self.sheets:
+            for img in sheet.images:
+                yield img
 
-###############
-# OpenDocument ODT (Text Document)
-###############
+
+####################################
+# OpenDocument ODT (Text Document) #
+####################################
 
 
 @dataclass
@@ -1205,9 +1288,13 @@ class OdtContent(ExtractionInterface):
         """Returns the metadata of the extracted file."""
         return self.metadata
 
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        for img in self.images:
+            yield img
+
 
 #######
-# RTF
+# RTF #
 #######
 
 
@@ -1401,3 +1488,7 @@ class RtfContent(ExtractionInterface):
     def get_metadata(self) -> RtfMetadata:
         """Returns the metadata of the extracted file."""
         return self.metadata
+
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        yield from ()
+        return
