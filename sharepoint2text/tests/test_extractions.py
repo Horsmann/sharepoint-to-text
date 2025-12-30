@@ -238,7 +238,13 @@ def test_read_xlsx_4__image_extraction() -> None:
 
     tc.assertEqual(1, len(list(xlsx.iterate_images())))
     tc.assertEqual(
-        ImageMetadata(unit_index=None, image_index=0, content_type="image/png"),
+        ImageMetadata(
+            unit_index=None,
+            image_index=0,
+            content_type="image/png",
+            width=600,
+            height=300,
+        ),
         list(xlsx.iterate_images())[0].get_metadata(),
     )
 
@@ -415,7 +421,13 @@ def test_read_docx_1() -> None:
     tc.assertEqual(1, len(docx.images))
     tc.assertEqual(1, len(list(docx.iterate_images())))
     tc.assertEqual(
-        ImageMetadata(unit_index=None, image_index=1, content_type="image/png"),
+        ImageMetadata(
+            unit_index=None,
+            image_index=1,
+            content_type="image/png",
+            width=1823,
+            height=1052,
+        ),
         list(docx.iterate_images())[0].get_metadata(),
     )
 
@@ -491,7 +503,13 @@ def test_read_docx_2() -> None:
     # get_metadata returns ImageMetadata
     img_meta = docx.images[0].get_metadata()
     tc.assertEqual(
-        ImageMetadata(unit_index=None, image_index=1, content_type="image/png"),
+        ImageMetadata(
+            unit_index=None,
+            image_index=1,
+            content_type="image/png",
+            width=930,
+            height=506,
+        ),
         img_meta,
     )
 
@@ -1275,7 +1293,13 @@ def test_read_pdf() -> None:
     tc.assertEqual(2, len(list(pdf.iterator())))
     tc.assertEqual(1, len(list(pdf.iterate_images())))
     tc.assertEqual(
-        ImageMetadata(unit_index=2, image_index=0, content_type="image/png"),
+        ImageMetadata(
+            unit_index=2,
+            image_index=0,
+            content_type="image/png",
+            width=910,
+            height=344,
+        ),
         list(pdf.iterate_images())[0].get_metadata(),
     )
 

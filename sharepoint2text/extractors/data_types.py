@@ -50,6 +50,9 @@ class ImageMetadata:
     # A sequential index which shows which nth image this is. The first image has value 1
     image_index: int = 0
     content_type: str = ""
+    # Pixel dimensions of the image when available
+    width: Optional[int] = None
+    height: Optional[int] = None
 
 
 class ImageInterface(Protocol):
@@ -252,6 +255,8 @@ class DocxImage(ImageInterface):
     content_type: str = ""
     data: Optional[io.BytesIO] = None
     size_bytes: int = 0
+    width: Optional[int] = None
+    height: Optional[int] = None
     error: Optional[str] = None
     image_index: int = 0
     caption: str = ""  # Title/name of the image shape
@@ -282,6 +287,8 @@ class DocxImage(ImageInterface):
             image_index=self.image_index,
             content_type=self.content_type,
             unit_index=None,  # DOCX has no page/slide units
+            width=self.width if self.width is not None and self.width > 0 else None,
+            height=self.height if self.height is not None and self.height > 0 else None,
         )
 
 
@@ -411,6 +418,8 @@ class PdfImage(ImageInterface):
             image_index=self.index,
             content_type=self.get_content_type(),
             unit_index=self.unit_index,
+            width=self.width if self.width > 0 else None,
+            height=self.height if self.height > 0 else None,
         )
 
 
@@ -686,6 +695,8 @@ class PptxImage(ImageInterface):
             image_index=self.image_index,
             content_type=self.content_type,
             unit_index=self.slide_number,
+            width=None,
+            height=None,
         )
 
     def get_caption(self) -> str:
@@ -903,6 +914,8 @@ class XlsxImage(ImageInterface):
             image_index=self.image_index,
             content_type=self.content_type,
             unit_index=None,  # XLSX has sheets, not pages/slides
+            width=self.width if self.width > 0 else None,
+            height=self.height if self.height > 0 else None,
         )
 
 
@@ -1031,6 +1044,8 @@ class OpenDocumentImage(ImageInterface):
             image_index=self.image_index,
             content_type=self.content_type,
             unit_index=self.unit_index,
+            width=None,
+            height=None,
         )
 
 

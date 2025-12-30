@@ -113,7 +113,7 @@ Maintenance Notes
 import io
 import logging
 import zipfile
-from typing import Any, Generator
+from typing import Any, Generator, Optional
 from xml.etree import ElementTree as ET
 
 from sharepoint2text.extractors.data_types import (
@@ -168,6 +168,70 @@ REL_NS = "{http://schemas.openxmlformats.org/package/2006/relationships}"
 EMU_PER_INCH = 914400
 # Twips conversion: 1440 twips = 1 inch
 TWIPS_PER_INCH = 1440
+
+
+def _get_image_pixel_dimensions(
+    image_data: bytes,
+) -> tuple[Optional[int], Optional[int]]:
+    """Best-effort extraction of pixel dimensions from common raster formats."""
+    if not image_data:
+        return None, None
+
+    # PNG
+    if image_data.startswith(b"\x89PNG\r\n\x1a\n") and len(image_data) >= 24:
+        width = int.from_bytes(image_data[16:20], "big")
+        height = int.from_bytes(image_data[20:24], "big")
+        return (width or None, height or None)
+
+    # GIF
+    if image_data[:6] in (b"GIF87a", b"GIF89a") and len(image_data) >= 10:
+        width = int.from_bytes(image_data[6:8], "little")
+        height = int.from_bytes(image_data[8:10], "little")
+        return (width or None, height or None)
+
+    # BMP
+    if image_data[:2] == b"BM" and len(image_data) >= 26:
+        width = int.from_bytes(image_data[18:22], "little", signed=True)
+        height = int.from_bytes(image_data[22:26], "little", signed=True)
+        return (abs(width) or None, abs(height) or None)
+
+    # JPEG
+    if image_data.startswith(b"\xff\xd8"):
+        i = 2
+        size = len(image_data)
+        while i + 4 <= size:
+            if image_data[i] != 0xFF:
+                i += 1
+                continue
+            marker = image_data[i + 1]
+            if marker in (0xD9, 0xDA):
+                break
+            length = int.from_bytes(image_data[i + 2 : i + 4], "big")
+            if length < 2:
+                break
+            if marker in (
+                0xC0,
+                0xC1,
+                0xC2,
+                0xC3,
+                0xC5,
+                0xC6,
+                0xC7,
+                0xC9,
+                0xCA,
+                0xCB,
+                0xCD,
+                0xCE,
+                0xCF,
+            ):
+                if i + 2 + length <= size:
+                    height = int.from_bytes(image_data[i + 5 : i + 7], "big")
+                    width = int.from_bytes(image_data[i + 7 : i + 9], "big")
+                    return (width or None, height or None)
+                break
+            i += 2 + length
+
+    return None, None
 
 
 class _DocxFullTextExtractor:
@@ -1164,6 +1228,7 @@ def _extract_images_from_context(ctx: _DocxContext) -> list[DocxImage]:
 
                 # Get caption and description from document drawings
                 caption, description = image_metadata.get(rel_id, ("", ""))
+                width, height = _get_image_pixel_dimensions(img_data)
 
                 images.append(
                     DocxImage(
@@ -1172,6 +1237,8 @@ def _extract_images_from_context(ctx: _DocxContext) -> list[DocxImage]:
                         content_type=content_type,
                         data=io.BytesIO(img_data),
                         size_bytes=len(img_data),
+                        width=width,
+                        height=height,
                         image_index=image_counter,
                         caption=caption,
                         description=description,
