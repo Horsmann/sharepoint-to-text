@@ -472,6 +472,33 @@ def test_read_docx_2() -> None:
     )
 
 
+def test_read_docx_3() -> None:
+    # Test for caption extraction from following paragraph with caption style
+    filename = "sharepoint2text/tests/resources/modern_ms/vorlage-abschlussarbeit.docx"
+    with open(filename, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    docx: DocxContent = next(read_docx(file_like))
+
+    tc.assertEqual(1, len(docx.images))
+
+    # image interface - caption from following paragraph with "HA-Bildunterschrift" style
+    expected_caption = (
+        "Abb. 1: Eine aus dem Internet heruntergeladene Bilddatei mit einer "
+        "Bildunterschrift. Die Abbildungen und Tabellen bitte nicht als "
+        "textumflossene Objekte, sondern so wie dies Bild als Absatz in den "
+        "Text einbinden. Dieser Untertext hat die Formatvorlage "
+        "\u201eHA-Bildunterschrift\u201c."
+    )
+    tc.assertEqual(expected_caption, docx.images[0].get_caption())
+    # description is the alt text (URL in this case)
+    tc.assertEqual(
+        "http://omgunmen.de/wp-content/uploads/2011/03/but-on-math-it-is.png",
+        docx.images[0].get_description(),
+    )
+
+
 def test_read_doc() -> None:
     with open(
         "sharepoint2text/tests/resources/legacy_ms/Speech_Prime_Minister_of_The_Netherlands_EN.doc",

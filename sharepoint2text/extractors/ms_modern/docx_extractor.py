@@ -991,9 +991,11 @@ def _extract_images_from_context(ctx: _DocxContext) -> list[DocxImage]:
     Parses the document body to find drawing elements and extracts images
     with their captions and descriptions (alt text).
 
-    Caption is extracted from:
-    - Text boxes associated with the image (wps:wsp with wps:txbx)
-    - Falls back to the name attribute of pic:cNvPr
+    Caption is extracted from (in order of priority):
+    1. A following paragraph with a caption-like style (e.g., "Caption",
+       "Bildunterschrift", etc.)
+    2. Text boxes associated with the image (wps:wsp with wps:txbx)
+    3. Falls back to the name attribute of pic:cNvPr
 
     Description (alt text) is extracted from:
     - The descr attribute of pic:cNvPr (the picture's non-visual properties)
@@ -1018,45 +1020,87 @@ def _extract_images_from_context(ctx: _DocxContext) -> list[DocxImage]:
     # Namespace for WordprocessingML shapes
     WPS_NS = "{http://schemas.microsoft.com/office/word/2010/wordprocessingShape}"
 
+    # Caption style keywords (case-insensitive matching)
+    CAPTION_STYLE_KEYWORDS = ("caption", "bildunterschrift", "abbildung", "figure")
+
+    def _get_paragraph_style(para) -> str:
+        """Get the style name from a paragraph."""
+        pPr = para.find(f"{W_NS}pPr")
+        if pPr is not None:
+            pStyle = pPr.find(f"{W_NS}pStyle")
+            if pStyle is not None:
+                return pStyle.get(f"{W_NS}val", "")
+        return ""
+
+    def _extract_paragraph_text(para) -> str:
+        """Extract all text from a paragraph."""
+        text_parts = []
+        for t in para.iter(f"{W_NS}t"):
+            if t.text:
+                text_parts.append(t.text)
+        return "".join(text_parts)
+
+    def _is_caption_style(style_name: str) -> bool:
+        """Check if a style name indicates a caption paragraph."""
+        style_lower = style_name.lower()
+        return any(kw in style_lower for kw in CAPTION_STYLE_KEYWORDS)
+
     if body is not None:
-        for drawing in body.iter(f"{W_NS}drawing"):
-            caption = ""
-            description = ""
+        # Get all paragraphs as a list for sibling access
+        paragraphs = list(body.findall(f"{W_NS}p"))
 
-            # Look for picture element (pic:pic) which contains the actual image
-            # The pic:cNvPr element has the image's name and description (alt text)
-            pic_cNvPr = drawing.find(f".//{PIC_NS}cNvPr")
-            if pic_cNvPr is not None:
-                # descr attribute is the alt text / description for accessibility
-                descr = pic_cNvPr.get("descr", "")
-                if descr:
-                    description = descr
-                # name attribute can be a fallback for caption
-                name = pic_cNvPr.get("name", "")
-                if name:
-                    caption = name
+        for para_idx, para in enumerate(paragraphs):
+            # Find drawings in this paragraph
+            for drawing in para.iter(f"{W_NS}drawing"):
+                caption = ""
+                description = ""
 
-            # Look for caption text in associated text boxes (wps:wsp with wps:txbx)
-            # This is used for image captions/subtitles added below images
-            for wsp in drawing.iter(f"{WPS_NS}wsp"):
-                txbx = wsp.find(f"{WPS_NS}txbx")
-                if txbx is not None:
-                    # Extract text from the text box content
-                    text_parts = []
-                    for t in txbx.iter(f"{W_NS}t"):
-                        if t.text:
-                            text_parts.append(t.text)
-                    if text_parts:
-                        caption = "".join(text_parts)
-                        break  # Use the first text box as caption
+                # Look for picture element (pic:pic) which contains the actual image
+                # The pic:cNvPr element has the image's name and description (alt text)
+                pic_cNvPr = drawing.find(f".//{PIC_NS}cNvPr")
+                if pic_cNvPr is not None:
+                    # descr attribute is the alt text / description for accessibility
+                    descr = pic_cNvPr.get("descr", "")
+                    if descr:
+                        description = descr
+                    # name attribute can be a fallback for caption
+                    name = pic_cNvPr.get("name", "")
+                    if name:
+                        caption = name
 
-            # Find the relationship ID for the image
-            # Path: a:graphic > a:graphicData > pic:pic > pic:blipFill > a:blip[@r:embed]
-            blip = drawing.find(f".//{A_NS}blip")
-            if blip is not None:
-                r_embed = blip.get(f"{R_NS}embed")
-                if r_embed:
-                    image_metadata[r_embed] = (caption, description)
+                # Look for caption text in associated text boxes (wps:wsp with wps:txbx)
+                # This is used for image captions/subtitles within the drawing group
+                for wsp in drawing.iter(f"{WPS_NS}wsp"):
+                    txbx = wsp.find(f"{WPS_NS}txbx")
+                    if txbx is not None:
+                        # Extract text from the text box content
+                        text_parts = []
+                        for t in txbx.iter(f"{W_NS}t"):
+                            if t.text:
+                                text_parts.append(t.text)
+                        if text_parts:
+                            caption = "".join(text_parts)
+                            break  # Use the first text box as caption
+
+                # Check for caption in following paragraph with caption-like style
+                # This handles Word's standard caption feature where the caption
+                # is a separate paragraph below the image
+                if para_idx + 1 < len(paragraphs):
+                    next_para = paragraphs[para_idx + 1]
+                    next_style = _get_paragraph_style(next_para)
+                    if _is_caption_style(next_style):
+                        caption_text = _extract_paragraph_text(next_para)
+                        if caption_text:
+                            caption = caption_text
+
+                # Find the relationship ID for the image
+                # Path: a:graphic > a:graphicData > pic:pic > pic:blipFill
+                #       > a:blip[@r:embed]
+                blip = drawing.find(f".//{A_NS}blip")
+                if blip is not None:
+                    r_embed = blip.get(f"{R_NS}embed")
+                    if r_embed:
+                        image_metadata[r_embed] = (caption, description)
 
     # Now extract images using relationships, with metadata from drawings
     image_counter = 0
