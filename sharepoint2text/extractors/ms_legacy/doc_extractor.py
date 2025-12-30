@@ -264,7 +264,12 @@ class _DocReader:
     def _build_bmp_from_dib(
         dib_data: bytes, header_size: int, color_table_size: int
     ) -> bytes:
-        """Wrap DIB data in a BMP header to produce a valid BMP file."""
+        """Wrap DIB data in a BMP header to produce a valid BMP file.
+
+        Assumptions/limits:
+        - Input is a BITMAPINFOHEADER-style DIB (header size 40 bytes).
+        - Only constructs a minimal BMP header; no validation of DIB content.
+        """
         file_size = 14 + len(dib_data)
         pixel_offset = 14 + header_size + color_table_size
         bmp_header = b"BM" + struct.pack("<IHHI", file_size, 0, 0, pixel_offset)
@@ -277,6 +282,13 @@ class _DocReader:
 
         This implementation targets DIB (bitmap) payloads commonly embedded in
         legacy .doc files and wraps them as BMP for consistent image handling.
+
+        Assumptions/limits:
+        - Only DIB payloads with a BITMAPINFOHEADER (40 bytes) are detected.
+        - Other embedded formats (WMF/EMF/JPEG/PNG) are not parsed here.
+        - Width/height are taken directly from the DIB header and may not
+          reflect scaling applied in the document.
+        - Duplicates are removed by content hash and low-entropy filtering.
         """
         images: List[DocImage] = []
         seen_hashes: set[str] = set()
@@ -363,7 +375,13 @@ class _DocReader:
 
     @staticmethod
     def _filter_low_entropy_images(images: List[DocImage]) -> List[DocImage]:
-        """Filter likely mask/placeholder bitmaps when duplicates exist."""
+        """Filter likely mask/placeholder bitmaps when duplicates exist.
+
+        Assumptions/limits:
+        - Heuristic based on byte diversity in the pixel payload.
+        - Only applied within groups of identical size/format.
+        - May drop valid low-color images or keep some masks.
+        """
         if len(images) < 2:
             return images
 
@@ -403,7 +421,13 @@ class _DocReader:
 
     @staticmethod
     def _extract_image_captions(text: str) -> List[str]:
-        """Extract caption-like lines from document text for image mapping."""
+        """Extract caption-like lines from document text for image mapping.
+
+        Assumptions/limits:
+        - Relies on SEQ field markers to identify captions across languages.
+        - Captions are assigned to images in document order without anchors.
+        - If no SEQ markers are present, returns an empty list.
+        """
         if not text:
             return []
 
