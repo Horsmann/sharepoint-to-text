@@ -237,6 +237,10 @@ def test_read_xlsx_4__image_extraction() -> None:
     tc.assertEqual(300, image.height)
 
     tc.assertEqual(1, len(list(xlsx.iterate_images())))
+    tc.assertEqual(
+        ImageMetadata(unit_index=0, image_index=0, content_type="image/png"),
+        list(xlsx.iterate_images())[0].get_metadata(),
+    )
 
 
 def test_read_pptx_1() -> None:
@@ -255,6 +259,26 @@ def test_read_pptx_1() -> None:
 
     tc.assertEqual(3, len(pptx.slides))
     tc.assertEqual(5, len(list(pptx.iterate_images())))
+    tc.assertEqual(
+        ImageMetadata(unit_index=2, image_index=1, content_type="image/png"),
+        list(pptx.iterate_images())[0].get_metadata(),
+    )
+    tc.assertEqual(
+        ImageMetadata(unit_index=2, image_index=2, content_type="image/jpeg"),
+        list(pptx.iterate_images())[1].get_metadata(),
+    )
+    tc.assertEqual(
+        ImageMetadata(unit_index=2, image_index=3, content_type="image/jpeg"),
+        list(pptx.iterate_images())[2].get_metadata(),
+    )
+    tc.assertEqual(
+        ImageMetadata(unit_index=2, image_index=4, content_type="image/jpeg"),
+        list(pptx.iterate_images())[3].get_metadata(),
+    )
+    tc.assertEqual(
+        ImageMetadata(unit_index=2, image_index=5, content_type="image/jpeg"),
+        list(pptx.iterate_images())[4].get_metadata(),
+    )
     ##########
     # SLIDES #
     ##########
@@ -390,6 +414,10 @@ def test_read_docx_1() -> None:
     tc.assertEqual(1, len(list(docx.iterator())))
     tc.assertEqual(1, len(docx.images))
     tc.assertEqual(1, len(list(docx.iterate_images())))
+    tc.assertEqual(
+        ImageMetadata(unit_index=0, image_index=1, content_type="image/png"),
+        list(docx.iterate_images())[0].get_metadata(),
+    )
 
     # test full text
     tc.assertEqual("Welcome to the Government", docx.get_full_text()[:25].strip())
@@ -1175,6 +1203,10 @@ def test_open_office__presentation_image_interface() -> None:
         "Screenshot test image\nA test image from the Internet",
         odp.slides[0].images[0].get_description(),
     )
+    tc.assertEqual(
+        ImageMetadata(unit_index=1, image_index=1, content_type="image/png"),
+        list(odp.iterate_images())[0].get_metadata(),
+    )
 
 
 def test_open_office__spreadsheet_image_interface() -> None:
@@ -1242,6 +1274,10 @@ def test_read_pdf() -> None:
     # test iterator
     tc.assertEqual(2, len(list(pdf.iterator())))
     tc.assertEqual(1, len(list(pdf.iterate_images())))
+    tc.assertEqual(
+        ImageMetadata(unit_index=0, image_index=0, content_type=""),
+        list(pdf.iterate_images())[0].get_metadata(),
+    )
 
     # test full text
     tc.assertEqual("This is a test sentence", pdf.get_full_text()[:23])
