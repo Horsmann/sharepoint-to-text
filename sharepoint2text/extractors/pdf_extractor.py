@@ -85,7 +85,7 @@ Usage
     >>> with open("document.pdf", "rb") as f:
     ...     for doc in read_pdf(io.BytesIO(f.read()), path="document.pdf"):
     ...         print(f"Pages: {doc.metadata.total_pages}")
-    ...         for page_num, page in doc.pages.items():
+    ...         for page_num, page in enumerate(doc.pages, start=1):
     ...             print(f"Page {page_num}: {len(page.text)} chars, {len(page.images)} images")
 
 See Also
@@ -140,7 +140,7 @@ def read_pdf(
 
     Yields:
         PdfContent: Single PdfContent object containing:
-            - pages: Dict mapping page numbers (1-indexed) to PdfPage objects
+            - pages: List of PdfPage objects in document order
             - metadata: PdfMetadata with total_pages and file info
 
     Note:
@@ -154,7 +154,7 @@ def read_pdf(
         ...     data = io.BytesIO(f.read())
         ...     for doc in read_pdf(data, path="report.pdf"):
         ...         print(f"Total pages: {doc.metadata.total_pages}")
-        ...         for page_num, page in doc.pages.items():
+        ...         for page_num, page in enumerate(doc.pages, start=1):
         ...             print(f"Page {page_num}:")
         ...             print(f"  Text: {page.text[:100]}...")
         ...             print(f"  Images: {len(page.images)}")
@@ -163,14 +163,16 @@ def read_pdf(
     reader = PdfReader(file_like)
     logger.debug("Parsing PDF with %d pages", len(reader.pages))
 
-    pages = {}
+    pages = []
     total_images = 0
     for page_num, page in enumerate(reader.pages, start=1):
         images = _extract_image_bytes(page, page_num)
         total_images += len(images)
-        pages[page_num] = PdfPage(
-            text=page.extract_text() or "",
-            images=images,
+        pages.append(
+            PdfPage(
+                text=page.extract_text() or "",
+                images=images,
+            )
         )
 
     metadata = PdfMetadata(total_pages=len(reader.pages))

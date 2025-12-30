@@ -470,12 +470,12 @@ class PdfMetadata(FileMetadataInterface):
 
 @dataclass
 class PdfContent(ExtractionInterface):
-    pages: Dict[int, PdfPage] = field(default_factory=dict)
+    pages: List[PdfPage] = field(default_factory=list)
     metadata: PdfMetadata = field(default_factory=PdfMetadata)
 
     def iterator(self) -> typing.Iterator[str]:
-        for page_num in sorted(self.pages.keys()):
-            yield self.pages[page_num].text
+        for page in self.pages:
+            yield page.text
 
     def get_full_text(self) -> str:
         return "\n".join(self.iterator())
@@ -484,9 +484,7 @@ class PdfContent(ExtractionInterface):
         return self.metadata
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
-        sorted_pages = [(idx, img) for idx, img in self.pages.items()]
-        sorted_pages.sort(key=lambda x: x[0])
-        for _, page in sorted_pages:
+        for page in self.pages:
             for img in page.images:
                 yield img
 

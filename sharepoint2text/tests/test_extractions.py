@@ -1347,7 +1347,7 @@ def test_open_office__spreadsheet_image_interface() -> None:
 #########
 
 
-def test_read_pdf() -> None:
+def test_read_pdf_1() -> None:
     with open(
         "sharepoint2text/tests/resources/pdf/sample.pdf",
         mode="rb",
@@ -1357,7 +1357,7 @@ def test_read_pdf() -> None:
     pdf: PdfContent = next(read_pdf(file_like=file_like))
 
     tc.assertEqual(2, pdf.metadata.total_pages)
-    tc.assertListEqual(sorted([1, 2]), sorted(pdf.pages.keys()))
+    tc.assertEqual(2, len(pdf.pages))
 
     # Text page 1
     expected = (
@@ -1367,21 +1367,21 @@ def test_read_pdf() -> None:
         "R1 V1" + "\n"
         "R2 V2"
     )
-    page_1_text = pdf.pages[1].text
+    page_1_text = pdf.pages[0].text
     tc.assertEqual(
         expected.strip().replace("\n", " "), page_1_text.strip().replace("\n", " ")
     )
 
     # Text page 2
     expected = "This is page 2" "\n" "An image of the Google landing page"
-    page_2_text = pdf.pages[2].text
+    page_2_text = pdf.pages[1].text
     tc.assertEqual(
         expected.strip().replace("\n", " "), page_2_text.strip().replace("\n", " ")
     )
 
     # Image data
-    tc.assertEqual(0, len(pdf.pages[1].images))
-    tc.assertEqual(1, len(pdf.pages[2].images))
+    tc.assertEqual(0, len(pdf.pages[0].images))
+    tc.assertEqual(1, len(pdf.pages[1].images))
 
     # test iterator
     tc.assertEqual(2, len(list(pdf.iterator())))
@@ -1399,6 +1399,34 @@ def test_read_pdf() -> None:
 
     # test full text
     tc.assertEqual("This is a test sentence", pdf.get_full_text()[:23])
+
+
+def test_read_pdf_2() -> None:
+    path = "sharepoint2text/tests/resources/pdf/multi_image.pdf"
+    with open(path, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+    pdf: PdfContent = next(read_pdf(file_like=file_like, path=path))
+
+    tc.assertEqual(1, len(pdf.pages))
+    tc.assertEqual(3, len(pdf.pages[0].images))
+
+    images = pdf.pages[0].images
+    tc.assertEqual(
+        ImageMetadata(
+            unit_index=1,
+            image_index=0,
+            content_type="image/png",
+            width=1172,
+            height=430,
+        ),
+        images[0].get_metadata(),
+    )
+
+    metadata = pdf.get_metadata()
+    tc.assertEqual(1, metadata.total_pages)
+    tc.assertEqual("multi_image.pdf", metadata.filename)
+    tc.assertEqual(".pdf", metadata.file_extension)
 
 
 def test_read_html() -> None:
