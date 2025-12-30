@@ -472,7 +472,7 @@ def test_read_docx_2() -> None:
     )
 
 
-def test_read_docx_3() -> None:
+def test_read_docx__image_extraction_1() -> None:
     # Test for caption extraction from following paragraph with caption style
     filename = "sharepoint2text/tests/resources/modern_ms/vorlage-abschlussarbeit.docx"
     with open(filename, mode="rb") as file:
@@ -496,6 +496,22 @@ def test_read_docx_3() -> None:
     tc.assertEqual(
         "http://omgunmen.de/wp-content/uploads/2011/03/but-on-math-it-is.png",
         docx.images[0].get_description(),
+    )
+
+
+def test_read_docx__image_extraction_2() -> None:
+    filename = "sharepoint2text/tests/resources/modern_ms/thesis-template.docx"
+    with open(filename, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+
+    docx: DocxContent = next(read_docx(file_like))
+
+    tc.assertEqual(2, len(docx.images))
+    tc.assertEqual("Illustration 1: [Figure title]", docx.images[1].get_caption())
+    tc.assertEqual(
+        """Ein Bild, das Zeichnung "Marketing" enthält.""",
+        docx.images[1].get_description(),
     )
 
 

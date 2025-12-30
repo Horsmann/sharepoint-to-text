@@ -238,15 +238,15 @@ class DocxImage(ImageInterface):
 
     def get_content_type(self) -> str:
         """Returns the content type of the image as a string."""
-        return self.content_type
+        return self.content_type.strip()
 
     def get_caption(self) -> str:
         """Returns the caption of the image as a string."""
-        return self.caption
+        return self.caption.strip()
 
     def get_description(self) -> str:
         """Returns the descriptive text of the image as a string."""
-        return self.description
+        return self.description.strip()
 
     def get_metadata(self) -> ImageMetadata:
         """Returns the metadata of the image."""
