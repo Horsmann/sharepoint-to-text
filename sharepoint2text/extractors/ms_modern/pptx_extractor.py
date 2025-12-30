@@ -104,12 +104,12 @@ from typing import Any, Generator, List, Tuple
 from xml.etree import ElementTree as ET
 
 from sharepoint2text.extractors.data_types import (
-    PPTXComment,
+    PptxComment,
     PptxContent,
-    PPTXFormula,
-    PPTXImage,
+    PptxFormula,
+    PptxImage,
     PptxMetadata,
-    PPTXSlide,
+    PptxSlide,
 )
 from sharepoint2text.extractors.util.omml_to_latex import omml_to_latex
 
@@ -356,7 +356,7 @@ def _extract_metadata_from_context(ctx: _PptxContext) -> PptxMetadata:
 
 def _extract_slide_comments_from_context(
     ctx: _PptxContext, slide_number: int
-) -> List[PPTXComment]:
+) -> List[PptxComment]:
     """
     Extract comments for a specific slide from cached comment XML.
 
@@ -380,7 +380,7 @@ def _extract_slide_comments_from_context(
             text = text_elem.text if text_elem is not None else ""
             dt = cm.get("dt", "")
             comments.append(
-                PPTXComment(
+                PptxComment(
                     author=author_id,
                     text=text or "",
                     date=dt,
@@ -541,7 +541,7 @@ def _extract_formulas_from_element(elem) -> List[Tuple[str, bool]]:
 
 def _process_slide_from_context(
     ctx: _PptxContext, slide_path: str, slide_number: int
-) -> PPTXSlide:
+) -> PptxSlide:
     """
     Process a single slide and extract all its content using cached XML.
 
@@ -559,8 +559,8 @@ def _process_slide_from_context(
     slide_footer = ""
     content_placeholders: List[str] = []
     other_textboxes: List[str] = []
-    images: List[PPTXImage] = []
-    formulas: List[PPTXFormula] = []
+    images: List[PptxImage] = []
+    formulas: List[PptxFormula] = []
 
     # Collect all content items with their positions for ordering
     # Each item: (position, content_type, content_text)
@@ -573,12 +573,12 @@ def _process_slide_from_context(
     root = ctx.get_slide_root(slide_path)
     if root is None:
         logger.warning(f"Slide not found: {slide_path}")
-        return PPTXSlide(slide_number=slide_number)
+        return PptxSlide(slide_number=slide_number)
 
     # Find the shape tree
     sp_tree = root.find(f".//{P_NS}spTree")
     if sp_tree is None:
-        return PPTXSlide(slide_number=slide_number)
+        return PptxSlide(slide_number=slide_number)
 
     # Collect all shapes and pictures with their positions
     shape_elements = []
@@ -670,7 +670,7 @@ def _process_slide_from_context(
                     generic_filename = f"image.{ext}"
 
                     images.append(
-                        PPTXImage(
+                        PptxImage(
                             image_index=image_counter,
                             filename=generic_filename,
                             content_type=content_type,
@@ -706,7 +706,7 @@ def _process_slide_from_context(
         # Extract formulas from shape
         shape_formulas = _extract_formulas_from_element(elem)
         for latex, is_display in shape_formulas:
-            formula = PPTXFormula(latex=latex, is_display=is_display)
+            formula = PptxFormula(latex=latex, is_display=is_display)
             formulas.append(formula)
             if is_display:
                 ordered_content.append((position, "formula", f"$${latex}$$"))
@@ -775,7 +775,7 @@ def _process_slide_from_context(
     ]
     base_text = "\n".join(base_text_parts)
 
-    return PPTXSlide(
+    return PptxSlide(
         slide_number=slide_number,
         title=slide_title,
         footer=slide_footer,
@@ -859,7 +859,7 @@ def read_pptx(
     slide_paths = ctx.slide_order
 
     # Process each slide using cached XML
-    slides_result: List[PPTXSlide] = []
+    slides_result: List[PptxSlide] = []
     for slide_index, slide_path in enumerate(slide_paths, start=1):
         slide = _process_slide_from_context(ctx, slide_path, slide_index)
         slides_result.append(slide)
