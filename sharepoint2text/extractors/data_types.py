@@ -218,13 +218,43 @@ class DocxHeaderFooter:
 
 
 @dataclass
-class DocxImage:
+class DocxImage(ImageInterface):
     rel_id: str = ""
     filename: str = ""
     content_type: str = ""
     data: Optional[io.BytesIO] = None
     size_bytes: int = 0
     error: Optional[str] = None
+    image_index: int = 0
+    caption: str = ""  # Title/name of the image shape
+    description: str = ""  # Alt text / description for accessibility
+
+    def get_bytes(self) -> io.BytesIO:
+        """Returns the bytes of the image as a BytesIO object."""
+        if self.data is None:
+            return io.BytesIO()
+        self.data.seek(0)
+        return self.data
+
+    def get_content_type(self) -> str:
+        """Returns the content type of the image as a string."""
+        return self.content_type
+
+    def get_caption(self) -> str:
+        """Returns the caption of the image as a string."""
+        return self.caption
+
+    def get_description(self) -> str:
+        """Returns the descriptive text of the image as a string."""
+        return self.description
+
+    def get_metadata(self) -> ImageMetadata:
+        """Returns the metadata of the image."""
+        return ImageMetadata(
+            image_index=self.image_index,
+            content_type=self.content_type,
+            unit_index=0,  # DOCX has no page/slide units
+        )
 
 
 @dataclass

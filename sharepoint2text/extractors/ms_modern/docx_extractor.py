@@ -988,17 +988,78 @@ def _extract_images_from_context(ctx: _DocxContext) -> list[DocxImage]:
     """
     Extract images from the document.
 
+    Parses the document body to find drawing elements and extracts images
+    with their captions and descriptions (alt text).
+
+    Caption is extracted from:
+    - Text boxes associated with the image (wps:wsp with wps:txbx)
+    - Falls back to the name attribute of pic:cNvPr
+
+    Description (alt text) is extracted from:
+    - The descr attribute of pic:cNvPr (the picture's non-visual properties)
+
     Args:
         ctx: DocxContext with cached XML roots.
 
     Returns:
-        List of DocxImage objects with binary data and metadata.
+        List of DocxImage objects with binary data, metadata, captions,
+        and descriptions.
     """
     logger.debug("Extracting images")
     images = []
-
     rels = ctx.relationships
+    body = ctx.document_body
 
+    # Map of rel_id -> (caption, description) from document drawings
+    image_metadata: dict[str, tuple[str, str]] = {}
+
+    # Namespace for picture elements
+    PIC_NS = "{http://schemas.openxmlformats.org/drawingml/2006/picture}"
+    # Namespace for WordprocessingML shapes
+    WPS_NS = "{http://schemas.microsoft.com/office/word/2010/wordprocessingShape}"
+
+    if body is not None:
+        for drawing in body.iter(f"{W_NS}drawing"):
+            caption = ""
+            description = ""
+
+            # Look for picture element (pic:pic) which contains the actual image
+            # The pic:cNvPr element has the image's name and description (alt text)
+            pic_cNvPr = drawing.find(f".//{PIC_NS}cNvPr")
+            if pic_cNvPr is not None:
+                # descr attribute is the alt text / description for accessibility
+                descr = pic_cNvPr.get("descr", "")
+                if descr:
+                    description = descr
+                # name attribute can be a fallback for caption
+                name = pic_cNvPr.get("name", "")
+                if name:
+                    caption = name
+
+            # Look for caption text in associated text boxes (wps:wsp with wps:txbx)
+            # This is used for image captions/subtitles added below images
+            for wsp in drawing.iter(f"{WPS_NS}wsp"):
+                txbx = wsp.find(f"{WPS_NS}txbx")
+                if txbx is not None:
+                    # Extract text from the text box content
+                    text_parts = []
+                    for t in txbx.iter(f"{W_NS}t"):
+                        if t.text:
+                            text_parts.append(t.text)
+                    if text_parts:
+                        caption = "".join(text_parts)
+                        break  # Use the first text box as caption
+
+            # Find the relationship ID for the image
+            # Path: a:graphic > a:graphicData > pic:pic > pic:blipFill > a:blip[@r:embed]
+            blip = drawing.find(f".//{A_NS}blip")
+            if blip is not None:
+                r_embed = blip.get(f"{R_NS}embed")
+                if r_embed:
+                    image_metadata[r_embed] = (caption, description)
+
+    # Now extract images using relationships, with metadata from drawings
+    image_counter = 0
     for rel_id, rel_info in rels.items():
         rel_type = rel_info.get("type", "")
         target = rel_info.get("target", "")
@@ -1009,6 +1070,8 @@ def _extract_images_from_context(ctx: _DocxContext) -> list[DocxImage]:
                 img_data = ctx.get_image_data(image_path)
                 if img_data is None:
                     continue
+
+                image_counter += 1
 
                 # Determine content type from extension
                 ext = target.split(".")[-1].lower()
@@ -1025,6 +1088,9 @@ def _extract_images_from_context(ctx: _DocxContext) -> list[DocxImage]:
                 }
                 content_type = content_type_map.get(ext, f"image/{ext}")
 
+                # Get caption and description from document drawings
+                caption, description = image_metadata.get(rel_id, ("", ""))
+
                 images.append(
                     DocxImage(
                         rel_id=rel_id,
@@ -1032,6 +1098,9 @@ def _extract_images_from_context(ctx: _DocxContext) -> list[DocxImage]:
                         content_type=content_type,
                         data=io.BytesIO(img_data),
                         size_bytes=len(img_data),
+                        image_index=image_counter,
+                        caption=caption,
+                        description=description,
                     )
                 )
             except Exception as e:

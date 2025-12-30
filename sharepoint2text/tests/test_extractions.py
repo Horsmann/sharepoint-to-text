@@ -446,6 +446,31 @@ def test_read_docx_2() -> None:
     tc.assertAlmostEqual(0.7875, docx.sections[0].bottom_margin_inches, places=1)
     tc.assertIsNone(docx.sections[0].orientation)
 
+    # images
+    tc.assertEqual(1, len(docx.images))
+    tc.assertEqual(1, docx.images[0].image_index)
+    tc.assertEqual("image1.png", docx.images[0].filename)
+    tc.assertEqual("image/png", docx.images[0].content_type)
+    # description (alt text) is from pic:cNvPr[@descr]
+    tc.assertEqual("Space", docx.images[0].description)
+    # caption is from the text box content (wps:txbx)
+    tc.assertEqual("An image of space", docx.images[0].caption)
+
+    # ImageInterface methods
+    tc.assertEqual("image/png", docx.images[0].get_content_type())
+    tc.assertEqual("Space", docx.images[0].get_description())
+    tc.assertEqual("An image of space", docx.images[0].get_caption())
+    # get_bytes returns BytesIO with image data
+    image_bytes = docx.images[0].get_bytes()
+    tc.assertGreater(len(image_bytes.getvalue()), 0)
+    tc.assertEqual(docx.images[0].size_bytes, len(image_bytes.getvalue()))
+    # get_metadata returns ImageMetadata
+    img_meta = docx.images[0].get_metadata()
+    tc.assertEqual(
+        ImageMetadata(unit_index=0, image_index=1, content_type="image/png"),
+        img_meta,
+    )
+
 
 def test_read_doc() -> None:
     with open(
