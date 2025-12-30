@@ -238,6 +238,37 @@ def _find_last_data_column(rows: List[tuple]) -> int:
     return max_col
 
 
+def _is_table_name_row(row: List[Any]) -> bool:
+    """
+    Check if a row is just a table name (single non-empty cell).
+
+    Table name rows in Excel often have a single cell with the table title
+    and the rest empty. These should be excluded from structured data output.
+
+    Note: After header processing, empty cells become "Unnamed: N" strings,
+    so we treat those as empty when counting non-empty cells.
+
+    Args:
+        row: List of cell values (may be processed headers with "Unnamed: N").
+
+    Returns:
+        True if the row has exactly one meaningful cell, False otherwise.
+    """
+
+    def is_meaningful(val: Any) -> bool:
+        if val is None:
+            return False
+        if isinstance(val, str):
+            # Treat "Unnamed: N" placeholders as empty
+            if val.startswith("Unnamed: "):
+                return False
+            return bool(val.strip())
+        return True
+
+    non_empty = sum(1 for val in row if is_meaningful(val))
+    return non_empty == 1 and len(row) > 1
+
+
 def _find_last_data_row(rows: List[tuple]) -> int:
     """
     Find the index of the last row that contains any data.
@@ -401,10 +432,17 @@ def _read_content(file_like: io.BytesIO) -> List[XlsxSheet]:
         ws = wb[sheet_name]
         records, all_rows = _read_sheet_data(ws)
         text = _format_sheet_as_text(all_rows)
+
+        # Determine data rows: skip first row if it's just a table name
+        if all_rows and _is_table_name_row(all_rows[0]):
+            data_rows = all_rows[1:]
+        else:
+            data_rows = all_rows
+
         sheets.append(
             XlsxSheet(
                 name=str(sheet_name),
-                data=records,
+                data=data_rows,
                 text=text,
             )
         )

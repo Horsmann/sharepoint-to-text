@@ -144,6 +144,12 @@ def test_read_xlsx_1() -> None:
     tc.assertListEqual(
         sorted(["Sheet1", "Sheet2", "Sheet3"]), sorted([s.name for s in xlsx.sheets])
     )
+    # check that the first row in the first sheet is the headline
+    tc.assertListEqual(["AREA", "CODE", "COUNTRY NAME"], xlsx.sheets[0].data[0])
+    tc.assertListEqual(
+        ["European Union (EU)", "EU-28 ", "European Union (28 countries)"],
+        xlsx.sheets[0].data[1],
+    )
 
     tc.assertEqual(3, len(list(xlsx.iterator())))
 
@@ -180,6 +186,7 @@ def test_read_xlsx_2() -> None:
         "Blatt 1\nTabelle 1 Unnamed: 1\n     ColA       ColB\n        1          2",
         xlsx.get_full_text(),
     )
+    tc.assertListEqual([["ColA", "ColB"], [1, 2]], xlsx.sheets[0].data)
 
 
 def test_read_pptx_1() -> None:

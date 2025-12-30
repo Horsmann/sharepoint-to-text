@@ -783,7 +783,7 @@ class XlsxMetadata(FileMetadataInterface):
 @dataclass
 class XlsxSheet:
     name: str = ""
-    data: List[Dict[str, typing.Any]] = field(default_factory=list)
+    data: List[List[typing.Any]] = field(default_factory=list)
     text: str = ""
 
 
