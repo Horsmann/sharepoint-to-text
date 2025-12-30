@@ -394,8 +394,9 @@ class _DocReader:
                 filtered.extend(group)
                 continue
 
+            threshold = max_diversity * 0.6
             for image, diversity in zip(group, diversities):
-                if diversity > 8:
+                if diversity >= threshold:
                     filtered.append(image)
 
         return filtered
