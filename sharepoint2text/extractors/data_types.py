@@ -419,6 +419,7 @@ class DocxContent(ExtractionInterface):
 class PdfImage(ImageInterface):
     index: int = 0
     name: str = ""
+    caption: str = ""
     width: int = 0
     height: int = 0
     color_space: str = ""
@@ -441,7 +442,7 @@ class PdfImage(ImageInterface):
 
     def get_caption(self) -> str:
         """Returns the caption of the image as a string."""
-        return ""
+        return self.caption.strip()
 
     def get_description(self) -> str:
         """Returns the descriptive text of the image as a string."""

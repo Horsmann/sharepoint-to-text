@@ -209,21 +209,22 @@ def _extract_image_bytes(page, page_num: int) -> List[PdfImage]:
     if "/XObject" in page.get("/Resources", {}):
         x_objects = page["/Resources"]["/XObject"].get_object()
 
-        img_index = 0
+        attempt_index = 1
+        image_index = 1
         for obj_name in x_objects:
             obj = x_objects[obj_name]
 
             if obj.get("/Subtype") == "/Image":
                 try:
-                    image_data = _extract_image(obj, obj_name, img_index, page_num)
+                    image_data = _extract_image(obj, obj_name, image_index, page_num)
                     found_images.append(image_data)
-                    img_index += 1
+                    image_index += 1
                 except Exception as e:
                     logger.warning(
-                        f"Silently ignoring - Failed to extract image [{obj_name}] [{img_index}]: %s",
+                        f"Silently ignoring - Failed to extract image [{obj_name}] [{attempt_index}]: %s",
                         e,
                     )
-                    img_index += 1
+                attempt_index += 1
     return found_images
 
 
@@ -238,7 +239,7 @@ def _extract_image(image_obj, name: str, index: int, page_num: int) -> PdfImage:
     Args:
         image_obj: A pypdf image object from the XObject dictionary.
         name: The XObject name (e.g., "/Im0") for identification.
-        index: Zero-based index for ordering images on the page.
+        index: 1-based index for ordering extracted images on the page.
 
     Returns:
         PdfImage with binary data and image properties.
@@ -286,6 +287,7 @@ def _extract_image(image_obj, name: str, index: int, page_num: int) -> PdfImage:
     return PdfImage(
         index=index,
         name=str(name),
+        caption=_extract_image_caption(image_obj),
         width=int(width),
         height=int(height),
         color_space=color_space,
@@ -296,3 +298,18 @@ def _extract_image(image_obj, name: str, index: int, page_num: int) -> PdfImage:
         content_type=content_type,
         unit_index=page_num,
     )
+
+
+def _extract_image_caption(image_obj) -> str:
+    """Extract a caption/alt text for a PDF image XObject if present."""
+    caption_keys = ("/Alt", "/Title", "/Caption", "/TU")
+    for key in caption_keys:
+        value = image_obj.get(key)
+        if isinstance(value, str):
+            if value.strip():
+                return value
+        elif value is not None:
+            text = str(value).strip()
+            if text:
+                return text
+    return ""

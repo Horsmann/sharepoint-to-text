@@ -679,6 +679,7 @@ def _extract_images_from_zip(
                             if width <= 0 or height <= 0:
                                 width, height = _get_image_pixel_dimensions(image_bytes)
 
+                            image_counter += 1
                             sheet_images.append(
                                 XlsxImage(
                                     image_index=image_counter,
@@ -693,7 +694,6 @@ def _extract_images_from_zip(
                                     description=description,
                                 )
                             )
-                            image_counter += 1
 
                         except Exception as e:
                             logger.warning(f"Failed to extract image from drawing: {e}")

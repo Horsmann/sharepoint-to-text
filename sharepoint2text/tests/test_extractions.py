@@ -241,7 +241,7 @@ def test_read_xlsx_4__image_extraction() -> None:
     tc.assertEqual(
         ImageMetadata(
             unit_index=None,
-            image_index=0,
+            image_index=1,
             content_type="image/png",
             width=600,
             height=300,
@@ -1389,7 +1389,7 @@ def test_read_pdf_1() -> None:
     tc.assertEqual(
         ImageMetadata(
             unit_index=2,
-            image_index=0,
+            image_index=1,
             content_type="image/png",
             width=910,
             height=344,
@@ -1412,16 +1412,18 @@ def test_read_pdf_2() -> None:
     tc.assertEqual(3, len(pdf.pages[0].images))
 
     images = pdf.pages[0].images
+    img_1 = images[0]
     tc.assertEqual(
         ImageMetadata(
             unit_index=1,
-            image_index=0,
+            image_index=1,
             content_type="image/png",
             width=1172,
             height=430,
         ),
-        images[0].get_metadata(),
+        img_1.get_metadata(),
     )
+    tc.assertEqual("", img_1.get_caption())
 
     metadata = pdf.get_metadata()
     tc.assertEqual(1, metadata.total_pages)
