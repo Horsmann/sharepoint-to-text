@@ -283,6 +283,11 @@ def _extract_tables_from_text(text: str) -> List[List[List[str]]]:
     gap_count = 0
     max_gap = 2
     min_value_columns = 2
+    date_header_pattern = re.compile(r"\d{2}/\d{2}/\d{4}")
+    month_pattern = re.compile(
+        r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\b",
+        re.IGNORECASE,
+    )
 
     def is_numeric_token(token: str) -> bool:
         cleaned = token.strip()
@@ -301,6 +306,8 @@ def _extract_tables_from_text(text: str) -> List[List[List[str]]]:
         normalized = normalized.replace("–", "-")
         normalized = normalized.replace("figures for", "figure for")
         normalized = normalized.replace("last reported", "last report")
+        normalized = normalized.replace("inassociates", "in associates")
+        normalized = normalized.replace("cashequivalents", "cash equivalents")
         return normalized
 
     def is_footnote_leader(token: str) -> bool:
@@ -324,6 +331,27 @@ def _extract_tables_from_text(text: str) -> List[List[List[str]]]:
                 merged[0] = merged[0] + merged[1]
                 del merged[1]
         return merged
+
+    def split_numeric_blob(blob: str, expected_count: int) -> list[str]:
+        if expected_count != 2:
+            return [blob]
+        match = re.match(r"^(\d[\d,]*\.\d)(\d[\d,]*\.\d+)$", blob)
+        if match:
+            return [match.group(1), match.group(2)]
+        return [blob]
+
+    def is_date_header(line: str) -> bool:
+        return len(date_header_pattern.findall(line)) >= 2
+
+    def extract_date_header(line: str) -> tuple[str, list[str], bool] | None:
+        dates = date_header_pattern.findall(line)
+        if len(dates) < 2:
+            return None
+        first_start = line.find(dates[0])
+        label = line[:first_start].strip()
+        label = normalize_label(label) if label else ""
+        has_unit = "in €m" in line.lower()
+        return label, dates[:2], has_unit
 
     def extract_row(line: str) -> tuple[str, list[str]]:
         tokens = line.split()
@@ -353,6 +381,8 @@ def _extract_tables_from_text(text: str) -> List[List[List[str]]]:
         if len(current_rows) >= 2:
             tables.append(current_rows.copy())
 
+    pending_header_label = ""
+
     for line in lines:
         if not line:
             if current_rows:
@@ -364,30 +394,81 @@ def _extract_tables_from_text(text: str) -> List[List[List[str]]]:
                     gap_count = 0
             continue
 
+        if line.strip().lower() in ("equity and liabilities", "equity & liabilities"):
+            pending_header_label = "Equity and Liabilities"
+            continue
+
+        date_header = extract_date_header(line)
+        if date_header:
+            label, dates, has_unit = date_header
+            if current_rows:
+                flush_current()
+                current_rows = []
+                column_count = 0
+                gap_count = 0
+            if not label and pending_header_label:
+                label = pending_header_label
+            pending_header_label = ""
+            column_count = len(dates) + 1
+            current_rows.append([label] + dates)
+            if has_unit:
+                current_rows.append(["in €m"] + [""] * (column_count - 1))
+            continue
+
         label, values = extract_row(line)
         has_values = bool(values)
+        if has_values and month_pattern.search(line):
+            if values and values[-1].isdigit() and len(values[-1]) == 4:
+                values = []
+                has_values = False
         if not has_values and current_rows and current_rows[-1][0] == "":
-            if not line[:1].isdigit():
+            if not line[:1].isdigit() and line.strip().lower() != "in €m":
                 flush_current()
                 current_rows = []
                 column_count = 0
                 gap_count = 0
                 continue
         if not has_values and current_rows:
-            if re.match(r"^\\d+\\.", line):
+            if line.strip().lower() in (
+                "equity and liabilities",
+                "equity & liabilities",
+            ):
                 flush_current()
                 current_rows = []
                 column_count = 0
                 gap_count = 0
                 continue
-            if len(line) >= 60 and "." in line and not line[:1].isdigit():
+            if re.match(r"^\d+\.", line):
                 flush_current()
                 current_rows = []
                 column_count = 0
                 gap_count = 0
                 continue
-        if not values and not current_rows:
-            continue
+            if (
+                len(line) >= 60
+                and "." in line
+                and not line[:1].isdigit()
+                and not re.search(r"[\d.,]+$", line)
+            ):
+                flush_current()
+                current_rows = []
+                column_count = 0
+                gap_count = 0
+                continue
+        values_from_trailing_blob = False
+        if not values:
+            trailing_match = re.search(r"([\d.,]+)$", line)
+            if trailing_match and "/" not in trailing_match.group(1):
+                blob = trailing_match.group(1)
+                label = line[: trailing_match.start()].strip()
+                if label:
+                    label = normalize_label(label)
+                values = split_numeric_blob(
+                    blob, column_count - 1 if column_count else 2
+                )
+                values_from_trailing_blob = True
+            if not values and not current_rows:
+                continue
 
         if values and len(values) < min_value_columns and line[:1].isdigit():
             values = []
@@ -407,6 +488,12 @@ def _extract_tables_from_text(text: str) -> List[List[List[str]]]:
                 continue
             expected_values = column_count - 1
             values = normalize_values(values, expected_values)
+            if values and current_rows and values_from_trailing_blob:
+                last_row = current_rows[-1]
+                if last_row[0] and all(not cell for cell in last_row[1:]):
+                    if label and label[:1].islower():
+                        label = f"{last_row[0]} {label}"
+                        current_rows.pop()
             if values:
                 row = [label] + values
                 if len(row) < column_count:

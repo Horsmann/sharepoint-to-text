@@ -1564,6 +1564,37 @@ def test_read_pdf_5() -> None:
     )
 
     tc.assertEqual(2, len(list(pdf.iterate_tables())))
+    first_table = list(pdf.iterate_tables())[0].get_table()
+    # beginning of table
+    tc.assertListEqual(["Assets", "31/12/2024", "31/12/2023"], first_table[0])
+    tc.assertListEqual(["in €m", "", ""], first_table[1])
+    tc.assertListEqual(["Property, plant and equipment", "3.4", "3.9"], first_table[2])
+    tc.assertListEqual(["Investments in associates", "0.5", "34.4"], first_table[3])
+    # end of table
+    tc.assertListEqual(["Current assets", "168.6", "152.8"], first_table[-2])
+    tc.assertListEqual(["Overall total", "6,723.6", "8,882.3"], first_table[-1])
+    tc.assertEqual(
+        TableDim(rows=17, columns=3), list(pdf.iterate_tables())[0].get_dim()
+    )
+
+    second_table = list(pdf.iterate_tables())[1].get_table()
+    # beginning of table
+    tc.assertListEqual(
+        ["Equity and Liabilities", "31/12/2024", "31/12/2023"], second_table[0]
+    )
+    tc.assertListEqual(["in €m", "", ""], second_table[1])
+    tc.assertListEqual(["Share capital", "24.9", "24.9"], second_table[2])
+    # end of table
+    tc.assertListEqual(["Deferred tax —Liabilities", "46.4", "116.7"], second_table[-4])
+    tc.assertListEqual(["Provisions", "0.2", "0.3"], second_table[-3])
+    tc.assertListEqual(
+        ["Current & Non-current liabilities", "1,504.1", "1,934.3"], second_table[-2]
+    )
+    tc.assertListEqual(["Overall total", "6,723.6", "8,882.3"], second_table[-1])
+
+    tc.assertEqual(
+        TableDim(rows=12, columns=3), list(pdf.iterate_tables())[1].get_dim()
+    )
 
 
 def test_read_html() -> None:
