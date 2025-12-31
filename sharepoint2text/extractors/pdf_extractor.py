@@ -107,10 +107,9 @@ import logging
 import re
 import statistics
 import unicodedata
-from typing import Any, Generator, Iterable, Optional
+from typing import Any, Generator, Iterable, Optional, Protocol
 
 from pypdf import PdfReader
-from pypdf._page import PageObject
 from pypdf.generic import ContentStream
 
 from sharepoint2text.extractors.data_types import (
@@ -124,6 +123,17 @@ logger = logging.getLogger(__name__)
 
 TableRows = list[list[str]]
 TextSegment = tuple[float, float, str, float]
+
+
+class PageLike(Protocol):
+    def extract_text(self, *args: Any, **kwargs: Any) -> str: ...
+
+    def get(self, key: str, default: Any = None) -> Any: ...
+
+    def get_contents(self) -> Any: ...
+
+    @property
+    def pdf(self) -> Any: ...
 
 
 def _is_numeric_token(token: str) -> bool:
@@ -236,7 +246,7 @@ def read_pdf(
     )
 
 
-def _extract_image_bytes(page: PageObject, page_num: int) -> list[PdfImage]:
+def _extract_image_bytes(page: PageLike, page_num: int) -> list[PdfImage]:
     """
     Extract all images from a PDF page's XObject resources.
 
@@ -328,7 +338,7 @@ def _score_tables(tables: list[TableRows]) -> int:
     return score
 
 
-def _extract_lines_with_spacing(page: PageObject) -> list[str]:
+def _extract_lines_with_spacing(page: PageLike) -> list[str]:
     segments: list[TextSegment] = []
 
     def visitor(
@@ -890,7 +900,7 @@ def _extract_image(
 
 
 def _extract_page_mcid_data(
-    page: PageObject,
+    page: PageLike,
 ) -> tuple[list[dict[str, Any]], list[int], dict[int, str]]:
     """Collect MCID text and image occurrence order from the page content stream."""
     contents = page.get_contents()
