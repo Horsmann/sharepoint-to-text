@@ -1524,7 +1524,8 @@ def test_read_pdf_4() -> None:
         read_pdf(file_like=_read_file_to_file_like(path=path), path=path)
     )
 
-    tc.assertEqual(2, len(list(pdf.iterate_tables())))
+    tables = list(pdf.iterate_tables())
+    tc.assertEqual(2, len(tables))
 
     # tabel 1
     tc.assertEqual(TableDim(rows=6, columns=3), list(pdf.iterate_tables())[0].get_dim())

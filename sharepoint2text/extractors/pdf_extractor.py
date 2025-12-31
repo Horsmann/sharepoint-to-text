@@ -105,6 +105,7 @@ Maintenance Notes
 import io
 import logging
 import re
+import statistics
 import unicodedata
 from typing import Any, Generator, List
 
@@ -173,7 +174,14 @@ def read_pdf(
         images = _extract_image_bytes(page, page_num)
         total_images += len(images)
         page_text = page.extract_text() or ""
-        tables = _extract_tables_from_lines(page_text.splitlines())
+        raw_lines = page_text.splitlines()
+        spatial_lines = _extract_lines_with_spacing(page)
+        raw_tables = _extract_tables_from_lines(raw_lines)
+        spatial_tables = _extract_tables_from_lines(spatial_lines)
+        if _score_tables(spatial_tables) > _score_tables(raw_tables):
+            tables = spatial_tables
+        else:
+            tables = raw_tables
         total_tables += len(tables)
         pages.append(
             PdfPage(
@@ -273,6 +281,153 @@ def _extract_image_bytes(page, page_num: int) -> List[PdfImage]:
                 )
             attempt_index += 1
     return found_images
+
+
+def _score_tables(tables: list[list[list[str]]]) -> int:
+    score = 0
+    table_penalty = 2
+    for table in tables:
+        if not table:
+            continue
+        score -= table_penalty
+        for row in table:
+            non_empty = sum(1 for cell in row if str(cell).strip())
+            if non_empty >= 2:
+                score += 2
+            elif non_empty == 1:
+                score -= 1
+    return score
+
+
+def _extract_lines_with_spacing(page) -> list[str]:
+    segments: list[tuple[float, float, str, float]] = []
+
+    def visitor(text, _cm, tm, _font_dict, font_size):
+        if not text:
+            return
+        try:
+            x = float(tm[4])
+            y = float(tm[5])
+        except Exception:
+            return
+        size = float(font_size) if font_size else 0.0
+        segments.append((y, x, text, size))
+
+    try:
+        page.extract_text(visitor_text=visitor)
+    except Exception:
+        raw_text = page.extract_text() or ""
+        return raw_text.splitlines()
+
+    if not segments:
+        raw_text = page.extract_text() or ""
+        return raw_text.splitlines()
+
+    font_sizes = [size for _, _, _, size in segments if size > 0]
+    median_size = float(statistics.median(font_sizes)) if font_sizes else 10.0
+    line_tol = max(1.0, median_size * 0.5)
+    word_gap = max(1.0, median_size * 0.4)
+
+    segments.sort(key=lambda item: (-item[0], item[1]))
+    y_values = [item[0] for item in segments]
+    if max(y_values) - min(y_values) < line_tol:
+        raw_text = page.extract_text() or ""
+        return raw_text.splitlines()
+    lines: list[dict] = []
+    for y, x, text, size in segments:
+        if not lines or abs(y - lines[-1]["y"]) > line_tol:
+            lines.append({"y": y, "segments": [(x, text)]})
+            continue
+        lines[-1]["segments"].append((x, text))
+
+    line_texts: list[str] = []
+    line_positions: list[float] = []
+    for line in lines:
+        line_positions.append(line["y"])
+        parts = []
+        last_x = None
+        for x, text in sorted(line["segments"], key=lambda item: item[0]):
+            if last_x is not None and x - last_x > word_gap:
+                if not (
+                    (parts and parts[-1].endswith(("-", "–", "—")))
+                    or text.startswith(("-", "–", "—"))
+                ):
+                    parts.append(" ")
+            parts.append(text)
+            last_x = x
+        line_text = "".join(parts)
+        line_texts.append(re.sub(r"\s+", " ", line_text).strip())
+
+    if len(line_positions) < 2:
+        return line_texts
+
+    gaps = [
+        line_positions[idx] - line_positions[idx + 1]
+        for idx in range(len(line_positions) - 1)
+    ]
+    median_gap = float(statistics.median(gaps)) if gaps else 0.0
+    gap_threshold = max(median_gap * 1.8, median_size * 1.2)
+
+    extra_after: dict[int, int] = {}
+    last_non_empty = None
+    numeric_cache: dict[int, int] = {}
+
+    def is_numeric_token(token: str) -> bool:
+        cleaned = token.strip()
+        if not cleaned:
+            return False
+        if cleaned[0] in ("(", "-", "–") and cleaned[-1] == ")":
+            cleaned = cleaned[1:-1]
+        if cleaned.endswith("%"):
+            cleaned = cleaned[:-1]
+        return all(ch.isdigit() or ch in {",", "."} for ch in cleaned) and any(
+            ch.isdigit() for ch in cleaned
+        )
+
+    def numeric_token_count(text: str) -> int:
+        if not text:
+            return 0
+        tokens = text.split()
+        count = 0
+        for token in tokens:
+            if is_numeric_token(token):
+                count += 1
+        return count
+
+    for idx, text in enumerate(line_texts):
+        if not text:
+            continue
+        numeric_cache[idx] = numeric_token_count(text)
+        if last_non_empty is not None:
+            gap_between = line_positions[last_non_empty] - line_positions[idx]
+            if gap_between > gap_threshold:
+                prev_count = numeric_cache.get(last_non_empty, 0)
+                next_count = numeric_cache.get(idx, 0)
+                prev_numeric = prev_count > 0
+                next_numeric = next_count > 0
+                add_break = prev_numeric and not next_numeric
+                if (
+                    not add_break
+                    and prev_count >= 2
+                    and next_count == 1
+                    and gap_between > gap_threshold * 1.6
+                ):
+                    add_break = True
+                if add_break:
+                    existing_empty = idx - last_non_empty - 1
+                    needed = max(0, 3 - existing_empty)
+                    if needed:
+                        extra_after[last_non_empty] = max(
+                            extra_after.get(last_non_empty, 0), needed
+                        )
+        last_non_empty = idx
+
+    spaced_lines: list[str] = []
+    for idx, text in enumerate(line_texts):
+        spaced_lines.append(text)
+        if idx in extra_after:
+            spaced_lines.extend([""] * extra_after[idx])
+    return spaced_lines
 
 
 def _extract_tables_from_lines(lines: List[str]) -> List[List[List[str]]]:
