@@ -84,7 +84,7 @@ class ImageInterface(Protocol):
 
 class ExtractionInterface(Protocol):
     @abstractmethod
-    def iterator(self) -> typing.Iterator[str]:
+    def iterate_text(self) -> typing.Iterator[str]:
         """
         Returns an iterator over the extracted text i.e., the main text body of a file.
         Additional text areas may be missing if they are not part of the main text body of the file.
@@ -141,7 +141,7 @@ class EmailContent(ExtractionInterface):
         self.subject = self.subject.strip()
         self.body_plain = self.body_plain.strip()
 
-    def iterator(self) -> typing.Iterator[str]:
+    def iterate_text(self) -> typing.Iterator[str]:
         yield (
             self.body_plain
             if self.body_plain
@@ -154,7 +154,7 @@ class EmailContent(ExtractionInterface):
         return
 
     def get_full_text(self) -> str:
-        return "\n".join(self.iterator())
+        return "\n".join(self.iterate_text())
 
     def get_metadata(self) -> EmailMetadata:
         return self.metadata
@@ -222,13 +222,13 @@ class DocContent(ExtractionInterface):
     images: List[DocImage] = field(default_factory=list)
     metadata: DocMetadata = field(default_factory=DocMetadata)
 
-    def iterator(self) -> typing.Iterator[str]:
+    def iterate_text(self) -> typing.Iterator[str]:
         for text in [self.main_text]:
             yield text
 
     def get_full_text(self) -> str:
         """The full text of the document including a document title from the metadata if any are provided"""
-        return (self.metadata.title + "\n" + "\n".join(self.iterator())).strip()
+        return (self.metadata.title + "\n" + "\n".join(self.iterate_text())).strip()
 
     def get_metadata(self) -> FileMetadataInterface:
         return self.metadata
@@ -383,7 +383,7 @@ class DocxContent(ExtractionInterface):
     full_text: str = ""  # Full text including formulas
     base_full_text: str = ""  # Full text without formulas
 
-    def iterator(
+    def iterate_text(
         self, include_formulas: bool = False, include_comments: bool = False
     ) -> typing.Iterator[str]:
         text = self.full_text if include_formulas else self.base_full_text
@@ -406,7 +406,7 @@ class DocxContent(ExtractionInterface):
             include_formulas: Include LaTeX formulas in output (default: False)
             include_comments: Include document comments in output (default: False)
         """
-        return "\n".join(self.iterator(include_formulas, include_comments))
+        return "\n".join(self.iterate_text(include_formulas, include_comments))
 
     def get_metadata(self) -> DocxMetadata:
         return self.metadata
@@ -474,12 +474,12 @@ class PdfContent(ExtractionInterface):
     pages: List[PdfPage] = field(default_factory=list)
     metadata: PdfMetadata = field(default_factory=PdfMetadata)
 
-    def iterator(self) -> typing.Iterator[str]:
+    def iterate_text(self) -> typing.Iterator[str]:
         for page in self.pages:
             yield page.text
 
     def get_full_text(self) -> str:
-        return "\n".join(self.iterator())
+        return "\n".join(self.iterate_text())
 
     def get_metadata(self) -> PdfMetadata:
         return self.metadata
@@ -500,11 +500,11 @@ class PlainTextContent(ExtractionInterface):
     content: str = ""
     metadata: FileMetadataInterface = field(default_factory=FileMetadataInterface)
 
-    def iterator(self) -> typing.Iterator[str]:
+    def iterate_text(self) -> typing.Iterator[str]:
         yield self.content.strip()
 
     def get_full_text(self) -> str:
-        return "\n".join(list(self.iterator()))
+        return "\n".join(list(self.iterate_text()))
 
     def get_metadata(self) -> FileMetadataInterface:
         return self.metadata
@@ -541,11 +541,11 @@ class HtmlContent(ExtractionInterface):
     )  # List of {text: "...", href: "..."}
     metadata: HtmlMetadata = field(default_factory=HtmlMetadata)
 
-    def iterator(self) -> typing.Iterator[str]:
+    def iterate_text(self) -> typing.Iterator[str]:
         yield self.content.strip()
 
     def get_full_text(self) -> str:
-        return "\n".join(list(self.iterator()))
+        return "\n".join(list(self.iterate_text()))
 
     def get_metadata(self) -> HtmlMetadata:
         return self.metadata
@@ -662,14 +662,14 @@ class PptContent(ExtractionInterface):
     all_text: list[str] = field(default_factory=list)
     streams: list[list[str]] = field(default_factory=list)
 
-    def iterator(self) -> typing.Iterator[str]:
+    def iterate_text(self) -> typing.Iterator[str]:
         """Iterate over slide text, yielding combined text per slide."""
         for slide in self.slides:
             yield slide.text_combined
 
     def get_full_text(self) -> str:
         """Full text of the slide deck as one single block of text"""
-        return "\n".join(self.iterator())
+        return "\n".join(self.iterate_text())
 
     def get_metadata(self) -> PptMetadata:
         """Returns the metadata of the extracted file."""
@@ -802,7 +802,7 @@ class PptxContent(ExtractionInterface):
     metadata: PptxMetadata = field(default_factory=PptxMetadata)
     slides: List[PptxSlide] = field(default_factory=list)
 
-    def iterator(
+    def iterate_text(
         self,
         include_formulas: bool = False,
         include_comments: bool = False,
@@ -830,7 +830,7 @@ class PptxContent(ExtractionInterface):
         """
         return "\n".join(
             list(
-                self.iterator(
+                self.iterate_text(
                     include_formulas=include_formulas,
                     include_comments=include_comments,
                     include_image_captions=include_image_captions,
@@ -877,7 +877,7 @@ class XlsContent(ExtractionInterface):
     sheets: List[XlsSheet] = field(default_factory=list)
     full_text: str = ""
 
-    def iterator(self) -> typing.Iterator[str]:
+    def iterate_text(self) -> typing.Iterator[str]:
         for sheet in self.sheets:
             yield sheet.text.strip()
 
@@ -970,12 +970,12 @@ class XlsxContent(ExtractionInterface):
     metadata: XlsxMetadata = field(default_factory=XlsxMetadata)
     sheets: List[XlsxSheet] = field(default_factory=list)
 
-    def iterator(self) -> typing.Iterator[str]:
+    def iterate_text(self) -> typing.Iterator[str]:
         for sheet in self.sheets:
             yield sheet.name + "\n" + sheet.text.strip()
 
     def get_full_text(self) -> str:
-        return "\n".join(list(self.iterator()))
+        return "\n".join(list(self.iterate_text()))
 
     def get_metadata(self) -> XlsxMetadata:
         """Returns the metadata of the extracted file."""
@@ -1133,7 +1133,7 @@ class OdpContent(ExtractionInterface):
     metadata: OdpMetadata = field(default_factory=OdpMetadata)
     slides: List[OdpSlide] = field(default_factory=list)
 
-    def iterator(
+    def iterate_text(
         self, include_annotations: bool = False, include_notes: bool = False
     ) -> typing.Iterator[str]:
         """Iterate over slides, yielding combined text per slide.
@@ -1168,7 +1168,7 @@ class OdpContent(ExtractionInterface):
         """
         return "\n".join(
             list(
-                self.iterator(
+                self.iterate_text(
                     include_annotations=include_annotations, include_notes=include_notes
                 )
             )
@@ -1215,14 +1215,14 @@ class OdsContent(ExtractionInterface):
     metadata: OdsMetadata = field(default_factory=OdsMetadata)
     sheets: List[OdsSheet] = field(default_factory=list)
 
-    def iterator(self) -> typing.Iterator[str]:
+    def iterate_text(self) -> typing.Iterator[str]:
         """Iterate over sheets, yielding text per sheet."""
         for sheet in self.sheets:
             yield (sheet.name + "\n" + sheet.text.strip()).strip()
 
     def get_full_text(self) -> str:
         """Get full text of all sheets."""
-        return "\n".join(list(self.iterator()))
+        return "\n".join(list(self.iterate_text()))
 
     def get_metadata(self) -> OdsMetadata:
         """Returns the metadata of the extracted file."""
@@ -1318,7 +1318,7 @@ class OdtContent(ExtractionInterface):
     styles: List[str] = field(default_factory=list)
     full_text: str = ""
 
-    def iterator(self, include_annotations: bool = False) -> typing.Iterator[str]:
+    def iterate_text(self, include_annotations: bool = False) -> typing.Iterator[str]:
         """Iterate over document text.
 
         Args:
@@ -1336,7 +1336,7 @@ class OdtContent(ExtractionInterface):
         Args:
             include_annotations: Include annotations/comments in output (default: False)
         """
-        return "\n".join(self.iterator(include_annotations))
+        return "\n".join(self.iterate_text(include_annotations))
 
     def get_metadata(self) -> OdtMetadata:
         """Returns the metadata of the extracted file."""
@@ -1515,7 +1515,7 @@ class RtfContent(ExtractionInterface):
     full_text: str = ""
     raw_text_blocks: List[str] = field(default_factory=list)
 
-    def iterator(self) -> typing.Iterator[str]:
+    def iterate_text(self) -> typing.Iterator[str]:
         """Iterate over pages, yielding text per page.
 
         RTF documents are split on explicit page breaks (\\page).
@@ -1537,7 +1537,7 @@ class RtfContent(ExtractionInterface):
         """Full text of the RTF document as one single block of text."""
         if self.full_text:
             return self.full_text
-        return "\n".join(self.iterator())
+        return "\n".join(self.iterate_text())
 
     def get_metadata(self) -> RtfMetadata:
         """Returns the metadata of the extracted file."""

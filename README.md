@@ -100,11 +100,11 @@ import sharepoint2text
 # Most formats yield a single item, so use next() for convenience
 for result in sharepoint2text.read_file("document.docx"):  # or .doc, .pdf, .pptx, etc.
     # Three methods available on ALL content types:
-    text = result.get_full_text()       # Complete text as a single string
-    metadata = result.get_metadata()    # File metadata (author, dates, etc.)
+    text = result.get_full_text()  # Complete text as a single string
+    metadata = result.get_metadata()  # File metadata (author, dates, etc.)
 
     # Iterate over logical units (varies by format - see below)
-    for unit in result.iterator():
+    for unit in result.iterate_text():
         print(unit)
 
 # For single-item formats, you can use next() directly:
@@ -148,7 +148,7 @@ store_in_vectordb(text=result.get_full_text(), metadata={"source": "report.pdf"}
 
 # Option 2: Store each page separately with page numbers
 result = next(sharepoint2text.read_file("report.pdf"))
-for page_num, page_text in enumerate(result.iterator(), start=1):
+for page_num, page_text in enumerate(result.iterate_text(), start=1):
     store_in_vectordb(
         text=page_text,
         metadata={"source": "report.pdf", "page": page_num}
@@ -514,6 +514,7 @@ for i, email in enumerate(sharepoint2text.read_file("archive.mbox")):
 ```python
 import sharepoint2text
 
+
 def prepare_for_rag(file_path: str) -> list[dict]:
     """Prepare document chunks for RAG ingestion."""
     chunks = []
@@ -522,7 +523,7 @@ def prepare_for_rag(file_path: str) -> list[dict]:
     for result in sharepoint2text.read_file(file_path):
         meta = result.get_metadata()
 
-        for i, unit in enumerate(result.iterator()):
+        for i, unit in enumerate(result.iterate_text()):
             if unit.strip():  # Skip empty units
                 chunks.append({
                     "text": unit,
