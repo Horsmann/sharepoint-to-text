@@ -53,6 +53,14 @@ logger = logging.getLogger(__name__)
 
 tc = TestCase()
 
+
+def _read_file_to_file_like(path: str) -> io.BytesIO:
+    with open(path, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+        return file_like
+
+
 #############
 # Interface #
 #############
@@ -85,11 +93,9 @@ def test_file_metadata_extraction() -> None:
 
 def test_read_text() -> None:
     path = "sharepoint2text/tests/resources/plain_text/plain.txt"
-    with open(path, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-
-    plain: PlainTextContent = next(read_plain_text(file_like=file_like))
+    plain: PlainTextContent = next(
+        read_plain_text(file_like=_read_file_to_file_like(path))
+    )
 
     tc.assertEqual("Hello World", plain.content)
     tc.assertEqual("Hello World", plain.get_full_text())
@@ -100,11 +106,9 @@ def test_read_text() -> None:
 
 def test_read_plain_csv() -> None:
     path = "sharepoint2text/tests/resources/plain_text/plain.csv"
-    with open(path, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-
-    plain: PlainTextContent = next(read_plain_text(file_like=file_like, path=path))
+    plain: PlainTextContent = next(
+        read_plain_text(file_like=_read_file_to_file_like(path=path), path=path)
+    )
 
     tc.assertEqual('Text; Date\n"Hello World"; "2025-12-25"', plain.content)
 
@@ -117,11 +121,9 @@ def test_read_plain_csv() -> None:
 
 def test_read_plain_tsv() -> None:
     path = "sharepoint2text/tests/resources/plain_text/plain.tsv"
-    with open(path, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-
-    plain = next(read_plain_text(file_like=file_like, path=path))
+    plain = next(
+        read_plain_text(file_like=_read_file_to_file_like(path=path), path=path)
+    )
 
     tc.assertEqual("Text\tDate\nHello World\t2025-12-25", plain.content)
     tc.assertEqual("Text\tDate\nHello World\t2025-12-25", plain.get_full_text())
@@ -134,11 +136,9 @@ def test_read_plain_tsv() -> None:
 
 def test_read_plain_markdown() -> None:
     path = "sharepoint2text/tests/resources/plain_text/document.md"
-    with open(path, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-
-    plain = next(read_plain_text(file_like=file_like, path=path))
+    plain = next(
+        read_plain_text(file_like=_read_file_to_file_like(path=path), path=path)
+    )
 
     tc.assertEqual("# Markdown file\n\nThis is a text", plain.content)
     tc.assertEqual("# Markdown file\n\nThis is a text", plain.get_full_text())
@@ -151,12 +151,8 @@ def test_read_plain_markdown() -> None:
 # Modern Microsoft #
 ####################
 def test_read_xlsx_1() -> None:
-    filename = "sharepoint2text/tests/resources/modern_ms/Country_Codes_and_Names.xlsx"
-    with open(filename, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-
-    xlsx: XlsxContent = next(read_xlsx(file_like=file_like))
+    path = "sharepoint2text/tests/resources/modern_ms/Country_Codes_and_Names.xlsx"
+    xlsx: XlsxContent = next(read_xlsx(file_like=_read_file_to_file_like(path=path)))
 
     tc.assertEqual("2006-09-16T00:00:00", xlsx.metadata.created)
     tc.assertEqual("2015-05-06T11:46:24", xlsx.metadata.modified)
@@ -206,12 +202,8 @@ def test_read_xlsx_1() -> None:
 
 
 def test_read_xlsx_2() -> None:
-    filename = "sharepoint2text/tests/resources/modern_ms/mwe.xlsx"
-    with open(filename, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-
-    xlsx: XlsxContent = next(read_xlsx(file_like=file_like))
+    path = "sharepoint2text/tests/resources/modern_ms/mwe.xlsx"
+    xlsx: XlsxContent = next(read_xlsx(file_like=_read_file_to_file_like(path=path)))
     tc.assertEqual(
         "Blatt 1\nTabelle 1 Unnamed: 1\n     ColA       ColB\n        1          2",
         xlsx.get_full_text(),
@@ -227,12 +219,9 @@ def test_read_xlsx_3() -> None:
     dataframes. This requires that None/Nulls are not accidentally pruned. The rows must have
     the same number of columns for this to work
     """
-    filename = "sharepoint2text/tests/resources/modern_ms/empty_row_columns.xlsx"
-    with open(filename, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
+    path = "sharepoint2text/tests/resources/modern_ms/empty_row_columns.xlsx"
 
-    xlsx: XlsxContent = next(read_xlsx(file_like=file_like))
+    xlsx: XlsxContent = next(read_xlsx(file_like=_read_file_to_file_like(path=path)))
     tc.assertListEqual(
         [
             [None, "Name", None, "Age"],
@@ -247,12 +236,9 @@ def test_read_xlsx_3() -> None:
 
 
 def test_read_xlsx_4__image_extraction() -> None:
-    filename = "sharepoint2text/tests/resources/modern_ms/image_in_excel.xlsx"
-    with open(filename, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
+    path = "sharepoint2text/tests/resources/modern_ms/image_in_excel.xlsx"
 
-    xlsx: XlsxContent = next(read_xlsx(file_like=file_like))
+    xlsx: XlsxContent = next(read_xlsx(file_like=_read_file_to_file_like(path=path)))
     tc.assertEqual("Image Sheet", xlsx.sheets[0].name)
     tc.assertEqual(1, len(xlsx.sheets[0].images))
 
@@ -281,12 +267,8 @@ def test_read_xlsx_4__image_extraction() -> None:
 
 
 def test_read_pptx_1() -> None:
-    filename = "sharepoint2text/tests/resources/modern_ms/eu-visibility_rules_00704232-AF9F-1A18-BD782C469454ADAD_68401.pptx"
-    with open(filename, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-
-    pptx: PptxContent = next(read_pptx(file_like))
+    path = "sharepoint2text/tests/resources/modern_ms/eu-visibility_rules_00704232-AF9F-1A18-BD782C469454ADAD_68401.pptx"
+    pptx: PptxContent = next(read_pptx(_read_file_to_file_like(path=path)))
 
     # metadata
     tc.assertEqual("IVAN Anda-Otilia", pptx.metadata.author)
@@ -397,12 +379,8 @@ def test_read_pptx_1() -> None:
 
 
 def test_read_pptx_2() -> None:
-    filename = "sharepoint2text/tests/resources/modern_ms/pptx_formula_image.pptx"
-    with open(filename, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-
-    pptx: PptxContent = next(read_pptx(file_like))
+    path = "sharepoint2text/tests/resources/modern_ms/pptx_formula_image.pptx"
+    pptx: PptxContent = next(read_pptx(_read_file_to_file_like(path=path)))
 
     # Test default get_full_text() - without formulas, comments, or image captions
     # Note: "A beach" is a regular textbox, not an image caption
@@ -465,14 +443,10 @@ def test_read_pptx_2() -> None:
 
 def test_read_docx_1() -> None:
     # An actual document from the web - this is likely created on a Windows client
-    filename = (
+    path = (
         "sharepoint2text/tests/resources/modern_ms/GKIM_Skills_Framework_-_static.docx"
     )
-    with open(filename, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-
-    docx: DocxContent = next(read_docx(file_like))
+    docx: DocxContent = next(read_docx(_read_file_to_file_like(path=path)))
 
     # text is long. Verify only beginning
     tc.assertEqual("Welcome to the Government", docx.full_text[:25].strip())
@@ -507,14 +481,11 @@ def test_read_docx_1() -> None:
 def test_read_docx_2() -> None:
     # A converted docx from OSX pages - may not populate like a true MS client .docx
     # dedicated test for comment, table and footnote extraction
-    filename = (
+    path = (
         "sharepoint2text/tests/resources/modern_ms/sample_with_comment_and_table.docx"
     )
-    with open(filename, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
 
-    docx: DocxContent = next(read_docx(file_like))
+    docx: DocxContent = next(read_docx(_read_file_to_file_like(path=path)))
     # Formula with properly converted multiplication sign
     tc.assertEqual(
         "Hello World!\nAn image of space\nIncome\ntax\n119\n19\nAnother sentence after the table.\n$$\\frac{3}{4}\\times4=\\sqrt{9}$$",
@@ -590,12 +561,8 @@ def test_read_docx_2() -> None:
 
 def test_read_docx__image_extraction_1() -> None:
     # Test for caption extraction from following paragraph with caption style
-    filename = "sharepoint2text/tests/resources/modern_ms/vorlage-abschlussarbeit.docx"
-    with open(filename, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-
-    docx: DocxContent = next(read_docx(file_like))
+    path = "sharepoint2text/tests/resources/modern_ms/vorlage-abschlussarbeit.docx"
+    docx: DocxContent = next(read_docx(_read_file_to_file_like(path=path)))
 
     tc.assertEqual(1, len(docx.images))
     tc.assertEqual(1, len(list(docx.iterate_images())))
@@ -617,12 +584,8 @@ def test_read_docx__image_extraction_1() -> None:
 
 
 def test_read_docx__image_extraction_2() -> None:
-    filename = "sharepoint2text/tests/resources/modern_ms/thesis-template.docx"
-    with open(filename, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-
-    docx: DocxContent = next(read_docx(file_like))
+    path = "sharepoint2text/tests/resources/modern_ms/thesis-template.docx"
+    docx: DocxContent = next(read_docx(_read_file_to_file_like(path=path)))
 
     tc.assertEqual(2, len(docx.images))
     tc.assertEqual(2, len(list(docx.iterate_images())))
@@ -640,12 +603,9 @@ def test_read_docx__image_extraction_2() -> None:
 
 
 def test_read_xls_1() -> None:
-    filename = "sharepoint2text/tests/resources/legacy_ms/pb_2011_1_gen_web.xls"
-    with open(filename, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
+    path = "sharepoint2text/tests/resources/legacy_ms/pb_2011_1_gen_web.xls"
 
-    xls: XlsContent = next(read_xls(file_like=file_like))
+    xls: XlsContent = next(read_xls(file_like=_read_file_to_file_like(path=path)))
 
     tc.assertEqual(13, len(xls.sheets))
     tc.assertEqual("2007-09-19T14:21:02", xls.metadata.created)
@@ -679,12 +639,8 @@ def test_read_xls_1() -> None:
 
 
 def test_read_xls_2() -> None:
-    filename = "sharepoint2text/tests/resources/legacy_ms/mwe.xls"
-    with open(filename, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-
-    xls: XlsContent = next(read_xls(file_like=file_like))
+    path = "sharepoint2text/tests/resources/legacy_ms/mwe.xls"
+    xls: XlsContent = next(read_xls(file_like=_read_file_to_file_like(path=path)))
     tc.assertEqual(
         "colA  colB\n   1     2",
         xls.get_full_text(),
@@ -696,12 +652,8 @@ def test_read_xls_2() -> None:
 
 
 def test_read_ppt() -> None:
-    filename = "sharepoint2text/tests/resources/legacy_ms/eurouni2.ppt"
-    with open(filename, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-
-    ppt: PptContent = next(read_ppt(file_like))
+    path = "sharepoint2text/tests/resources/legacy_ms/eurouni2.ppt"
+    ppt: PptContent = next(read_ppt(_read_file_to_file_like(path=path)))
 
     tc.assertEqual(48, ppt.slide_count)
     tc.assertEqual(48, len(ppt.slides))
@@ -723,14 +675,8 @@ def test_read_ppt() -> None:
 
 
 def test_read_doc() -> None:
-    with open(
-        "sharepoint2text/tests/resources/legacy_ms/Speech_Prime_Minister_of_The_Netherlands_EN.doc",
-        mode="rb",
-    ) as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-
-    doc: DocContent = next(read_doc(file_like=file_like))
+    path = "sharepoint2text/tests/resources/legacy_ms/Speech_Prime_Minister_of_The_Netherlands_EN.doc"
+    doc: DocContent = next(read_doc(file_like=_read_file_to_file_like(path=path)))
 
     # Text content
     expected = """
@@ -764,14 +710,9 @@ def test_read_doc() -> None:
 
 
 def test_read_doc__image_extraction_1() -> None:
-    with open(
-        "sharepoint2text/tests/resources/legacy_ms/legacy_doc_image.doc",
-        mode="rb",
-    ) as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
+    path = "sharepoint2text/tests/resources/legacy_ms/legacy_doc_image.doc"
 
-    doc: DocContent = next(read_doc(file_like=file_like))
+    doc: DocContent = next(read_doc(file_like=_read_file_to_file_like(path=path)))
 
     images = list(doc.iterate_images())
     tc.assertEqual(1, len(images))
@@ -794,14 +735,8 @@ def test_read_doc__image_extraction_1() -> None:
 
 
 def test_read_doc__image_extraction_2() -> None:
-    with open(
-        "sharepoint2text/tests/resources/legacy_ms/legacy_doc_multi_image.doc",
-        mode="rb",
-    ) as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-
-    doc: DocContent = next(read_doc(file_like=file_like))
+    path = "sharepoint2text/tests/resources/legacy_ms/legacy_doc_multi_image.doc"
+    doc: DocContent = next(read_doc(file_like=_read_file_to_file_like(path=path)))
     images = list(doc.iterate_images())
     tc.assertEqual(2, len(images))
     tc.assertEqual(0, len(list(doc.iterate_tables())))
@@ -820,13 +755,12 @@ def test_read_doc__image_extraction_2() -> None:
 
 
 def test_read_rtf() -> None:
-    with open(
-        "sharepoint2text/tests/resources/legacy_ms/2025.144.un.rtf", mode="rb"
-    ) as file:
-        file_like = io.BytesIO(file.read())
-        rtf_gen: typing.Generator[RtfContent] = read_rtf(file_like=file_like)
+    path = "sharepoint2text/tests/resources/legacy_ms/2025.144.un.rtf"
+    rtf_gen: typing.Generator[RtfContent] = read_rtf(
+        file_like=_read_file_to_file_like(path=path)
+    )
 
-        rtfs = list(rtf_gen)
+    rtfs = list(rtf_gen)
     tc.assertEqual(1, len(rtfs))
 
     rtf = rtfs[0]
@@ -843,15 +777,12 @@ def test_read_rtf() -> None:
 # Email formats #
 #################
 def test_email__eml_format() -> None:
-    with open(
-        "sharepoint2text/tests/resources/mails/basic_email.eml", mode="rb"
-    ) as file:
-        file_like = io.BytesIO(file.read())
-        mail_gen: typing.Generator[EmailContent, None, None] = read_eml_format_mail(
-            file_like=file_like,
-            path="sharepoint2text/tests/resources/mails/basic_email.eml",
-        )
-        mails = list(mail_gen)
+    path = "sharepoint2text/tests/resources/mails/basic_email.eml"
+    mail_gen: typing.Generator[EmailContent, None, None] = read_eml_format_mail(
+        file_like=_read_file_to_file_like(path=path),
+        path=path,
+    )
+    mails = list(mail_gen)
 
     tc.assertEqual(1, len(mails))
 
@@ -904,15 +835,12 @@ def test_email__eml_format() -> None:
 
 
 def test_email__msg_format() -> None:
-    with open(
-        "sharepoint2text/tests/resources/mails/basic_email.msg", mode="rb"
-    ) as file:
-        file_like = io.BytesIO(file.read())
-        mail_gen: typing.Generator[EmailContent, None, None] = read_msg_format_mail(
-            file_like=file_like,
-            path="sharepoint2text/tests/resources/mails/basic_email.msg",
-        )
-        mails = list(mail_gen)
+    path = "sharepoint2text/tests/resources/mails/basic_email.msg"
+    mail_gen: typing.Generator[EmailContent, None, None] = read_msg_format_mail(
+        file_like=_read_file_to_file_like(path=path),
+        path=path,
+    )
+    mails = list(mail_gen)
 
     tc.assertEqual(1, len(mails))
 
@@ -955,15 +883,13 @@ def test_email__msg_format() -> None:
 
 
 def test_email__mbox_format() -> None:
-    with open(
-        "sharepoint2text/tests/resources/mails/basic_email.mbox", mode="rb"
-    ) as file:
-        file_like = io.BytesIO(file.read())
-        mail_gen: typing.Generator[EmailContent, None, None] = read_mbox_format_mail(
-            file_like=file_like,
-            path="sharepoint2text/tests/resources/mails/basic_email.mbox",
-        )
-        mails = list(mail_gen)
+    path = "sharepoint2text/tests/resources/mails/basic_email.mbox"
+
+    mail_gen: typing.Generator[EmailContent, None, None] = read_mbox_format_mail(
+        file_like=_read_file_to_file_like(path=path),
+        path=path,
+    )
+    mails = list(mail_gen)
 
     # number of mails
     tc.assertEqual(2, len(mails))
@@ -1006,11 +932,9 @@ def test_email__mbox_format() -> None:
 
 def test_read_open_office__document() -> None:
     path = "sharepoint2text/tests/resources/open_office/sample_document.odt"
-    with open(path, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-
-    odt: OdtContent = next(read_odt(file_like=file_like, path=path))
+    odt: OdtContent = next(
+        read_odt(file_like=_read_file_to_file_like(path=path), path=path)
+    )
 
     tc.assertEqual(".odt", odt.get_metadata().to_dict().get("file_extension"))
     tc.assertEqual("sample_document.odt", odt.get_metadata().to_dict().get("filename"))
@@ -1108,11 +1032,9 @@ def test_read_open_office__document() -> None:
 
 def test_read_open_office__presentation() -> None:
     path = "sharepoint2text/tests/resources/open_office/sample_presentation.odp"
-    with open(path, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-
-    odp: OdpContent = next(read_odp(file_like=file_like, path=path))
+    odp: OdpContent = next(
+        read_odp(file_like=_read_file_to_file_like(path=path), path=path)
+    )
 
     # File metadata
     tc.assertEqual(".odp", odp.get_metadata().to_dict().get("file_extension"))
@@ -1210,11 +1132,9 @@ def test_read_open_office__presentation() -> None:
 
 def test_read_open_office__spreadsheet() -> None:
     path = "sharepoint2text/tests/resources/open_office/sample_spreadsheet.ods"
-    with open(path, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-
-    ods: OdsContent = next(read_ods(file_like=file_like, path=path))
+    ods: OdsContent = next(
+        read_ods(file_like=_read_file_to_file_like(path=path), path=path)
+    )
 
     # File metadata
     tc.assertEqual(".ods", ods.get_metadata().to_dict().get("file_extension"))
@@ -1314,12 +1234,8 @@ def test_read_open_office__spreadsheet_2() -> None:
     dataframes. This requires that None/Nulls are not accidentally pruned. The rows must have
     the same number of columns for this to work
     """
-    filename = "sharepoint2text/tests/resources/modern_ms/empty_row_columns.ods"
-    with open(filename, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-
-    ods: OdsContent = next(read_ods(file_like=file_like))
+    path = "sharepoint2text/tests/resources/modern_ms/empty_row_columns.ods"
+    ods: OdsContent = next(read_ods(file_like=_read_file_to_file_like(path=path)))
 
     tc.assertEqual(3, len(ods.sheets))
     expected_rows = [
@@ -1342,11 +1258,9 @@ def test_open_office__document_image_interface() -> None:
     """Test that OpenDocumentImage correctly implements ImageInterface."""
     # Create an OpenDocumentImage with test data
     path = "sharepoint2text/tests/resources/open_office/image_extraction.odt"
-    with open(path, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-
-    odt: OdtContent = next(read_odt(file_like=file_like, path=path))
+    odt: OdtContent = next(
+        read_odt(file_like=_read_file_to_file_like(path=path), path=path)
+    )
 
     tc.assertEqual(2, len(odt.images))
     tc.assertEqual(2, len(list(odt.iterate_images())))
@@ -1375,11 +1289,9 @@ def test_open_office__presentation_image_interface() -> None:
     """Test that OpenDocumentImage correctly implements ImageInterface."""
     # Create an OpenDocumentImage with test data
     path = "sharepoint2text/tests/resources/open_office/image_extraction.odp"
-    with open(path, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-
-    odp: OdpContent = next(read_odp(file_like=file_like, path=path))
+    odp: OdpContent = next(
+        read_odp(file_like=_read_file_to_file_like(path=path), path=path)
+    )
     tc.assertEqual(1, len(odp.slides[0].images))
     tc.assertEqual(1, len(list(odp.iterate_images())))
     tc.assertEqual(0, len(list(odp.iterate_tables())))
@@ -1401,11 +1313,9 @@ def test_open_office__spreadsheet_image_interface() -> None:
     """Test that OpenDocumentImage correctly implements ImageInterface."""
     # Create an OpenDocumentImage with test data
     path = "sharepoint2text/tests/resources/open_office/image_extraction.ods"
-    with open(path, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-
-    ods: OdsContent = next(read_ods(file_like=file_like, path=path))
+    ods: OdsContent = next(
+        read_ods(file_like=_read_file_to_file_like(path=path), path=path)
+    )
     tc.assertEqual(3, len(ods.sheets))
     tc.assertEqual(1, len(ods.sheets[0].images))
     tc.assertEqual(1, len(list(ods.iterate_images())))
@@ -1427,13 +1337,8 @@ def test_open_office__spreadsheet_image_interface() -> None:
 
 
 def test_read_pdf_1() -> None:
-    with open(
-        "sharepoint2text/tests/resources/pdf/sample.pdf",
-        mode="rb",
-    ) as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-    pdf: PdfContent = next(read_pdf(file_like=file_like))
+    path = "sharepoint2text/tests/resources/pdf/sample.pdf"
+    pdf: PdfContent = next(read_pdf(file_like=_read_file_to_file_like(path=path)))
 
     tc.assertEqual(2, pdf.metadata.total_pages)
     tc.assertEqual(2, len(pdf.pages))
@@ -1487,10 +1392,9 @@ def test_read_pdf_1() -> None:
 
 def test_read_pdf_2() -> None:
     path = "sharepoint2text/tests/resources/pdf/multi_image.pdf"
-    with open(path, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-    pdf: PdfContent = next(read_pdf(file_like=file_like, path=path))
+    pdf: PdfContent = next(
+        read_pdf(file_like=_read_file_to_file_like(path=path), path=path)
+    )
 
     tc.assertEqual(1, len(pdf.pages))
     tc.assertEqual(2, len(pdf.pages[0].images))
@@ -1532,10 +1436,9 @@ def test_read_pdf_2() -> None:
 
 def test_read_pdf_3() -> None:
     path = "sharepoint2text/tests/resources/pdf/large_table_1.pdf"
-    with open(path, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-    pdf: PdfContent = next(read_pdf(file_like=file_like, path=path))
+    pdf: PdfContent = next(
+        read_pdf(file_like=_read_file_to_file_like(path=path), path=path)
+    )
 
     tc.assertEqual(1, len(list(pdf.iterate_tables())))
     first_table = list(pdf.iterate_tables())[0].get_table()
@@ -1617,10 +1520,9 @@ def test_read_pdf_3() -> None:
 
 def test_read_pdf_4() -> None:
     path = "sharepoint2text/tests/resources/pdf/multi_table.pdf"
-    with open(path, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-    pdf: PdfContent = next(read_pdf(file_like=file_like, path=path))
+    pdf: PdfContent = next(
+        read_pdf(file_like=_read_file_to_file_like(path=path), path=path)
+    )
 
     tc.assertEqual(2, len(list(pdf.iterate_tables())))
 
@@ -1655,13 +1557,20 @@ def test_read_pdf_4() -> None:
     )
 
 
+def test_read_pdf_5() -> None:
+    path = "sharepoint2text/tests/resources/pdf/two_tables_horizontal.pdf"
+    pdf: PdfContent = next(
+        read_pdf(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+
+    tc.assertEqual(2, len(list(pdf.iterate_tables())))
+
+
 def test_read_html() -> None:
     path = "sharepoint2text/tests/resources/sample.html"
-    with open(path, mode="rb") as file:
-        file_like = io.BytesIO(file.read())
-        file_like.seek(0)
-
-    html: HtmlContent = next(read_html(file_like=file_like, path=path))
+    html: HtmlContent = next(
+        read_html(file_like=_read_file_to_file_like(path=path), path=path)
+    )
 
     full_text = "Welcome on my website\n\n\nParticipants\n\n\nName  | Age\nAlice | 25\nBob   | 30\n\n\nThis is a simple example of an HTML page with a table and links.\n\n\nVisit:\nWikipedia |\nGoogle"
     tc.assertEqual(full_text, html.get_full_text())
