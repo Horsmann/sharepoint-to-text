@@ -1083,6 +1083,24 @@ def test_password_protected__odp() -> None:
         list(read_odp(file_like=_read_file_to_file_like(path=path), path=path))
 
 
+def test_password_protected__docx() -> None:
+    path = "sharepoint2text/tests/resources/legacy_ms/password_protected/docx-password-protected-pw123.docx"
+    with tc.assertRaises(ExtractionFileEncryptedError):
+        list(read_docx(file_like=_read_file_to_file_like(path=path), path=path))
+
+
+def test_password_protected__xlsx() -> None:
+    path = "sharepoint2text/tests/resources/legacy_ms/password_protected/xslx-password-protected-pw123.xlsx"
+    with tc.assertRaises(ExtractionFileEncryptedError):
+        list(read_xlsx(file_like=_read_file_to_file_like(path=path), path=path))
+
+
+def test_password_protected__pptx() -> None:
+    path = "sharepoint2text/tests/resources/legacy_ms/password_protected/pptx-password-protected-pw123.pptx"
+    with tc.assertRaises(ExtractionFileEncryptedError):
+        list(read_pptx(file_like=_read_file_to_file_like(path=path), path=path))
+
+
 def test_email__mbox_format() -> None:
     path = "sharepoint2text/tests/resources/mails/basic_email.mbox"
 
