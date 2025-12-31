@@ -136,34 +136,6 @@ class PageLike(Protocol):
     def pdf(self) -> Any: ...
 
 
-def _is_numeric_token(token: str) -> bool:
-    cleaned = token.strip()
-    if not cleaned:
-        return False
-    if cleaned[0] in ("(", "-", "–") and cleaned[-1] == ")":
-        cleaned = cleaned[1:-1]
-    if cleaned.endswith("%"):
-        cleaned = cleaned[:-1]
-    return all(ch.isdigit() or ch in {",", "."} for ch in cleaned) and any(
-        ch.isdigit() for ch in cleaned
-    )
-
-
-def _count_numeric_tokens(text: str) -> int:
-    if not text:
-        return 0
-    return sum(1 for token in text.split() if _is_numeric_token(token))
-
-
-def _choose_table_candidate(
-    raw_tables: list[TableRows],
-    spatial_tables: list[TableRows],
-) -> list[TableRows]:
-    if _score_tables(spatial_tables) > _score_tables(raw_tables):
-        return spatial_tables
-    return raw_tables
-
-
 def read_pdf(
     file_like: io.BytesIO, path: Optional[str] = None
 ) -> Generator[PdfContent, Any, None]:
@@ -220,7 +192,7 @@ def read_pdf(
         spatial_lines = _extract_lines_with_spacing(page)
         raw_tables = _TableExtractor.extract(raw_lines)
         spatial_tables = _TableExtractor.extract(spatial_lines)
-        tables = _choose_table_candidate(raw_tables, spatial_tables)
+        tables = _TableExtractor.choose_tables(raw_tables, spatial_tables)
         total_tables += len(tables)
         pages.append(
             PdfPage(
@@ -322,22 +294,6 @@ def _extract_image_bytes(page: PageLike, page_num: int) -> list[PdfImage]:
     return found_images
 
 
-def _score_tables(tables: list[TableRows]) -> int:
-    score = 0
-    table_penalty = 2
-    for table in tables:
-        if not table:
-            continue
-        score -= table_penalty
-        for row in table:
-            non_empty = sum(1 for cell in row if str(cell).strip())
-            if non_empty >= 2:
-                score += 2
-            elif non_empty == 1:
-                score -= 1
-    return score
-
-
 def _extract_lines_with_spacing(page: PageLike) -> list[str]:
     segments: list[TextSegment] = []
 
@@ -421,7 +377,7 @@ def _extract_lines_with_spacing(page: PageLike) -> list[str]:
     for idx, text in enumerate(line_texts):
         if not text:
             continue
-        numeric_cache[idx] = _count_numeric_tokens(text)
+        numeric_cache[idx] = _TableExtractor.count_numeric_tokens(text)
         if last_non_empty is not None:
             gap_between = line_positions[last_non_empty] - line_positions[idx]
             if gap_between > gap_threshold:
@@ -460,6 +416,12 @@ class _TableExtractor:
         r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\b",
         re.IGNORECASE,
     )
+    numeric_re = re.compile(r"\d")
+    trailing_number_re = re.compile(r"([\d.,]+)$")
+    section_break_re = re.compile(r"[.;:]")
+    line_number_prefix_re = re.compile(r"^\d+\.")
+    trailing_number_block_re = re.compile(r"[\d.,]+$")
+    non_unit_chars_re = re.compile(r"[^A-Za-z\\s&]")
     max_gap = 2
     min_value_columns = 2
 
@@ -470,6 +432,14 @@ class _TableExtractor:
     @classmethod
     def extract(cls, lines: list[str]) -> list[TableRows]:
         return cls(lines)._extract()
+
+    @classmethod
+    def choose_tables(
+        cls, raw_tables: list[TableRows], spatial_tables: list[TableRows]
+    ) -> list[TableRows]:
+        if cls._score_tables(spatial_tables) > cls._score_tables(raw_tables):
+            return spatial_tables
+        return raw_tables
 
     def _extract(self) -> list[TableRows]:
         tables: list[TableRows] = []
@@ -489,12 +459,9 @@ class _TableExtractor:
                         gap_count = 0
                 continue
 
+            has_digits = bool(self.numeric_re.search(line))
             next_line = self._next_non_empty_line(idx)
-            if (
-                current_rows
-                and not re.search(r"\d", line)
-                and self._looks_like_section_break(line)
-            ):
+            if current_rows and not has_digits and self._looks_like_section_break(line):
                 next_header = self._extract_date_header(next_line)
                 if next_header:
                     self._flush_current(tables, current_rows)
@@ -504,7 +471,7 @@ class _TableExtractor:
                     pending_header_label = self._normalize_label(line)
                     continue
 
-            if not current_rows and not re.search(r"\d", line):
+            if not current_rows and not has_digits:
                 pending_header_label = self._normalize_label(line)
 
             date_header = self._extract_date_header(line)
@@ -543,7 +510,7 @@ class _TableExtractor:
                     gap_count = 0
                     continue
             if not has_values and current_rows:
-                if re.match(r"^\d+\.", line):
+                if self.line_number_prefix_re.match(line):
                     self._flush_current(tables, current_rows)
                     current_rows = []
                     column_count = 0
@@ -553,7 +520,7 @@ class _TableExtractor:
                     len(line) >= 60
                     and "." in line
                     and not line[:1].isdigit()
-                    and not re.search(r"[\d.,]+$", line)
+                    and not self.trailing_number_block_re.search(line)
                 ):
                     self._flush_current(tables, current_rows)
                     current_rows = []
@@ -562,7 +529,7 @@ class _TableExtractor:
                     continue
             values_from_trailing_blob = False
             if not values:
-                trailing_match = re.search(r"([\d.,]+)$", line)
+                trailing_match = self.trailing_number_re.search(line)
                 if trailing_match and "/" not in trailing_match.group(1):
                     blob = trailing_match.group(1)
                     label = line[: trailing_match.start()].strip()
@@ -623,21 +590,21 @@ class _TableExtractor:
         return self._split_compound_words(normalized, self.known_words)
 
     def _extract_date_header(self, line: str) -> Optional[tuple[str, list[str], str]]:
-        dates = self.date_header_pattern.findall(line)
-        if len(dates) < 2:
+        matches = list(self.date_header_pattern.finditer(line))
+        if len(matches) < 2:
             return None
-        first_start = line.find(dates[0])
-        label = line[:first_start].strip()
+        first = matches[0]
+        second = matches[1]
+        label = line[: first.start()].strip()
         label = self._normalize_label(label) if label else ""
-        second_end = line.find(dates[1]) + len(dates[1])
-        unit_text = line[second_end:].strip()
-        return label, dates[:2], unit_text
+        unit_text = line[second.end() :].strip()
+        return label, [first.group(), second.group()], unit_text
 
     def _extract_row(self, line: str) -> tuple[str, list[str]]:
         tokens = line.split()
         values: list[str] = []
         idx = len(tokens) - 1
-        while idx >= 0 and _is_numeric_token(tokens[idx]):
+        while idx >= 0 and self.is_numeric_token(tokens[idx]):
             values.append(tokens[idx])
             idx -= 1
         values.reverse()
@@ -681,6 +648,25 @@ class _TableExtractor:
                 merged[0] = merged[0] + merged[1]
                 del merged[1]
         return merged
+
+    @staticmethod
+    def is_numeric_token(token: str) -> bool:
+        cleaned = token.strip()
+        if not cleaned:
+            return False
+        if cleaned[0] in ("(", "-", "–") and cleaned[-1] == ")":
+            cleaned = cleaned[1:-1]
+        if cleaned.endswith("%"):
+            cleaned = cleaned[:-1]
+        return all(ch.isdigit() or ch in {",", "."} for ch in cleaned) and any(
+            ch.isdigit() for ch in cleaned
+        )
+
+    @classmethod
+    def count_numeric_tokens(cls, text: str) -> int:
+        if not text:
+            return 0
+        return sum(1 for token in text.split() if cls.is_numeric_token(token))
 
     @staticmethod
     def _split_numeric_blob(blob: str, expected_count: int) -> list[str]:
@@ -744,6 +730,22 @@ class _TableExtractor:
                 words[key] = words.get(key, 0) + 1
         return words
 
+    @staticmethod
+    def _score_tables(tables: list[TableRows]) -> int:
+        score = 0
+        table_penalty = 2
+        for table in tables:
+            if not table:
+                continue
+            score -= table_penalty
+            for row in table:
+                non_empty = sum(1 for cell in row if str(cell).strip())
+                if non_empty >= 2:
+                    score += 2
+                elif non_empty == 1:
+                    score -= 1
+        return score
+
     @classmethod
     def _split_compound_words(cls, text: str, known_words: dict[str, int]) -> str:
         tokens = text.split()
@@ -789,17 +791,17 @@ class _TableExtractor:
 
     @staticmethod
     def _looks_like_unit_line(line: str) -> bool:
-        if re.search(r"\d", line):
+        if _TableExtractor.numeric_re.search(line):
             return False
-        if re.search(r"[.;:]", line):
+        if _TableExtractor.section_break_re.search(line):
             return False
-        if re.search(r"[^A-Za-z\\s&]", line):
+        if _TableExtractor.non_unit_chars_re.search(line):
             return True
         return False
 
     @staticmethod
     def _looks_like_section_break(line: str) -> bool:
-        if re.search(r"[.;:]", line):
+        if _TableExtractor.section_break_re.search(line):
             return False
         if len(line) > 50:
             return False
@@ -807,8 +809,9 @@ class _TableExtractor:
 
     def _next_non_empty_line(self, start_index: int) -> str:
         for idx in range(start_index + 1, len(self.lines)):
-            if self.lines[idx]:
-                return self.lines[idx]
+            candidate = self.lines[idx]
+            if candidate:
+                return candidate
         return ""
 
 
