@@ -108,7 +108,6 @@ Maintenance Notes
 import io
 import logging
 import mimetypes
-import zipfile
 from typing import Any, Generator
 from xml.etree import ElementTree as ET
 
@@ -127,11 +126,12 @@ from sharepoint2text.extractors.data_types import (
     OdtTable,
 )
 from sharepoint2text.extractors.util.encryption import is_odf_encrypted
+from sharepoint2text.extractors.util.zip_context import ZipContext
 
 logger = logging.getLogger(__name__)
 
 
-class _OdtContext:
+class _OdtContext(ZipContext):
     """
     Cached context for ODT extraction.
 
@@ -140,39 +140,25 @@ class _OdtContext:
     """
 
     def __init__(self, file_like: io.BytesIO):
-        self.file_like = file_like
-        file_like.seek(0)
+        """Initialize the ODT context and cache XML content."""
+        super().__init__(file_like)
 
         # Cache for parsed XML roots
         self._content_root: ET.Element | None = None
         self._meta_root: ET.Element | None = None
         self._styles_root: ET.Element | None = None
 
-        # Cache for namelist
-        self._namelist: set[str] = set()
-
-        # Reference to open zipfile for image extraction
-        self._zipfile: zipfile.ZipFile | None = None
-
-    def load(self, z: zipfile.ZipFile) -> None:
-        """Load and parse all XML files from the ZIP."""
-        self._zipfile = z
-        self._namelist = set(z.namelist())
-
         # Parse content.xml
-        if "content.xml" in self._namelist:
-            with z.open("content.xml") as f:
-                self._content_root = ET.parse(f).getroot()
+        if "content.xml" in self.namelist:
+            self._content_root = self.read_xml_root("content.xml")
 
         # Parse meta.xml
-        if "meta.xml" in self._namelist:
-            with z.open("meta.xml") as f:
-                self._meta_root = ET.parse(f).getroot()
+        if "meta.xml" in self.namelist:
+            self._meta_root = self.read_xml_root("meta.xml")
 
         # Parse styles.xml
-        if "styles.xml" in self._namelist:
-            with z.open("styles.xml") as f:
-                self._styles_root = ET.parse(f).getroot()
+        if "styles.xml" in self.namelist:
+            self._styles_root = self.read_xml_root("styles.xml")
 
     @property
     def content_root(self) -> ET.Element | None:
@@ -189,16 +175,9 @@ class _OdtContext:
         """Get cached styles.xml root."""
         return self._styles_root
 
-    @property
-    def namelist(self) -> set[str]:
-        """Get cached namelist."""
-        return self._namelist
-
     def open_file(self, path: str) -> io.BufferedReader:
         """Open a file from the ZIP archive."""
-        if self._zipfile is None:
-            raise RuntimeError("Context not loaded")
-        return self._zipfile.open(path)
+        return self.open_stream(path)
 
 
 # ODF namespaces
@@ -742,40 +721,42 @@ def _extract_styles_from_context(ctx: _OdtContext) -> list[str]:
     return list(styles)
 
 
+def _append_full_text_from_element(elem: ET.Element, output: list[str]) -> None:
+    """Append text from an element to output in document order."""
+    tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+
+    if tag in ("p", "h"):
+        text = _get_text_recursive(elem)
+        if text.strip():
+            output.append(text)
+        return
+
+    if tag == "table":
+        for row in elem.findall(".//table:table-row", NS):
+            for cell in row.findall(".//table:table-cell", NS):
+                for p in cell.findall(".//text:p", NS):
+                    text = _get_text_recursive(p)
+                    if text.strip():
+                        output.append(text)
+        return
+
+    if tag == "list":
+        for item in elem.findall(".//text:list-item", NS):
+            for p in item.findall(".//text:p", NS):
+                text = _get_text_recursive(p)
+                if text.strip():
+                    output.append(text)
+        return
+
+    for child in elem:
+        _append_full_text_from_element(child, output)
+
+
 def _extract_full_text(body: ET.Element) -> str:
     """Extract full text from the document body in reading order."""
     logger.debug("Extracting ODT full text")
-    all_text = []
-
-    def process_element(elem):
-        """Process element and extract text in document order."""
-        tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
-
-        if tag in ("p", "h"):
-            text = _get_text_recursive(elem)
-            if text.strip():
-                all_text.append(text)
-        elif tag == "table":
-            # Process table cells
-            for row in elem.findall(".//table:table-row", NS):
-                for cell in row.findall(".//table:table-cell", NS):
-                    for p in cell.findall(".//text:p", NS):
-                        text = _get_text_recursive(p)
-                        if text.strip():
-                            all_text.append(text)
-        elif tag == "list":
-            # Process list items
-            for item in elem.findall(".//text:list-item", NS):
-                for p in item.findall(".//text:p", NS):
-                    text = _get_text_recursive(p)
-                    if text.strip():
-                        all_text.append(text)
-        else:
-            # Recurse for container elements
-            for child in elem:
-                process_element(child)
-
-    process_element(body)
+    all_text: list[str] = []
+    _append_full_text_from_element(body, all_text)
     return "\n".join(all_text)
 
 
@@ -835,10 +816,7 @@ def read_odt(
 
     # Create context and load all XML files once
     ctx = _OdtContext(file_like)
-
-    with zipfile.ZipFile(file_like, "r") as z:
-        ctx.load(z)
-
+    try:
         # Validate content.xml exists
         if ctx.content_root is None:
             raise ValueError("Invalid ODT file: content.xml not found")
@@ -862,6 +840,8 @@ def read_odt(
         headers, footers = _extract_headers_footers_from_context(ctx)
         styles = _extract_styles_from_context(ctx)
         full_text = _extract_full_text(body)
+    finally:
+        ctx.close()
 
     # Populate file metadata from path
     metadata.populate_from_path(path)

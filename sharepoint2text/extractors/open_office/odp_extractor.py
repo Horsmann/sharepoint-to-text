@@ -118,6 +118,7 @@ from sharepoint2text.extractors.data_types import (
     OdpSlide,
 )
 from sharepoint2text.extractors.util.encryption import is_odf_encrypted
+from sharepoint2text.extractors.util.zip_utils import read_zip_xml_root
 
 logger = logging.getLogger(__name__)
 
@@ -175,9 +176,7 @@ def _extract_metadata(z: zipfile.ZipFile) -> OdpMetadata:
     if "meta.xml" not in z.namelist():
         return metadata
 
-    with z.open("meta.xml") as f:
-        tree = ET.parse(f)
-        root = tree.getroot()
+    root = read_zip_xml_root(z, "meta.xml")
 
     # Find the office:meta element
     meta_elem = root.find(".//office:meta", NS)
@@ -514,9 +513,7 @@ def read_odp(
         if "content.xml" not in z.namelist():
             raise ValueError("Invalid ODP file: content.xml not found")
 
-        with z.open("content.xml") as f:
-            content_tree = ET.parse(f)
-            content_root = content_tree.getroot()
+        content_root = read_zip_xml_root(z, "content.xml")
 
         # Find the presentation body
         body = content_root.find(".//office:body/office:presentation", NS)
