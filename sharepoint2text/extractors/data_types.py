@@ -1409,12 +1409,27 @@ class OdtBookmark:
 
 
 @dataclass
+class OdtTable(TableInterface):
+    """Represents a single table in the document."""
+
+    data: List[List[str]] = field(default_factory=list)
+
+    def get_table(self) -> list[list[typing.Any]]:
+        return self.data
+
+    def get_dim(self) -> TableDim:
+        rows = len(self.data)
+        columns = max((len(row) for row in self.data), default=0)
+        return TableDim(rows=rows, columns=columns)
+
+
+@dataclass
 class OdtContent(ExtractionInterface):
     """Complete extracted content from an ODT file."""
 
     metadata: OdtMetadata = field(default_factory=OdtMetadata)
     paragraphs: List[OdtParagraph] = field(default_factory=list)
-    tables: List[List[List[str]]] = field(default_factory=list)
+    tables: List[OdtTable] = field(default_factory=list)
     headers: List[OdtHeaderFooter] = field(default_factory=list)
     footers: List[OdtHeaderFooter] = field(default_factory=list)
     images: List[OdtImage] = field(default_factory=list)
@@ -1456,7 +1471,7 @@ class OdtContent(ExtractionInterface):
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
         for table in self.tables:
-            yield TableData(data=table)
+            yield table
 
 
 #######

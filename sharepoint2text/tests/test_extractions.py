@@ -21,6 +21,7 @@ from sharepoint2text.extractors.data_types import (
     OdtContent,
     OdtHeaderFooter,
     OdtNote,
+    OdtTable,
     PdfContent,
     PlainTextContent,
     PptContent,
@@ -1052,7 +1053,11 @@ def test_read_open_office__document() -> None:
     tc.assertEqual(0, len(list(odt.images)))
 
     # tables
-    tc.assertListEqual([[["Header 1", "Header 2"], ["Cell A", "Cell B"]]], odt.tables)
+    tc.assertEqual(1, len(odt.tables))
+    tc.assertEqual(
+        OdtTable(data=[["Header 1", "Header 2"], ["Cell A", "Cell B"]]),
+        odt.tables[0],
+    )
     tc.assertListEqual(
         [["Header 1", "Header 2"], ["Cell A", "Cell B"]],
         list(odt.iterate_tables())[0].get_table(),
@@ -1091,9 +1096,14 @@ def test_read_open_office__document() -> None:
 
     tc.assertEqual(0, len(list(odt.iterate_images())))
     tc.assertEqual(
-        TableData(data=[["Header 1", "Header 2"], ["Cell A", "Cell B"]]),
+        OdtTable(data=[["Header 1", "Header 2"], ["Cell A", "Cell B"]]),
         list(odt.iterate_tables())[0],
     )
+    tc.assertEqual(
+        [["Header 1", "Header 2"], ["Cell A", "Cell B"]],
+        list(odt.iterate_tables())[0].get_table(),
+    )
+    tc.assertEqual(TableDim(rows=2, columns=2), list(odt.iterate_tables())[0].get_dim())
 
 
 def test_read_open_office__presentation() -> None:
@@ -1325,6 +1335,7 @@ def test_read_open_office__spreadsheet_2() -> None:
     tc.assertListEqual(expected_rows, ods.sheets[0].get_table())
     tc.assertEqual(0, len(list(ods.iterate_images())))
     tc.assertEqual(3, len(list(ods.iterate_tables())))
+    tc.assertEqual(TableDim(rows=4, columns=4), list(ods.iterate_tables())[0].get_dim())
 
 
 def test_open_office__document_image_interface() -> None:

@@ -51,7 +51,7 @@ Extracted Content
 -----------------
 The extractor retrieves:
     - paragraphs: Text paragraphs with style information and runs
-    - tables: Table data as nested lists
+    - tables: Table data as OdtTable objects
     - headers/footers: From styles.xml master pages
     - footnotes/endnotes: Note content with IDs
     - annotations: Comments with creator and date
@@ -123,6 +123,7 @@ from sharepoint2text.extractors.data_types import (
     OdtNote,
     OdtParagraph,
     OdtRun,
+    OdtTable,
 )
 
 logger = logging.getLogger(__name__)
@@ -357,13 +358,13 @@ def _extract_paragraphs(body: ET.Element) -> list[OdtParagraph]:
     return paragraphs
 
 
-def _extract_tables(body: ET.Element) -> list[list[list[str]]]:
+def _extract_tables(body: ET.Element) -> list[OdtTable]:
     """Extract tables from the document body."""
     logger.debug("Extracting ODT tables")
     tables = []
 
     for table in body.findall(".//table:table", NS):
-        table_data = []
+        table_data: list[list[str]] = []
         for row in table.findall(".//table:table-row", NS):
             row_data = []
             for cell in row.findall(".//table:table-cell", NS):
@@ -375,7 +376,7 @@ def _extract_tables(body: ET.Element) -> list[list[list[str]]]:
             if row_data:
                 table_data.append(row_data)
         if table_data:
-            tables.append(table_data)
+            tables.append(OdtTable(data=table_data))
 
     return tables
 
@@ -800,7 +801,7 @@ def read_odt(
         OdtContent: Single OdtContent object containing:
             - metadata: OdtMetadata with title, creator, dates, etc.
             - paragraphs: List of OdtParagraph with text and runs
-            - tables: List of tables as 3D lists (table > row > cell)
+            - tables: List of tables as OdtTable objects
             - headers/footers: From master pages in styles.xml
             - images: List of OdtImage with binary data
             - hyperlinks: List of OdtHyperlink with text and URL
