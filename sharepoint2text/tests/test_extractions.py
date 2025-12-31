@@ -952,6 +952,11 @@ def test_email__msg_format_with_attachment() -> None:
         attachments[0].get_full_text(),
     )
     tc.assertEqual(1, len(list(attachments[0].iterate_images())))
+    tc.assertEqual(
+        "The slide title\nThe first text line\n\n\n\n\nThe last text line\nA beach",
+        attachments[1].get_full_text(),
+    )
+    tc.assertEqual(1, len(list(attachments[1].iterate_images())))
 
     pptx_attachment = attachments_by_name["pptx_formula_image.pptx"]
     tc.assertEqual(
