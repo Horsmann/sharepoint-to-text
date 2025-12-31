@@ -105,6 +105,7 @@ from email.utils import parsedate_to_datetime
 from typing import Any, Generator
 
 from msg_parser import MsOxMessage
+from olefile import OleFileIO
 
 from sharepoint2text.extractors.data_types import (
     EmailAddress,
@@ -115,6 +116,58 @@ from sharepoint2text.extractors.data_types import (
 from sharepoint2text.mime_types import is_supported_mime_type
 
 logger = logging.getLogger(__name__)
+
+
+def _read_ole_string(ole: OleFileIO, storage: str, stream_name: str) -> str:
+    try:
+        raw = ole.openstream([storage, stream_name]).read()
+    except Exception:
+        return ""
+    try:
+        return raw.decode("utf-16-le", errors="ignore").rstrip("\x00")
+    except Exception:
+        return ""
+
+
+def _extract_msg_attachments(file_bytes: bytes) -> list[EmailAttachment]:
+    attachments: list[EmailAttachment] = []
+
+    with OleFileIO(io.BytesIO(file_bytes)) as ole:
+        storages = ole.listdir(streams=False, storages=True)
+        attach_storages = [
+            storage[0]
+            for storage in storages
+            if len(storage) == 1 and storage[0].startswith("__attach_version1.0_")
+        ]
+
+        for index, storage in enumerate(attach_storages, start=1):
+            try:
+                data = ole.openstream([storage, "__substg1.0_37010102"]).read()
+            except Exception:
+                continue
+
+            filename = (
+                _read_ole_string(ole, storage, "__substg1.0_3707001F")
+                or _read_ole_string(ole, storage, "__substg1.0_3704001F")
+                or f"attachment-{index}"
+            )
+            mime_type = (
+                _read_ole_string(ole, storage, "__substg1.0_370E001F")
+                or "application/octet-stream"
+            )
+
+            data_stream = io.BytesIO(data)
+            data_stream.seek(0)
+            attachments.append(
+                EmailAttachment(
+                    filename=filename,
+                    mime_type=mime_type,
+                    data=data_stream,
+                    is_supported_mime_type=is_supported_mime_type(mime_type),
+                )
+            )
+
+    return attachments
 
 
 def _parse_single_recipient(raw: str) -> EmailAddress | None:
@@ -291,7 +344,9 @@ def read_msg_format_mail(
         - reply_to is stored as raw value, not parsed to EmailAddress list
           (this differs from EML/MBOX extractors)
     """
-    msg = MsOxMessage(file_like)
+    file_like.seek(0)
+    file_bytes = file_like.read()
+    msg = MsOxMessage(io.BytesIO(file_bytes))
 
     # Build metadata with date and message ID
     meta = EmailMetadata(
@@ -304,20 +359,7 @@ def read_msg_format_mail(
     sender_list = _parse_multi_recipients(msg.sender)
     from_email = sender_list[0] if sender_list else EmailAddress()
 
-    attachments: list[EmailAttachment] = []
-    for attachment in msg.attachments:
-        data = attachment.data or b""
-        data_stream = io.BytesIO(data)
-        data_stream.seek(0)
-        mime_type = attachment.AttachMimeTag or "application/octet-stream"
-        attachments.append(
-            EmailAttachment(
-                filename=attachment.Filename,
-                mime_type=mime_type,
-                data=data_stream,
-                is_supported_mime_type=is_supported_mime_type(mime_type),
-            )
-        )
+    attachments = _extract_msg_attachments(file_bytes)
 
     content = EmailContent(
         subject=msg.subject,

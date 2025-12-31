@@ -208,9 +208,11 @@ class EmailContent(ExtractionInterface):
         yield from ()
         return
 
-    def iterate_attachments(
+    def iterate_supported_attachments(
         self,
     ) -> typing.Generator["ExtractionInterface", None, None]:
+        """Iterates over the attachments. If the file type is supported an extracted object is returned.
+        Not supported attachments are silently skipped"""
         from sharepoint2text.exceptions import ExtractionFileFormatNotSupportedError
         from sharepoint2text.mime_types import MIME_TYPE_MAPPING
         from sharepoint2text.router import get_extractor
@@ -238,7 +240,17 @@ class EmailContent(ExtractionInterface):
                 extractor = get_extractor(f"attachment.{file_type}")
 
             attachment.data.seek(0)
-            yield from extractor(attachment.data, attachment.filename)
+            try:
+                yield from extractor(attachment.data, attachment.filename)
+            except Exception as exc:
+                logger.debug(
+                    "Failed to extract attachment: %s (mime=%s) error=%s",
+                    attachment.filename,
+                    attachment.mime_type,
+                    exc,
+                )
+            finally:
+                attachment.data.seek(0)
 
     def get_full_text(self) -> str:
         return "\n".join(self.iterate_text())
