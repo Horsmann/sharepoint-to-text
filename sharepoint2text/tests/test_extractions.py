@@ -27,6 +27,7 @@ from sharepoint2text.extractors.data_types import (
     PptxContent,
     RtfContent,
     TableData,
+    TableDim,
     XlsContent,
     XlsxContent,
 )
@@ -167,6 +168,7 @@ def test_read_xlsx_1() -> None:
     tc.assertListEqual(
         ["AREA", "CODE", "COUNTRY NAME"], list(xlsx.iterate_tables())[0].get_table()[0]
     )
+    tc.assertEqual(TableDim(52, 3), list(xlsx.iterate_tables())[0].get_dim())
 
     # check raw data and table interface
     # check that the first row in the first sheet is the headline
@@ -240,6 +242,7 @@ def test_read_xlsx_3() -> None:
         xlsx.sheets[0].data,
     )
     tc.assertEqual(0, len(list(xlsx.iterate_images())))
+    tc.assertEqual(TableDim(4, 4), list(xlsx.iterate_tables())[0].get_dim())
 
 
 def test_read_xlsx_4__image_extraction() -> None:
@@ -688,6 +691,7 @@ def test_read_xls_2() -> None:
 
     tc.assertEqual(0, len(list(xls.iterate_images())))
     tc.assertEqual(1, len(list(xls.iterate_tables())))
+    tc.assertEqual(TableDim(rows=2, columns=2), list(xls.iterate_tables())[0].get_dim())
 
 
 def test_read_ppt() -> None:
@@ -1049,6 +1053,11 @@ def test_read_open_office__document() -> None:
 
     # tables
     tc.assertListEqual([[["Header 1", "Header 2"], ["Cell A", "Cell B"]]], odt.tables)
+    tc.assertListEqual(
+        [["Header 1", "Header 2"], ["Cell A", "Cell B"]],
+        list(odt.iterate_tables())[0].get_table(),
+    )
+    tc.assertEqual(TableDim(rows=2, columns=2), list(odt.iterate_tables())[0].get_dim())
 
     # iterator items
     tc.assertEqual(1, len(list(odt.iterate_text())))

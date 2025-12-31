@@ -41,6 +41,17 @@ class TableInterface(Protocol):
         """
         pass
 
+    @abstractmethod
+    def get_dim(self) -> "TableDim":
+        """Return the table dimensions (rows, columns)."""
+        pass
+
+
+@dataclass
+class TableDim:
+    rows: int = 0
+    columns: int = 0
+
 
 @dataclass
 class TableData(TableInterface):
@@ -48,6 +59,11 @@ class TableData(TableInterface):
 
     def get_table(self) -> list[list[typing.Any]]:
         return self.data
+
+    def get_dim(self) -> TableDim:
+        rows = len(self.data)
+        columns = max((len(row) for row in self.data), default=0)
+        return TableDim(rows=rows, columns=columns)
 
 
 @dataclass
@@ -927,6 +943,12 @@ class XlsSheet(TableInterface):
             rows.append([row.get(header) for header in headers])
         return rows
 
+    def get_dim(self) -> TableDim:
+        table = self.get_table()
+        rows = len(table)
+        columns = max((len(row) for row in table), default=0)
+        return TableDim(rows=rows, columns=columns)
+
 
 @dataclass
 class XlsContent(ExtractionInterface):
@@ -1024,6 +1046,11 @@ class XlsxSheet(TableInterface):
 
     def get_table(self) -> list[list[typing.Any]]:
         return self.data
+
+    def get_dim(self) -> TableDim:
+        rows = len(self.data)
+        columns = max((len(row) for row in self.data), default=0)
+        return TableDim(rows=rows, columns=columns)
 
 
 @dataclass
@@ -1277,6 +1304,11 @@ class OdsSheet(TableInterface):
 
     def get_table(self) -> list[list[typing.Any]]:
         return self.data
+
+    def get_dim(self) -> TableDim:
+        rows = len(self.data)
+        columns = max((len(row) for row in self.data), default=0)
+        return TableDim(rows=rows, columns=columns)
 
 
 @dataclass
