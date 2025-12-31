@@ -26,6 +26,7 @@ from sharepoint2text.extractors.data_types import (
     PptContent,
     PptxContent,
     RtfContent,
+    TableData,
     XlsContent,
     XlsxContent,
 )
@@ -88,7 +89,11 @@ def test_read_text() -> None:
 
     plain: PlainTextContent = next(read_plain_text(file_like=file_like))
 
-    tc.assertEqual("Hello World\n", plain.content)
+    tc.assertEqual("Hello World", plain.content)
+    tc.assertEqual("Hello World", plain.get_full_text())
+    tc.assertEqual(1, len(list(plain.iterate_text())))
+    tc.assertEqual(0, len(list(plain.iterate_images())))
+    tc.assertEqual(0, len(list(plain.iterate_tables())))
 
 
 def test_read_plain_csv() -> None:
@@ -99,9 +104,13 @@ def test_read_plain_csv() -> None:
 
     plain: PlainTextContent = next(read_plain_text(file_like=file_like, path=path))
 
-    tc.assertEqual('Text; Date\n"Hello World"; "2025-12-25"\n', plain.content)
+    tc.assertEqual('Text; Date\n"Hello World"; "2025-12-25"', plain.content)
 
-    tc.assertEqual(1, len(list(plain.iterate_text())))
+    tc.assertEqual(
+        'Text; Date\n"Hello World"; "2025-12-25"', "\n".join(plain.iterate_text())
+    )
+    tc.assertEqual(0, len(list(plain.iterate_images())))
+    tc.assertEqual(0, len(list(plain.iterate_tables())))
 
 
 def test_read_plain_tsv() -> None:
@@ -112,7 +121,13 @@ def test_read_plain_tsv() -> None:
 
     plain = next(read_plain_text(file_like=file_like, path=path))
 
-    tc.assertEqual("Text\tDate\nHello World\t2025-12-25\n", plain.content)
+    tc.assertEqual("Text\tDate\nHello World\t2025-12-25", plain.content)
+    tc.assertEqual("Text\tDate\nHello World\t2025-12-25", plain.get_full_text())
+    tc.assertEqual(
+        "Text\tDate\nHello World\t2025-12-25", "\n".join(plain.iterate_text())
+    )
+    tc.assertEqual(0, len(list(plain.iterate_images())))
+    tc.assertEqual(0, len(list(plain.iterate_tables())))
 
 
 def test_read_plain_markdown() -> None:
@@ -123,7 +138,11 @@ def test_read_plain_markdown() -> None:
 
     plain = next(read_plain_text(file_like=file_like, path=path))
 
+    tc.assertEqual("# Markdown file\n\nThis is a text", plain.content)
     tc.assertEqual("# Markdown file\n\nThis is a text", plain.get_full_text())
+    tc.assertEqual("# Markdown file\n\nThis is a text", "\n".join(plain.iterate_text()))
+    tc.assertEqual(0, len(list(plain.iterate_images())))
+    tc.assertEqual(0, len(list(plain.iterate_tables())))
 
 
 ####################
@@ -141,8 +160,12 @@ def test_read_xlsx_1() -> None:
     tc.assertEqual("2015-05-06T11:46:24", xlsx.metadata.modified)
 
     tc.assertEqual(3, len(xlsx.sheets))
+    tc.assertEqual(3, len(list(xlsx.iterate_tables())))
     tc.assertListEqual(
         sorted(["Sheet1", "Sheet2", "Sheet3"]), sorted([s.name for s in xlsx.sheets])
+    )
+    tc.assertListEqual(
+        ["AREA", "CODE", "COUNTRY NAME"], list(xlsx.iterate_tables())[0].get_table()[0]
     )
 
     # check raw data and table interface
@@ -269,6 +292,7 @@ def test_read_pptx_1() -> None:
 
     tc.assertEqual(3, len(pptx.slides))
     tc.assertEqual(5, len(list(pptx.iterate_images())))
+    tc.assertEqual(0, len(list(pptx.iterate_tables())))
     tc.assertEqual(
         ImageMetadata(
             unit_index=2,
@@ -460,6 +484,7 @@ def test_read_docx_1() -> None:
     tc.assertEqual(1, len(list(docx.iterate_text())))
     tc.assertEqual(1, len(docx.images))
     tc.assertEqual(1, len(list(docx.iterate_images())))
+    tc.assertEqual(7, len(list(docx.iterate_tables())))
     tc.assertEqual(
         ImageMetadata(
             unit_index=None,
@@ -524,6 +549,11 @@ def test_read_docx_2() -> None:
     # images
     tc.assertEqual(1, len(docx.images))
     tc.assertEqual(1, len(list(docx.iterate_images())))
+    tc.assertEqual(1, len(list(docx.iterate_tables())))
+    tc.assertEqual(
+        TableData(data=[["Income", "tax"], ["119", "19"]]),
+        list(docx.iterate_tables())[0],
+    )
     tc.assertEqual(1, docx.images[0].image_index)
     tc.assertEqual("image1.png", docx.images[0].filename)
     tc.assertEqual("image/png", docx.images[0].content_type)
@@ -565,6 +595,7 @@ def test_read_docx__image_extraction_1() -> None:
 
     tc.assertEqual(1, len(docx.images))
     tc.assertEqual(1, len(list(docx.iterate_images())))
+    tc.assertEqual(0, len(list(docx.iterate_tables())))
     # image interface - caption from following paragraph with "HA-Bildunterschrift" style
     expected_caption = (
         "Abb. 1: Eine aus dem Internet heruntergeladene Bilddatei mit einer "
@@ -591,6 +622,7 @@ def test_read_docx__image_extraction_2() -> None:
 
     tc.assertEqual(2, len(docx.images))
     tc.assertEqual(2, len(list(docx.iterate_images())))
+    tc.assertEqual(4, len(list(docx.iterate_tables())))
     tc.assertEqual("Illustration 1: [Figure title]", docx.images[1].get_caption())
     tc.assertEqual(
         """Ein Bild, das Zeichnung "Marketing" enthält.""",
@@ -619,6 +651,7 @@ def test_read_xls_1() -> None:
     # iterator
     tc.assertEqual(13, len(list(xls.iterate_text())))
     tc.assertEqual(0, len(list(xls.iterate_images())))
+    tc.assertEqual(13, len(list(xls.iterate_tables())))
 
     xls_it = xls.iterate_text()
     # test first page
@@ -654,6 +687,7 @@ def test_read_xls_2() -> None:
     )
 
     tc.assertEqual(0, len(list(xls.iterate_images())))
+    tc.assertEqual(1, len(list(xls.iterate_tables())))
 
 
 def test_read_ppt() -> None:
@@ -677,6 +711,7 @@ def test_read_ppt() -> None:
     # test iterator
     tc.assertEqual(48, len(list(ppt.iterate_text())))
     tc.assertEqual(0, len(list(ppt.iterate_images())))
+    tc.assertEqual(0, len(list(ppt.iterate_tables())))
 
     # test full text
     tc.assertEqual("European Union", ppt.get_full_text()[:14])
@@ -712,6 +747,7 @@ def test_read_doc() -> None:
     # test iterator
     tc.assertEqual(1, len(list(doc.iterate_text())))
     tc.assertEqual(0, len(list(doc.iterate_images())))
+    tc.assertEqual(0, len(list(doc.iterate_tables())))
 
     # test full text
     tc.assertEqual(
@@ -734,6 +770,7 @@ def test_read_doc__image_extraction_1() -> None:
 
     images = list(doc.iterate_images())
     tc.assertEqual(1, len(images))
+    tc.assertEqual(0, len(list(doc.iterate_tables())))
 
     tc.assertEqual("image/bmp", images[0].get_content_type())
     tc.assertEqual("Illustration 1: A GitHub screenshot", images[0].get_caption())
@@ -762,6 +799,7 @@ def test_read_doc__image_extraction_2() -> None:
     doc: DocContent = next(read_doc(file_like=file_like))
     images = list(doc.iterate_images())
     tc.assertEqual(2, len(images))
+    tc.assertEqual(0, len(list(doc.iterate_tables())))
 
     # image 1
     tc.assertEqual("image/bmp", images[0].get_content_type())
@@ -793,6 +831,7 @@ def test_read_rtf() -> None:
 
     tc.assertEqual(1, len(list(rtf.iterate_text())))
     tc.assertEqual(0, len(list(rtf.iterate_images())))
+    tc.assertEqual(0, len(list(rtf.iterate_tables())))
 
 
 #################
@@ -847,6 +886,7 @@ def test_email__eml_format() -> None:
         "Plain email.\n\nHope it works well!\n\nMikel", list(mail.iterate_text())[0]
     )
     tc.assertEqual(0, len(list(mail.iterate_images())))
+    tc.assertEqual(0, len(list(mail.iterate_tables())))
 
     # metadata
     mail_meta = mail.get_metadata()
@@ -906,6 +946,7 @@ def test_email__msg_format() -> None:
     )
 
     tc.assertEqual(0, len(list(mail.iterate_images())))
+    tc.assertEqual(0, len(list(mail.iterate_tables())))
 
 
 def test_email__mbox_format() -> None:
@@ -950,6 +991,7 @@ def test_email__mbox_format() -> None:
     tc.assertEqual("<msg001@example.com>", mail_meta.message_id)
 
     tc.assertEqual(0, len(list(mails[0].iterate_images())))
+    tc.assertEqual(0, len(list(mails[0].iterate_tables())))
 
 
 ###############
@@ -1039,6 +1081,10 @@ def test_read_open_office__document() -> None:
     )
 
     tc.assertEqual(0, len(list(odt.iterate_images())))
+    tc.assertEqual(
+        TableData(data=[["Header 1", "Header 2"], ["Cell A", "Cell B"]]),
+        list(odt.iterate_tables())[0],
+    )
 
 
 def test_read_open_office__presentation() -> None:
@@ -1086,6 +1132,10 @@ def test_read_open_office__presentation() -> None:
     tc.assertEqual(1, len(odp.slides[1].tables))
     tc.assertEqual(
         [["Header 1", "Header 2"], ["Cell A", "Cell B"]], odp.slides[1].tables[0]
+    )
+    tc.assertEqual(
+        [["Header 1", "Header 2"], ["Cell A", "Cell B"]],
+        list(odp.iterate_tables())[0].get_table(),
     )
     # Annotation on slide 2
     tc.assertEqual(1, len(odp.slides[1].annotations))
@@ -1222,6 +1272,7 @@ def test_read_open_office__spreadsheet() -> None:
     # Iterator yields 2 items (one per sheet)
     tc.assertEqual(2, len(list(ods.iterate_text())))
     tc.assertEqual(0, len(list(ods.iterate_images())))
+    tc.assertEqual(2, len(list(ods.iterate_tables())))
 
     # check length of full text with length of all sheets
     total_length_iteration = sum([len(e) for e in ods.iterate_text()])
@@ -1250,6 +1301,8 @@ def test_read_open_office__spreadsheet_2() -> None:
         file_like.seek(0)
 
     ods: OdsContent = next(read_ods(file_like=file_like))
+
+    tc.assertEqual(3, len(ods.sheets))
     expected_rows = [
         [None, "Name", None, "Age"],
         [None, "A", None, 25],
@@ -1262,6 +1315,7 @@ def test_read_open_office__spreadsheet_2() -> None:
     )
     tc.assertListEqual(expected_rows, ods.sheets[0].get_table())
     tc.assertEqual(0, len(list(ods.iterate_images())))
+    tc.assertEqual(3, len(list(ods.iterate_tables())))
 
 
 def test_open_office__document_image_interface() -> None:
@@ -1276,6 +1330,7 @@ def test_open_office__document_image_interface() -> None:
 
     tc.assertEqual(2, len(odt.images))
     tc.assertEqual(2, len(list(odt.iterate_images())))
+    tc.assertEqual(0, len(list(odt.iterate_tables())))
     tc.assertEqual(
         "Illustration 1: Screenshot from the Open Office download website",
         odt.images[0].get_caption(),
@@ -1307,6 +1362,7 @@ def test_open_office__presentation_image_interface() -> None:
     odp: OdpContent = next(read_odp(file_like=file_like, path=path))
     tc.assertEqual(1, len(odp.slides[0].images))
     tc.assertEqual(1, len(list(odp.iterate_images())))
+    tc.assertEqual(0, len(list(odp.iterate_tables())))
     tc.assertEqual(
         "",
         odp.slides[0].images[0].get_caption(),
@@ -1330,8 +1386,11 @@ def test_open_office__spreadsheet_image_interface() -> None:
         file_like.seek(0)
 
     ods: OdsContent = next(read_ods(file_like=file_like, path=path))
+    tc.assertEqual(3, len(ods.sheets))
     tc.assertEqual(1, len(ods.sheets[0].images))
     tc.assertEqual(1, len(list(ods.iterate_images())))
+    tc.assertEqual(3, len(list(ods.iterate_tables())))
+
     tc.assertEqual(
         "",
         ods.sheets[0].images[0].get_caption(),
@@ -1385,6 +1444,7 @@ def test_read_pdf_1() -> None:
 
     # test iterator
     tc.assertEqual(2, len(list(pdf.iterate_text())))
+    tc.assertEqual(0, len(list(pdf.iterate_tables())))
     tc.assertEqual(1, len(list(pdf.iterate_images())))
     tc.assertEqual(
         ImageMetadata(
@@ -1443,6 +1503,8 @@ def test_read_pdf_2() -> None:
     tc.assertEqual("multi_image.pdf", metadata.filename)
     tc.assertEqual(".pdf", metadata.file_extension)
 
+    tc.assertEqual(0, len(list(pdf.iterate_tables())))
+
 
 def test_read_html() -> None:
     path = "sharepoint2text/tests/resources/sample.html"
@@ -1463,3 +1525,8 @@ def test_read_html() -> None:
         html.links,
     )
     tc.assertEqual(0, len(list(html.iterate_images())))
+    tc.assertEqual(1, len(list(html.iterate_tables())))
+    tc.assertListEqual(
+        [["Name", "Age"], ["Alice", "25"], ["Bob", "30"]],
+        list(html.iterate_tables())[0].get_table(),
+    )

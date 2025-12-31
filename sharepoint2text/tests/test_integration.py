@@ -191,4 +191,5 @@ def test_read_file():
             tc.assertTrue(hasattr(obj, "get_metadata"))
             tc.assertTrue(hasattr(obj, "iterate_text"))
             tc.assertTrue(hasattr(obj, "iterate_images"))
+            tc.assertTrue(hasattr(obj, "iterate_tables"))
             tc.assertTrue(hasattr(obj, "get_full_text"))

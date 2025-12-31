@@ -32,14 +32,22 @@ class FileMetadataInterface:
 @dataclass
 class TableInterface(Protocol):
     @abstractmethod
-    def get_table(self) -> list[list[str]]:
+    def get_table(self) -> list[list[typing.Any]]:
         """Return the table data as a list of rows.
 
         The outer list contains rows, and each inner list contains the
-        string values for a single row. This format is compatible with
-        pandas and polars DataFrame constructors.
+        values for a single row. This format is compatible with pandas
+        and polars DataFrame constructors.
         """
         pass
+
+
+@dataclass
+class TableData(TableInterface):
+    data: list[list[typing.Any]] = field(default_factory=list)
+
+    def get_table(self) -> list[list[typing.Any]]:
+        return self.data
 
 
 @dataclass
@@ -102,6 +110,11 @@ class ExtractionInterface(Protocol):
         ...
 
     @abstractmethod
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        """Iterates over the extracted tables"""
+        ...
+
+    @abstractmethod
     def get_full_text(self) -> str:
         """Full text of the slide deck as one single block of text"""
         ...
@@ -150,6 +163,10 @@ class EmailContent(ExtractionInterface):
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
         # not supported
+        yield from ()
+        return
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
         yield from ()
         return
 
@@ -236,6 +253,10 @@ class DocContent(ExtractionInterface):
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
         for img in self.images:
             yield img
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        yield from ()
+        return
 
 
 ##############
@@ -397,6 +418,10 @@ class DocxContent(ExtractionInterface):
         for img in self.images:
             yield img
 
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        for table in self.tables:
+            yield TableData(data=table)
+
     def get_full_text(
         self, include_formulas: bool = False, include_comments: bool = False
     ) -> str:
@@ -489,6 +514,10 @@ class PdfContent(ExtractionInterface):
             for img in page.images:
                 yield img
 
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        yield from ()
+        return
+
 
 #########
 # Plain
@@ -512,6 +541,13 @@ class PlainTextContent(ExtractionInterface):
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
         yield from ()
         return
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        yield from ()
+        return
+
+    def __post_init__(self):
+        self.content = self.content.strip()
 
 
 ########
@@ -553,6 +589,10 @@ class HtmlContent(ExtractionInterface):
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
         yield from ()
         return
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        for table in self.tables:
+            yield TableData(data=table)
 
 
 #############
@@ -681,6 +721,10 @@ class PptContent(ExtractionInterface):
         return len(self.slides)
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        yield from ()
+        return
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
         yield from ()
         return
 
@@ -847,6 +891,10 @@ class PptxContent(ExtractionInterface):
             for img in slide.images:
                 yield img
 
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        yield from ()
+        return
+
 
 #############
 # Legacy XLS
@@ -865,10 +913,19 @@ class XlsMetadata(FileMetadataInterface):
 
 
 @dataclass
-class XlsSheet:
+class XlsSheet(TableInterface):
     name: str = ""
     data: List[Dict[str, typing.Any]] = field(default_factory=list)
     text: str = ""
+
+    def get_table(self) -> list[list[typing.Any]]:
+        if not self.data:
+            return []
+        headers = list(self.data[0].keys())
+        rows = [headers]
+        for row in self.data:
+            rows.append([row.get(header) for header in headers])
+        return rows
 
 
 @dataclass
@@ -891,6 +948,10 @@ class XlsContent(ExtractionInterface):
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
         yield from ()
         return
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        for sheet in self.sheets:
+            yield sheet
 
 
 ##############
@@ -961,7 +1022,7 @@ class XlsxSheet(TableInterface):
     text: str = ""
     images: List[XlsxImage] = field(default_factory=list)
 
-    def get_table(self) -> list[list[str]]:
+    def get_table(self) -> list[list[typing.Any]]:
         return self.data
 
 
@@ -985,6 +1046,11 @@ class XlsxContent(ExtractionInterface):
         for sheet in self.sheets:
             for img in sheet.images:
                 yield img
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        """A single sheet is considered a full table"""
+        for sheet in self.sheets:
+            yield sheet
 
 
 #############################
@@ -1188,6 +1254,11 @@ class OdpContent(ExtractionInterface):
             for img in slides.images:
                 yield img
 
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        for slide in self.slides:
+            for table in slide.tables:
+                yield TableData(data=table)
+
 
 ##################################
 # OpenDocument ODS (Spreadsheet) #
@@ -1204,7 +1275,7 @@ class OdsSheet(TableInterface):
     annotations: List[OdsAnnotation] = field(default_factory=list)
     images: List[OdsImage] = field(default_factory=list)
 
-    def get_table(self) -> list[list[str]]:
+    def get_table(self) -> list[list[typing.Any]]:
         return self.data
 
 
@@ -1237,6 +1308,11 @@ class OdsContent(ExtractionInterface):
         for sheet in self.sheets:
             for img in sheet.images:
                 yield img
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        """Ods is a spreadsheet format. The entire sheet is returned as table object"""
+        for sheet in self.sheets:
+            yield sheet
 
 
 ####################################
@@ -1345,6 +1421,10 @@ class OdtContent(ExtractionInterface):
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
         for img in self.images:
             yield img
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        for table in self.tables:
+            yield TableData(data=table)
 
 
 #######
@@ -1544,5 +1624,9 @@ class RtfContent(ExtractionInterface):
         return self.metadata
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        yield from ()
+        return
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
         yield from ()
         return
