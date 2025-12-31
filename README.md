@@ -71,7 +71,19 @@ Enterprise SharePoints contain decades of accumulated documents. While modern `.
 | CSV        | `.csv`    | Comma-separated values   |
 | TSV        | `.tsv`    | Tab-separated values     |
 | JSON       | `.json`   | JSON files               |
-| PDF        | `.pdf`    | PDF documents            |
+
+### PDF
+
+| Format | Extension | Description    |
+|--------|-----------|----------------|
+| PDF    | `.pdf`    | PDF documents  |
+
+### HTML
+
+| Format | Extension | Description         |
+|--------|-----------|---------------------|
+| HTML   | `.html`   | HTML documents      |
+| HTML   | `.htm`    | HTML documents      |
 
 ## Installation
 
@@ -112,12 +124,12 @@ result = next(sharepoint2text.read_file("document.docx"))
 print(result.get_full_text())
 ```
 
-### Understanding `iterator()` Output by Format
+### Understanding `iterate_text()` Output by Format
 
 Different file formats have different natural structural units:
 
-| Format | `iterator()` yields | Notes |
-|--------|-------------------|-------|
+| Format | `iterate_text()` yields | Notes |
+|--------|-------------------------|-------|
 | `.docx`, `.doc`, `.odt` | 1 item (full text) | Word/text documents have no page structure in the file format |
 | `.xlsx`, `.xls`, `.ods` | 1 item per **sheet** | Each yield contains sheet content |
 | `.pptx`, `.ppt`, `.odp` | 1 item per **slide** | Each yield contains slide text |
@@ -130,14 +142,14 @@ Different file formats have different natural structural units:
 
 **Note on generators:** All extractors return generators. Most formats yield a single content object, but `.mbox` files can yield multiple `EmailContent` objects (one per email in the mailbox). Use `next()` for single-item formats or iterate with `for` to handle all cases.
 
-### Choosing Between `get_full_text()` and `iterator()`
+### Choosing Between `get_full_text()` and `iterate_text()`
 
 The interface provides two methods for accessing text content, and **you must decide which is appropriate for your use case**:
 
 | Method | Returns | Best for |
 |--------|---------|----------|
 | `get_full_text()` | All text as a single string | Simple extraction, full-text search, when structure doesn't matter |
-| `iterator()` | Yields logical units (pages, slides, sheets) | RAG pipelines, per-unit indexing, preserving document structure |
+| `iterate_text()` | Yields logical units (pages, slides, sheets) | RAG pipelines, per-unit indexing, preserving document structure |
 
 **For RAG and vector storage:** Consider whether storing pages/slides/sheets as separate chunks with metadata (e.g., page numbers) benefits your retrieval strategy. This allows more precise source attribution when users query your system.
 
@@ -158,7 +170,7 @@ for page_num, page_text in enumerate(result.iterate_text(), start=1):
 **Trade-offs to consider:**
 - **Per-unit storage** enables citing specific pages/slides in responses, but creates more chunks
 - **Full-text storage** is simpler and may work better for small documents
-- **Word documents** (`.doc`, `.docx`) only yield one unit from `iterator()` since they lack page structure—for these formats, both methods are equivalent
+- **Word documents** (`.doc`, `.docx`) only yield one unit from `iterate_text()` since they lack page structure—for these formats, both methods are equivalent
 
 ### Basic Usage Examples
 
@@ -208,7 +220,7 @@ for slide in result.slides:
 
 # PDF: iterate over pages
 result = next(sharepoint2text.read_file("report.pdf"))
-for page_num, page in result.pages.items():
+for page_num, page in enumerate(result.pages, start=1):
     print(f"Page {page_num}: {page.text[:100]}...")
     print(f"Images: {len(page.images)}")
 
@@ -289,8 +301,10 @@ All content types implement the common interface:
 
 ```python
 class ExtractionInterface(Protocol):
-    def iterator() -> Iterator[str]           # Iterate over logical units
-    def get_full_text() -> str                # Complete text as string
+    def iterate_text() -> Iterator[str]          # Iterate over logical units
+    def iterate_images() -> Generator[ImageInterface, None, None]
+    def iterate_tables() -> Generator[TableInterface, None, None]
+    def get_full_text() -> str                   # Complete text as string
     def get_metadata() -> FileMetadataInterface  # Metadata with to_dict()
 ```
 
@@ -403,11 +417,12 @@ sheet.images       # List[OdsImage] (embedded images)
 
 ```python
 result.metadata    # PdfMetadata (total_pages)
-result.pages       # Dict[int, PdfPage] (1-indexed)
+result.pages       # List[PdfPage]
 
 # Each page:
 page.text    # str
 page.images  # List[PdfImage] (index, name, width, height, data, format)
+page.tables  # List[List[List[str]]]
 ```
 
 #### PlainTextContent (.txt, .csv, .json, .tsv)
@@ -434,6 +449,16 @@ result.metadata      # EmailMetadata (date, message_id, plus file metadata)
 # EmailAddress structure:
 email.name     # str (display name)
 email.address  # str (email address)
+```
+
+#### HtmlContent (.html, .htm)
+
+```python
+result.content   # str (plain text content)
+result.tables    # List[List[List[str]]] (table cell values)
+result.headings  # List[Dict[str, str]] (level/text)
+result.links     # List[Dict[str, str]] (text/href)
+result.metadata  # HtmlMetadata (title, language, charset, ...)
 ```
 
 ## Examples
@@ -467,7 +492,7 @@ import sharepoint2text
 
 # From PDF
 result = next(sharepoint2text.read_file("document.pdf"))
-for page_num, page in result.pages.items():
+for page_num, page in enumerate(result.pages, start=1):
     for img in page.images:
         with open(f"page{page_num}_{img.name}.{img.format}", "wb") as out:
             out.write(img.data)
