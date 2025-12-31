@@ -58,6 +58,16 @@ class TableData(TableInterface):
     data: list[list[typing.Any]] = field(default_factory=list)
 
     def get_table(self) -> list[list[typing.Any]]:
+        """Return table data as a list of rows.
+
+        For tables originating from PDF extraction, rows are produced by
+        heuristics that infer columns from whitespace and numeric tokens.
+        The approach assumes visually aligned columns, consistent row
+        spacing, and row labels followed by numeric values. It may break
+        or split/merge rows when PDFs use multi-line labels, multi-column
+        layouts, irregular spacing, or when numbers and labels are
+        interleaved out of order by the content stream.
+        """
         return self.data
 
     def get_dim(self) -> TableDim:
@@ -532,6 +542,15 @@ class PdfContent(ExtractionInterface):
                 yield img
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        """Yield tables extracted from PDF pages.
+
+        PDF tables are inferred from text layout heuristics, not explicit
+        table structures. Extraction assumes consistent column alignment,
+        row spacing, and labels followed by numeric values. Results may be
+        incomplete or fragmented for multi-column pages, multi-line labels,
+        merged cells, or when the PDF content stream interleaves text out
+        of visual order.
+        """
         for page in self.pages:
             for table in page.tables:
                 yield TableData(data=table)
