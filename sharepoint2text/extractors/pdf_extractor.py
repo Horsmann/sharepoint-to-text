@@ -107,9 +107,10 @@ import logging
 import re
 import statistics
 import unicodedata
-from typing import Any, Generator, List
+from typing import Any, Generator, Iterable, Optional
 
 from pypdf import PdfReader
+from pypdf._page import PageObject
 from pypdf.generic import ContentStream
 
 from sharepoint2text.extractors.data_types import (
@@ -121,9 +122,40 @@ from sharepoint2text.extractors.data_types import (
 
 logger = logging.getLogger(__name__)
 
+TableRows = list[list[str]]
+TextSegment = tuple[float, float, str, float]
+
+
+def _is_numeric_token(token: str) -> bool:
+    cleaned = token.strip()
+    if not cleaned:
+        return False
+    if cleaned[0] in ("(", "-", "–") and cleaned[-1] == ")":
+        cleaned = cleaned[1:-1]
+    if cleaned.endswith("%"):
+        cleaned = cleaned[:-1]
+    return all(ch.isdigit() or ch in {",", "."} for ch in cleaned) and any(
+        ch.isdigit() for ch in cleaned
+    )
+
+
+def _count_numeric_tokens(text: str) -> int:
+    if not text:
+        return 0
+    return sum(1 for token in text.split() if _is_numeric_token(token))
+
+
+def _choose_table_candidate(
+    raw_tables: list[TableRows],
+    spatial_tables: list[TableRows],
+) -> list[TableRows]:
+    if _score_tables(spatial_tables) > _score_tables(raw_tables):
+        return spatial_tables
+    return raw_tables
+
 
 def read_pdf(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: Optional[str] = None
 ) -> Generator[PdfContent, Any, None]:
     """
     Extract all relevant content from a PDF file.
@@ -178,10 +210,7 @@ def read_pdf(
         spatial_lines = _extract_lines_with_spacing(page)
         raw_tables = _extract_tables_from_lines(raw_lines)
         spatial_tables = _extract_tables_from_lines(spatial_lines)
-        if _score_tables(spatial_tables) > _score_tables(raw_tables):
-            tables = spatial_tables
-        else:
-            tables = raw_tables
+        tables = _choose_table_candidate(raw_tables, spatial_tables)
         total_tables += len(tables)
         pages.append(
             PdfPage(
@@ -207,7 +236,7 @@ def read_pdf(
     )
 
 
-def _extract_image_bytes(page, page_num: int) -> List[PdfImage]:
+def _extract_image_bytes(page: PageObject, page_num: int) -> list[PdfImage]:
     """
     Extract all images from a PDF page's XObject resources.
 
@@ -222,7 +251,7 @@ def _extract_image_bytes(page, page_num: int) -> List[PdfImage]:
         List of PdfImage objects for successfully extracted images.
         Failed extractions are logged and skipped.
     """
-    found_images = []
+    found_images: list[PdfImage] = []
     if "/XObject" not in page.get("/Resources", {}):
         return found_images
 
@@ -283,7 +312,7 @@ def _extract_image_bytes(page, page_num: int) -> List[PdfImage]:
     return found_images
 
 
-def _score_tables(tables: list[list[list[str]]]) -> int:
+def _score_tables(tables: list[TableRows]) -> int:
     score = 0
     table_penalty = 2
     for table in tables:
@@ -299,15 +328,22 @@ def _score_tables(tables: list[list[list[str]]]) -> int:
     return score
 
 
-def _extract_lines_with_spacing(page) -> list[str]:
-    segments: list[tuple[float, float, str, float]] = []
+def _extract_lines_with_spacing(page: PageObject) -> list[str]:
+    segments: list[TextSegment] = []
 
-    def visitor(text, _cm, tm, _font_dict, font_size):
+    def visitor(
+        text: str,
+        _cm: Any,
+        tm: Iterable[float],
+        _font_dict: Any,
+        font_size: Any,
+    ) -> None:
         if not text:
             return
         try:
-            x = float(tm[4])
-            y = float(tm[5])
+            tm_list = list(tm)
+            x = float(tm_list[4])
+            y = float(tm_list[5])
         except Exception:
             return
         size = float(font_size) if font_size else 0.0
@@ -333,7 +369,7 @@ def _extract_lines_with_spacing(page) -> list[str]:
     if max(y_values) - min(y_values) < line_tol:
         raw_text = page.extract_text() or ""
         return raw_text.splitlines()
-    lines: list[dict] = []
+    lines: list[dict[str, Any]] = []
     for y, x, text, size in segments:
         if not lines or abs(y - lines[-1]["y"]) > line_tol:
             lines.append({"y": y, "segments": [(x, text)]})
@@ -369,35 +405,13 @@ def _extract_lines_with_spacing(page) -> list[str]:
     gap_threshold = max(median_gap * 1.8, median_size * 1.2)
 
     extra_after: dict[int, int] = {}
-    last_non_empty = None
+    last_non_empty: Optional[int] = None
     numeric_cache: dict[int, int] = {}
-
-    def is_numeric_token(token: str) -> bool:
-        cleaned = token.strip()
-        if not cleaned:
-            return False
-        if cleaned[0] in ("(", "-", "–") and cleaned[-1] == ")":
-            cleaned = cleaned[1:-1]
-        if cleaned.endswith("%"):
-            cleaned = cleaned[:-1]
-        return all(ch.isdigit() or ch in {",", "."} for ch in cleaned) and any(
-            ch.isdigit() for ch in cleaned
-        )
-
-    def numeric_token_count(text: str) -> int:
-        if not text:
-            return 0
-        tokens = text.split()
-        count = 0
-        for token in tokens:
-            if is_numeric_token(token):
-                count += 1
-        return count
 
     for idx, text in enumerate(line_texts):
         if not text:
             continue
-        numeric_cache[idx] = numeric_token_count(text)
+        numeric_cache[idx] = _count_numeric_tokens(text)
         if last_non_empty is not None:
             gap_between = line_positions[last_non_empty] - line_positions[idx]
             if gap_between > gap_threshold:
@@ -430,11 +444,11 @@ def _extract_lines_with_spacing(page) -> list[str]:
     return spaced_lines
 
 
-def _extract_tables_from_lines(lines: List[str]) -> List[List[List[str]]]:
+def _extract_tables_from_lines(lines: list[str]) -> list[TableRows]:
     """Extract basic tables from page lines using numeric tail parsing."""
     lines = [line.strip() for line in lines]
-    tables: List[List[List[str]]] = []
-    current_rows: List[List[str]] = []
+    tables: list[TableRows] = []
+    current_rows: TableRows = []
     column_count = 0
     gap_count = 0
     max_gap = 2
@@ -445,18 +459,6 @@ def _extract_tables_from_lines(lines: List[str]) -> List[List[List[str]]]:
         re.IGNORECASE,
     )
     known_words = _collect_known_words(lines)
-
-    def is_numeric_token(token: str) -> bool:
-        cleaned = token.strip()
-        if not cleaned:
-            return False
-        if cleaned[0] in ("(", "-", "–") and cleaned[-1] == ")":
-            cleaned = cleaned[1:-1]
-        if cleaned.endswith("%"):
-            cleaned = cleaned[:-1]
-        return all(ch.isdigit() or ch in {",", "."} for ch in cleaned) and any(
-            ch.isdigit() for ch in cleaned
-        )
 
     def normalize_label(label: str) -> str:
         normalized = unicodedata.normalize("NFKC", label)
@@ -515,7 +517,7 @@ def _extract_tables_from_lines(lines: List[str]) -> List[List[List[str]]]:
         tokens = line.split()
         values: list[str] = []
         idx = len(tokens) - 1
-        while idx >= 0 and is_numeric_token(tokens[idx]):
+        while idx >= 0 and _is_numeric_token(tokens[idx]):
             values.append(tokens[idx])
             idx -= 1
         values.reverse()
@@ -678,10 +680,10 @@ def _extract_tables_from_lines(lines: List[str]) -> List[List[List[str]]]:
     return _extract_tables_from_text_simple(lines)
 
 
-def _extract_tables_from_text_simple(lines: List[str]) -> List[List[List[str]]]:
+def _extract_tables_from_text_simple(lines: list[str]) -> list[TableRows]:
     """Fallback extractor for non-numeric tables with consistent columns."""
-    tables: List[List[List[str]]] = []
-    current_rows: List[List[str]] = []
+    tables: list[TableRows] = []
+    current_rows: TableRows = []
     current_cols = 0
 
     def flush_current() -> None:
@@ -808,8 +810,8 @@ def _next_non_empty_line(lines: list[str], start_index: int) -> str:
 
 
 def _extract_image(
-    image_obj,
-    name,
+    image_obj: Any,
+    name: Any,
     index: int,
     page_num: int,
     caption: str,
@@ -887,7 +889,9 @@ def _extract_image(
     )
 
 
-def _extract_page_mcid_data(page) -> tuple[list[dict], list[int], dict[int, str]]:
+def _extract_page_mcid_data(
+    page: PageObject,
+) -> tuple[list[dict[str, Any]], list[int], dict[int, str]]:
     """Collect MCID text and image occurrence order from the page content stream."""
     contents = page.get_contents()
     if contents is None:
@@ -903,7 +907,7 @@ def _extract_page_mcid_data(page) -> tuple[list[dict], list[int], dict[int, str]
     actual_text_stack: list[str | None] = []
     mcid_order: list[int] = []
     mcid_text: dict[int, str] = {}
-    image_occurrences: list[dict] = []
+    image_occurrences: list[dict[str, Any]] = []
 
     for operands, operator in stream.operations:
         op = (
@@ -963,7 +967,7 @@ def _extract_page_mcid_data(page) -> tuple[list[dict], list[int], dict[int, str]
     return image_occurrences, mcid_order, mcid_text
 
 
-def _extract_text_from_operands(operator: str, operands: list) -> str:
+def _extract_text_from_operands(operator: str, operands: list[Any]) -> str:
     if not operands:
         return ""
     if operator == "TJ":
@@ -977,7 +981,7 @@ def _extract_text_from_operands(operator: str, operands: list) -> str:
     return ""
 
 
-def _normalize_text(value) -> str:
+def _normalize_text(value: Any) -> str:
     if value is None:
         return ""
     if isinstance(value, bytes):
@@ -1008,7 +1012,7 @@ def _lookup_caption(
     return ""
 
 
-def _extract_image_alt_text(image_obj) -> str:
+def _extract_image_alt_text(image_obj: Any) -> str:
     """Extract alt text or title for a PDF image XObject if present."""
     caption_keys = ("/Alt", "/Title", "/Caption", "/TU")
     for key in caption_keys:
