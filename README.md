@@ -582,6 +582,12 @@ def prepare_for_rag(file_path: str) -> list[dict]:
 - pypdf >= 6.5.0
 - xlrd >= 2.0.2
 
+## Exceptions
+
+- `ExtractionFileFormatNotSupportedError`: Raised when no extractor exists for a given file type (e.g., unsupported extension/MIME mapping in the router).
+- `ExtractionFileEncryptedError`: Raised when an extractor detects encryption or password protection (e.g., encrypted PDF, OOXML/ODF password-protected files, legacy Office with FILEPASS/encryption flags).
+- `LegacyMicrosoftParsingError`: Raised when legacy Office parsing fails for non-encryption reasons (corrupt OLE streams, invalid headers, or unsupported legacy variations).
+
 ## License
 
 Apache 2.0 - see [LICENSE](LICENSE) for details.
