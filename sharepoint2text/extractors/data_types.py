@@ -168,6 +168,7 @@ class EmailAttachment:
     filename: str
     mime_type: str
     data: io.BytesIO
+    is_supported_mime_type: bool = False
 
 
 @dataclass

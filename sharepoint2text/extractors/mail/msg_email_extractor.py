@@ -112,6 +112,7 @@ from sharepoint2text.extractors.data_types import (
     EmailContent,
     EmailMetadata,
 )
+from sharepoint2text.mime_types import is_supported_mime_type
 
 logger = logging.getLogger(__name__)
 
@@ -308,11 +309,13 @@ def read_msg_format_mail(
         data = attachment.data or b""
         data_stream = io.BytesIO(data)
         data_stream.seek(0)
+        mime_type = attachment.AttachMimeTag or "application/octet-stream"
         attachments.append(
             EmailAttachment(
                 filename=attachment.Filename,
-                mime_type=attachment.AttachMimeTag or "application/octet-stream",
+                mime_type=mime_type,
                 data=data_stream,
+                is_supported_mime_type=is_supported_mime_type(mime_type),
             )
         )
 

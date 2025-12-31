@@ -935,6 +935,7 @@ def test_email__msg_format_with_attachment() -> None:
     tc.assertIsInstance(pdf_attachment.data, io.BytesIO)
     tc.assertEqual(0, pdf_attachment.data.tell())
     tc.assertEqual(247568, len(pdf_attachment.data.getvalue()))
+    tc.assertTrue(pdf_attachment.is_supported_mime_type)
 
     pptx_attachment = attachments_by_name["pptx_formula_image.pptx"]
     tc.assertEqual(
@@ -944,6 +945,7 @@ def test_email__msg_format_with_attachment() -> None:
     tc.assertIsInstance(pptx_attachment.data, io.BytesIO)
     tc.assertEqual(0, pptx_attachment.data.tell())
     tc.assertEqual(1553266, len(pptx_attachment.data.getvalue()))
+    tc.assertTrue(pptx_attachment.is_supported_mime_type)
 
     tc.assertEqual(0, len(list(mail.iterate_images())))
     tc.assertEqual(0, len(list(mail.iterate_tables())))
