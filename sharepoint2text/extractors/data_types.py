@@ -503,6 +503,7 @@ class PdfImage(ImageInterface):
 class PdfPage:
     text: str = ""
     images: List[PdfImage] = field(default_factory=list)
+    tables: List[List[List[str]]] = field(default_factory=list)
 
 
 @dataclass
@@ -531,8 +532,9 @@ class PdfContent(ExtractionInterface):
                 yield img
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
-        yield from ()
-        return
+        for page in self.pages:
+            for table in page.tables:
+                yield TableData(data=table)
 
 
 #########

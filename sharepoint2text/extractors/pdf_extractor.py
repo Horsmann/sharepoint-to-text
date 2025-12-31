@@ -166,13 +166,18 @@ def read_pdf(
 
     pages = []
     total_images = 0
+    total_tables = 0
     for page_num, page in enumerate(reader.pages, start=1):
         images = _extract_image_bytes(page, page_num)
         total_images += len(images)
+        page_text = page.extract_text() or ""
+        tables = _extract_tables_from_text(page_text)
+        total_tables += len(tables)
         pages.append(
             PdfPage(
-                text=page.extract_text() or "",
+                text=page_text,
                 images=images,
+                tables=tables,
             )
         )
 
@@ -180,9 +185,10 @@ def read_pdf(
     metadata.populate_from_path(path)
 
     logger.info(
-        "Extracted PDF: %d pages, %d images",
+        "Extracted PDF: %d pages, %d images, %d tables",
         len(reader.pages),
         total_images,
+        total_tables,
     )
 
     yield PdfContent(
@@ -265,6 +271,48 @@ def _extract_image_bytes(page, page_num: int) -> List[PdfImage]:
                 )
             attempt_index += 1
     return found_images
+
+
+def _extract_tables_from_text(text: str) -> List[List[List[str]]]:
+    """Extract basic tables from page text using a simple row/column heuristic."""
+    lines = [line.strip() for line in text.splitlines()]
+    tables: List[List[List[str]]] = []
+    current_rows: List[List[str]] = []
+    current_cols = 0
+
+    def flush_current() -> None:
+        if len(current_rows) >= 2:
+            tables.append(current_rows.copy())
+
+    for line in lines:
+        if not line:
+            flush_current()
+            current_rows = []
+            current_cols = 0
+            continue
+
+        tokens = line.split()
+        if len(tokens) < 2:
+            flush_current()
+            current_rows = []
+            current_cols = 0
+            continue
+
+        if current_cols == 0:
+            current_cols = len(tokens)
+            current_rows = [tokens]
+            continue
+
+        if len(tokens) == current_cols:
+            current_rows.append(tokens)
+            continue
+
+        flush_current()
+        current_rows = [tokens]
+        current_cols = len(tokens)
+
+    flush_current()
+    return tables
 
 
 def _extract_image(

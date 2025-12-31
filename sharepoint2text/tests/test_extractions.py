@@ -1464,7 +1464,11 @@ def test_read_pdf_1() -> None:
 
     # test iterator
     tc.assertEqual(2, len(list(pdf.iterate_text())))
-    tc.assertEqual(0, len(list(pdf.iterate_tables())))
+    tables = list(pdf.iterate_tables())
+    tc.assertEqual(1, len(tables))
+    tc.assertListEqual(
+        [["C1", "C2"], ["R1", "V1"], ["R2", "V2"]], tables[0].get_table()
+    )
     tc.assertEqual(1, len(list(pdf.iterate_images())))
     tc.assertEqual(
         ImageMetadata(
