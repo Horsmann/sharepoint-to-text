@@ -99,7 +99,6 @@ Maintenance Notes
 
 import io
 import logging
-import zipfile
 from typing import Any, Generator, List, Optional, Tuple
 from xml.etree import ElementTree as ET
 
@@ -114,6 +113,10 @@ from sharepoint2text.extractors.data_types import (
 )
 from sharepoint2text.extractors.util.encryption import is_ooxml_encrypted
 from sharepoint2text.extractors.util.omml_to_latex import omml_to_latex
+from sharepoint2text.extractors.util.ooxml_context import OOXMLZipContext
+from sharepoint2text.extractors.util.zip_utils import (
+    parse_relationships,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +208,7 @@ def _get_image_pixel_dimensions(
     return None, None
 
 
-class _PptxContext:
+class _PptxContext(OOXMLZipContext):
     """
     Cached context for PPTX extraction.
 
@@ -216,8 +219,7 @@ class _PptxContext:
 
     def __init__(self, file_like: io.BytesIO):
         """Initialize the PPTX context and cache XML content."""
-        self.file_like = file_like
-        file_like.seek(0)
+        super().__init__(file_like)
 
         # Cache for parsed XML roots
         self._core_root: ET.Element | None = None
@@ -230,32 +232,25 @@ class _PptxContext:
         self._comment_roots: dict[str, ET.Element] = {}
 
         # Cache for extracted data
-        self._namelist: set[str] = set()
         self._slide_order: list[str] | None = None
         self._slide_relationships: dict[str, dict[str, dict[str, str]]] = {}
 
-        # Open ZIP once and read all needed files
-        with zipfile.ZipFile(file_like, "r") as z:
-            self._namelist = set(z.namelist())
-            self._load_xml_files(z)
+        self._load_xml_files()
 
-    def _load_xml_files(self, z: zipfile.ZipFile) -> None:
+    def _load_xml_files(self) -> None:
         """Load and parse all XML files from the ZIP at once."""
         # Core properties (metadata)
         if "docProps/core.xml" in self._namelist:
-            with z.open("docProps/core.xml") as f:
-                self._core_root = ET.parse(f).getroot()
+            self._core_root = self.read_xml_root("docProps/core.xml")
 
         # Presentation XML
         if "ppt/presentation.xml" in self._namelist:
-            with z.open("ppt/presentation.xml") as f:
-                self._presentation_root = ET.parse(f).getroot()
+            self._presentation_root = self.read_xml_root("ppt/presentation.xml")
 
         # Presentation relationships
         rels_path = "ppt/_rels/presentation.xml.rels"
         if rels_path in self._namelist:
-            with z.open(rels_path) as f:
-                self._presentation_rels_root = ET.parse(f).getroot()
+            self._presentation_rels_root = self.read_xml_root(rels_path)
 
         # Pre-compute slide order so we know which slides to load
         self._slide_order = self._compute_slide_order()
@@ -263,22 +258,19 @@ class _PptxContext:
         # Load all slide XML files
         for slide_path in self._slide_order:
             if slide_path in self._namelist:
-                with z.open(slide_path) as f:
-                    self._slide_roots[slide_path] = ET.parse(f).getroot()
+                self._slide_roots[slide_path] = self.read_xml_root(slide_path)
 
                 # Load slide relationships
                 slide_dir = "/".join(slide_path.rsplit("/", 1)[:-1])
                 slide_name = slide_path.rsplit("/", 1)[-1]
                 rels_path = f"{slide_dir}/_rels/{slide_name}.rels"
                 if rels_path in self._namelist:
-                    with z.open(rels_path) as f:
-                        self._slide_rels_roots[slide_path] = ET.parse(f).getroot()
+                    self._slide_rels_roots[slide_path] = self.read_xml_root(rels_path)
 
         # Load all comment files
         for name in self._namelist:
             if name.startswith("ppt/comments/comment") and name.endswith(".xml"):
-                with z.open(name) as f:
-                    self._comment_roots[name] = ET.parse(f).getroot()
+                self._comment_roots[name] = self.read_xml_root(name)
 
     def _compute_slide_order(self) -> list[str]:
         """Compute slide order from cached presentation XML."""
@@ -289,11 +281,11 @@ class _PptxContext:
 
         # Build relationship map from rels
         rels_map = {}
-        for rel in self._presentation_rels_root.findall(f".//{REL_NS}Relationship"):
-            rel_id = rel.get("Id")
-            target = rel.get("Target")
-            rel_type = rel.get("Type") or ""
-            if rel_id and target and "slide" in rel_type.lower():
+        for rel in parse_relationships(self._presentation_rels_root):
+            rel_id = rel["id"]
+            target = rel["target"]
+            rel_type = rel["type"].lower()
+            if rel_id and target and "slide" in rel_type:
                 if target.startswith("slides/"):
                     full_path = f"ppt/{target}"
                 elif target.startswith("../"):
@@ -331,11 +323,14 @@ class _PptxContext:
         relationships = {}
         rels_root = self._slide_rels_roots.get(slide_path)
         if rels_root is not None:
-            for rel in rels_root.findall(f".//{REL_NS}Relationship"):
-                rel_id = rel.get("Id") or ""
-                rel_type = rel.get("Type") or ""
-                rel_target = rel.get("Target") or ""
-                relationships[rel_id] = {"type": rel_type, "target": rel_target}
+            for rel in parse_relationships(rels_root):
+                rel_id = rel["id"]
+                if not rel_id:
+                    continue
+                relationships[rel_id] = {
+                    "type": rel["type"],
+                    "target": rel["target"],
+                }
 
         self._slide_relationships[slide_path] = relationships
         return relationships
@@ -349,10 +344,7 @@ class _PptxContext:
         """Read image data from the ZIP file."""
         if image_path not in self._namelist:
             return None
-        self.file_like.seek(0)
-        with zipfile.ZipFile(self.file_like, "r") as z:
-            with z.open(image_path) as img_file:
-                return img_file.read()
+        return self.read_bytes(image_path)
 
 
 def _extract_metadata_from_context(ctx: _PptxContext) -> PptxMetadata:
@@ -928,26 +920,28 @@ def read_pptx(
 
     # Create context that opens ZIP once and caches all parsed XML
     ctx = _PptxContext(file_like)
+    try:
+        # Extract metadata from cached XML
+        metadata = _extract_metadata_from_context(ctx)
 
-    # Extract metadata from cached XML
-    metadata = _extract_metadata_from_context(ctx)
+        # Get slide order from cached presentation.xml
+        slide_paths = ctx.slide_order
 
-    # Get slide order from cached presentation.xml
-    slide_paths = ctx.slide_order
+        # Process each slide using cached XML
+        slides_result: List[PptxSlide] = []
+        for slide_index, slide_path in enumerate(slide_paths, start=1):
+            slide = _process_slide_from_context(ctx, slide_path, slide_index)
+            slides_result.append(slide)
 
-    # Process each slide using cached XML
-    slides_result: List[PptxSlide] = []
-    for slide_index, slide_path in enumerate(slide_paths, start=1):
-        slide = _process_slide_from_context(ctx, slide_path, slide_index)
-        slides_result.append(slide)
+        metadata.populate_from_path(path)
 
-    metadata.populate_from_path(path)
+        total_images = sum(len(slide.images) for slide in slides_result)
+        logger.info(
+            "Extracted PPTX: %d slides, %d images",
+            len(slides_result),
+            total_images,
+        )
 
-    total_images = sum(len(slide.images) for slide in slides_result)
-    logger.info(
-        "Extracted PPTX: %d slides, %d images",
-        len(slides_result),
-        total_images,
-    )
-
-    yield PptxContent(metadata=metadata, slides=slides_result)
+        yield PptxContent(metadata=metadata, slides=slides_result)
+    finally:
+        ctx.close()

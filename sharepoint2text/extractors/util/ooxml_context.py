@@ -1,0 +1,34 @@
+import io
+import zipfile
+from xml.etree import ElementTree as ET
+
+from sharepoint2text.extractors.util.zip_utils import read_zip_text, read_zip_xml_root
+
+
+class OOXMLZipContext:
+    """Shared ZIP context for OOXML-based formats (DOCX, PPTX, XLSX)."""
+
+    def __init__(self, file_like: io.BytesIO):
+        self.file_like = file_like
+        self.file_like.seek(0)
+        self._zip = zipfile.ZipFile(self.file_like, "r")
+        self._namelist = set(self._zip.namelist())
+
+    @property
+    def namelist(self) -> set[str]:
+        return self._namelist
+
+    def exists(self, path: str) -> bool:
+        return path in self._namelist
+
+    def read_xml_root(self, path: str) -> ET.Element:
+        return read_zip_xml_root(self._zip, path)
+
+    def read_text(self, path: str) -> str:
+        return read_zip_text(self._zip, path)
+
+    def read_bytes(self, path: str) -> bytes:
+        return self._zip.read(path)
+
+    def close(self) -> None:
+        self._zip.close()

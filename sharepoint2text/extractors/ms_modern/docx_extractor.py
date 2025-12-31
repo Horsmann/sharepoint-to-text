@@ -112,8 +112,7 @@ Maintenance Notes
 
 import io
 import logging
-import zipfile
-from typing import Any, Generator, Optional
+from typing import Any, Callable, Generator, Optional
 from xml.etree import ElementTree as ET
 
 from sharepoint2text.exceptions import ExtractionFileEncryptedError
@@ -136,6 +135,8 @@ from sharepoint2text.extractors.util.omml_to_latex import (
     convert_greek_and_symbols,
     omml_to_latex,
 )
+from sharepoint2text.extractors.util.ooxml_context import OOXMLZipContext
+from sharepoint2text.extractors.util.zip_utils import parse_relationships
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +171,9 @@ REL_NS = "{http://schemas.openxmlformats.org/package/2006/relationships}"
 EMU_PER_INCH = 914400
 # Twips conversion: 1440 twips = 1 inch
 TWIPS_PER_INCH = 1440
+
+# Caption style keywords (case-insensitive matching)
+CAPTION_STYLE_KEYWORDS = ("caption", "bildunterschrift", "abbildung", "figure")
 
 
 def _get_image_pixel_dimensions(
@@ -234,6 +238,125 @@ def _get_image_pixel_dimensions(
             i += 2 + length
 
     return None, None
+
+
+def _get_paragraph_style(para: ET.Element) -> str:
+    """Return the paragraph style name (empty if absent)."""
+    pPr = para.find(f"{W_NS}pPr")
+    if pPr is not None:
+        pStyle = pPr.find(f"{W_NS}pStyle")
+        if pStyle is not None:
+            return pStyle.get(f"{W_NS}val", "")
+    return ""
+
+
+def _has_keep_next(para: ET.Element) -> bool:
+    """Return True when keepNext is enabled for the paragraph."""
+    pPr = para.find(f"{W_NS}pPr")
+    if pPr is None:
+        return False
+    keep_next = pPr.find(f"{W_NS}keepNext")
+    if keep_next is None:
+        return False
+    val = keep_next.get(f"{W_NS}val", "true")
+    return val.lower() not in ("false", "0")
+
+
+def _extract_paragraph_text(para: ET.Element) -> str:
+    """Extract concatenated paragraph text from <w:t> runs."""
+    text_parts = []
+    for t in para.iter(f"{W_NS}t"):
+        if t.text:
+            text_parts.append(t.text)
+    return "".join(text_parts)
+
+
+def _is_caption_style(style_name: str) -> bool:
+    """Return True when style name indicates a caption paragraph."""
+    style_lower = style_name.lower()
+    return any(kw in style_lower for kw in CAPTION_STYLE_KEYWORDS)
+
+
+def _process_text_element(
+    elem: ET.Element,
+    parts: list[str],
+    include_formulas: bool,
+    formula_converter: Callable[[ET.Element], str],
+) -> None:
+    """Append extracted text from a node, respecting AlternateContent and formulas."""
+    tag = elem.tag.split("}")[-1]
+
+    if tag == "AlternateContent":
+        choice = elem.find(f"{MC_NS}Choice")
+        if choice is not None:
+            for child in choice:
+                _process_text_element(child, parts, include_formulas, formula_converter)
+        return
+
+    if tag == "Fallback":
+        return
+
+    if tag == "r":
+        for child in elem:
+            child_tag = child.tag.split("}")[-1]
+            if child_tag == "t":
+                if child.text:
+                    parts.append(child.text)
+            elif child_tag == "AlternateContent":
+                _process_text_element(child, parts, include_formulas, formula_converter)
+        return
+
+    if tag == "oMath":
+        if include_formulas:
+            latex = formula_converter(elem)
+            if latex.strip():
+                parts.append(f"${latex}$")
+        return
+
+    if tag == "oMathPara":
+        if include_formulas:
+            omath = elem.find(f"{M_NS}oMath")
+            if omath is not None:
+                latex = formula_converter(omath)
+                if latex.strip():
+                    parts.append(f"$${latex}$$")
+        return
+
+    for child in elem:
+        _process_text_element(child, parts, include_formulas, formula_converter)
+
+
+def _extract_paragraph_content(
+    paragraph: ET.Element,
+    include_formulas: bool,
+    formula_converter: Callable[[ET.Element], str],
+) -> str:
+    """Extract text from a paragraph, including inline and display equations."""
+    parts: list[str] = []
+    for child in paragraph:
+        _process_text_element(child, parts, include_formulas, formula_converter)
+    return "".join(parts)
+
+
+def _extract_table_text(
+    table: ET.Element,
+    include_formulas: bool,
+    formula_converter: Callable[[ET.Element], str],
+) -> list[str]:
+    """Extract table text in row order, concatenating cell content."""
+    texts: list[str] = []
+    for row in table.iter(f"{W_NS}tr"):
+        for cell in row.iter(f"{W_NS}tc"):
+            cell_parts: list[str] = []
+            for paragraph in cell.iter(f"{W_NS}p"):
+                text = _extract_paragraph_content(
+                    paragraph, include_formulas, formula_converter
+                )
+                if text.strip():
+                    cell_parts.append(text)
+            if cell_parts:
+                texts.append(" ".join(cell_parts))
+    return texts
 
 
 class _DocxFullTextExtractor:
@@ -323,99 +446,30 @@ class _DocxFullTextExtractor:
         if body is None:
             return ""
 
-        all_text = []
-
-        def process_element(elem, parts: list):
-            """Recursively process element, handling AlternateContent properly.
-
-            Only processes mc:Choice content and skips mc:Fallback to avoid
-            extracting duplicate content from fallback representations.
-            """
-            tag = elem.tag.split("}")[-1]
-
-            # Handle AlternateContent - only use Choice, skip Fallback
-            if tag == "AlternateContent":
-                choice = elem.find(f"{MC_NS}Choice")
-                if choice is not None:
-                    for child in choice:
-                        process_element(child, parts)
-                return
-
-            # Skip Fallback elements entirely to avoid duplicate content
-            if tag == "Fallback":
-                return
-
-            # Regular run of text
-            if tag == "r":
-                for child in elem:
-                    child_tag = child.tag.split("}")[-1]
-                    if child_tag == "t":
-                        if child.text:
-                            parts.append(child.text)
-                    elif child_tag == "AlternateContent":
-                        process_element(child, parts)
-                return
-
-            # Inline equation
-            if tag == "oMath":
-                if include_formulas:
-                    latex = cls.omml_to_latex(elem)
-                    if latex.strip():
-                        parts.append(f"${latex}$")
-                return
-
-            # Display equation
-            if tag == "oMathPara":
-                if include_formulas:
-                    omath = elem.find(f"{M_NS}oMath")
-                    if omath is not None:
-                        latex = cls.omml_to_latex(omath)
-                        if latex.strip():
-                            parts.append(f"$${latex}$$")
-                return
-
-            # Recurse into other elements
-            for child in elem:
-                process_element(child, parts)
-
-        def extract_paragraph_content(p_element) -> str:
-            """Extract text from paragraph including inline and display equations."""
-            parts = []
-            for child in p_element:
-                process_element(child, parts)
-            return "".join(parts)
-
-        def extract_table_text(tbl_element) -> list[str]:
-            """Extract text from table in row order."""
-            texts = []
-            for row in tbl_element.iter(f"{W_NS}tr"):
-                for cell in row.iter(f"{W_NS}tc"):
-                    cell_parts = []
-                    for p in cell.iter(f"{W_NS}p"):
-                        text = extract_paragraph_content(p)
-                        if text.strip():
-                            cell_parts.append(text)
-                    if cell_parts:
-                        texts.append(" ".join(cell_parts))
-            return texts
+        all_text: list[str] = []
+        formula_converter = cls.omml_to_latex
 
         # Iterate through body elements in document order
         for element in body:
             tag = element.tag.split("}")[-1]
 
             if tag == "p":  # Paragraph (may contain oMathPara)
-                text = extract_paragraph_content(element)
+                text = _extract_paragraph_content(
+                    element, include_formulas, formula_converter
+                )
                 if text.strip():
                     all_text.append(text)
 
             elif tag == "tbl":  # Table
-                table_texts = extract_table_text(element)
+                table_texts = _extract_table_text(
+                    element, include_formulas, formula_converter
+                )
                 all_text.extend(table_texts)
 
         return "\n".join(all_text)
 
 
-class _DocxContext:
+class _DocxContext(OOXMLZipContext):
     """
     Cached context for DOCX extraction.
 
@@ -426,8 +480,7 @@ class _DocxContext:
 
     def __init__(self, file_like: io.BytesIO):
         """Initialize the DOCX context and cache XML content."""
-        self.file_like = file_like
-        file_like.seek(0)
+        super().__init__(file_like)
 
         # Cache for parsed XML roots
         self._document_root: ET.Element | None = None
@@ -441,53 +494,42 @@ class _DocxContext:
         # Cache for extracted data
         self._relationships: dict[str, dict] | None = None
         self._styles: dict[str, str] | None = None
-        self._namelist: set[str] | None = None
 
         # Cache for header/footer roots (keyed by path)
         self._header_footer_roots: dict[str, ET.Element] = {}
 
-        # Open ZIP once and read all needed files
-        with zipfile.ZipFile(file_like, "r") as z:
-            self._namelist = set(z.namelist())
-            self._load_xml_files(z)
+        self._load_xml_files()
 
-    def _load_xml_files(self, z: zipfile.ZipFile) -> None:
+    def _load_xml_files(self) -> None:
         """Load and parse all XML files from the ZIP at once."""
         # Main document
         if "word/document.xml" in self._namelist:
-            with z.open("word/document.xml") as f:
-                self._document_root = ET.parse(f).getroot()
+            self._document_root = self.read_xml_root("word/document.xml")
 
         # Core properties (metadata)
         if "docProps/core.xml" in self._namelist:
-            with z.open("docProps/core.xml") as f:
-                self._core_root = ET.parse(f).getroot()
+            self._core_root = self.read_xml_root("docProps/core.xml")
 
         # Styles
         if "word/styles.xml" in self._namelist:
-            with z.open("word/styles.xml") as f:
-                self._styles_root = ET.parse(f).getroot()
+            self._styles_root = self.read_xml_root("word/styles.xml")
 
         # Footnotes
         if "word/footnotes.xml" in self._namelist:
-            with z.open("word/footnotes.xml") as f:
-                self._footnotes_root = ET.parse(f).getroot()
+            self._footnotes_root = self.read_xml_root("word/footnotes.xml")
 
         # Endnotes
         if "word/endnotes.xml" in self._namelist:
-            with z.open("word/endnotes.xml") as f:
-                self._endnotes_root = ET.parse(f).getroot()
+            self._endnotes_root = self.read_xml_root("word/endnotes.xml")
 
         # Comments
         if "word/comments.xml" in self._namelist:
-            with z.open("word/comments.xml") as f:
-                self._comments_root = ET.parse(f).getroot()
+            self._comments_root = self.read_xml_root("word/comments.xml")
 
         # Relationships
         rels_path = "word/_rels/document.xml.rels"
         if rels_path in self._namelist:
-            with z.open(rels_path) as f:
-                self._rels_root = ET.parse(f).getroot()
+            self._rels_root = self.read_xml_root(rels_path)
 
         # Pre-load header and footer files
         self._relationships = self._parse_relationships()
@@ -497,8 +539,7 @@ class _DocxContext:
             if "header" in rel_type.lower() or "footer" in rel_type.lower():
                 hf_path = "word/" + target
                 if hf_path in self._namelist:
-                    with z.open(hf_path) as f:
-                        self._header_footer_roots[hf_path] = ET.parse(f).getroot()
+                    self._header_footer_roots[hf_path] = self.read_xml_root(hf_path)
 
     def _parse_relationships(self) -> dict[str, dict]:
         """Parse relationships from cached rels root."""
@@ -506,15 +547,14 @@ class _DocxContext:
         if self._rels_root is None:
             return relationships
 
-        for rel in self._rels_root.findall(f".//{REL_NS}Relationship"):
-            rel_id = rel.get("Id") or ""
-            rel_type = rel.get("Type") or ""
-            rel_target = rel.get("Target") or ""
-            target_mode = rel.get("TargetMode") or ""
+        for rel in parse_relationships(self._rels_root):
+            rel_id = rel["id"]
+            if not rel_id:
+                continue
             relationships[rel_id] = {
-                "type": rel_type,
-                "target": rel_target,
-                "target_mode": target_mode,
+                "type": rel["type"],
+                "target": rel["target"],
+                "target_mode": rel["target_mode"],
             }
         return relationships
 
@@ -552,10 +592,7 @@ class _DocxContext:
         """Read image data from the ZIP file."""
         if image_path not in self._namelist:
             return None
-        self.file_like.seek(0)
-        with zipfile.ZipFile(self.file_like, "r") as z:
-            with z.open(image_path) as img_file:
-                return img_file.read()
+        return self.read_bytes(image_path)
 
 
 def _extract_metadata_from_context(ctx: _DocxContext) -> DocxMetadata:
@@ -1088,42 +1125,6 @@ def _extract_images_from_context(ctx: _DocxContext) -> list[DocxImage]:
     # Namespace for WordprocessingML shapes
     WPS_NS = "{http://schemas.microsoft.com/office/word/2010/wordprocessingShape}"
 
-    # Caption style keywords (case-insensitive matching)
-    CAPTION_STYLE_KEYWORDS = ("caption", "bildunterschrift", "abbildung", "figure")
-
-    def _get_paragraph_style(para) -> str:
-        """Get the style name from a paragraph."""
-        pPr = para.find(f"{W_NS}pPr")
-        if pPr is not None:
-            pStyle = pPr.find(f"{W_NS}pStyle")
-            if pStyle is not None:
-                return pStyle.get(f"{W_NS}val", "")
-        return ""
-
-    def _has_keep_next(para) -> bool:
-        """Check if a paragraph has the keepNext property."""
-        pPr = para.find(f"{W_NS}pPr")
-        if pPr is not None:
-            keep_next = pPr.find(f"{W_NS}keepNext")
-            # keepNext is present and not explicitly set to false
-            if keep_next is not None:
-                val = keep_next.get(f"{W_NS}val", "true")
-                return val.lower() not in ("false", "0")
-        return False
-
-    def _extract_paragraph_text(para) -> str:
-        """Extract all text from a paragraph."""
-        text_parts = []
-        for t in para.iter(f"{W_NS}t"):
-            if t.text:
-                text_parts.append(t.text)
-        return "".join(text_parts)
-
-    def _is_caption_style(style_name: str) -> bool:
-        """Check if a style name indicates a caption paragraph."""
-        style_lower = style_name.lower()
-        return any(kw in style_lower for kw in CAPTION_STYLE_KEYWORDS)
-
     if body is not None:
         # Get all paragraphs as a list for sibling access
         paragraphs = list(body.findall(f"{W_NS}p"))
@@ -1393,79 +1394,81 @@ def read_docx(
 
     # Create context that opens ZIP once and caches all parsed XML
     ctx = _DocxContext(file_like)
+    try:
+        # === Core Properties (Metadata) ===
+        metadata = _extract_metadata_from_context(ctx)
 
-    # === Core Properties (Metadata) ===
-    metadata = _extract_metadata_from_context(ctx)
+        # === Paragraphs ===
+        paragraphs = _extract_paragraphs_from_context(ctx)
 
-    # === Paragraphs ===
-    paragraphs = _extract_paragraphs_from_context(ctx)
+        # === Tables ===
+        tables = _extract_tables_from_context(ctx)
 
-    # === Tables ===
-    tables = _extract_tables_from_context(ctx)
+        # === Headers and Footers ===
+        headers, footers = _extract_header_footers_from_context(ctx)
 
-    # === Headers and Footers ===
-    headers, footers = _extract_header_footers_from_context(ctx)
+        # === Images ===
+        images = _extract_images_from_context(ctx)
 
-    # === Images ===
-    images = _extract_images_from_context(ctx)
+        # === Hyperlinks ===
+        hyperlinks = _extract_hyperlinks_from_context(ctx)
 
-    # === Hyperlinks ===
-    hyperlinks = _extract_hyperlinks_from_context(ctx)
+        # === Footnotes ===
+        footnotes = _extract_footnotes_from_context(ctx)
 
-    # === Footnotes ===
-    footnotes = _extract_footnotes_from_context(ctx)
+        # === Endnotes ===
+        endnotes = _extract_endnotes_from_context(ctx)
 
-    # === Endnotes ===
-    endnotes = _extract_endnotes_from_context(ctx)
+        # === Formulas ===
+        formulas = _extract_formulas_from_context(ctx)
 
-    # === Formulas ===
-    formulas = _extract_formulas_from_context(ctx)
+        # === Comments ===
+        comments = _extract_comments_from_context(ctx)
 
-    # === Comments ===
-    comments = _extract_comments_from_context(ctx)
+        # === Sections (page layout) ===
+        sections = _extract_sections_from_context(ctx)
 
-    # === Sections (page layout) ===
-    sections = _extract_sections_from_context(ctx)
+        # === Styles used ===
+        styles_set = set()
+        for para in paragraphs:
+            if para.style:
+                styles_set.add(para.style)
+        styles = list(styles_set)
 
-    # === Styles used ===
-    styles_set = set()
-    for para in paragraphs:
-        if para.style:
-            styles_set.add(para.style)
-    styles = list(styles_set)
+        # === Full text (convenience) - use cached body for both ===
+        body = ctx.document_body
+        full_text = _DocxFullTextExtractor.extract_full_text_from_body(
+            body=body, include_formulas=True
+        )
+        base_full_text = _DocxFullTextExtractor.extract_full_text_from_body(
+            body=body, include_formulas=False
+        )
 
-    # === Full text (convenience) - use cached body for both ===
-    body = ctx.document_body
-    full_text = _DocxFullTextExtractor.extract_full_text_from_body(
-        body=body, include_formulas=True
-    )
-    base_full_text = _DocxFullTextExtractor.extract_full_text_from_body(
-        body=body, include_formulas=False
-    )
+        metadata.populate_from_path(path)
 
-    metadata.populate_from_path(path)
+        logger.info(
+            "Extracted DOCX: %d paragraphs, %d tables, %d images",
+            len(paragraphs),
+            len(tables),
+            len(images),
+        )
 
-    logger.info(
-        "Extracted DOCX: %d paragraphs, %d tables, %d images",
-        len(paragraphs),
-        len(tables),
-        len(images),
-    )
-
-    yield DocxContent(
-        metadata=metadata,
-        paragraphs=paragraphs,
-        tables=tables,
-        headers=headers,
-        footers=footers,
-        images=images,
-        hyperlinks=hyperlinks,
-        footnotes=footnotes,
-        endnotes=endnotes,
-        comments=comments,
-        sections=sections,
-        styles=styles,
-        formulas=formulas,
-        full_text=full_text,
-        base_full_text=base_full_text,
-    )
+        yield DocxContent(
+            metadata=metadata,
+            paragraphs=paragraphs,
+            tables=tables,
+            headers=headers,
+            footers=footers,
+            images=images,
+            hyperlinks=hyperlinks,
+            footnotes=footnotes,
+            endnotes=endnotes,
+            comments=comments,
+            sections=sections,
+            styles=styles,
+            formulas=formulas,
+            full_text=full_text,
+            base_full_text=base_full_text,
+        )
+    finally:
+        ctx.close()

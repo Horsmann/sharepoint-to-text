@@ -106,9 +106,7 @@ Maintenance Notes
 import datetime
 import io
 import logging
-import zipfile
 from typing import Any, Dict, Generator, List, Optional
-from xml.etree import ElementTree as ET
 
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
@@ -121,6 +119,10 @@ from sharepoint2text.extractors.data_types import (
     XlsxSheet,
 )
 from sharepoint2text.extractors.util.encryption import is_ooxml_encrypted
+from sharepoint2text.extractors.util.ooxml_context import OOXMLZipContext
+from sharepoint2text.extractors.util.zip_utils import (
+    parse_relationships,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -500,6 +502,22 @@ def _get_image_pixel_dimensions(
     return None, None
 
 
+def _resolve_drawing_path(target: str) -> str:
+    """Normalize drawing relationship targets to ZIP paths."""
+    if target.startswith("/"):
+        return target[1:]
+    if target.startswith(".."):
+        return "xl/" + target[3:]
+    return "xl/worksheets/" + target
+
+
+def _resolve_image_path(target: str) -> str:
+    """Normalize image relationship targets to ZIP paths."""
+    if target.startswith("/"):
+        return target[1:]
+    return "xl/media/" + target.rsplit("/", 1)[-1]
+
+
 def _extract_images_from_zip(
     file_like: io.BytesIO, sheet_names: List[str]
 ) -> Dict[int, List[XlsxImage]]:
@@ -528,184 +546,157 @@ def _extract_images_from_zip(
     images_by_sheet: Dict[int, List[XlsxImage]] = {}
     image_counter = 0
 
-    file_like.seek(0)
+    ctx = OOXMLZipContext(file_like)
     try:
-        with zipfile.ZipFile(file_like, "r") as zf:
-            namelist = zf.namelist()
+        namelist = ctx.namelist
 
-            # Build mapping of sheet index to drawing file
-            # Parse xl/worksheets/_rels/sheetN.xml.rels to find drawing references
-            sheet_to_drawing: Dict[int, str] = {}
+        # Build mapping of sheet index to drawing file
+        # Parse xl/worksheets/_rels/sheetN.xml.rels to find drawing references
+        sheet_to_drawing: Dict[int, str] = {}
 
-            for sheet_idx in range(len(sheet_names)):
-                sheet_num = sheet_idx + 1
-                rels_path = f"xl/worksheets/_rels/sheet{sheet_num}.xml.rels"
-                if rels_path not in namelist:
-                    continue
+        for sheet_idx in range(len(sheet_names)):
+            sheet_num = sheet_idx + 1
+            rels_path = f"xl/worksheets/_rels/sheet{sheet_num}.xml.rels"
+            if rels_path not in namelist:
+                continue
 
-                rels_xml = zf.read(rels_path).decode("utf-8")
-                rels_root = ET.fromstring(rels_xml)
+            rels_root = ctx.read_xml_root(rels_path)
+            relationships = parse_relationships(rels_root)
 
-                # Find Relationship elements - try with and without namespace prefix
-                relationships = rels_root.findall("rel:Relationship", NS)
-                if not relationships:
-                    relationships = rels_root.findall(
-                        "{http://schemas.openxmlformats.org/package/2006/relationships}Relationship"
-                    )
+            for rel in relationships:
+                rel_type = rel["type"]
+                if "drawing" in rel_type:
+                    target = rel["target"]
+                    drawing_path = _resolve_drawing_path(target)
+                    sheet_to_drawing[sheet_idx] = drawing_path
+                    break
+
+        # Process each drawing file
+        for sheet_idx, drawing_path in sheet_to_drawing.items():
+            if drawing_path not in namelist:
+                continue
+
+            # Parse drawing relationships to get image file paths
+            drawing_rels_path = drawing_path.replace(
+                "drawings/", "drawings/_rels/"
+            ).replace(".xml", ".xml.rels")
+
+            rid_to_image: Dict[str, str] = {}
+            if drawing_rels_path in namelist:
+                rels_root = ctx.read_xml_root(drawing_rels_path)
+                relationships = parse_relationships(rels_root)
 
                 for rel in relationships:
-                    rel_type = rel.get("Type", "")
-                    if "drawing" in rel_type:
-                        target = rel.get("Target", "")
-                        # Target can be:
-                        # - Absolute: "/xl/drawings/drawing1.xml"
-                        # - Relative: "../drawings/drawing1.xml"
-                        if target.startswith("/"):
-                            drawing_path = target[1:]  # Remove leading /
-                        elif target.startswith(".."):
-                            drawing_path = "xl/" + target[3:]  # Remove "../"
-                        else:
-                            drawing_path = "xl/worksheets/" + target
-                        sheet_to_drawing[sheet_idx] = drawing_path
-                        break
+                    rel_type = rel["type"]
+                    if "image" in rel_type:
+                        rid = rel["id"]
+                        target = rel["target"]
+                        image_path = _resolve_image_path(target)
+                        rid_to_image[rid] = image_path
 
-            # Process each drawing file
-            for sheet_idx, drawing_path in sheet_to_drawing.items():
-                if drawing_path not in namelist:
-                    continue
+            # Parse the drawing XML to get image metadata
+            drawing_root = ctx.read_xml_root(drawing_path)
 
-                # Parse drawing relationships to get image file paths
-                drawing_rels_path = drawing_path.replace(
-                    "drawings/", "drawings/_rels/"
-                ).replace(".xml", ".xml.rels")
+            sheet_images: List[XlsxImage] = []
 
-                rid_to_image: Dict[str, str] = {}
-                if drawing_rels_path in namelist:
-                    rels_xml = zf.read(drawing_rels_path).decode("utf-8")
-                    rels_root = ET.fromstring(rels_xml)
+            # EMUs to pixels conversion factor (9525 EMUs = 1 pixel at 96 DPI)
+            EMU_PER_PIXEL = 9525
 
-                    # Find Relationship elements - try with and without namespace prefix
-                    relationships = rels_root.findall("rel:Relationship", NS)
-                    if not relationships:
-                        relationships = rels_root.findall(
-                            "{http://schemas.openxmlformats.org/package/2006/relationships}Relationship"
+            # Find all anchor elements (oneCellAnchor, twoCellAnchor, absoluteAnchor)
+            anchor_types = [
+                f"{{{NS['xdr']}}}oneCellAnchor",
+                f"{{{NS['xdr']}}}twoCellAnchor",
+                f"{{{NS['xdr']}}}absoluteAnchor",
+            ]
+
+            for anchor_type in anchor_types:
+                for anchor in drawing_root.iter(anchor_type):
+                    # Find the pic element within this anchor
+                    pic = anchor.find("xdr:pic", NS)
+                    if pic is None:
+                        continue
+
+                    try:
+                        # Get dimensions from ext element (sibling of pic)
+                        width = 0
+                        height = 0
+                        ext = anchor.find("xdr:ext", NS)
+                        if ext is not None:
+                            cx = ext.get("cx", "0")
+                            cy = ext.get("cy", "0")
+                            try:
+                                width = int(cx) // EMU_PER_PIXEL
+                                height = int(cy) // EMU_PER_PIXEL
+                            except ValueError:
+                                pass
+
+                        # Get non-visual properties for name and description
+                        nvPicPr = pic.find("xdr:nvPicPr", NS)
+                        caption = ""
+                        description = ""
+
+                        if nvPicPr is not None:
+                            cNvPr = nvPicPr.find("xdr:cNvPr", NS)
+                            if cNvPr is not None:
+                                caption = cNvPr.get("name", "")
+                                description = cNvPr.get("descr", "")
+
+                        # Get the blip reference to find the image file
+                        blipFill = pic.find("xdr:blipFill", NS)
+                        if blipFill is None:
+                            continue
+
+                        blip = blipFill.find("a:blip", NS)
+                        if blip is None:
+                            continue
+
+                        # Get the relationship ID
+                        embed_rid = blip.get(f"{{{NS['r']}}}embed", "")
+                        if not embed_rid or embed_rid not in rid_to_image:
+                            continue
+
+                        image_path = rid_to_image[embed_rid]
+                        if image_path not in namelist:
+                            continue
+
+                        # Read the image data
+                        image_bytes = ctx.read_bytes(image_path)
+                        image_data = io.BytesIO(image_bytes)
+                        size_bytes = len(image_bytes)
+
+                        # Get filename from path
+                        filename = image_path.rsplit("/", 1)[-1]
+                        content_type = _get_content_type(filename)
+                        if width <= 0 or height <= 0:
+                            width, height = _get_image_pixel_dimensions(image_bytes)
+
+                        image_counter += 1
+                        sheet_images.append(
+                            XlsxImage(
+                                image_index=image_counter,
+                                sheet_index=sheet_idx,
+                                filename=filename,
+                                content_type=content_type,
+                                data=image_data,
+                                size_bytes=size_bytes,
+                                width=width,
+                                height=height,
+                                caption=caption,
+                                description=description,
+                            )
                         )
 
-                    for rel in relationships:
-                        rel_type = rel.get("Type", "")
-                        if "image" in rel_type:
-                            rid = rel.get("Id", "")
-                            target = rel.get("Target", "")
-                            # Target might be absolute (/xl/media/...) or relative
-                            if target.startswith("/"):
-                                image_path = target[1:]  # Remove leading /
-                            else:
-                                # Relative to drawings folder
-                                image_path = "xl/media/" + target.rsplit("/", 1)[-1]
-                            rid_to_image[rid] = image_path
+                    except Exception as e:
+                        logger.warning(f"Failed to extract image from drawing: {e}")
+                        continue
 
-                # Parse the drawing XML to get image metadata
-                drawing_xml = zf.read(drawing_path).decode("utf-8")
-                drawing_root = ET.fromstring(drawing_xml)
-
-                sheet_images: List[XlsxImage] = []
-
-                # EMUs to pixels conversion factor (9525 EMUs = 1 pixel at 96 DPI)
-                EMU_PER_PIXEL = 9525
-
-                # Find all anchor elements (oneCellAnchor, twoCellAnchor, absoluteAnchor)
-                anchor_types = [
-                    f"{{{NS['xdr']}}}oneCellAnchor",
-                    f"{{{NS['xdr']}}}twoCellAnchor",
-                    f"{{{NS['xdr']}}}absoluteAnchor",
-                ]
-
-                for anchor_type in anchor_types:
-                    for anchor in drawing_root.iter(anchor_type):
-                        # Find the pic element within this anchor
-                        pic = anchor.find("xdr:pic", NS)
-                        if pic is None:
-                            continue
-
-                        try:
-                            # Get dimensions from ext element (sibling of pic)
-                            width = 0
-                            height = 0
-                            ext = anchor.find("xdr:ext", NS)
-                            if ext is not None:
-                                cx = ext.get("cx", "0")
-                                cy = ext.get("cy", "0")
-                                try:
-                                    width = int(cx) // EMU_PER_PIXEL
-                                    height = int(cy) // EMU_PER_PIXEL
-                                except ValueError:
-                                    pass
-
-                            # Get non-visual properties for name and description
-                            nvPicPr = pic.find("xdr:nvPicPr", NS)
-                            caption = ""
-                            description = ""
-
-                            if nvPicPr is not None:
-                                cNvPr = nvPicPr.find("xdr:cNvPr", NS)
-                                if cNvPr is not None:
-                                    caption = cNvPr.get("name", "")
-                                    description = cNvPr.get("descr", "")
-
-                            # Get the blip reference to find the image file
-                            blipFill = pic.find("xdr:blipFill", NS)
-                            if blipFill is None:
-                                continue
-
-                            blip = blipFill.find("a:blip", NS)
-                            if blip is None:
-                                continue
-
-                            # Get the relationship ID
-                            embed_rid = blip.get(f"{{{NS['r']}}}embed", "")
-                            if not embed_rid or embed_rid not in rid_to_image:
-                                continue
-
-                            image_path = rid_to_image[embed_rid]
-                            if image_path not in namelist:
-                                continue
-
-                            # Read the image data
-                            image_bytes = zf.read(image_path)
-                            image_data = io.BytesIO(image_bytes)
-                            size_bytes = len(image_bytes)
-
-                            # Get filename from path
-                            filename = image_path.rsplit("/", 1)[-1]
-                            content_type = _get_content_type(filename)
-                            if width <= 0 or height <= 0:
-                                width, height = _get_image_pixel_dimensions(image_bytes)
-
-                            image_counter += 1
-                            sheet_images.append(
-                                XlsxImage(
-                                    image_index=image_counter,
-                                    sheet_index=sheet_idx,
-                                    filename=filename,
-                                    content_type=content_type,
-                                    data=image_data,
-                                    size_bytes=size_bytes,
-                                    width=width,
-                                    height=height,
-                                    caption=caption,
-                                    description=description,
-                                )
-                            )
-
-                        except Exception as e:
-                            logger.warning(f"Failed to extract image from drawing: {e}")
-                            continue
-
-                if sheet_images:
-                    images_by_sheet[sheet_idx] = sheet_images
+            if sheet_images:
+                images_by_sheet[sheet_idx] = sheet_images
 
     except Exception as e:
         logger.warning(f"Failed to extract images from XLSX: {e}")
+    finally:
+        ctx.close()
 
     return images_by_sheet
 
