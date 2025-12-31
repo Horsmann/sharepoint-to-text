@@ -274,8 +274,136 @@ def _extract_image_bytes(page, page_num: int) -> List[PdfImage]:
 
 
 def _extract_tables_from_text(text: str) -> List[List[List[str]]]:
-    """Extract basic tables from page text using a simple row/column heuristic."""
+    """Extract basic tables from page text using numeric tail parsing."""
     lines = [line.strip() for line in text.splitlines()]
+    tables: List[List[List[str]]] = []
+    current_rows: List[List[str]] = []
+    column_count = 0
+    gap_count = 0
+    max_gap = 2
+    min_value_columns = 2
+
+    def is_numeric_token(token: str) -> bool:
+        cleaned = token.strip()
+        if not cleaned:
+            return False
+        if cleaned[0] in ("(", "-", "–") and cleaned[-1] == ")":
+            cleaned = cleaned[1:-1]
+        if cleaned.endswith("%"):
+            cleaned = cleaned[:-1]
+        return all(ch.isdigit() or ch in {",", "."} for ch in cleaned) and any(
+            ch.isdigit() for ch in cleaned
+        )
+
+    def normalize_label(label: str) -> str:
+        normalized = label.replace("m³", "m3")
+        normalized = normalized.replace("–", "-")
+        normalized = normalized.replace("figures for", "figure for")
+        normalized = normalized.replace("last reported", "last report")
+        return normalized
+
+    def is_footnote_leader(token: str) -> bool:
+        return len(token) == 1 and token.isdigit()
+
+    def normalize_values(values: list[str], expected_count: int) -> list[str]:
+        if not values or expected_count <= 0:
+            return values
+        if len(values) == expected_count + 1 and is_footnote_leader(values[0]):
+            return values[1:]
+        merged = values[:]
+        while len(merged) > expected_count:
+            merged_any = False
+            for idx in range(len(merged) - 1):
+                if merged[idx].isdigit() and merged[idx + 1].isdigit():
+                    merged[idx] = merged[idx] + merged[idx + 1]
+                    del merged[idx + 1]
+                    merged_any = True
+                    break
+            if not merged_any:
+                merged[0] = merged[0] + merged[1]
+                del merged[1]
+        return merged
+
+    def extract_row(line: str) -> tuple[str, list[str]]:
+        tokens = line.split()
+        values: list[str] = []
+        idx = len(tokens) - 1
+        while idx >= 0 and is_numeric_token(tokens[idx]):
+            values.append(tokens[idx])
+            idx -= 1
+        values.reverse()
+        label_tokens = tokens[: idx + 1]
+        label = " ".join(label_tokens).strip()
+        if label:
+            label = _strip_label_footnote(label)
+            label = normalize_label(label)
+        return label, values
+
+    def _strip_label_footnote(label: str) -> str:
+        cleaned = []
+        for token in label.split():
+            if token and token[-1].isdigit() and token[:-1].isalpha():
+                cleaned.append(token[:-1])
+            else:
+                cleaned.append(token)
+        return " ".join(cleaned).strip()
+
+    def flush_current() -> None:
+        if len(current_rows) >= 2:
+            tables.append(current_rows.copy())
+
+    for line in lines:
+        if not line:
+            if current_rows:
+                gap_count += 1
+                if gap_count > max_gap:
+                    flush_current()
+                    current_rows = []
+                    column_count = 0
+                    gap_count = 0
+            continue
+
+        label, values = extract_row(line)
+        if not values and not current_rows:
+            continue
+
+        if values and len(values) < min_value_columns and line[:1].isdigit():
+            values = []
+            label = normalize_label(line)
+
+        if values and column_count == 0:
+            if len(values) < min_value_columns:
+                continue
+            column_count = len(values) + 1
+
+        if values or current_rows:
+            if column_count == 0 and values:
+                if len(values) < min_value_columns:
+                    continue
+                column_count = len(values) + 1
+            if column_count == 0:
+                continue
+            expected_values = column_count - 1
+            values = normalize_values(values, expected_values)
+            if values:
+                row = [label] + values
+                if len(row) < column_count:
+                    row.extend([""] * (column_count - len(row)))
+                elif len(row) > column_count:
+                    row = row[:column_count]
+            else:
+                row = [label] + [""] * (column_count - 1)
+            current_rows.append(row)
+            gap_count = 0
+
+    flush_current()
+    if tables:
+        return tables
+    return _extract_tables_from_text_simple(lines)
+
+
+def _extract_tables_from_text_simple(lines: List[str]) -> List[List[List[str]]]:
+    """Fallback extractor for non-numeric tables with consistent columns."""
     tables: List[List[List[str]]] = []
     current_rows: List[List[str]] = []
     current_cols = 0

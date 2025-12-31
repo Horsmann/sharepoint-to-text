@@ -1530,6 +1530,91 @@ def test_read_pdf_2() -> None:
     tc.assertEqual(0, len(list(pdf.iterate_tables())))
 
 
+def test_read_pdf_3() -> None:
+    path = "sharepoint2text/tests/resources/pdf/large_table_1.pdf"
+    with open(path, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+    pdf: PdfContent = next(read_pdf(file_like=file_like, path=path))
+
+    tc.assertEqual(1, len(list(pdf.iterate_tables())))
+    first_table = list(pdf.iterate_tables())[0].get_table()
+    # begin of table
+    tc.assertEqual(
+        ["€ million", "2018", "2019", "2020", "2021", "2022"], first_table[0]
+    )
+    tc.assertEqual(["Bayer Group financial KPIs", "", "", "", "", ""], first_table[1])
+    tc.assertEqual(
+        ["Sales", "36,742", "43,545", "41,400", "44,081", "50,739"], first_table[2]
+    )
+    tc.assertEqual(
+        ["EBITDA", "9,695", "9,529", "(2,910)", "6,409", "13,515"], first_table[3]
+    )
+    # end of table
+    tc.assertEqual(
+        ["Water use (million m3)", "42", "59", "57", "55", "53"], first_table[-9]
+    )
+    tc.assertEqual(
+        [
+            "2021 figures restated; figure for 2018 - 2020 as last report",
+            "",
+            "",
+            "",
+            "",
+            "",
+        ],
+        first_table[-8],
+    )
+    tc.assertEqual(
+        [
+            "1 For definition see A 2.3 “Alternative Performance Measures Used by the Bayer Group.”",
+            "",
+            "",
+            "",
+            "",
+            "",
+        ],
+        first_table[-7],
+    )
+    tc.assertEqual(
+        ["2 For more information see A 1.2.1.", "", "", "", "", ""], first_table[-6]
+    )
+    tc.assertEqual(["3 Economically or medically", "", "", "", "", ""], first_table[-5])
+    tc.assertEqual(
+        [
+            "4 The increase in R&D expenses in 2020 was mainly due to special charges in connection with impairment charges at Crop Science.",
+            "",
+            "",
+            "",
+            "",
+            "",
+        ],
+        first_table[-4],
+    )
+    tc.assertEqual(
+        ["5 R&D expenses before special items", "", "", "", "", ""], first_table[-3]
+    )
+    tc.assertEqual(
+        ["6 Employees calculated as full-time equivalents (FTEs)", "", "", "", "", ""],
+        first_table[-2],
+    )
+    tc.assertEqual(
+        [
+            "7 Quotient of total energy consumption and external sales",
+            "",
+            "",
+            "",
+            "",
+            "",
+        ],
+        first_table[-1],
+    )
+    tc.assertTrue(all(len(row) == 6 for row in first_table))
+    tc.assertEqual(
+        TableDim(rows=52, columns=6), list(pdf.iterate_tables())[0].get_dim()
+    )
+
+
 def test_read_html() -> None:
     path = "sharepoint2text/tests/resources/sample.html"
     with open(path, mode="rb") as file:
