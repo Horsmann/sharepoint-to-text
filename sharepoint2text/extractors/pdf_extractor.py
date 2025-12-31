@@ -105,6 +105,7 @@ Maintenance Notes
 import io
 import logging
 import re
+import unicodedata
 from typing import Any, Generator, List
 
 from pypdf import PdfReader
@@ -172,7 +173,7 @@ def read_pdf(
         images = _extract_image_bytes(page, page_num)
         total_images += len(images)
         page_text = page.extract_text() or ""
-        tables = _extract_tables_from_text(page_text)
+        tables = _extract_tables_from_lines(page_text.splitlines())
         total_tables += len(tables)
         pages.append(
             PdfPage(
@@ -274,9 +275,9 @@ def _extract_image_bytes(page, page_num: int) -> List[PdfImage]:
     return found_images
 
 
-def _extract_tables_from_text(text: str) -> List[List[List[str]]]:
-    """Extract basic tables from page text using numeric tail parsing."""
-    lines = [line.strip() for line in text.splitlines()]
+def _extract_tables_from_lines(lines: List[str]) -> List[List[List[str]]]:
+    """Extract basic tables from page lines using numeric tail parsing."""
+    lines = [line.strip() for line in lines]
     tables: List[List[List[str]]] = []
     current_rows: List[List[str]] = []
     column_count = 0
@@ -288,6 +289,7 @@ def _extract_tables_from_text(text: str) -> List[List[List[str]]]:
         r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\b",
         re.IGNORECASE,
     )
+    known_words = _collect_known_words(lines)
 
     def is_numeric_token(token: str) -> bool:
         cleaned = token.strip()
@@ -302,12 +304,12 @@ def _extract_tables_from_text(text: str) -> List[List[List[str]]]:
         )
 
     def normalize_label(label: str) -> str:
-        normalized = label.replace("m³", "m3")
-        normalized = normalized.replace("–", "-")
-        normalized = normalized.replace("figures for", "figure for")
-        normalized = normalized.replace("last reported", "last report")
-        normalized = normalized.replace("inassociates", "in associates")
-        normalized = normalized.replace("cashequivalents", "cash equivalents")
+        normalized = unicodedata.normalize("NFKC", label)
+        normalized = re.sub(r"[\u2010-\u2013\u2212]", "-", normalized)
+        normalized = re.sub(r"(?<=\\w)\\s*-\\s*(?=\\w)", "-", normalized)
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        normalized = _split_compound_words(normalized, known_words)
+        normalized = _normalize_phrasing(normalized)
         return normalized
 
     def is_footnote_leader(token: str) -> bool:
@@ -343,15 +345,16 @@ def _extract_tables_from_text(text: str) -> List[List[List[str]]]:
     def is_date_header(line: str) -> bool:
         return len(date_header_pattern.findall(line)) >= 2
 
-    def extract_date_header(line: str) -> tuple[str, list[str], bool] | None:
+    def extract_date_header(line: str) -> tuple[str, list[str], str] | None:
         dates = date_header_pattern.findall(line)
         if len(dates) < 2:
             return None
         first_start = line.find(dates[0])
         label = line[:first_start].strip()
         label = normalize_label(label) if label else ""
-        has_unit = "in €m" in line.lower()
-        return label, dates[:2], has_unit
+        second_end = line.find(dates[1]) + len(dates[1])
+        unit_text = line[second_end:].strip()
+        return label, dates[:2], unit_text
 
     def extract_row(line: str) -> tuple[str, list[str]]:
         tokens = line.split()
@@ -383,7 +386,7 @@ def _extract_tables_from_text(text: str) -> List[List[List[str]]]:
 
     pending_header_label = ""
 
-    for line in lines:
+    for idx, line in enumerate(lines):
         if not line:
             if current_rows:
                 gap_count += 1
@@ -394,13 +397,27 @@ def _extract_tables_from_text(text: str) -> List[List[List[str]]]:
                     gap_count = 0
             continue
 
-        if line.strip().lower() in ("equity and liabilities", "equity & liabilities"):
-            pending_header_label = "Equity and Liabilities"
-            continue
+        next_line = _next_non_empty_line(lines, idx)
+        if (
+            current_rows
+            and not re.search(r"\d", line)
+            and _looks_like_section_break(line)
+        ):
+            next_header = extract_date_header(next_line)
+            if next_header:
+                flush_current()
+                current_rows = []
+                column_count = 0
+                gap_count = 0
+                pending_header_label = normalize_label(line)
+                continue
+
+        if not current_rows and not re.search(r"\d", line):
+            pending_header_label = normalize_label(line)
 
         date_header = extract_date_header(line)
         if date_header:
-            label, dates, has_unit = date_header
+            label, dates, unit_text = date_header
             if current_rows:
                 flush_current()
                 current_rows = []
@@ -411,33 +428,28 @@ def _extract_tables_from_text(text: str) -> List[List[List[str]]]:
             pending_header_label = ""
             column_count = len(dates) + 1
             current_rows.append([label] + dates)
-            if has_unit:
-                current_rows.append(["in €m"] + [""] * (column_count - 1))
+            if unit_text:
+                current_rows.append(
+                    [normalize_label(unit_text)] + [""] * (column_count - 1)
+                )
             continue
 
         label, values = extract_row(line)
         has_values = bool(values)
+        if has_values:
+            pending_header_label = ""
         if has_values and month_pattern.search(line):
             if values and values[-1].isdigit() and len(values[-1]) == 4:
                 values = []
                 has_values = False
         if not has_values and current_rows and current_rows[-1][0] == "":
-            if not line[:1].isdigit() and line.strip().lower() != "in €m":
+            if not line[:1].isdigit() and not _looks_like_unit_line(line):
                 flush_current()
                 current_rows = []
                 column_count = 0
                 gap_count = 0
                 continue
         if not has_values and current_rows:
-            if line.strip().lower() in (
-                "equity and liabilities",
-                "equity & liabilities",
-            ):
-                flush_current()
-                current_rows = []
-                column_count = 0
-                gap_count = 0
-                continue
             if re.match(r"^\d+\.", line):
                 flush_current()
                 current_rows = []
@@ -550,6 +562,94 @@ def _extract_tables_from_text_simple(lines: List[str]) -> List[List[List[str]]]:
 
     flush_current()
     return tables
+
+
+def _collect_known_words(lines: list[str]) -> dict[str, int]:
+    words: dict[str, int] = {}
+    for line in lines:
+        for token in re.findall(r"[A-Za-z]+", line):
+            key = token.lower()
+            words[key] = words.get(key, 0) + 1
+    return words
+
+
+def _split_compound_words(text: str, known_words: dict[str, int]) -> str:
+    tokens = text.split()
+    if not tokens:
+        return text
+    line_words = {token.lower() for token in re.findall(r"[A-Za-z]+", text)}
+    candidates = set(known_words) | line_words
+    new_tokens: list[str] = []
+    for idx, token in enumerate(tokens):
+        if "-" in token:
+            new_tokens.append(token)
+            continue
+        alpha = re.sub(r"[^A-Za-z]", "", token)
+        if not alpha or alpha != alpha.lower() or len(alpha) < 6 or idx == 0:
+            new_tokens.append(token)
+            continue
+        if known_words.get(alpha, 0) > 1:
+            new_tokens.append(token)
+            continue
+        split = _find_compound_split(alpha, candidates, allow_short=True)
+        if not split:
+            new_tokens.append(token)
+            continue
+        prefix, suffix = split
+        new_tokens.append(token[: len(prefix)])
+        new_tokens.append(token[len(prefix) :])
+    return " ".join(new_tokens)
+
+
+def _find_compound_split(
+    token: str, candidates: set[str], allow_short: bool = False
+) -> tuple[str, str] | None:
+    for idx in range(len(token) - 3, 1, -1):
+        prefix = token[:idx]
+        suffix = token[idx:]
+        if len(prefix) < 3 and not allow_short:
+            continue
+        if len(prefix) < 2:
+            continue
+        if prefix in candidates and suffix.isalpha() and len(suffix) >= 3:
+            return prefix, suffix
+    return None
+
+
+def _normalize_phrasing(text: str) -> str:
+    text = re.sub(r"\b([A-Za-z]{4,})s(?=\s+for\b)", r"\1", text)
+    text = re.sub(
+        r"\b(last|previous|prior)\s+([A-Za-z]{3,})ed\b",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
+
+
+def _looks_like_unit_line(line: str) -> bool:
+    if re.search(r"\d", line):
+        return False
+    if re.search(r"[.;:]", line):
+        return False
+    if re.search(r"[^A-Za-z\\s&]", line):
+        return True
+    return False
+
+
+def _looks_like_section_break(line: str) -> bool:
+    if re.search(r"[.;:]", line):
+        return False
+    if len(line) > 50:
+        return False
+    return 0 < len(line.split()) <= 6
+
+
+def _next_non_empty_line(lines: list[str], start_index: int) -> str:
+    for idx in range(start_index + 1, len(lines)):
+        if lines[idx]:
+            return lines[idx]
+    return ""
 
 
 def _extract_image(

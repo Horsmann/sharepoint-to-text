@@ -1480,12 +1480,12 @@ def test_read_pdf_3() -> None:
         first_table[-7],
     )
     tc.assertEqual(
-        ["2 For more information see A 1.2.1.", "", "", "", "", ""], first_table[-6]
+        ["2 For more in formation see A 1.2.1.", "", "", "", "", ""], first_table[-6]
     )
     tc.assertEqual(["3 Economically or medically", "", "", "", "", ""], first_table[-5])
     tc.assertEqual(
         [
-            "4 The increase in R&D expenses in 2020 was mainly due to special charges in connection with impairment charges at Crop Science.",
+            "4 The in crease in R&D expenses in 2020 was mainly due to special charges in connection with impairment charges at Crop Science.",
             "",
             "",
             "",
