@@ -118,7 +118,10 @@ from typing import Any, Generator, List, Optional
 
 import olefile
 
-from sharepoint2text.exceptions import LegacyMicrosoftParsingError
+from sharepoint2text.exceptions import (
+    ExtractionFileEncryptedError,
+    LegacyMicrosoftParsingError,
+)
 from sharepoint2text.extractors.data_types import (
     DocContent,
     DocImage,
@@ -501,7 +504,7 @@ class _DocReader:
         # Check flags
         flags = struct.unpack_from("<H", word_doc, 0x0A)[0]
         if flags & 0x0100:
-            raise LegacyMicrosoftParsingError("Fils is encrypted")
+            raise ExtractionFileEncryptedError("DOC is encrypted or password-protected")
 
         # Character counts aus FIB
         # Main text

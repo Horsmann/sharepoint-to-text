@@ -103,6 +103,7 @@ import zipfile
 from typing import Any, Generator, List, Optional, Tuple
 from xml.etree import ElementTree as ET
 
+from sharepoint2text.exceptions import ExtractionFileEncryptedError
 from sharepoint2text.extractors.data_types import (
     PptxComment,
     PptxContent,
@@ -111,6 +112,7 @@ from sharepoint2text.extractors.data_types import (
     PptxMetadata,
     PptxSlide,
 )
+from sharepoint2text.extractors.util.encryption import is_ooxml_encrypted
 from sharepoint2text.extractors.util.omml_to_latex import omml_to_latex
 
 logger = logging.getLogger(__name__)
@@ -916,6 +918,9 @@ def read_pptx(
         - Large presentations with many images may use significant memory
     """
     logger.debug("Reading pptx")
+    file_like.seek(0)
+    if is_ooxml_encrypted(file_like):
+        raise ExtractionFileEncryptedError("PPTX is encrypted or password-protected")
 
     # Create context that opens ZIP once and caches all parsed XML
     ctx = _PptxContext(file_like)

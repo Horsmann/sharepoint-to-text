@@ -113,12 +113,14 @@ from xml.etree import ElementTree as ET
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
+from sharepoint2text.exceptions import ExtractionFileEncryptedError
 from sharepoint2text.extractors.data_types import (
     XlsxContent,
     XlsxImage,
     XlsxMetadata,
     XlsxSheet,
 )
+from sharepoint2text.extractors.util.encryption import is_ooxml_encrypted
 
 logger = logging.getLogger(__name__)
 
@@ -815,6 +817,10 @@ def read_xlsx(
         - Large spreadsheets still load all data into memory
         - Consider streaming approaches for very large files
     """
+    file_like.seek(0)
+    if is_ooxml_encrypted(file_like):
+        raise ExtractionFileEncryptedError("XLSX is encrypted or password-protected")
+
     sheets = _read_content(file_like)
     metadata = _read_metadata(file_like)
     metadata.populate_from_path(path)

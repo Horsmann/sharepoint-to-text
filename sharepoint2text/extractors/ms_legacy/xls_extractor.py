@@ -115,7 +115,9 @@ from typing import Any, Dict, Generator, List
 import olefile
 import xlrd
 
+from sharepoint2text.exceptions import ExtractionFileEncryptedError
 from sharepoint2text.extractors.data_types import XlsContent, XlsMetadata, XlsSheet
+from sharepoint2text.extractors.util.encryption import is_xls_encrypted
 
 logger = logging.getLogger(__name__)
 
@@ -434,6 +436,9 @@ def read_xls(
         - Consider streaming approaches for very large files
     """
     file_like.seek(0)
+    if is_xls_encrypted(file_like):
+        raise ExtractionFileEncryptedError("XLS is encrypted or password-protected")
+
     sheets = _read_content(file_like=file_like)
     file_like.seek(0)
     metadata = _read_metadata(file_like=file_like)

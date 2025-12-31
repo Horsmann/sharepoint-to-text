@@ -109,6 +109,7 @@ import zipfile
 from typing import Any, Generator
 from xml.etree import ElementTree as ET
 
+from sharepoint2text.exceptions import ExtractionFileEncryptedError
 from sharepoint2text.extractors.data_types import (
     OdpAnnotation,
     OdpContent,
@@ -116,6 +117,7 @@ from sharepoint2text.extractors.data_types import (
     OdpMetadata,
     OdpSlide,
 )
+from sharepoint2text.extractors.util.encryption import is_odf_encrypted
 
 logger = logging.getLogger(__name__)
 
@@ -501,6 +503,8 @@ def read_odp(
         ...             print(f"  {slide.slide_number}: {slide.title}")
     """
     file_like.seek(0)
+    if is_odf_encrypted(file_like):
+        raise ExtractionFileEncryptedError("ODP is encrypted or password-protected")
 
     with zipfile.ZipFile(file_like, "r") as z:
         # Extract metadata

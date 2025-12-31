@@ -116,6 +116,7 @@ import zipfile
 from typing import Any, Generator, Optional
 from xml.etree import ElementTree as ET
 
+from sharepoint2text.exceptions import ExtractionFileEncryptedError
 from sharepoint2text.extractors.data_types import (
     DocxComment,
     DocxContent,
@@ -129,6 +130,7 @@ from sharepoint2text.extractors.data_types import (
     DocxRun,
     DocxSection,
 )
+from sharepoint2text.extractors.util.encryption import is_ooxml_encrypted
 from sharepoint2text.extractors.util.omml_to_latex import (
     GREEK_TO_LATEX,
     convert_greek_and_symbols,
@@ -1381,6 +1383,10 @@ def read_docx(
         - Images are loaded into memory as BytesIO objects
         - Large documents may use significant memory
     """
+    file_like.seek(0)
+    if is_ooxml_encrypted(file_like):
+        raise ExtractionFileEncryptedError("DOCX is encrypted or password-protected")
+
     # Create context that opens ZIP once and caches all parsed XML
     ctx = _DocxContext(file_like)
 

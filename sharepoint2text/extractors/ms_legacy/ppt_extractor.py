@@ -110,7 +110,10 @@ from typing import Any, BinaryIO, Generator
 
 import olefile
 
-from sharepoint2text.exceptions import LegacyMicrosoftParsingError
+from sharepoint2text.exceptions import (
+    ExtractionFileEncryptedError,
+    LegacyMicrosoftParsingError,
+)
 from sharepoint2text.extractors.data_types import (
     PPT_TEXT_TYPE_BODY,
     PPT_TEXT_TYPE_CENTER_BODY,
@@ -124,6 +127,7 @@ from sharepoint2text.extractors.data_types import (
     PptSlideContent,
     PptTextBlock,
 )
+from sharepoint2text.extractors.util.encryption import is_ppt_encrypted
 
 logger = logging.getLogger(__name__)
 
@@ -215,6 +219,9 @@ def read_ppt(
         - Raw extraction is used as last resort if structured parsing fails
     """
     file_like.seek(0)
+    if is_ppt_encrypted(file_like):
+        raise ExtractionFileEncryptedError("PPT is encrypted or password-protected")
+
     content = _extract_ppt_content_structured(file_like)
     content.metadata.populate_from_path(path)
     yield content

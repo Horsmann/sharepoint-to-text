@@ -112,6 +112,7 @@ from typing import Any, Generator, Iterable, Optional, Protocol
 from pypdf import PdfReader
 from pypdf.generic import ContentStream
 
+from sharepoint2text.exceptions import ExtractionFileEncryptedError
 from sharepoint2text.extractors.data_types import (
     PdfContent,
     PdfImage,
@@ -179,6 +180,8 @@ def read_pdf(
     """
     file_like.seek(0)
     reader = PdfReader(file_like)
+    if reader.is_encrypted:
+        raise ExtractionFileEncryptedError("PDF is encrypted or password-protected")
     logger.debug("Parsing PDF with %d pages", len(reader.pages))
 
     pages = []

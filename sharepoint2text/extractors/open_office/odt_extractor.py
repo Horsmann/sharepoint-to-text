@@ -112,6 +112,7 @@ import zipfile
 from typing import Any, Generator
 from xml.etree import ElementTree as ET
 
+from sharepoint2text.exceptions import ExtractionFileEncryptedError
 from sharepoint2text.extractors.data_types import (
     OdtAnnotation,
     OdtBookmark,
@@ -125,6 +126,7 @@ from sharepoint2text.extractors.data_types import (
     OdtRun,
     OdtTable,
 )
+from sharepoint2text.extractors.util.encryption import is_odf_encrypted
 
 logger = logging.getLogger(__name__)
 
@@ -827,6 +829,10 @@ def read_odt(
         - ZIP file is opened once and all XML is cached
         - content.xml and styles.xml are parsed once and reused
     """
+    file_like.seek(0)
+    if is_odf_encrypted(file_like):
+        raise ExtractionFileEncryptedError("ODT is encrypted or password-protected")
+
     # Create context and load all XML files once
     ctx = _OdtContext(file_like)
 

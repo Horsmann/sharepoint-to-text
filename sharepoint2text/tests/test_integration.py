@@ -4,6 +4,7 @@ import logging
 import os
 import unittest
 
+import sharepoint2text.exceptions
 from sharepoint2text import (
     read_doc,
     read_docx,
@@ -186,10 +187,15 @@ def test_read_file():
         if not os.path.isfile(path):
             continue
         logger.debug(f"Calling read_file with: [{path}]")
-        for obj in read_file(path=path):
-            # verify that all obj have the ExtractionInterface methods
-            tc.assertTrue(hasattr(obj, "get_metadata"))
-            tc.assertTrue(hasattr(obj, "iterate_text"))
-            tc.assertTrue(hasattr(obj, "iterate_images"))
-            tc.assertTrue(hasattr(obj, "iterate_tables"))
-            tc.assertTrue(hasattr(obj, "get_full_text"))
+        try:
+            for obj in read_file(path=path):
+                # verify that all obj have the ExtractionInterface methods
+                tc.assertTrue(hasattr(obj, "get_metadata"))
+                tc.assertTrue(hasattr(obj, "iterate_text"))
+                tc.assertTrue(hasattr(obj, "iterate_images"))
+                tc.assertTrue(hasattr(obj, "iterate_tables"))
+                tc.assertTrue(hasattr(obj, "get_full_text"))
+        except sharepoint2text.exceptions.ExtractionFileEncryptedError:
+            # silent ignore - we have encrypted test files
+            logger.debug(f"File is encrypted: [{path}]")
+            pass

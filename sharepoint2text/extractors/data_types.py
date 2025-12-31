@@ -214,7 +214,10 @@ class EmailContent(ExtractionInterface):
         """Iterates over the attachments. If the file type is supported an extracted object is returned.
         Not supported attachments are silently skipped. The attachments are extracted at call-time.
         """
-        from sharepoint2text.exceptions import ExtractionFileFormatNotSupportedError
+        from sharepoint2text.exceptions import (
+            ExtractionFileEncryptedError,
+            ExtractionFileFormatNotSupportedError,
+        )
         from sharepoint2text.mime_types import MIME_TYPE_MAPPING
         from sharepoint2text.router import get_extractor
 
@@ -243,6 +246,8 @@ class EmailContent(ExtractionInterface):
             attachment.data.seek(0)
             try:
                 yield from extractor(attachment.data, attachment.filename)
+            except ExtractionFileEncryptedError:
+                raise
             except Exception as exc:
                 logger.debug(
                     "Failed to extract attachment: %s (mime=%s) error=%s",

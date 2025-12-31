@@ -115,6 +115,7 @@ import zipfile
 from typing import Any, Generator
 from xml.etree import ElementTree as ET
 
+from sharepoint2text.exceptions import ExtractionFileEncryptedError
 from sharepoint2text.extractors.data_types import (
     OdsAnnotation,
     OdsContent,
@@ -122,6 +123,7 @@ from sharepoint2text.extractors.data_types import (
     OdsMetadata,
     OdsSheet,
 )
+from sharepoint2text.extractors.util.encryption import is_odf_encrypted
 
 logger = logging.getLogger(__name__)
 
@@ -576,6 +578,8 @@ def read_ods(
         ...                 print(row)
     """
     file_like.seek(0)
+    if is_odf_encrypted(file_like):
+        raise ExtractionFileEncryptedError("ODS is encrypted or password-protected")
 
     with zipfile.ZipFile(file_like, "r") as z:
         # Extract metadata

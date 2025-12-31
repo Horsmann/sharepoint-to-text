@@ -48,3 +48,26 @@ class LegacyMicrosoftParsingError(Exception):
         super().__init__(message)
         if cause is not None:
             self.__cause__ = cause
+
+
+class ExtractionFileEncryptedError(Exception):
+    """
+    Raised when the file appears to be encrypted or password-protected.
+
+    This exception is used when an extractor detects encryption and
+    cannot proceed without a password or decryption step.
+
+    Attributes:
+        message: Human-readable description of the error.
+        __cause__: Optional underlying exception that triggered this error.
+    """
+
+    def __init__(
+        self,
+        message: str = "File is encrypted or password-protected",
+        *,
+        cause: Optional[Exception] = None,
+    ):
+        super().__init__(message)
+        if cause is not None:
+            self.__cause__ = cause
