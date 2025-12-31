@@ -104,6 +104,7 @@ Maintenance Notes
 
 import io
 import logging
+import re
 from typing import Any, Generator, List
 
 from pypdf import PdfReader
@@ -364,6 +365,27 @@ def _extract_tables_from_text(text: str) -> List[List[List[str]]]:
             continue
 
         label, values = extract_row(line)
+        has_values = bool(values)
+        if not has_values and current_rows and current_rows[-1][0] == "":
+            if not line[:1].isdigit():
+                flush_current()
+                current_rows = []
+                column_count = 0
+                gap_count = 0
+                continue
+        if not has_values and current_rows:
+            if re.match(r"^\\d+\\.", line):
+                flush_current()
+                current_rows = []
+                column_count = 0
+                gap_count = 0
+                continue
+            if len(line) >= 60 and "." in line and not line[:1].isdigit():
+                flush_current()
+                current_rows = []
+                column_count = 0
+                gap_count = 0
+                continue
         if not values and not current_rows:
             continue
 

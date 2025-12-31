@@ -1615,6 +1615,46 @@ def test_read_pdf_3() -> None:
     )
 
 
+def test_read_pdf_4() -> None:
+    path = "sharepoint2text/tests/resources/pdf/multi_table.pdf"
+    with open(path, mode="rb") as file:
+        file_like = io.BytesIO(file.read())
+        file_like.seek(0)
+    pdf: PdfContent = next(read_pdf(file_like=file_like, path=path))
+
+    tc.assertEqual(2, len(list(pdf.iterate_tables())))
+
+    # tabel 1
+    tc.assertEqual(TableDim(rows=6, columns=3), list(pdf.iterate_tables())[0].get_dim())
+    tc.assertListEqual(
+        [
+            ["€ million", "2022", "2021"],
+            ["Financial statement audit services", "26", "22"],
+            ["Other assurance services", "6", "3"],
+            ["Tax advisory services", "0", "7"],
+            ["Other services", "2", "4"],
+            ["", "34", "36"],
+        ],
+        list(pdf.iterate_tables())[0].get_table(),
+    )
+
+    # tabel 2
+    tc.assertEqual(TableDim(rows=4, columns=3), list(pdf.iterate_tables())[1].get_dim())
+    tc.assertListEqual(
+        [
+            ["€ million", "2022", "2021"],
+            ["Wages and salaries", "37,529", "34,644"],
+            [
+                "Social security, post-employment and other employee benefit costs",
+                "9,473",
+                "9,033",
+            ],
+            ["", "47,002", "43,677"],
+        ],
+        list(pdf.iterate_tables())[1].get_table(),
+    )
+
+
 def test_read_html() -> None:
     path = "sharepoint2text/tests/resources/sample.html"
     with open(path, mode="rb") as file:
