@@ -1,9 +1,12 @@
 import io
+import logging
 import typing
 from abc import abstractmethod
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Protocol
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -204,6 +207,38 @@ class EmailContent(ExtractionInterface):
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
         yield from ()
         return
+
+    def iterate_attachments(
+        self,
+    ) -> typing.Generator["ExtractionInterface", None, None]:
+        from sharepoint2text.exceptions import ExtractionFileFormatNotSupportedError
+        from sharepoint2text.mime_types import MIME_TYPE_MAPPING
+        from sharepoint2text.router import get_extractor
+
+        for attachment in self.attachments:
+            if not attachment.is_supported_mime_type:
+                logger.debug(
+                    "Skipping unsupported attachment: %s (mime=%s)",
+                    attachment.filename,
+                    attachment.mime_type,
+                )
+                continue
+
+            try:
+                extractor = get_extractor(attachment.filename)
+            except ExtractionFileFormatNotSupportedError:
+                file_type = MIME_TYPE_MAPPING.get(attachment.mime_type)
+                if not file_type:
+                    logger.debug(
+                        "Skipping attachment with unknown type: %s (mime=%s)",
+                        attachment.filename,
+                        attachment.mime_type,
+                    )
+                    continue
+                extractor = get_extractor(f"attachment.{file_type}")
+
+            attachment.data.seek(0)
+            yield from extractor(attachment.data, attachment.filename)
 
     def get_full_text(self) -> str:
         return "\n".join(self.iterate_text())
