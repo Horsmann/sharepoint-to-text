@@ -425,6 +425,7 @@ class _DocxContext:
     """
 
     def __init__(self, file_like: io.BytesIO):
+        """Initialize the DOCX context and cache XML content."""
         self.file_like = file_like
         file_like.seek(0)
 
@@ -1366,6 +1367,9 @@ def read_docx(
             - formulas: List of DocxFormula as LaTeX
             - full_text: Complete text including formulas
             - base_full_text: Complete text without formulas
+
+    Raises:
+        ExtractionFileEncryptedError: If the DOCX is encrypted or password-protected.
 
     Example:
         >>> import io

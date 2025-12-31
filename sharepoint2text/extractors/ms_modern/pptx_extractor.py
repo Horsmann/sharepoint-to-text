@@ -215,6 +215,7 @@ class _PptxContext:
     """
 
     def __init__(self, file_like: io.BytesIO):
+        """Initialize the PPTX context and cache XML content."""
         self.file_like = file_like
         file_like.seek(0)
 
@@ -892,6 +893,9 @@ def read_pptx(
                 - comments: List of PPTXComment
                 - text: Complete slide text with formulas and comments
                 - base_text: Text without formulas/comments/captions
+
+    Raises:
+        ExtractionFileEncryptedError: If the PPTX is encrypted or password-protected.
 
     Processing Details:
         - Shapes are sorted by position (top-to-bottom, left-to-right)

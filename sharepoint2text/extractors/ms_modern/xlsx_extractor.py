@@ -799,6 +799,9 @@ def read_xlsx(
             - metadata: XlsxMetadata with title, creator, dates
             - sheets: List of XlsxSheet objects (name, data, text)
 
+    Raises:
+        ExtractionFileEncryptedError: If the XLSX is encrypted or password-protected.
+
     Example:
         >>> import io
         >>> with open("data.xlsx", "rb") as f:
