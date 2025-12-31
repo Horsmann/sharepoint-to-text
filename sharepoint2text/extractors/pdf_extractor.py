@@ -218,8 +218,8 @@ def read_pdf(
         page_text = page.extract_text() or ""
         raw_lines = page_text.splitlines()
         spatial_lines = _extract_lines_with_spacing(page)
-        raw_tables = _extract_tables_from_lines(raw_lines)
-        spatial_tables = _extract_tables_from_lines(spatial_lines)
+        raw_tables = _TableExtractor.extract(raw_lines)
+        spatial_tables = _TableExtractor.extract(spatial_lines)
         tables = _choose_table_candidate(raw_tables, spatial_tables)
         total_tables += len(tables)
         pages.append(
@@ -454,38 +454,219 @@ def _extract_lines_with_spacing(page: PageLike) -> list[str]:
     return spaced_lines
 
 
-def _extract_tables_from_lines(lines: list[str]) -> list[TableRows]:
-    """Extract basic tables from page lines using numeric tail parsing."""
-    lines = [line.strip() for line in lines]
-    tables: list[TableRows] = []
-    current_rows: TableRows = []
-    column_count = 0
-    gap_count = 0
-    max_gap = 2
-    min_value_columns = 2
+class _TableExtractor:
     date_header_pattern = re.compile(r"\d{2}/\d{2}/\d{4}")
     month_pattern = re.compile(
         r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\b",
         re.IGNORECASE,
     )
-    known_words = _collect_known_words(lines)
+    max_gap = 2
+    min_value_columns = 2
 
-    def normalize_label(label: str) -> str:
+    def __init__(self, lines: list[str]) -> None:
+        self.lines = [line.strip() for line in lines]
+        self.known_words = self._collect_known_words(self.lines)
+
+    @classmethod
+    def extract(cls, lines: list[str]) -> list[TableRows]:
+        return cls(lines)._extract()
+
+    def _extract(self) -> list[TableRows]:
+        tables: list[TableRows] = []
+        current_rows: TableRows = []
+        column_count = 0
+        gap_count = 0
+        pending_header_label = ""
+
+        for idx, line in enumerate(self.lines):
+            if not line:
+                if current_rows:
+                    gap_count += 1
+                    if gap_count > self.max_gap:
+                        self._flush_current(tables, current_rows)
+                        current_rows = []
+                        column_count = 0
+                        gap_count = 0
+                continue
+
+            next_line = self._next_non_empty_line(idx)
+            if (
+                current_rows
+                and not re.search(r"\d", line)
+                and self._looks_like_section_break(line)
+            ):
+                next_header = self._extract_date_header(next_line)
+                if next_header:
+                    self._flush_current(tables, current_rows)
+                    current_rows = []
+                    column_count = 0
+                    gap_count = 0
+                    pending_header_label = self._normalize_label(line)
+                    continue
+
+            if not current_rows and not re.search(r"\d", line):
+                pending_header_label = self._normalize_label(line)
+
+            date_header = self._extract_date_header(line)
+            if date_header:
+                label, dates, unit_text = date_header
+                if current_rows:
+                    self._flush_current(tables, current_rows)
+                    current_rows = []
+                    column_count = 0
+                    gap_count = 0
+                if not label and pending_header_label:
+                    label = pending_header_label
+                pending_header_label = ""
+                column_count = len(dates) + 1
+                current_rows.append([label] + dates)
+                if unit_text:
+                    current_rows.append(
+                        [self._normalize_label(unit_text)]
+                        + ["" for _ in range(column_count - 1)]
+                    )
+                continue
+
+            label, values = self._extract_row(line)
+            has_values = bool(values)
+            if has_values:
+                pending_header_label = ""
+            if has_values and self.month_pattern.search(line):
+                if values and values[-1].isdigit() and len(values[-1]) == 4:
+                    values = []
+                    has_values = False
+            if not has_values and current_rows and current_rows[-1][0] == "":
+                if not line[:1].isdigit() and not self._looks_like_unit_line(line):
+                    self._flush_current(tables, current_rows)
+                    current_rows = []
+                    column_count = 0
+                    gap_count = 0
+                    continue
+            if not has_values and current_rows:
+                if re.match(r"^\d+\.", line):
+                    self._flush_current(tables, current_rows)
+                    current_rows = []
+                    column_count = 0
+                    gap_count = 0
+                    continue
+                if (
+                    len(line) >= 60
+                    and "." in line
+                    and not line[:1].isdigit()
+                    and not re.search(r"[\d.,]+$", line)
+                ):
+                    self._flush_current(tables, current_rows)
+                    current_rows = []
+                    column_count = 0
+                    gap_count = 0
+                    continue
+            values_from_trailing_blob = False
+            if not values:
+                trailing_match = re.search(r"([\d.,]+)$", line)
+                if trailing_match and "/" not in trailing_match.group(1):
+                    blob = trailing_match.group(1)
+                    label = line[: trailing_match.start()].strip()
+                    if label:
+                        label = self._normalize_label(label)
+                    values = self._split_numeric_blob(
+                        blob, column_count - 1 if column_count else 2
+                    )
+                    values_from_trailing_blob = True
+                if not values and not current_rows:
+                    continue
+
+            if values and len(values) < self.min_value_columns and line[:1].isdigit():
+                values = []
+                label = self._normalize_label(line)
+
+            if values and column_count == 0:
+                if len(values) < self.min_value_columns:
+                    continue
+                column_count = len(values) + 1
+
+            if values or current_rows:
+                if column_count == 0 and values:
+                    if len(values) < self.min_value_columns:
+                        continue
+                    column_count = len(values) + 1
+                if column_count == 0:
+                    continue
+                expected_values = column_count - 1
+                values = self._normalize_values(values, expected_values)
+                if values and current_rows and values_from_trailing_blob:
+                    last_row = current_rows[-1]
+                    if last_row[0] and all(not cell for cell in last_row[1:]):
+                        if label and label[:1].islower():
+                            label = f"{last_row[0]} {label}"
+                            current_rows.pop()
+                if values:
+                    row = [label] + values
+                    if len(row) < column_count:
+                        row.extend([""] * (column_count - len(row)))
+                    elif len(row) > column_count:
+                        row = row[:column_count]
+                else:
+                    row = [label] + [""] * (column_count - 1)
+                current_rows.append(row)
+                gap_count = 0
+
+        self._flush_current(tables, current_rows)
+        if tables:
+            return tables
+        return self._extract_tables_from_text_simple()
+
+    def _normalize_label(self, label: str) -> str:
         normalized = unicodedata.normalize("NFKC", label)
         normalized = re.sub(r"[\u2010-\u2013\u2212]", "-", normalized)
         normalized = re.sub(r"(?<=\\w)\\s*-\\s*(?=\\w)", "-", normalized)
         normalized = re.sub(r"\s+", " ", normalized).strip()
-        normalized = _split_compound_words(normalized, known_words)
-        normalized = _normalize_phrasing(normalized)
-        return normalized
+        return self._split_compound_words(normalized, self.known_words)
 
-    def is_footnote_leader(token: str) -> bool:
+    def _extract_date_header(self, line: str) -> Optional[tuple[str, list[str], str]]:
+        dates = self.date_header_pattern.findall(line)
+        if len(dates) < 2:
+            return None
+        first_start = line.find(dates[0])
+        label = line[:first_start].strip()
+        label = self._normalize_label(label) if label else ""
+        second_end = line.find(dates[1]) + len(dates[1])
+        unit_text = line[second_end:].strip()
+        return label, dates[:2], unit_text
+
+    def _extract_row(self, line: str) -> tuple[str, list[str]]:
+        tokens = line.split()
+        values: list[str] = []
+        idx = len(tokens) - 1
+        while idx >= 0 and _is_numeric_token(tokens[idx]):
+            values.append(tokens[idx])
+            idx -= 1
+        values.reverse()
+        label_tokens = tokens[: idx + 1]
+        label = " ".join(label_tokens).strip()
+        if label:
+            label = self._strip_label_footnote(label)
+            label = self._normalize_label(label)
+        return label, values
+
+    @staticmethod
+    def _strip_label_footnote(label: str) -> str:
+        cleaned = []
+        for token in label.split():
+            if token and token[-1].isdigit() and token[:-1].isalpha():
+                cleaned.append(token[:-1])
+            else:
+                cleaned.append(token)
+        return " ".join(cleaned).strip()
+
+    @staticmethod
+    def _is_footnote_leader(token: str) -> bool:
         return len(token) == 1 and token.isdigit()
 
-    def normalize_values(values: list[str], expected_count: int) -> list[str]:
+    @classmethod
+    def _normalize_values(cls, values: list[str], expected_count: int) -> list[str]:
         if not values or expected_count <= 0:
             return values
-        if len(values) == expected_count + 1 and is_footnote_leader(values[0]):
+        if len(values) == expected_count + 1 and cls._is_footnote_leader(values[0]):
             return values[1:]
         merged = values[:]
         while len(merged) > expected_count:
@@ -501,7 +682,8 @@ def _extract_tables_from_lines(lines: list[str]) -> list[TableRows]:
                 del merged[1]
         return merged
 
-    def split_numeric_blob(blob: str, expected_count: int) -> list[str]:
+    @staticmethod
+    def _split_numeric_blob(blob: str, expected_count: int) -> list[str]:
         if expected_count != 2:
             return [blob]
         match = re.match(r"^(\d[\d,]*\.\d)(\d[\d,]*\.\d+)$", blob)
@@ -509,314 +691,125 @@ def _extract_tables_from_lines(lines: list[str]) -> list[TableRows]:
             return [match.group(1), match.group(2)]
         return [blob]
 
-    def is_date_header(line: str) -> bool:
-        return len(date_header_pattern.findall(line)) >= 2
-
-    def extract_date_header(line: str) -> tuple[str, list[str], str] | None:
-        dates = date_header_pattern.findall(line)
-        if len(dates) < 2:
-            return None
-        first_start = line.find(dates[0])
-        label = line[:first_start].strip()
-        label = normalize_label(label) if label else ""
-        second_end = line.find(dates[1]) + len(dates[1])
-        unit_text = line[second_end:].strip()
-        return label, dates[:2], unit_text
-
-    def extract_row(line: str) -> tuple[str, list[str]]:
-        tokens = line.split()
-        values: list[str] = []
-        idx = len(tokens) - 1
-        while idx >= 0 and _is_numeric_token(tokens[idx]):
-            values.append(tokens[idx])
-            idx -= 1
-        values.reverse()
-        label_tokens = tokens[: idx + 1]
-        label = " ".join(label_tokens).strip()
-        if label:
-            label = _strip_label_footnote(label)
-            label = normalize_label(label)
-        return label, values
-
-    def _strip_label_footnote(label: str) -> str:
-        cleaned = []
-        for token in label.split():
-            if token and token[-1].isdigit() and token[:-1].isalpha():
-                cleaned.append(token[:-1])
-            else:
-                cleaned.append(token)
-        return " ".join(cleaned).strip()
-
-    def flush_current() -> None:
+    @staticmethod
+    def _flush_current(tables: list[TableRows], current_rows: TableRows) -> None:
         if len(current_rows) >= 2:
             tables.append(current_rows.copy())
 
-    pending_header_label = ""
+    def _extract_tables_from_text_simple(self) -> list[TableRows]:
+        tables: list[TableRows] = []
+        current_rows: TableRows = []
+        current_cols = 0
 
-    for idx, line in enumerate(lines):
-        if not line:
-            if current_rows:
-                gap_count += 1
-                if gap_count > max_gap:
-                    flush_current()
-                    current_rows = []
-                    column_count = 0
-                    gap_count = 0
-            continue
+        def flush_current() -> None:
+            if len(current_rows) >= 2:
+                tables.append(current_rows.copy())
 
-        next_line = _next_non_empty_line(lines, idx)
-        if (
-            current_rows
-            and not re.search(r"\d", line)
-            and _looks_like_section_break(line)
-        ):
-            next_header = extract_date_header(next_line)
-            if next_header:
+        for line in self.lines:
+            if not line:
                 flush_current()
                 current_rows = []
-                column_count = 0
-                gap_count = 0
-                pending_header_label = normalize_label(line)
+                current_cols = 0
                 continue
 
-        if not current_rows and not re.search(r"\d", line):
-            pending_header_label = normalize_label(line)
-
-        date_header = extract_date_header(line)
-        if date_header:
-            label, dates, unit_text = date_header
-            if current_rows:
+            tokens = line.split()
+            if len(tokens) < 2:
                 flush_current()
                 current_rows = []
-                column_count = 0
-                gap_count = 0
-            if not label and pending_header_label:
-                label = pending_header_label
-            pending_header_label = ""
-            column_count = len(dates) + 1
-            current_rows.append([label] + dates)
-            if unit_text:
-                current_rows.append(
-                    [normalize_label(unit_text)] + [""] * (column_count - 1)
-                )
-            continue
-
-        label, values = extract_row(line)
-        has_values = bool(values)
-        if has_values:
-            pending_header_label = ""
-        if has_values and month_pattern.search(line):
-            if values and values[-1].isdigit() and len(values[-1]) == 4:
-                values = []
-                has_values = False
-        if not has_values and current_rows and current_rows[-1][0] == "":
-            if not line[:1].isdigit() and not _looks_like_unit_line(line):
-                flush_current()
-                current_rows = []
-                column_count = 0
-                gap_count = 0
-                continue
-        if not has_values and current_rows:
-            if re.match(r"^\d+\.", line):
-                flush_current()
-                current_rows = []
-                column_count = 0
-                gap_count = 0
-                continue
-            if (
-                len(line) >= 60
-                and "." in line
-                and not line[:1].isdigit()
-                and not re.search(r"[\d.,]+$", line)
-            ):
-                flush_current()
-                current_rows = []
-                column_count = 0
-                gap_count = 0
-                continue
-        values_from_trailing_blob = False
-        if not values:
-            trailing_match = re.search(r"([\d.,]+)$", line)
-            if trailing_match and "/" not in trailing_match.group(1):
-                blob = trailing_match.group(1)
-                label = line[: trailing_match.start()].strip()
-                if label:
-                    label = normalize_label(label)
-                values = split_numeric_blob(
-                    blob, column_count - 1 if column_count else 2
-                )
-                values_from_trailing_blob = True
-            if not values and not current_rows:
+                current_cols = 0
                 continue
 
-        if values and len(values) < min_value_columns and line[:1].isdigit():
-            values = []
-            label = normalize_label(line)
-
-        if values and column_count == 0:
-            if len(values) < min_value_columns:
+            if current_cols == 0:
+                current_cols = len(tokens)
+                current_rows = [tokens]
                 continue
-            column_count = len(values) + 1
 
-        if values or current_rows:
-            if column_count == 0 and values:
-                if len(values) < min_value_columns:
-                    continue
-                column_count = len(values) + 1
-            if column_count == 0:
+            if len(tokens) == current_cols:
+                current_rows.append(tokens)
                 continue
-            expected_values = column_count - 1
-            values = normalize_values(values, expected_values)
-            if values and current_rows and values_from_trailing_blob:
-                last_row = current_rows[-1]
-                if last_row[0] and all(not cell for cell in last_row[1:]):
-                    if label and label[:1].islower():
-                        label = f"{last_row[0]} {label}"
-                        current_rows.pop()
-            if values:
-                row = [label] + values
-                if len(row) < column_count:
-                    row.extend([""] * (column_count - len(row)))
-                elif len(row) > column_count:
-                    row = row[:column_count]
-            else:
-                row = [label] + [""] * (column_count - 1)
-            current_rows.append(row)
-            gap_count = 0
 
-    flush_current()
-    if tables:
-        return tables
-    return _extract_tables_from_text_simple(lines)
-
-
-def _extract_tables_from_text_simple(lines: list[str]) -> list[TableRows]:
-    """Fallback extractor for non-numeric tables with consistent columns."""
-    tables: list[TableRows] = []
-    current_rows: TableRows = []
-    current_cols = 0
-
-    def flush_current() -> None:
-        if len(current_rows) >= 2:
-            tables.append(current_rows.copy())
-
-    for line in lines:
-        if not line:
             flush_current()
-            current_rows = []
-            current_cols = 0
-            continue
-
-        tokens = line.split()
-        if len(tokens) < 2:
-            flush_current()
-            current_rows = []
-            current_cols = 0
-            continue
-
-        if current_cols == 0:
-            current_cols = len(tokens)
             current_rows = [tokens]
-            continue
-
-        if len(tokens) == current_cols:
-            current_rows.append(tokens)
-            continue
+            current_cols = len(tokens)
 
         flush_current()
-        current_rows = [tokens]
-        current_cols = len(tokens)
+        return tables
 
-    flush_current()
-    return tables
+    @staticmethod
+    def _collect_known_words(lines: list[str]) -> dict[str, int]:
+        words: dict[str, int] = {}
+        for line in lines:
+            for token in re.findall(r"[A-Za-z]+", line):
+                key = token.lower()
+                words[key] = words.get(key, 0) + 1
+        return words
 
+    @classmethod
+    def _split_compound_words(cls, text: str, known_words: dict[str, int]) -> str:
+        tokens = text.split()
+        if not tokens:
+            return text
+        line_words = {token.lower() for token in re.findall(r"[A-Za-z]+", text)}
+        candidates = set(known_words) | line_words
+        new_tokens: list[str] = []
+        for idx, token in enumerate(tokens):
+            if "-" in token:
+                new_tokens.append(token)
+                continue
+            alpha = re.sub(r"[^A-Za-z]", "", token)
+            if not alpha or alpha != alpha.lower() or len(alpha) < 6 or idx == 0:
+                new_tokens.append(token)
+                continue
+            if known_words.get(alpha, 0) > 1:
+                new_tokens.append(token)
+                continue
+            split = cls._find_compound_split(alpha, candidates, allow_short=True)
+            if not split:
+                new_tokens.append(token)
+                continue
+            prefix, suffix = split
+            new_tokens.append(token[: len(prefix)])
+            new_tokens.append(token[len(prefix) :])
+        return " ".join(new_tokens)
 
-def _collect_known_words(lines: list[str]) -> dict[str, int]:
-    words: dict[str, int] = {}
-    for line in lines:
-        for token in re.findall(r"[A-Za-z]+", line):
-            key = token.lower()
-            words[key] = words.get(key, 0) + 1
-    return words
+    @staticmethod
+    def _find_compound_split(
+        token: str, candidates: set[str], allow_short: bool = False
+    ) -> Optional[tuple[str, str]]:
+        for idx in range(len(token) - 3, 1, -1):
+            prefix = token[:idx]
+            suffix = token[idx:]
+            if len(prefix) < 3 and not allow_short:
+                continue
+            if len(prefix) < 2:
+                continue
+            if prefix in candidates and suffix.isalpha() and len(suffix) >= 3:
+                return prefix, suffix
+        return None
 
-
-def _split_compound_words(text: str, known_words: dict[str, int]) -> str:
-    tokens = text.split()
-    if not tokens:
-        return text
-    line_words = {token.lower() for token in re.findall(r"[A-Za-z]+", text)}
-    candidates = set(known_words) | line_words
-    new_tokens: list[str] = []
-    for idx, token in enumerate(tokens):
-        if "-" in token:
-            new_tokens.append(token)
-            continue
-        alpha = re.sub(r"[^A-Za-z]", "", token)
-        if not alpha or alpha != alpha.lower() or len(alpha) < 6 or idx == 0:
-            new_tokens.append(token)
-            continue
-        if known_words.get(alpha, 0) > 1:
-            new_tokens.append(token)
-            continue
-        split = _find_compound_split(alpha, candidates, allow_short=True)
-        if not split:
-            new_tokens.append(token)
-            continue
-        prefix, suffix = split
-        new_tokens.append(token[: len(prefix)])
-        new_tokens.append(token[len(prefix) :])
-    return " ".join(new_tokens)
-
-
-def _find_compound_split(
-    token: str, candidates: set[str], allow_short: bool = False
-) -> tuple[str, str] | None:
-    for idx in range(len(token) - 3, 1, -1):
-        prefix = token[:idx]
-        suffix = token[idx:]
-        if len(prefix) < 3 and not allow_short:
-            continue
-        if len(prefix) < 2:
-            continue
-        if prefix in candidates and suffix.isalpha() and len(suffix) >= 3:
-            return prefix, suffix
-    return None
-
-
-def _normalize_phrasing(text: str) -> str:
-    text = re.sub(r"\b([A-Za-z]{4,})s(?=\s+for\b)", r"\1", text)
-    text = re.sub(
-        r"\b(last|previous|prior)\s+([A-Za-z]{3,})ed\b",
-        r"\1 \2",
-        text,
-        flags=re.IGNORECASE,
-    )
-    return text
-
-
-def _looks_like_unit_line(line: str) -> bool:
-    if re.search(r"\d", line):
+    @staticmethod
+    def _looks_like_unit_line(line: str) -> bool:
+        if re.search(r"\d", line):
+            return False
+        if re.search(r"[.;:]", line):
+            return False
+        if re.search(r"[^A-Za-z\\s&]", line):
+            return True
         return False
-    if re.search(r"[.;:]", line):
-        return False
-    if re.search(r"[^A-Za-z\\s&]", line):
-        return True
-    return False
 
+    @staticmethod
+    def _looks_like_section_break(line: str) -> bool:
+        if re.search(r"[.;:]", line):
+            return False
+        if len(line) > 50:
+            return False
+        return 0 < len(line.split()) <= 6
 
-def _looks_like_section_break(line: str) -> bool:
-    if re.search(r"[.;:]", line):
-        return False
-    if len(line) > 50:
-        return False
-    return 0 < len(line.split()) <= 6
-
-
-def _next_non_empty_line(lines: list[str], start_index: int) -> str:
-    for idx in range(start_index + 1, len(lines)):
-        if lines[idx]:
-            return lines[idx]
-    return ""
+    def _next_non_empty_line(self, start_index: int) -> str:
+        for idx in range(start_index + 1, len(self.lines)):
+            if self.lines[idx]:
+                return self.lines[idx]
+        return ""
 
 
 def _extract_image(

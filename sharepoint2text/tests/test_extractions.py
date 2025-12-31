@@ -1459,7 +1459,7 @@ def test_read_pdf_3() -> None:
     )
     tc.assertEqual(
         [
-            "2021 figures restated; figure for 2018 - 2020 as last report",
+            "2021 figures restated; figures for 2018 - 2020 as last reported",
             "",
             "",
             "",
