@@ -36,14 +36,13 @@ msg_parser: https://github.com/vikramarsid/msg_parser
     - OLE compound document parsing
     - MAPI property extraction
     - Body text retrieval (plain, RTF, HTML)
-    - Attachment enumeration (not used here)
+    - Attachment enumeration (extracted as binary)
 
 The msg_parser library uses the olefile library internally for
 OLE parsing.
 
 Known Limitations
 -----------------
-- Attachments are not extracted (only body text is returned)
 - RTF body is not separately extracted (uses same body for both plain/HTML)
 - Embedded images in HTML are not processed
 - Some MAPI properties may not be extracted (extended properties)
@@ -234,8 +233,8 @@ def read_msg_format_mail(
     Read a Microsoft Outlook MSG file and extract its content.
 
     Primary entry point for MSG file extraction. Parses the OLE compound
-    document structure and extracts email headers, addresses, and body
-    content into an EmailContent object.
+    document structure and extracts email headers, addresses, body
+    content, and attachments into an EmailContent object.
 
     This function uses a generator pattern for API consistency with other
     email extractors, even though MSG files contain exactly one email.
@@ -251,6 +250,7 @@ def read_msg_format_mail(
     Yields:
         EmailContent: Single EmailContent object containing all extracted
             data. The generator yields exactly one item for valid MSG files.
+            Attachments are stored on EmailContent.attachments.
 
     Raises:
         Exception: Various exceptions from msg_parser for:
@@ -274,6 +274,7 @@ def read_msg_format_mail(
         - To, Cc, Bcc fields may be strings or lists depending on msg_parser version
         - reply_to is stored directly from msg_parser (not parsed as addresses)
         - body_plain and body_html both use msg.body (plain text from msg_parser)
+        - Attachments are returned as (filename, mime_type, io.BytesIO) tuples
         - For HTML body, additional extraction from RTF may be needed
 
     Maintenance Considerations:
@@ -301,6 +302,19 @@ def read_msg_format_mail(
     sender_list = _parse_multi_recipients(msg.sender)
     from_email = sender_list[0] if sender_list else EmailAddress()
 
+    attachments: list[tuple[str, str, io.BytesIO]] = []
+    for attachment in msg.attachments:
+        data = attachment.data or b""
+        data_stream = io.BytesIO(data)
+        data_stream.seek(0)
+        attachments.append(
+            (
+                attachment.Filename,
+                attachment.AttachMimeTag or "application/octet-stream",
+                data_stream,
+            )
+        )
+
     content = EmailContent(
         subject=msg.subject,
         from_email=from_email,
@@ -310,6 +324,7 @@ def read_msg_format_mail(
         reply_to=msg.reply_to,  # Note: stored as-is, not parsed to EmailAddress list
         body_plain=msg.body,
         body_html=msg.body,  # Note: same as plain; true HTML requires RTF parsing
+        attachments=attachments,
         metadata=meta,
     )
 

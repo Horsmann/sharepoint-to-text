@@ -882,6 +882,75 @@ def test_email__msg_format() -> None:
     tc.assertEqual(0, len(list(mail.iterate_tables())))
 
 
+def test_email__msg_format_with_attachment() -> None:
+    path = "sharepoint2text/tests/resources/mails/msg_with_attachment.msg"
+    mail_gen: typing.Generator[EmailContent, None, None] = read_msg_format_mail(
+        file_like=_read_file_to_file_like(path=path),
+        path=path,
+    )
+    mails = list(mail_gen)
+
+    tc.assertEqual(1, len(mails))
+
+    mail = mails[0]
+
+    # from
+    tc.assertIsNotNone(mail.from_email.name)
+    tc.assertIsNotNone(mail.from_email.address)
+    # to
+    tc.assertEqual(1, len(mail.to_emails))
+    tc.assertIsNotNone(mail.to_emails[0].name)
+    tc.assertEqual("", mail.to_emails[0].address)
+
+    # cc
+    tc.assertEqual(0, len(mail.to_cc))
+    tc.assertListEqual([], mail.to_cc)
+
+    # bcc
+    tc.assertEqual(0, len(mail.to_bcc))
+    tc.assertListEqual([], mail.to_bcc)
+
+    # subject
+    tc.assertEqual("Test .msg with attachment", mail.subject)
+    # body
+    tc.assertEqual("<html><head>", mail.body_plain[:12])
+
+    # metadata
+    mail_meta = mail.get_metadata()
+    tc.assertEqual("msg_with_attachment.msg", mail_meta.filename)
+    tc.assertEqual(".msg", mail_meta.file_extension)
+    tc.assertEqual("2025-12-31T12:32:42+00:00", mail_meta.date)
+    tc.assertEqual(
+        "<VE1PR10MB3790E964D9B988D177790593FABDA@VE1PR10MB3790.EURPRD10.PROD.OUTLOOK.COM>",
+        mail_meta.message_id,
+    )
+
+    tc.assertEqual(2, len(mail.attachments))
+    attachments_by_name = {
+        name: (mime_type, data) for name, mime_type, data in mail.attachments
+    }
+    tc.assertIn("sample.pdf", attachments_by_name)
+    tc.assertIn("pptx_formula_image.pptx", attachments_by_name)
+
+    pdf_mime, pdf_data = attachments_by_name["sample.pdf"]
+    tc.assertEqual("application/pdf", pdf_mime)
+    tc.assertIsInstance(pdf_data, io.BytesIO)
+    tc.assertEqual(0, pdf_data.tell())
+    tc.assertGreater(len(pdf_data.getvalue()), 0)
+
+    pptx_mime, pptx_data = attachments_by_name["pptx_formula_image.pptx"]
+    tc.assertEqual(
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        pptx_mime,
+    )
+    tc.assertIsInstance(pptx_data, io.BytesIO)
+    tc.assertEqual(0, pptx_data.tell())
+    tc.assertGreater(len(pptx_data.getvalue()), 0)
+
+    tc.assertEqual(0, len(list(mail.iterate_images())))
+    tc.assertEqual(0, len(list(mail.iterate_tables())))
+
+
 def test_email__mbox_format() -> None:
     path = "sharepoint2text/tests/resources/mails/basic_email.mbox"
 
