@@ -212,7 +212,8 @@ class EmailContent(ExtractionInterface):
         self,
     ) -> typing.Generator["ExtractionInterface", None, None]:
         """Iterates over the attachments. If the file type is supported an extracted object is returned.
-        Not supported attachments are silently skipped"""
+        Not supported attachments are silently skipped. The attachments are extracted at call-time.
+        """
         from sharepoint2text.exceptions import ExtractionFileFormatNotSupportedError
         from sharepoint2text.mime_types import MIME_TYPE_MAPPING
         from sharepoint2text.router import get_extractor
