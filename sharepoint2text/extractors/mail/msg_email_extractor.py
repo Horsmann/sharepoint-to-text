@@ -108,6 +108,7 @@ from msg_parser import MsOxMessage
 
 from sharepoint2text.extractors.data_types import (
     EmailAddress,
+    EmailAttachment,
     EmailContent,
     EmailMetadata,
 )
@@ -274,7 +275,7 @@ def read_msg_format_mail(
         - To, Cc, Bcc fields may be strings or lists depending on msg_parser version
         - reply_to is stored directly from msg_parser (not parsed as addresses)
         - body_plain and body_html both use msg.body (plain text from msg_parser)
-        - Attachments are returned as (filename, mime_type, io.BytesIO) tuples
+        - Attachments are returned as EmailAttachment dataclasses
         - For HTML body, additional extraction from RTF may be needed
 
     Maintenance Considerations:
@@ -302,16 +303,16 @@ def read_msg_format_mail(
     sender_list = _parse_multi_recipients(msg.sender)
     from_email = sender_list[0] if sender_list else EmailAddress()
 
-    attachments: list[tuple[str, str, io.BytesIO]] = []
+    attachments: list[EmailAttachment] = []
     for attachment in msg.attachments:
         data = attachment.data or b""
         data_stream = io.BytesIO(data)
         data_stream.seek(0)
         attachments.append(
-            (
-                attachment.Filename,
-                attachment.AttachMimeTag or "application/octet-stream",
-                data_stream,
+            EmailAttachment(
+                filename=attachment.Filename,
+                mime_type=attachment.AttachMimeTag or "application/octet-stream",
+                data=data_stream,
             )
         )
 

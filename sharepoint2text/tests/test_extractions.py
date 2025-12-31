@@ -926,26 +926,24 @@ def test_email__msg_format_with_attachment() -> None:
     )
 
     tc.assertEqual(2, len(mail.attachments))
-    attachments_by_name = {
-        name: (mime_type, data) for name, mime_type, data in mail.attachments
-    }
+    attachments_by_name = {att.filename: att for att in mail.attachments}
     tc.assertIn("sample.pdf", attachments_by_name)
     tc.assertIn("pptx_formula_image.pptx", attachments_by_name)
 
-    pdf_mime, pdf_data = attachments_by_name["sample.pdf"]
-    tc.assertEqual("application/pdf", pdf_mime)
-    tc.assertIsInstance(pdf_data, io.BytesIO)
-    tc.assertEqual(0, pdf_data.tell())
-    tc.assertGreater(len(pdf_data.getvalue()), 0)
+    pdf_attachment = attachments_by_name["sample.pdf"]
+    tc.assertEqual("application/pdf", pdf_attachment.mime_type)
+    tc.assertIsInstance(pdf_attachment.data, io.BytesIO)
+    tc.assertEqual(0, pdf_attachment.data.tell())
+    tc.assertEqual(247568, len(pdf_attachment.data.getvalue()))
 
-    pptx_mime, pptx_data = attachments_by_name["pptx_formula_image.pptx"]
+    pptx_attachment = attachments_by_name["pptx_formula_image.pptx"]
     tc.assertEqual(
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        pptx_mime,
+        pptx_attachment.mime_type,
     )
-    tc.assertIsInstance(pptx_data, io.BytesIO)
-    tc.assertEqual(0, pptx_data.tell())
-    tc.assertGreater(len(pptx_data.getvalue()), 0)
+    tc.assertIsInstance(pptx_attachment.data, io.BytesIO)
+    tc.assertEqual(0, pptx_attachment.data.tell())
+    tc.assertEqual(1553266, len(pptx_attachment.data.getvalue()))
 
     tc.assertEqual(0, len(list(mail.iterate_images())))
     tc.assertEqual(0, len(list(mail.iterate_tables())))

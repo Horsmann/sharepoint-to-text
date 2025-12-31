@@ -164,6 +164,13 @@ class EmailMetadata(FileMetadataInterface):
 
 
 @dataclass
+class EmailAttachment:
+    filename: str
+    mime_type: str
+    data: io.BytesIO
+
+
+@dataclass
 class EmailContent(ExtractionInterface):
     from_email: EmailAddress
     subject: str = ""
@@ -174,7 +181,7 @@ class EmailContent(ExtractionInterface):
     to_bcc: List[EmailAddress] = field(default_factory=list)
     body_plain: str = ""
     body_html: str = ""
-    attachments: List[tuple[str, str, io.BytesIO]] = field(default_factory=list)
+    attachments: List[EmailAttachment] = field(default_factory=list)
     metadata: EmailMetadata = field(default_factory=EmailMetadata)
 
     def __post_init__(self):
