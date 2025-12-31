@@ -6,6 +6,7 @@ from typing import Any, Callable, Generator
 
 from sharepoint2text.exceptions import ExtractionFileFormatNotSupportedError
 from sharepoint2text.extractors.data_types import ExtractionInterface
+from sharepoint2text.mime_types import MIME_TYPE_MAPPING
 
 logger = logging.getLogger(__name__)
 
@@ -50,40 +51,6 @@ _EXTRACTOR_REGISTRY: dict[str, tuple[str, str]] = {
     # Other formats
     "pdf": ("sharepoint2text.extractors.pdf_extractor", "read_pdf"),
     "html": ("sharepoint2text.extractors.html_extractor", "read_html"),
-}
-
-MIME_TYPE_MAPPING = {
-    # Legacy MS Office
-    "application/vnd.ms-powerpoint": "ppt",
-    "application/vnd.ms-excel": "xls",
-    "application/msword": "doc",
-    "application/rtf": "rtf",
-    "text/rtf": "rtf",
-    # Modern MS Office
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
-    # OpenDocument formats
-    "application/vnd.oasis.opendocument.text": "odt",
-    "application/vnd.oasis.opendocument.presentation": "odp",
-    "application/vnd.oasis.opendocument.spreadsheet": "ods",
-    # Plain text variants
-    "text/csv": "csv",
-    "application/csv": "csv",
-    "application/json": "json",
-    "text/json": "json",
-    "text/plain": "txt",
-    "text/markdown": "md",
-    "text/tab-separated-values": "tsv",
-    "application/tab-separated-values": "tsv",
-    # Email formats
-    "application/vnd.ms-outlook": "msg",
-    "message/rfc822": "eml",
-    "application/mbox": "mbox",
-    # Other formats
-    "text/html": "html",
-    "application/xhtml+xml": "html",
-    "application/pdf": "pdf",
 }
 
 

@@ -1,9 +1,12 @@
 import io
+import logging
 import typing
 from abc import abstractmethod
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Protocol
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -164,6 +167,14 @@ class EmailMetadata(FileMetadataInterface):
 
 
 @dataclass
+class EmailAttachment:
+    filename: str
+    mime_type: str
+    data: io.BytesIO
+    is_supported_mime_type: bool = False
+
+
+@dataclass
 class EmailContent(ExtractionInterface):
     from_email: EmailAddress
     subject: str = ""
@@ -174,6 +185,7 @@ class EmailContent(ExtractionInterface):
     to_bcc: List[EmailAddress] = field(default_factory=list)
     body_plain: str = ""
     body_html: str = ""
+    attachments: List[EmailAttachment] = field(default_factory=list)
     metadata: EmailMetadata = field(default_factory=EmailMetadata)
 
     def __post_init__(self):
@@ -195,6 +207,51 @@ class EmailContent(ExtractionInterface):
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
         yield from ()
         return
+
+    def iterate_supported_attachments(
+        self,
+    ) -> typing.Generator["ExtractionInterface", None, None]:
+        """Iterates over the attachments. If the file type is supported an extracted object is returned.
+        Not supported attachments are silently skipped. The attachments are extracted at call-time.
+        """
+        from sharepoint2text.exceptions import ExtractionFileFormatNotSupportedError
+        from sharepoint2text.mime_types import MIME_TYPE_MAPPING
+        from sharepoint2text.router import get_extractor
+
+        for attachment in self.attachments:
+            if not attachment.is_supported_mime_type:
+                logger.debug(
+                    "Skipping unsupported attachment: %s (mime=%s)",
+                    attachment.filename,
+                    attachment.mime_type,
+                )
+                continue
+
+            try:
+                extractor = get_extractor(attachment.filename)
+            except ExtractionFileFormatNotSupportedError:
+                file_type = MIME_TYPE_MAPPING.get(attachment.mime_type)
+                if not file_type:
+                    logger.debug(
+                        "Skipping attachment with unknown type: %s (mime=%s)",
+                        attachment.filename,
+                        attachment.mime_type,
+                    )
+                    continue
+                extractor = get_extractor(f"attachment.{file_type}")
+
+            attachment.data.seek(0)
+            try:
+                yield from extractor(attachment.data, attachment.filename)
+            except Exception as exc:
+                logger.debug(
+                    "Failed to extract attachment: %s (mime=%s) error=%s",
+                    attachment.filename,
+                    attachment.mime_type,
+                    exc,
+                )
+            finally:
+                attachment.data.seek(0)
 
     def get_full_text(self) -> str:
         return "\n".join(self.iterate_text())

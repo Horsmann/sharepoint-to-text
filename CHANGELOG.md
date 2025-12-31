@@ -5,7 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.6.0]
+- Added OMML-to-LaTeX conversion utilities and tests for formula extraction.
+- Expanded extraction coverage and robustness across PDF, DOCX, PPTX, XLSX, ODT/ODS/ODP, and legacy DOC files, including improved table/image handling.
+- Added MSG attachment extraction with MIME-type support awareness and attachment content iteration.
+- Introduced shared MIME type mapping module for consistent routing and attachment support checks.
+- Added new fixture files and broader extraction tests, plus CI/test workflow updates.
+
 ## [Released]
+
+## [0.5.0] - 2025-12-29
+- Added support for open office file formats
+- Reduced dependency footprint
+- Re-implemented modern .docx and .pptx extraction
 
 ## [0.4.1] - 2025-12-28
 - Added support for .html files

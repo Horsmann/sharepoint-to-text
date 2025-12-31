@@ -15,7 +15,7 @@ EML format follows RFC 5322 (Internet Message Format) and RFC 2045-2049 (MIME).
 Files typically contain:
     - Headers (From, To, Subject, Date, Message-ID, etc.)
     - Body content (plain text, HTML, or both via multipart/alternative)
-    - Attachments (via multipart/mixed, not extracted by this module)
+    - Attachments (via multipart/mixed, extracted by this module)
 
 The format is text-based and human-readable, making it widely compatible
 but potentially large for emails with encoded attachments.
@@ -33,7 +33,6 @@ mailparser: https://github.com/SpamScope/mail-parser
 
 Known Limitations
 -----------------
-- Attachments are not extracted (only body text is returned)
 - Embedded images in HTML are not processed
 - Malformed headers may cause partial extraction
 - Very large emails may consume significant memory (entire file loaded)
@@ -67,6 +66,7 @@ See Also
 - msg_email_extractor: For Microsoft Outlook .msg format
 """
 
+import base64
 import io
 import logging
 from typing import Any, Generator
@@ -75,9 +75,11 @@ from mailparser import parse_from_bytes
 
 from sharepoint2text.extractors.data_types import (
     EmailAddress,
+    EmailAttachment,
     EmailContent,
     EmailMetadata,
 )
+from sharepoint2text.mime_types import is_supported_mime_type
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +166,35 @@ def _read_eml_format(payload: bytes) -> EmailContent:
         else:
             body_html = str(mail.text_html)
 
+    attachments: list[EmailAttachment] = []
+    for attachment in mail.attachments:
+        filename = attachment.get("filename") or "attachment"
+        mime_type = attachment.get("mail_content_type") or "application/octet-stream"
+        payload = attachment.get("payload") or b""
+        is_binary = bool(attachment.get("binary"))
+
+        if is_binary:
+            if isinstance(payload, str):
+                data = base64.b64decode(payload)
+            else:
+                data = base64.b64decode(payload)
+        else:
+            if isinstance(payload, str):
+                data = payload.encode("utf-8", errors="ignore")
+            else:
+                data = payload
+
+        data_stream = io.BytesIO(data)
+        data_stream.seek(0)
+        attachments.append(
+            EmailAttachment(
+                filename=filename,
+                mime_type=mime_type,
+                data=data_stream,
+                is_supported_mime_type=is_supported_mime_type(mime_type),
+            )
+        )
+
     return EmailContent(
         subject=mail.subject or "",
         from_email=from_email,
@@ -174,6 +205,7 @@ def _read_eml_format(payload: bytes) -> EmailContent:
         in_reply_to=mail.in_reply_to or "",
         body_plain=body_plain,
         body_html=body_html,
+        attachments=attachments,
         metadata=metadata,
     )
 
