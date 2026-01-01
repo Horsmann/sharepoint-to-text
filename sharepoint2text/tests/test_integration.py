@@ -40,6 +40,7 @@ from sharepoint2text.extractors.data_types import (
     XlsContent,
     XlsxContent,
 )
+from sharepoint2text.extractors.serialization import deserialize_extraction
 
 logger = logging.getLogger(__name__)
 
@@ -182,7 +183,7 @@ def test_read_redirects_from_top_level():
     tc.assertTrue(isinstance(result, HtmlContent))
 
 
-def test_read_file():
+def test_extract_serialize_deserialize_file():
     for path in glob.glob("sharepoint2text/tests/resources/**/*", recursive=True):
         if not os.path.isfile(path):
             continue
@@ -195,6 +196,9 @@ def test_read_file():
                 tc.assertTrue(hasattr(obj, "iterate_images"))
                 tc.assertTrue(hasattr(obj, "iterate_tables"))
                 tc.assertTrue(hasattr(obj, "get_full_text"))
+
+                restored_obj = deserialize_extraction(obj.to_json())
+                tc.assertEqual(type(restored_obj), type(obj))
         except sharepoint2text.exceptions.ExtractionFileEncryptedError:
             # silent ignore - we have encrypted test files
             logger.debug(f"File is encrypted: [{path}]")
