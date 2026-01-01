@@ -10,9 +10,6 @@ from sharepoint2text.mime_types import MIME_TYPE_MAPPING
 
 logger = logging.getLogger(__name__)
 
-# File extensions that require fallback detection (not reliably detected via MIME type)
-FALLBACK_EXTENSIONS = frozenset({".msg", ".eml", ".mbox", ".md"})
-
 # Mapping from file type identifiers to their extractor module paths and function names
 # Format: file_type -> (module_path, function_name)
 _EXTRACTOR_REGISTRY: dict[str, tuple[str, str]] = {
@@ -53,6 +50,15 @@ _EXTRACTOR_REGISTRY: dict[str, tuple[str, str]] = {
     "html": ("sharepoint2text.extractors.html_extractor", "read_html"),
 }
 
+_EXTENSION_ALIASES: dict[str, str] = {
+    "htm": "html",
+}
+
+_SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
+    {f".{ext}" for ext in _EXTRACTOR_REGISTRY.keys()}
+    | {f".{ext}" for ext in _EXTENSION_ALIASES.keys()}
+)
+
 
 def _get_extractor(
     file_type: str,
@@ -87,12 +93,22 @@ def _get_extractor(
     return getattr(module, function_name)
 
 
+def _file_type_from_extension(path_lower: str) -> str | None:
+    extension = os.path.splitext(path_lower)[1]
+    if not extension:
+        return None
+    ext = extension[1:]
+    if not ext:
+        return None
+    ext = _EXTENSION_ALIASES.get(ext, ext)
+    return ext if ext in _EXTRACTOR_REGISTRY else None
+
+
 def is_supported_file(path: str) -> bool:
     """
     Check if a file path corresponds to a supported file format.
 
-    Detection uses MIME type guessing based on extension, with fallback
-    to explicit extension checking for formats not reliably detected.
+    Detection is extension-first (OS-independent), then falls back to MIME.
 
     Args:
         path: File path or filename to check.
@@ -101,14 +117,13 @@ def is_supported_file(path: str) -> bool:
         True if the file format is supported, False otherwise.
     """
     path_lower = path.lower()
-    mime_type, _ = mimetypes.guess_type(path_lower)
 
-    if mime_type in MIME_TYPE_MAPPING:
+    extension = os.path.splitext(path_lower)[1]
+    if extension in _SUPPORTED_EXTENSIONS:
         return True
 
-    # Fallback: check extensions not reliably detected via MIME type
-    extension = os.path.splitext(path_lower)[1]
-    return extension in FALLBACK_EXTENSIONS
+    mime_type, _ = mimetypes.guess_type(path_lower)
+    return bool(mime_type and mime_type in MIME_TYPE_MAPPING)
 
 
 def get_extractor(
@@ -133,20 +148,19 @@ def get_extractor(
     mime_type, _ = mimetypes.guess_type(path_lower)
     logger.debug("Guessed MIME type: [%s]", mime_type)
 
-    # Primary detection: MIME type lookup
+    # Primary detection: file extension (platform-independent)
+    file_type = _file_type_from_extension(path_lower)
+    if file_type:
+        logger.debug("Detected file type: %s (extension) for file: %s", file_type, path)
+        logger.info("Using extractor for file type: %s", file_type)
+        return _get_extractor(file_type)
+
+    # Secondary detection: MIME type lookup (may vary by OS configuration)
     if mime_type is not None and mime_type in MIME_TYPE_MAPPING:
         file_type = MIME_TYPE_MAPPING[mime_type]
         logger.debug(
             "Detected file type: %s (MIME: %s) for file: %s", file_type, mime_type, path
         )
-        logger.info("Using extractor for file type: %s", file_type)
-        return _get_extractor(file_type)
-
-    # Fallback detection: explicit extension checking
-    extension = os.path.splitext(path_lower)[1]
-    if extension in FALLBACK_EXTENSIONS:
-        file_type = extension[1:]  # Remove leading dot
-        logger.debug("Detected file type: %s for file: %s", file_type, path)
         logger.info("Using extractor for file type: %s", file_type)
         return _get_extractor(file_type)
 

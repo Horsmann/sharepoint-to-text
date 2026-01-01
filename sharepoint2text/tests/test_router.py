@@ -44,6 +44,8 @@ def test_is_supported():
     tc.assertTrue(is_supported_file("myfile.rtf"))
     tc.assertTrue(is_supported_file("myfile.html"))
     tc.assertTrue(is_supported_file("myfile.htm"))
+    tc.assertTrue(is_supported_file("myfile.HTML"))
+    tc.assertTrue(is_supported_file("myfile.HTM"))
     tc.assertTrue(is_supported_file("myfile.odt"))
     tc.assertTrue(is_supported_file("myfile.odp"))
     tc.assertTrue(is_supported_file("myfile.ods"))

@@ -8,7 +8,11 @@ during document extraction.
 from typing import Optional
 
 
-class ExtractionFileFormatNotSupportedError(Exception):
+class ExtractionError(Exception):
+    """Base exception for sharepoint2text errors."""
+
+
+class ExtractionFileFormatNotSupportedError(ExtractionError):
     """
     Raised when the file format is not supported for extraction.
 
@@ -26,7 +30,7 @@ class ExtractionFileFormatNotSupportedError(Exception):
             self.__cause__ = cause
 
 
-class LegacyMicrosoftParsingError(Exception):
+class LegacyMicrosoftParsingError(ExtractionError):
     """
     Raised when parsing a legacy Microsoft Office file fails.
 
@@ -50,7 +54,7 @@ class LegacyMicrosoftParsingError(Exception):
             self.__cause__ = cause
 
 
-class ExtractionFileEncryptedError(Exception):
+class ExtractionFileEncryptedError(ExtractionError):
     """
     Raised when the file appears to be encrypted or password-protected.
 
@@ -65,6 +69,26 @@ class ExtractionFileEncryptedError(Exception):
     def __init__(
         self,
         message: str = "File is encrypted or password-protected",
+        *,
+        cause: Optional[Exception] = None,
+    ):
+        super().__init__(message)
+        if cause is not None:
+            self.__cause__ = cause
+
+
+class ExtractionFailedError(ExtractionError):
+    """
+    Raised when extraction fails for an unexpected reason.
+
+    Intended for use at API boundaries (e.g. `read_file`) to provide a
+    stable exception surface while preserving the original exception in
+    `__cause__`.
+    """
+
+    def __init__(
+        self,
+        message: str = "Extraction failed",
         *,
         cause: Optional[Exception] = None,
     ):

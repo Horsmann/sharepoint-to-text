@@ -296,7 +296,14 @@ def read_file(
         - .eml  -> EmailContent
 
     Raises:
-        RuntimeError: If the file type is not supported.
+        sharepoint2text.exceptions.ExtractionFileFormatNotSupportedError:
+            If the file type is not supported.
+        sharepoint2text.exceptions.ExtractionFileEncryptedError:
+            If the file is encrypted or password-protected.
+        sharepoint2text.exceptions.LegacyMicrosoftParsingError:
+            If parsing a legacy Office file fails.
+        sharepoint2text.exceptions.ExtractionFailedError:
+            If extraction fails for an unexpected reason (with `__cause__` set).
         FileNotFoundError: If the file does not exist.
 
     The individual extractors are callable separately
@@ -306,13 +313,22 @@ def read_file(
         >>> for result in sharepoint2text.read_file("document.docx"):
         ...     print(result.get_full_text())
     """
+    from sharepoint2text.exceptions import ExtractionError, ExtractionFailedError
+
     path = Path(path)
     logger.info("Starting extraction: %s", path)
     extractor = get_extractor(str(path))
     with open(path, "rb") as f:
-        for result in extractor(io.BytesIO(f.read()), str(path)):
-            logger.info("Extraction complete: %s", path)
-            yield result
+        try:
+            for result in extractor(io.BytesIO(f.read()), str(path)):
+                logger.info("Extraction complete: %s", path)
+                yield result
+        except ExtractionError:
+            raise
+        except Exception as exc:
+            raise ExtractionFailedError(
+                f"Failed to extract file: {path}", cause=exc
+            ) from exc
 
 
 __all__ = [
