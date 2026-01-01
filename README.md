@@ -4,7 +4,8 @@ A **pure Python** library for extracting text, metadata, and structured elements
 
 **Install:** `pip install sharepoint-to-text`
 **Python import:** `import sharepoint2text`
-**CLI:** `sharepoint2text /path/to/file.docx > extraction.json`
+**CLI (text):** `sharepoint2text /path/to/file.docx > extraction.txt`
+**CLI (JSON):** `sharepoint2text --json /path/to/file.docx > extraction.json`
 
 ## What You Get
 
@@ -324,14 +325,20 @@ for result in results:
 
 ## CLI
 
-After installation, a `sharepoint2text` command is available. It accepts a single file path and prints the extraction result as JSON to stdout.
+After installation, a `sharepoint2text` command is available. It accepts a single file path and prints the extracted full text to stdout by default.
 
 ```bash
-sharepoint2text /path/to/file.pdf > extraction.json
+sharepoint2text /path/to/file.pdf > extraction.txt
 ```
 
-- If the format yields **one** item, stdout is a single JSON object.
-- If the format yields **multiple** items (e.g. `.mbox`), stdout is a JSON array of objects.
+To emit structured output, use `--json` (prints `result.to_json()` to stdout).
+
+```bash
+sharepoint2text --json /path/to/file.pdf > extraction.json
+```
+
+- Without `--json`, multiple items (e.g. `.mbox`) are separated by a blank line.
+- With `--json`, stdout is a single JSON object (one item) or a JSON array (multiple items).
 
 ## API Reference
 

@@ -13,12 +13,17 @@ from sharepoint2text.extractors.data_types import ExtractionInterface
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="sharepoint2text",
-        description="Extract file content and emit JSON to stdout.",
+        description="Extract file content and emit full text to stdout (or JSON with --json).",
     )
     parser.add_argument(
         "path",
         type=Path,
         help="Path to the file to extract.",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit structured JSON (result.to_json()) instead of plain full text.",
     )
     return parser
 
@@ -29,6 +34,10 @@ def _serialize_results(results: list[ExtractionInterface]) -> dict | list[dict]:
     return [result.to_json() for result in results]
 
 
+def _serialize_full_text(results: list[ExtractionInterface]) -> str:
+    return "\n\n".join(result.get_full_text().rstrip() for result in results).rstrip()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -37,9 +46,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         results = list(sharepoint2text.read_file(args.path))
         if not results:
             raise RuntimeError(f"No extraction results for {args.path}")
-        payload = _serialize_results(results)
-        json.dump(payload, sys.stdout)
-        sys.stdout.write("\n")
+        if args.json:
+            payload = _serialize_results(results)
+            json.dump(payload, sys.stdout)
+            sys.stdout.write("\n")
+        else:
+            sys.stdout.write(_serialize_full_text(results))
+            sys.stdout.write("\n")
         return 0
     except Exception as exc:
         print(f"sharepoint2text: {exc}", file=sys.stderr)
