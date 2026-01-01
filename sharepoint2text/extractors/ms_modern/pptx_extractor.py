@@ -100,7 +100,7 @@ Maintenance Notes
 
 import io
 import logging
-from typing import Any, Generator, List, Optional, Tuple
+from typing import Any, Generator, List
 from xml.etree import ElementTree as ET
 
 from sharepoint2text.exceptions import ExtractionFileEncryptedError
@@ -131,26 +131,88 @@ CP_NS = "{http://schemas.openxmlformats.org/package/2006/metadata/core-propertie
 DC_NS = "{http://purl.org/dc/elements/1.1/}"
 DCTERMS_NS = "{http://purl.org/dc/terms/}"
 
+# Pre-computed tag names for hot paths (avoid repeated string concatenation)
+P_SP = f"{P_NS}sp"
+P_PIC = f"{P_NS}pic"
+P_SPTREE = f"{P_NS}spTree"
+P_NVSPPR = f"{P_NS}nvSpPr"
+P_NVPR = f"{P_NS}nvPr"
+P_PH = f"{P_NS}ph"
+P_TXBODY = f"{P_NS}txBody"
+P_GRAPHICFRAME = f"{P_NS}graphicFrame"
+P_CNVPR = f"{P_NS}cNvPr"
+P_CM = f"{P_NS}cm"
+P_TEXT = f"{P_NS}text"
+P_SPPR = f"{P_NS}spPr"
+P_XFRM = f"{P_NS}xfrm"
+P_SLDID = f"{P_NS}sldId"
+P_SLDIDLST = f"{P_NS}sldIdLst"
+
+A_P = f"{A_NS}p"
+A_R = f"{A_NS}r"
+A_T = f"{A_NS}t"
+A_BR = f"{A_NS}br"
+A_FLD = f"{A_NS}fld"
+A_BLIP = f"{A_NS}blip"
+A_XFRM = f"{A_NS}xfrm"
+A_OFF = f"{A_NS}off"
+A_TBL = f"{A_NS}tbl"
+A_TR = f"{A_NS}tr"
+A_TC = f"{A_NS}tc"
+A_TXBODY = f"{A_NS}txBody"
+A_GRAPHICDATA = f"{A_NS}graphicData"
+
+M_OMATH = f"{M_NS}oMath"
+M_OMATHPARA = f"{M_NS}oMathPara"
+
+R_ID = f"{R_NS}id"
+R_EMBED = f"{R_NS}embed"
+
+# Pre-computed metadata tag names
+_DC_TITLE = f"{DC_NS}title"
+_DC_CREATOR = f"{DC_NS}creator"
+_DC_SUBJECT = f"{DC_NS}subject"
+_DC_DESCRIPTION = f"{DC_NS}description"
+_CP_KEYWORDS = f"{CP_NS}keywords"
+_CP_CATEGORY = f"{CP_NS}category"
+_CP_LASTMODIFIEDBY = f"{CP_NS}lastModifiedBy"
+_CP_REVISION = f"{CP_NS}revision"
+_DCTERMS_CREATED = f"{DCTERMS_NS}created"
+_DCTERMS_MODIFIED = f"{DCTERMS_NS}modified"
+
 # Table graphic data URI for PPTX
 TABLE_URI = "http://schemas.openxmlformats.org/drawingml/2006/table"
 
 # Title placeholder types
-TITLE_TYPES = {"title", "ctrTitle"}
+TITLE_TYPES = frozenset({"title", "ctrTitle"})
 
 # Body/content placeholder types
-BODY_TYPES = {"body", "subTitle", "obj", "tbl"}
+BODY_TYPES = frozenset({"body", "subTitle", "obj", "tbl"})
 
 # Footer-related placeholder types
-FOOTER_TYPES = {"ftr"}
+FOOTER_TYPES = frozenset({"ftr"})
 
 # Placeholder types to skip (not useful for text extraction)
 # Note: sldNum (slide number) is NOT skipped - it goes to other_textboxes
-SKIP_TYPES = {"dt", "sldImg", "hdr"}
+SKIP_TYPES = frozenset({"dt", "sldImg", "hdr"})
+
+# Content type mapping by file extension (cached at module level)
+_CONTENT_TYPE_MAP = {
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "gif": "image/gif",
+    "bmp": "image/bmp",
+    "tiff": "image/tiff",
+    "tif": "image/tiff",
+    "emf": "image/x-emf",
+    "wmf": "image/x-wmf",
+}
 
 
 def _get_image_pixel_dimensions(
     image_data: bytes,
-) -> tuple[Optional[int], Optional[int]]:
+) -> tuple[int | None, int | None]:
     """Best-effort extraction of pixel dimensions from common raster formats."""
     if not image_data:
         return None, None
@@ -278,13 +340,11 @@ class _PptxContext(OOXMLZipContext):
 
     def _compute_slide_order(self) -> list[str]:
         """Compute slide order from cached presentation XML."""
-        slide_paths = []
-
         if self._presentation_rels_root is None or self._presentation_root is None:
-            return slide_paths
+            return []
 
         # Build relationship map from rels
-        rels_map = {}
+        rels_map: dict[str, str] = {}
         for rel in parse_relationships(self._presentation_rels_root):
             rel_id = rel["id"]
             target = rel["target"]
@@ -299,11 +359,11 @@ class _PptxContext(OOXMLZipContext):
                 rels_map[rel_id] = full_path
 
         # Get slide order from presentation.xml
-        sld_id_lst = self._presentation_root.find(f".//{P_NS}sldIdLst")
+        slide_paths: list[str] = []
+        sld_id_lst = self._presentation_root.find(f".//{P_SLDIDLST}")
         if sld_id_lst is not None:
-            for sld_id in sld_id_lst.findall(f"{P_NS}sldId"):
-                r_id = sld_id.get(f"{R_NS}id")
-                if r_id and r_id in rels_map:
+            for sld_id in sld_id_lst.findall(P_SLDID):
+                if (r_id := sld_id.get(R_ID)) and r_id in rels_map:
                     slide_paths.append(rels_map[r_id])
 
         return slide_paths
@@ -351,6 +411,16 @@ class _PptxContext(OOXMLZipContext):
         return self.read_bytes(image_path)
 
 
+def _get_element_text(root: ET.Element | None, tag: str) -> str | None:
+    """Extract text from an element if it exists and has text content."""
+    if root is None:
+        return None
+    elem = root.find(tag)
+    if elem is not None and elem.text:
+        return elem.text
+    return None
+
+
 def _extract_metadata_from_context(ctx: _PptxContext) -> PptxMetadata:
     """
     Extract presentation metadata from cached core.xml root.
@@ -361,53 +431,32 @@ def _extract_metadata_from_context(ctx: _PptxContext) -> PptxMetadata:
     Returns:
         PptxMetadata object with title, author, dates, revision, etc.
     """
-    logger.debug("Extracting metadata")
     metadata = PptxMetadata()
-
     root = ctx._core_root
     if root is None:
         return metadata
 
-    # Extract metadata fields
-    title_elem = root.find(f"{DC_NS}title")
-    if title_elem is not None and title_elem.text:
-        metadata.title = title_elem.text
+    # Extract metadata fields using helper
+    if text := _get_element_text(root, _DC_TITLE):
+        metadata.title = text
+    if text := _get_element_text(root, _DC_CREATOR):
+        metadata.author = text
+    if text := _get_element_text(root, _DC_SUBJECT):
+        metadata.subject = text
+    if text := _get_element_text(root, _CP_KEYWORDS):
+        metadata.keywords = text
+    if text := _get_element_text(root, _CP_CATEGORY):
+        metadata.category = text
+    if text := _get_element_text(root, _DC_DESCRIPTION):
+        metadata.comments = text
+    if text := _get_element_text(root, _DCTERMS_CREATED):
+        metadata.created = text.rstrip("Z")
+    if text := _get_element_text(root, _DCTERMS_MODIFIED):
+        metadata.modified = text.rstrip("Z")
+    if text := _get_element_text(root, _CP_LASTMODIFIEDBY):
+        metadata.last_modified_by = text
 
-    creator_elem = root.find(f"{DC_NS}creator")
-    if creator_elem is not None and creator_elem.text:
-        metadata.author = creator_elem.text
-
-    subject_elem = root.find(f"{DC_NS}subject")
-    if subject_elem is not None and subject_elem.text:
-        metadata.subject = subject_elem.text
-
-    keywords_elem = root.find(f"{CP_NS}keywords")
-    if keywords_elem is not None and keywords_elem.text:
-        metadata.keywords = keywords_elem.text
-
-    category_elem = root.find(f"{CP_NS}category")
-    if category_elem is not None and category_elem.text:
-        metadata.category = category_elem.text
-
-    description_elem = root.find(f"{DC_NS}description")
-    if description_elem is not None and description_elem.text:
-        metadata.comments = description_elem.text
-
-    created_elem = root.find(f"{DCTERMS_NS}created")
-    if created_elem is not None and created_elem.text:
-        # Remove 'Z' suffix for consistency with existing format
-        metadata.created = created_elem.text.rstrip("Z")
-
-    modified_elem = root.find(f"{DCTERMS_NS}modified")
-    if modified_elem is not None and modified_elem.text:
-        # Remove 'Z' suffix for consistency with existing format
-        metadata.modified = modified_elem.text.rstrip("Z")
-
-    last_modified_by_elem = root.find(f"{CP_NS}lastModifiedBy")
-    if last_modified_by_elem is not None and last_modified_by_elem.text:
-        metadata.last_modified_by = last_modified_by_elem.text
-
-    revision_elem = root.find(f"{CP_NS}revision")
+    revision_elem = root.find(_CP_REVISION)
     if revision_elem is not None and revision_elem.text:
         try:
             metadata.revision = int(revision_elem.text)
@@ -419,7 +468,7 @@ def _extract_metadata_from_context(ctx: _PptxContext) -> PptxMetadata:
 
 def _extract_slide_comments_from_context(
     ctx: _PptxContext, slide_number: int
-) -> List[PptxComment]:
+) -> list[PptxComment]:
     """
     Extract comments for a specific slide from cached comment XML.
 
@@ -430,23 +479,23 @@ def _extract_slide_comments_from_context(
     Returns:
         List of PPTXComment objects with author, text, and date fields.
     """
-    comments = []
+    root = ctx.get_comment_root(slide_number)
+    if root is None:
+        return []
 
+    comments: list[PptxComment] = []
     try:
-        root = ctx.get_comment_root(slide_number)
-        if root is None:
-            return comments
-
-        for cm in root.findall(f".//{P_NS}cm"):
-            author_id = cm.get("authorId", "")
-            text_elem = cm.find(f"{P_NS}text")
-            text = text_elem.text if text_elem is not None else ""
-            dt = cm.get("dt", "")
+        for cm in root.findall(f".//{P_CM}"):
+            text_elem = cm.find(P_TEXT)
             comments.append(
                 PptxComment(
-                    author=author_id,
-                    text=text or "",
-                    date=dt,
+                    author=cm.get("authorId", ""),
+                    text=(
+                        text_elem.text
+                        if text_elem is not None and text_elem.text
+                        else ""
+                    ),
+                    date=cm.get("dt", ""),
                 )
             )
     except Exception as e:
@@ -455,7 +504,7 @@ def _extract_slide_comments_from_context(
     return comments
 
 
-def _get_shape_position(shape_elem) -> Tuple[int, int]:
+def _get_shape_position(shape_elem: ET.Element) -> tuple[int, int]:
     """
     Get the position of a shape element for sorting purposes.
 
@@ -476,60 +525,53 @@ def _get_shape_position(shape_elem) -> Tuple[int, int]:
     """
     try:
         # First, try to get explicit position from xfrm
-        sp_pr = shape_elem.find(f".//{P_NS}spPr")
+        sp_pr = shape_elem.find(f".//{P_SPPR}")
         if sp_pr is None:
-            sp_pr = shape_elem.find(f".//{A_NS}xfrm")
+            sp_pr = shape_elem.find(f".//{A_XFRM}")
         if sp_pr is None:
             sp_pr = shape_elem
 
-        xfrm = sp_pr.find(f"{A_NS}xfrm")
+        xfrm = sp_pr.find(A_XFRM)
         if xfrm is None:
-            xfrm = sp_pr.find(f"{P_NS}xfrm")
+            xfrm = sp_pr.find(P_XFRM)
         if xfrm is None:
-            xfrm = shape_elem.find(f".//{A_NS}xfrm")
+            xfrm = shape_elem.find(f".//{A_XFRM}")
             if xfrm is None:
-                xfrm = shape_elem.find(f".//{P_NS}xfrm")
+                xfrm = shape_elem.find(f".//{P_XFRM}")
 
         if xfrm is not None:
-            off = xfrm.find(f"{A_NS}off")
-            if off is None:
-                off = xfrm.find(f"{P_NS}off")
+            off = xfrm.find(A_OFF)
             if off is not None:
                 x = int(off.get("x", "0"))
                 y = int(off.get("y", "0"))
                 return (y, x)  # Sort by y (top) first, then x (left)
 
         # No explicit position - check if it's a placeholder and assign default
-        nv_sp_pr = shape_elem.find(f"{P_NS}nvSpPr")
+        nv_sp_pr = shape_elem.find(P_NVSPPR)
         if nv_sp_pr is not None:
-            nv_pr = nv_sp_pr.find(f"{P_NS}nvPr")
+            nv_pr = nv_sp_pr.find(P_NVPR)
             if nv_pr is not None:
-                ph = nv_pr.find(f"{P_NS}ph")
+                ph = nv_pr.find(P_PH)
                 if ph is not None:
                     ph_type = ph.get("type", "")
                     ph_idx = ph.get("idx", "")
 
-                    # Title placeholders go at the very top
                     if ph_type in TITLE_TYPES:
                         return (0, 0)
 
-                    # Body placeholders go after title
                     if ph_type in BODY_TYPES or (not ph_type and ph_idx):
-                        # Use idx to order multiple body placeholders
                         idx_num = int(ph_idx) if ph_idx.isdigit() else 0
                         return (1 + idx_num, 0)
 
-                    # Footer-related placeholders go at the bottom
                     if ph_type in FOOTER_TYPES or ph_type == "sldNum":
                         return (999999998, 0)
 
-        # Default for shapes without position info - place at bottom
         return (999999999, 999999999)
     except Exception:
         return (999999999, 999999999)
 
 
-def _extract_text_from_paragraphs(elem) -> str:
+def _extract_text_from_paragraphs(elem: ET.Element) -> str:
     """
     Extract all text from paragraph elements within an element.
 
@@ -545,66 +587,57 @@ def _extract_text_from_paragraphs(elem) -> str:
     Returns:
         Combined text from all paragraphs, with newlines between paragraphs.
     """
-    paragraphs = []
-    for p in elem.findall(f".//{A_NS}p"):
-        texts = []
-        # Process all child elements in order to handle text and breaks
+    paragraphs: list[str] = []
+    for p in elem.findall(f".//{A_P}"):
+        texts: list[str] = []
         for child in p:
-            tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+            tag = child.tag
 
-            if tag == "r":  # Run - contains text
-                t = child.find(f"{A_NS}t")
+            if tag == A_R or tag == A_FLD:  # Run or Field
+                t = child.find(A_T)
                 if t is not None and t.text:
                     texts.append(t.text)
-            elif tag == "fld":  # Field - contains dynamic content (slide number, etc.)
-                t = child.find(f"{A_NS}t")
-                if t is not None and t.text:
-                    texts.append(t.text)
-            elif tag == "br":  # Line break - represented as vertical tab
+            elif tag == A_BR:  # Line break
                 texts.append("\x0b")
-            elif tag == "t":  # Direct text (less common)
+            elif tag == A_T:  # Direct text (less common)
                 if child.text:
                     texts.append(child.text)
-            # Skip pPr (paragraph properties), endParaRPr, etc.
 
-        para_text = "".join(texts)
-        paragraphs.append(para_text)
+        paragraphs.append("".join(texts))
     return "\n".join(paragraphs)
 
 
-def _extract_table_from_graphic_frame(elem) -> list[list[str]] | None:
+def _extract_table_from_graphic_frame(elem: ET.Element) -> list[list[str]] | None:
     """
     Extract table data from a graphic frame if it contains a DrawingML table.
 
     Returns a list of rows (list of cell strings), or None if not a table.
     """
-    graphic_data = elem.find(f".//{A_NS}graphicData")
-    if graphic_data is None:
+    graphic_data = elem.find(f".//{A_GRAPHICDATA}")
+    if graphic_data is None or graphic_data.get("uri") != TABLE_URI:
         return None
 
-    if graphic_data.get("uri") != TABLE_URI:
-        return None
-
-    tbl = graphic_data.find(f"{A_NS}tbl")
+    tbl = graphic_data.find(A_TBL)
     if tbl is None:
         return None
 
     table_data: list[list[str]] = []
-    for tr in tbl.findall(f"{A_NS}tr"):
+    for tr in tbl.findall(A_TR):
         row_data: list[str] = []
-        for tc in tr.findall(f"{A_NS}tc"):
-            tx_body = tc.find(f"{A_NS}txBody")
-            if tx_body is None:
-                row_data.append("")
-                continue
-            cell_text = _extract_text_from_paragraphs(tx_body).strip()
+        for tc in tr.findall(A_TC):
+            tx_body = tc.find(A_TXBODY)
+            cell_text = (
+                _extract_text_from_paragraphs(tx_body).strip()
+                if tx_body is not None
+                else ""
+            )
             row_data.append(cell_text)
         table_data.append(row_data)
 
     return table_data
 
 
-def _extract_formulas_from_element(elem) -> List[Tuple[str, bool]]:
+def _extract_formulas_from_element(elem: ET.Element) -> list[tuple[str, bool]]:
     """
     Extract mathematical formulas from an element's XML content.
 
@@ -618,28 +651,42 @@ def _extract_formulas_from_element(elem) -> List[Tuple[str, bool]]:
         - latex_string: LaTeX representation of the formula
         - is_display: True for display equations (oMathPara), False for inline
     """
-    formulas = []
-
-    # Track oMath elements inside oMathPara to avoid duplicates
-    omath_in_para = set()
+    formulas: list[tuple[str, bool]] = []
+    omath_in_para: set[int] = set()
 
     # First, find all oMathPara elements (display equations)
-    for omath_para in elem.iter(f"{M_NS}oMathPara"):
-        omath = omath_para.find(f"{M_NS}oMath")
+    for omath_para in elem.iter(M_OMATHPARA):
+        omath = omath_para.find(M_OMATH)
         if omath is not None:
-            omath_in_para.add(omath)
+            omath_in_para.add(id(omath))
             latex = omml_to_latex(omath)
             if latex.strip():
                 formulas.append((latex, True))
 
     # Then find inline oMath elements (not in oMathPara)
-    for omath in elem.iter(f"{M_NS}oMath"):
-        if omath not in omath_in_para:
+    for omath in elem.iter(M_OMATH):
+        if id(omath) not in omath_in_para:
             latex = omml_to_latex(omath)
             if latex.strip():
                 formulas.append((latex, False))
 
     return formulas
+
+
+def _normalize_relative_path(base_dir: str, target: str) -> str:
+    """Normalize a relative path by resolving .. segments."""
+    if not target.startswith("../"):
+        return f"{base_dir}/{target}"
+
+    parts = f"{base_dir}/{target}".split("/")
+    normalized: list[str] = []
+    for part in parts:
+        if part == "..":
+            if normalized:
+                normalized.pop()
+        elif part:
+            normalized.append(part)
+    return "/".join(normalized)
 
 
 def _process_slide_from_context(
@@ -656,133 +703,73 @@ def _process_slide_from_context(
     Returns:
         PPTXSlide object containing all extracted content.
     """
-    logger.debug(f"Processing slide [{slide_number}]: {slide_path}")
-
     slide_title = ""
     slide_footer = ""
-    content_placeholders: List[str] = []
-    other_textboxes: List[str] = []
-    tables: List[List[List[str]]] = []
-    images: List[PptxImage] = []
-    formulas: List[PptxFormula] = []
+    content_placeholders: list[str] = []
+    other_textboxes: list[str] = []
+    tables: list[list[list[str]]] = []
+    images: list[PptxImage] = []
+    formulas: list[PptxFormula] = []
 
     # Collect all content items with their positions for ordering
-    # Each item: (position, content_type, content_text)
-    ordered_content: List[Tuple[Tuple[int, int], str, str]] = []
+    ordered_content: list[tuple[tuple[int, int], str, str]] = []
 
-    # Get cached slide relationships for images
     slide_rels = ctx.get_slide_relationships(slide_path)
-
-    # Get cached slide root
     root = ctx.get_slide_root(slide_path)
     if root is None:
-        logger.warning(f"Slide not found: {slide_path}")
         return PptxSlide(slide_number=slide_number)
 
-    # Find the shape tree
-    sp_tree = root.find(f".//{P_NS}spTree")
+    sp_tree = root.find(f".//{P_SPTREE}")
     if sp_tree is None:
         return PptxSlide(slide_number=slide_number)
 
-    # Collect all shapes and pictures with their positions
-    shape_elements = []
-
-    # Regular shapes (p:sp)
-    for sp in sp_tree.findall(f".//{P_NS}sp"):
+    # Collect all shapes with their positions
+    shape_elements: list[tuple[str, ET.Element, tuple[int, int]]] = []
+    for sp in sp_tree.findall(f".//{P_SP}"):
         shape_elements.append(("sp", sp, _get_shape_position(sp)))
-
-    # Pictures (p:pic)
-    for pic in sp_tree.findall(f".//{P_NS}pic"):
+    for pic in sp_tree.findall(f".//{P_PIC}"):
         shape_elements.append(("pic", pic, _get_shape_position(pic)))
-
-    # Graphic frames (tables, charts, etc.)
-    for frame in sp_tree.findall(f".//{P_NS}graphicFrame"):
+    for frame in sp_tree.findall(f".//{P_GRAPHICFRAME}"):
         shape_elements.append(("graphicFrame", frame, _get_shape_position(frame)))
 
-    # Sort by position (top to bottom, left to right)
     shape_elements.sort(key=lambda x: x[2])
 
     image_counter = 0
+    slide_dir = "/".join(slide_path.rsplit("/", 1)[:-1])
 
     for shape_type, elem, position in shape_elements:
-        # ---------------------------
         # Picture extraction
-        # ---------------------------
         if shape_type == "pic":
             try:
-                image_counter += 1
-
-                # Get image relationship ID
-                blip = elem.find(f".//{A_NS}blip")
+                blip = elem.find(f".//{A_BLIP}")
                 if blip is None:
                     continue
 
-                r_embed = blip.get(f"{R_NS}embed")
+                r_embed = blip.get(R_EMBED)
                 if not r_embed or r_embed not in slide_rels:
                     continue
 
-                rel_info = slide_rels[r_embed]
-                target = rel_info.get("target", "")
+                target = slide_rels[r_embed].get("target", "")
+                image_path = _normalize_relative_path(slide_dir, target)
 
-                # Build full image path
-                slide_dir = "/".join(slide_path.rsplit("/", 1)[:-1])
-                if target.startswith("../"):
-                    image_path = f"{slide_dir}/{target}"
-                    # Normalize path to resolve .. segments
-                    parts = image_path.split("/")
-                    normalized = []
-                    for part in parts:
-                        if part == "..":
-                            if normalized:
-                                normalized.pop()
-                        elif part:  # Skip empty parts
-                            normalized.append(part)
-                    image_path = "/".join(normalized)
-                else:
-                    image_path = f"{slide_dir}/{target}"
-
-                # Extract caption (name/title) and description (alt text)
+                # Extract caption and description from cNvPr
                 caption = ""
                 description = ""
-                cNvPr = elem.find(f".//{P_NS}cNvPr")
-                if cNvPr is not None:
-                    # name attribute is the shape title/caption
-                    name = cNvPr.get("name", "")
-                    if name:
-                        caption = name
-                    # descr attribute is the alt text/description for accessibility
-                    descr = cNvPr.get("descr", "")
-                    if descr:
-                        description = descr
+                if (cNvPr := elem.find(f".//{P_CNVPR}")) is not None:
+                    caption = cNvPr.get("name", "")
+                    description = cNvPr.get("descr", "")
 
-                # Read image data from context
                 blob = ctx.get_image_data(image_path)
                 if blob is not None:
-                    # Determine content type and filename from extension
-                    ext = target.split(".")[-1].lower()
-                    content_type_map = {
-                        "png": "image/png",
-                        "jpg": "image/jpeg",
-                        "jpeg": "image/jpeg",
-                        "gif": "image/gif",
-                        "bmp": "image/bmp",
-                        "tiff": "image/tiff",
-                        "tif": "image/tiff",
-                        "emf": "image/x-emf",
-                        "wmf": "image/x-wmf",
-                    }
-                    content_type = content_type_map.get(ext, f"image/{ext}")
-
-                    # Generate generic filename based on extension
-                    # (matches python-pptx behavior)
-                    generic_filename = f"image.{ext}"
-
+                    image_counter += 1
+                    ext = target.rsplit(".", 1)[-1].lower()
+                    content_type = _CONTENT_TYPE_MAP.get(ext, f"image/{ext}")
                     width, height = _get_image_pixel_dimensions(blob)
 
                     images.append(
                         PptxImage(
                             image_index=image_counter,
-                            filename=generic_filename,
+                            filename=f"image.{ext}",
                             content_type=content_type,
                             size_bytes=len(blob),
                             blob=blob,
@@ -794,60 +781,43 @@ def _process_slide_from_context(
                         )
                     )
 
-                    # Add description to ordered content if present
                     if description:
                         ordered_content.append(
                             (position, "image_caption", f"[Image: {description}]")
                         )
             except Exception as e:
-                logger.error(e)
-                logger.exception(f"Failed to extract image on slide {slide_number}")
+                logger.debug(f"Failed to extract image on slide {slide_number}: {e}")
             continue
 
-        # ---------------------------
         # Table extraction
-        # ---------------------------
         if shape_type == "graphicFrame":
             try:
                 table_data = _extract_table_from_graphic_frame(elem)
-                if not table_data:
-                    continue
-                tables.append(table_data)
-
-                table_text_rows = []
-                for row in table_data:
-                    table_text_rows.append("\t".join(row))
-                table_text = "\n".join(table_text_rows).strip()
-                if table_text:
-                    ordered_content.append((position, "table", table_text))
+                if table_data:
+                    tables.append(table_data)
+                    table_text = "\n".join("\t".join(row) for row in table_data).strip()
+                    if table_text:
+                        ordered_content.append((position, "table", table_text))
             except Exception as e:
-                logger.error(e)
-                logger.exception(f"Failed to extract table on slide {slide_number}")
+                logger.debug(f"Failed to extract table on slide {slide_number}: {e}")
             continue
 
-        # ---------------------------
         # Shape (text) extraction
-        # ---------------------------
-        # Get placeholder info
-        nv_sp_pr = elem.find(f"{P_NS}nvSpPr")
+        nv_sp_pr = elem.find(P_NVSPPR)
         if nv_sp_pr is None:
             continue
 
-        nv_pr = nv_sp_pr.find(f"{P_NS}nvPr")
-        ph = nv_pr.find(f"{P_NS}ph") if nv_pr is not None else None
+        nv_pr = nv_sp_pr.find(P_NVPR)
+        ph = nv_pr.find(P_PH) if nv_pr is not None else None
 
         # Extract formulas from shape
-        shape_formulas = _extract_formulas_from_element(elem)
-        for latex, is_display in shape_formulas:
-            formula = PptxFormula(latex=latex, is_display=is_display)
-            formulas.append(formula)
-            if is_display:
-                ordered_content.append((position, "formula", f"$${latex}$$"))
-            else:
-                ordered_content.append((position, "formula", f"${latex}$"))
+        for latex, is_display in _extract_formulas_from_element(elem):
+            formulas.append(PptxFormula(latex=latex, is_display=is_display))
+            formula_text = f"$${latex}$$" if is_display else f"${latex}$"
+            ordered_content.append((position, "formula", formula_text))
 
         # Extract text
-        tx_body = elem.find(f"{P_NS}txBody")
+        tx_body = elem.find(P_TXBODY)
         if tx_body is None:
             continue
 
@@ -855,7 +825,7 @@ def _process_slide_from_context(
         if not text:
             continue
 
-        # Determine placeholder type
+        # Determine placeholder type and categorize text
         if ph is not None:
             ph_type = ph.get("type", "")
             ph_idx = ph.get("idx", "")
@@ -865,27 +835,20 @@ def _process_slide_from_context(
                 ordered_content.append((position, "title", text))
             elif ph_type in FOOTER_TYPES:
                 slide_footer = text
-                # Footer is typically not included in main text
             elif ph_type in SKIP_TYPES:
-                # Skip date, slide number, etc.
                 pass
             elif ph_type in BODY_TYPES or (not ph_type and ph_idx):
-                # Body placeholder or indexed placeholder without type
                 content_placeholders.append(text)
                 ordered_content.append((position, "content", text))
             else:
                 other_textboxes.append(text)
                 ordered_content.append((position, "other", text))
         else:
-            # Non-placeholder shape
             other_textboxes.append(text)
             ordered_content.append((position, "other", text))
 
-    # ---------------------------
-    # Comment extraction (from cached XML)
-    # ---------------------------
+    # Comment extraction
     comments = _extract_slide_comments_from_context(ctx, slide_number)
-    # Add comments at the end of the slide content
     for comment in comments:
         ordered_content.append(
             (
@@ -896,17 +859,14 @@ def _process_slide_from_context(
         )
 
     # Build slide text from ordered content
-    # Sort by position (already sorted but ensure stability)
     ordered_content.sort(key=lambda x: x[0])
-    slide_text_parts = [item[2] for item in ordered_content]
-    slide_text = "\n".join(slide_text_parts)
+    slide_text = "\n".join(item[2] for item in ordered_content)
 
     # Build base text (without formulas, comments, image captions)
-    base_content_types = {"title", "content", "other", "table"}
-    base_text_parts = [
+    base_content_types = frozenset({"title", "content", "other", "table"})
+    base_text = "\n".join(
         item[2] for item in ordered_content if item[1] in base_content_types
-    ]
-    base_text = "\n".join(base_text_parts)
+    )
 
     return PptxSlide(
         slide_number=slide_number,
