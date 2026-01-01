@@ -122,8 +122,34 @@ from sharepoint2text.extractors.data_types import (
 
 logger = logging.getLogger(__name__)
 
+# =============================================================================
+# Type Aliases
+# =============================================================================
 TableRows = list[list[str]]
-TextSegment = tuple[float, float, str, float]
+TextSegment = tuple[float, float, str, float]  # (y, x, text, font_size)
+
+# =============================================================================
+# PDF Filter to Image Format Mapping
+# =============================================================================
+# Maps PDF compression filter names to image format identifiers
+FILTER_TO_FORMAT: dict[str, str] = {
+    "/DCTDecode": "jpeg",  # JPEG compression
+    "/JPXDecode": "jp2",  # JPEG 2000 compression
+    "/FlateDecode": "png",  # PNG-style deflate compression
+    "/CCITTFaxDecode": "tiff",  # TIFF Group 3/4 fax compression
+    "/JBIG2Decode": "jbig2",  # JBIG2 bi-level compression
+    "/LZWDecode": "png",  # LZW compression (legacy)
+}
+
+# Maps PDF compression filter names to MIME content types
+FILTER_TO_CONTENT_TYPE: dict[str, str] = {
+    "/DCTDecode": "image/jpeg",
+    "/JPXDecode": "image/jp2",
+    "/FlateDecode": "image/png",
+    "/CCITTFaxDecode": "image/tiff",
+    "/JBIG2Decode": "image/jbig2",
+    "/LZWDecode": "image/png",
+}
 
 
 class PageLike(Protocol):
@@ -298,6 +324,22 @@ def _extract_image_bytes(page: PageLike, page_num: int) -> list[PdfImage]:
 
 
 def _extract_lines_with_spacing(page: PageLike) -> list[str]:
+    """
+    Extract text lines from a PDF page with spatial awareness.
+
+    Uses the text visitor API to capture text positioning, then reconstructs
+    lines based on vertical position and adds spacing between text segments
+    based on horizontal gaps.
+
+    This is more accurate than simple text extraction for:
+        - Preserving column layouts
+        - Detecting paragraph breaks
+        - Separating table data from prose
+
+    Returns:
+        List of text lines with appropriate spacing.
+    """
+    # Collect text segments with position information
     segments: list[TextSegment] = []
 
     def visitor(
@@ -307,17 +349,19 @@ def _extract_lines_with_spacing(page: PageLike) -> list[str]:
         _font_dict: Any,
         font_size: Any,
     ) -> None:
+        """Callback to capture text with its transformation matrix."""
         if not text:
             return
         try:
             tm_list = list(tm)
-            x = float(tm_list[4])
-            y = float(tm_list[5])
+            x = float(tm_list[4])  # Horizontal position
+            y = float(tm_list[5])  # Vertical position
         except Exception:
             return
         size = float(font_size) if font_size else 0.0
         segments.append((y, x, text, size))
 
+    # Try spatial extraction, fall back to simple extraction on failure
     try:
         page.extract_text(visitor_text=visitor)
     except Exception:
@@ -328,23 +372,30 @@ def _extract_lines_with_spacing(page: PageLike) -> list[str]:
         raw_text = page.extract_text() or ""
         return raw_text.splitlines()
 
+    # Calculate dynamic tolerances based on median font size
     font_sizes = [size for _, _, _, size in segments if size > 0]
     median_size = float(statistics.median(font_sizes)) if font_sizes else 10.0
-    line_tol = max(1.0, median_size * 0.5)
-    word_gap = max(1.0, median_size * 0.4)
+    line_tolerance = max(1.0, median_size * 0.5)  # Y-distance for same line
+    word_gap_threshold = max(1.0, median_size * 0.4)  # X-distance for word break
 
+    # Sort segments by Y (descending) then X (ascending) for reading order
     segments.sort(key=lambda item: (-item[0], item[1]))
+
+    # Check if all segments are on approximately the same line (degenerate case)
     y_values = [item[0] for item in segments]
-    if max(y_values) - min(y_values) < line_tol:
+    if max(y_values) - min(y_values) < line_tolerance:
         raw_text = page.extract_text() or ""
         return raw_text.splitlines()
+
+    # Group segments into lines based on vertical proximity
     lines: list[dict[str, Any]] = []
     for y, x, text, size in segments:
-        if not lines or abs(y - lines[-1]["y"]) > line_tol:
+        if not lines or abs(y - lines[-1]["y"]) > line_tolerance:
             lines.append({"y": y, "segments": [(x, text)]})
             continue
         lines[-1]["segments"].append((x, text))
 
+    # Reconstruct line text with appropriate word spacing
     line_texts: list[str] = []
     line_positions: list[float] = []
     for line in lines:
@@ -352,7 +403,9 @@ def _extract_lines_with_spacing(page: PageLike) -> list[str]:
         parts = []
         last_x = None
         for x, text in sorted(line["segments"], key=lambda item: item[0]):
-            if last_x is not None and x - last_x > word_gap:
+            # Add space if there's a significant horizontal gap
+            if last_x is not None and x - last_x > word_gap_threshold:
+                # Don't add space if there's a hyphen at the break point
                 if not (
                     (parts and parts[-1].endswith(("-", "–", "—")))
                     or text.startswith(("-", "–", "—"))
@@ -366,13 +419,15 @@ def _extract_lines_with_spacing(page: PageLike) -> list[str]:
     if len(line_positions) < 2:
         return line_texts
 
+    # Calculate paragraph break threshold based on typical line spacing
     gaps = [
         line_positions[idx] - line_positions[idx + 1]
         for idx in range(len(line_positions) - 1)
     ]
     median_gap = float(statistics.median(gaps)) if gaps else 0.0
-    gap_threshold = max(median_gap * 1.8, median_size * 1.2)
+    paragraph_gap_threshold = max(median_gap * 1.8, median_size * 1.2)
 
+    # Track where to insert extra blank lines for paragraph breaks
     extra_after: dict[int, int] = {}
     last_non_empty: Optional[int] = None
     numeric_cache: dict[int, int] = {}
@@ -383,19 +438,26 @@ def _extract_lines_with_spacing(page: PageLike) -> list[str]:
         numeric_cache[idx] = _TableExtractor.count_numeric_tokens(text)
         if last_non_empty is not None:
             gap_between = line_positions[last_non_empty] - line_positions[idx]
-            if gap_between > gap_threshold:
+
+            # Check if this gap suggests a paragraph break
+            if gap_between > paragraph_gap_threshold:
                 prev_count = numeric_cache.get(last_non_empty, 0)
                 next_count = numeric_cache.get(idx, 0)
                 prev_numeric = prev_count > 0
                 next_numeric = next_count > 0
+
+                # Add break when transitioning from numeric to non-numeric content
                 add_break = prev_numeric and not next_numeric
+
+                # Also add break for large gaps with changing numeric density
                 if (
                     not add_break
                     and prev_count >= 2
                     and next_count == 1
-                    and gap_between > gap_threshold * 1.6
+                    and gap_between > paragraph_gap_threshold * 1.6
                 ):
                     add_break = True
+
                 if add_break:
                     existing_empty = idx - last_non_empty - 1
                     needed = max(0, 3 - existing_empty)
@@ -405,6 +467,7 @@ def _extract_lines_with_spacing(page: PageLike) -> list[str]:
                         )
         last_non_empty = idx
 
+    # Insert paragraph breaks as extra blank lines
     spaced_lines: list[str] = []
     for idx, text in enumerate(line_texts):
         spaced_lines.append(text)
@@ -414,36 +477,75 @@ def _extract_lines_with_spacing(page: PageLike) -> list[str]:
 
 
 class _TableExtractor:
-    date_header_pattern = re.compile(r"\d{2}/\d{2}/\d{4}")
-    month_pattern = re.compile(
-        r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\b",
+    """
+    Extracts tabular data from PDF text lines.
+
+    This class identifies and parses tables from extracted PDF text by analyzing
+    patterns like date headers, numeric values, and column alignment. It uses
+    heuristics to detect table boundaries and separate data from prose.
+
+    The extraction process:
+        1. Scan lines for date headers (MM/DD/YYYY patterns)
+        2. Identify rows with trailing numeric values
+        3. Track column counts for consistency
+        4. Handle gaps between table rows
+        5. Split compound words and normalize labels
+    """
+
+    # -------------------------------------------------------------------------
+    # Regex Patterns for Table Detection
+    # -------------------------------------------------------------------------
+    # Date patterns (e.g., "12/31/2024")
+    DATE_HEADER_PATTERN = re.compile(r"\d{2}/\d{2}/\d{4}")
+    MONTH_PATTERN = re.compile(
+        r"\b(January|February|March|April|May|June|July|August|"
+        r"September|October|November|December)\b",
         re.IGNORECASE,
     )
-    numeric_re = re.compile(r"\d")
-    trailing_number_re = re.compile(r"([\d.,]+)$")
-    section_break_re = re.compile(r"[.;:]")
-    line_number_prefix_re = re.compile(r"^\d+\.")
-    trailing_number_block_re = re.compile(r"[\d.,]+$")
-    non_unit_chars_re = re.compile(r"[^A-Za-z\\s&]")
-    max_gap = 2
-    min_value_columns = 2
 
+    # Numeric detection patterns
+    NUMERIC_RE = re.compile(r"\d")
+    TRAILING_NUMBER_RE = re.compile(r"([\d.,]+)$")
+    TRAILING_NUMBER_BLOCK_RE = re.compile(r"[\d.,]+$")
+    LINE_NUMBER_PREFIX_RE = re.compile(r"^\d+\.")
+
+    # Text structure patterns
+    SECTION_BREAK_RE = re.compile(r"[.;:]")
+    NON_UNIT_CHARS_RE = re.compile(r"[^A-Za-z\\s&]")
+
+    # -------------------------------------------------------------------------
+    # Extraction Configuration
+    # -------------------------------------------------------------------------
+    MAX_GAP = 2  # Maximum blank lines allowed within a table
+    MIN_VALUE_COLUMNS = 2  # Minimum numeric columns required for a table row
+
+    # -------------------------------------------------------------------------
+    # Initialization
+    # -------------------------------------------------------------------------
     def __init__(self, lines: list[str]) -> None:
         self.lines = [line.strip() for line in lines]
         self.known_words = self._collect_known_words(self.lines)
 
+    # -------------------------------------------------------------------------
+    # Public API
+    # -------------------------------------------------------------------------
     @classmethod
     def extract(cls, lines: list[str]) -> list[TableRows]:
+        """Extract all tables from the given text lines."""
         return cls(lines)._extract()
 
     @classmethod
     def choose_tables(
         cls, raw_tables: list[TableRows], spatial_tables: list[TableRows]
     ) -> list[TableRows]:
+        """Choose the better table extraction result based on scoring."""
         if cls._score_tables(spatial_tables) > cls._score_tables(raw_tables):
             return spatial_tables
         return raw_tables
 
+    # -------------------------------------------------------------------------
+    # Core Extraction Logic
+    # -------------------------------------------------------------------------
     def _extract(self) -> list[TableRows]:
         tables: list[TableRows] = []
         current_rows: TableRows = []
@@ -455,14 +557,14 @@ class _TableExtractor:
             if not line:
                 if current_rows:
                     gap_count += 1
-                    if gap_count > self.max_gap:
+                    if gap_count > self.MAX_GAP:
                         self._flush_current(tables, current_rows)
                         current_rows = []
                         column_count = 0
                         gap_count = 0
                 continue
 
-            has_digits = bool(self.numeric_re.search(line))
+            has_digits = bool(self.NUMERIC_RE.search(line))
             next_line = self._next_non_empty_line(idx)
             if current_rows and not has_digits and self._looks_like_section_break(line):
                 next_header = self._extract_date_header(next_line)
@@ -501,7 +603,7 @@ class _TableExtractor:
             has_values = bool(values)
             if has_values:
                 pending_header_label = ""
-            if has_values and self.month_pattern.search(line):
+            if has_values and self.MONTH_PATTERN.search(line):
                 if values and values[-1].isdigit() and len(values[-1]) == 4:
                     values = []
                     has_values = False
@@ -513,7 +615,7 @@ class _TableExtractor:
                     gap_count = 0
                     continue
             if not has_values and current_rows:
-                if self.line_number_prefix_re.match(line):
+                if self.LINE_NUMBER_PREFIX_RE.match(line):
                     self._flush_current(tables, current_rows)
                     current_rows = []
                     column_count = 0
@@ -523,7 +625,7 @@ class _TableExtractor:
                     len(line) >= 60
                     and "." in line
                     and not line[:1].isdigit()
-                    and not self.trailing_number_block_re.search(line)
+                    and not self.TRAILING_NUMBER_BLOCK_RE.search(line)
                 ):
                     self._flush_current(tables, current_rows)
                     current_rows = []
@@ -532,7 +634,7 @@ class _TableExtractor:
                     continue
             values_from_trailing_blob = False
             if not values:
-                trailing_match = self.trailing_number_re.search(line)
+                trailing_match = self.TRAILING_NUMBER_RE.search(line)
                 if trailing_match and "/" not in trailing_match.group(1):
                     blob = trailing_match.group(1)
                     label = line[: trailing_match.start()].strip()
@@ -545,18 +647,18 @@ class _TableExtractor:
                 if not values and not current_rows:
                     continue
 
-            if values and len(values) < self.min_value_columns and line[:1].isdigit():
+            if values and len(values) < self.MIN_VALUE_COLUMNS and line[:1].isdigit():
                 values = []
                 label = self._normalize_label(line)
 
             if values and column_count == 0:
-                if len(values) < self.min_value_columns:
+                if len(values) < self.MIN_VALUE_COLUMNS:
                     continue
                 column_count = len(values) + 1
 
             if values or current_rows:
                 if column_count == 0 and values:
-                    if len(values) < self.min_value_columns:
+                    if len(values) < self.MIN_VALUE_COLUMNS:
                         continue
                     column_count = len(values) + 1
                 if column_count == 0:
@@ -585,6 +687,9 @@ class _TableExtractor:
             return tables
         return self._extract_tables_from_text_simple()
 
+    # -------------------------------------------------------------------------
+    # Label and Value Processing
+    # -------------------------------------------------------------------------
     def _normalize_label(self, label: str) -> str:
         normalized = unicodedata.normalize("NFKC", label)
         normalized = re.sub(r"[\u2010-\u2013\u2212]", "-", normalized)
@@ -593,7 +698,7 @@ class _TableExtractor:
         return self._split_compound_words(normalized, self.known_words)
 
     def _extract_date_header(self, line: str) -> Optional[tuple[str, list[str], str]]:
-        matches = list(self.date_header_pattern.finditer(line))
+        matches = list(self.DATE_HEADER_PATTERN.finditer(line))
         if len(matches) < 2:
             return None
         first = matches[0]
@@ -652,6 +757,9 @@ class _TableExtractor:
                 del merged[1]
         return merged
 
+    # -------------------------------------------------------------------------
+    # Numeric Detection and Processing
+    # -------------------------------------------------------------------------
     @staticmethod
     def is_numeric_token(token: str) -> bool:
         cleaned = token.strip()
@@ -680,8 +788,12 @@ class _TableExtractor:
             return [match.group(1), match.group(2)]
         return [blob]
 
+    # -------------------------------------------------------------------------
+    # Table Management
+    # -------------------------------------------------------------------------
     @staticmethod
     def _flush_current(tables: list[TableRows], current_rows: TableRows) -> None:
+        """Save completed table rows if they meet minimum requirements."""
         if len(current_rows) >= 2:
             tables.append(current_rows.copy())
 
@@ -724,6 +836,9 @@ class _TableExtractor:
         flush_current()
         return tables
 
+    # -------------------------------------------------------------------------
+    # Word and Text Analysis
+    # -------------------------------------------------------------------------
     @staticmethod
     def _collect_known_words(lines: list[str]) -> dict[str, int]:
         words: dict[str, int] = {}
@@ -792,19 +907,22 @@ class _TableExtractor:
                 return prefix, suffix
         return None
 
-    @staticmethod
-    def _looks_like_unit_line(line: str) -> bool:
-        if _TableExtractor.numeric_re.search(line):
+    # -------------------------------------------------------------------------
+    # Line Classification
+    # -------------------------------------------------------------------------
+    @classmethod
+    def _looks_like_unit_line(cls, line: str) -> bool:
+        if cls.NUMERIC_RE.search(line):
             return False
-        if _TableExtractor.section_break_re.search(line):
+        if cls.SECTION_BREAK_RE.search(line):
             return False
-        if _TableExtractor.non_unit_chars_re.search(line):
+        if cls.NON_UNIT_CHARS_RE.search(line):
             return True
         return False
 
-    @staticmethod
-    def _looks_like_section_break(line: str) -> bool:
-        if _TableExtractor.section_break_re.search(line):
+    @classmethod
+    def _looks_like_section_break(cls, line: str) -> bool:
+        if cls.SECTION_BREAK_RE.search(line):
             return False
         if len(line) > 50:
             return False
@@ -846,32 +964,14 @@ def _extract_image(
     color_space = str(image_obj.get("/ColorSpace", "unknown"))
     bits = image_obj.get("/BitsPerComponent", 8)
 
-    # Determine image format based on filter
+    # Determine image format based on compression filter
     filter_type = image_obj.get("/Filter", "")
     if isinstance(filter_type, list):
         filter_type = filter_type[-1] if filter_type else ""
     filter_type = str(filter_type)
 
-    # Map filter to format
-    format_map = {
-        "/DCTDecode": "jpeg",
-        "/JPXDecode": "jp2",
-        "/FlateDecode": "png",
-        "/CCITTFaxDecode": "tiff",
-        "/JBIG2Decode": "jbig2",
-        "/LZWDecode": "png",
-    }
-    img_format = format_map.get(filter_type, "raw")
-
-    content_type_map = {
-        "/DCTDecode": "image/jpeg",
-        "/JPXDecode": "image/jp2",
-        "/FlateDecode": "image/png",
-        "/CCITTFaxDecode": "image/tiff",
-        "/JBIG2Decode": "image/jbig2",
-        "/LZWDecode": "image/png",
-    }
-    content_type = content_type_map.get(filter_type, "image/unknown")
+    img_format = FILTER_TO_FORMAT.get(filter_type, "raw")
+    content_type = FILTER_TO_CONTENT_TYPE.get(filter_type, "image/unknown")
 
     # Get raw image data
     try:
@@ -898,10 +998,33 @@ def _extract_image(
     )
 
 
+# =============================================================================
+# MCID (Marked Content ID) Extraction
+# =============================================================================
+# MCID is used in Tagged PDFs to associate content with structure elements.
+# This enables features like accessibility (alt text) and logical ordering.
+
+
 def _extract_page_mcid_data(
     page: PageLike,
 ) -> tuple[list[dict[str, Any]], list[int], dict[int, str]]:
-    """Collect MCID text and image occurrence order from the page content stream."""
+    """
+    Extract MCID (Marked Content Identifier) data from a PDF page.
+
+    Parses the page content stream to find:
+        - Image occurrences with their associated MCIDs
+        - Text content associated with each MCID
+        - Order in which MCIDs appear (for caption association)
+
+    Args:
+        page: A pypdf PageObject to extract MCID data from.
+
+    Returns:
+        Tuple of:
+            - image_occurrences: List of dicts with 'name' and 'mcid' keys
+            - mcid_order: List of MCIDs in document order
+            - mcid_text: Dict mapping MCID to accumulated text content
+    """
     contents = page.get_contents()
     if contents is None:
         return [], [], {}
@@ -912,10 +1035,11 @@ def _extract_page_mcid_data(
         logger.debug("Failed to parse content stream: %s", e)
         return [], [], {}
 
-    mcid_stack: list[int | None] = []
-    actual_text_stack: list[str | None] = []
-    mcid_order: list[int] = []
-    mcid_text: dict[int, str] = {}
+    # State tracking for nested marked content
+    mcid_stack: list[int | None] = []  # Current MCID context
+    actual_text_stack: list[str | None] = []  # ActualText overrides
+    mcid_order: list[int] = []  # Order of MCID occurrences
+    mcid_text: dict[int, str] = {}  # Text content per MCID
     image_occurrences: list[dict[str, Any]] = []
 
     for operands, operator in stream.operations:
@@ -924,6 +1048,8 @@ def _extract_page_mcid_data(
             if isinstance(operator, bytes)
             else operator
         )
+
+        # BDC/BMC: Begin Marked Content (with/without properties)
         if op in ("BDC", "BMC"):
             current_mcid = mcid_stack[-1] if mcid_stack else None
             actual_text = None
@@ -939,6 +1065,7 @@ def _extract_page_mcid_data(
                 mcid_order.append(current_mcid)
             continue
 
+        # EMC: End Marked Content
         if op == "EMC":
             if mcid_stack:
                 mcid_stack.pop()
@@ -946,26 +1073,24 @@ def _extract_page_mcid_data(
                 actual_text_stack.pop()
             continue
 
+        # Do: Invoke XObject (images)
         if op == "Do":
             if not operands:
                 continue
             current_mcid = mcid_stack[-1] if mcid_stack else None
-            image_occurrences.append(
-                {
-                    "name": operands[0],
-                    "mcid": current_mcid,
-                }
-            )
+            image_occurrences.append({"name": operands[0], "mcid": current_mcid})
             continue
 
+        # Text operators: Tj, TJ, ', "
         if op in ("Tj", "TJ", "'", '"'):
             current_mcid = mcid_stack[-1] if mcid_stack else None
             if current_mcid is None:
                 continue
+            # Use ActualText if available (accessibility text)
             actual_text = actual_text_stack[-1] if actual_text_stack else None
             if actual_text:
                 text = str(actual_text)
-                actual_text_stack[-1] = None
+                actual_text_stack[-1] = None  # Only use once
             else:
                 text = _extract_text_from_operands(op, operands)
             if text:
@@ -977,9 +1102,11 @@ def _extract_page_mcid_data(
 
 
 def _extract_text_from_operands(operator: str, operands: list[Any]) -> str:
+    """Extract text string from PDF text operator operands."""
     if not operands:
         return ""
     if operator == "TJ":
+        # TJ operator: array of strings and positioning values
         parts = []
         for item in operands[0]:
             if isinstance(item, (str, bytes)):
@@ -991,6 +1118,7 @@ def _extract_text_from_operands(operator: str, operands: list[Any]) -> str:
 
 
 def _normalize_text(value: Any) -> str:
+    """Convert PDF text value to Python string."""
     if value is None:
         return ""
     if isinstance(value, bytes):
@@ -1003,13 +1131,21 @@ def _lookup_caption(
     mcid_order: list[int],
     mcid_text: dict[int, str],
 ) -> str:
+    """
+    Find caption text for an image based on its MCID.
+
+    Looks for text in the same MCID or the next MCID in document order.
+    This captures captions that immediately follow images.
+    """
     if mcid is None:
         return ""
+    # Check for text in the same MCID
     text = mcid_text.get(mcid, "").strip()
     if text:
         return text
     if not mcid_order:
         return ""
+    # Look for text in subsequent MCIDs (caption after image)
     try:
         start_index = mcid_order.index(mcid)
     except ValueError:
@@ -1022,7 +1158,15 @@ def _lookup_caption(
 
 
 def _extract_image_alt_text(image_obj: Any) -> str:
-    """Extract alt text or title for a PDF image XObject if present."""
+    """
+    Extract alt text or title from a PDF image XObject.
+
+    Checks standard accessibility attributes in order of preference:
+        - /Alt: Alternative text (most common)
+        - /Title: Image title
+        - /Caption: Caption text
+        - /TU: Tool tip (user-facing description)
+    """
     caption_keys = ("/Alt", "/Title", "/Caption", "/TU")
     for key in caption_keys:
         value = image_obj.get(key)
