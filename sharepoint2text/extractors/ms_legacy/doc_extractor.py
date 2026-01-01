@@ -130,6 +130,29 @@ from sharepoint2text.extractors.data_types import (
 
 logger = logging.getLogger(__name__)
 
+# =============================================================================
+# FIB (File Information Block) Constants
+# =============================================================================
+# Magic numbers identifying valid .doc files
+FIB_MAGIC_WORD97 = 0xA5EC  # Word 97-2003 document
+FIB_MAGIC_WORD95 = 0xA5DC  # Word 95 document (also accepted)
+
+# FIB offset for encryption flag
+FIB_FLAGS_OFFSET = 0x0A
+FIB_ENCRYPTED_FLAG = 0x0100  # Bit 8 set = encrypted
+
+# FIB offsets for character counts (ccp values)
+FIB_CCP_TEXT_OFFSET = 0x4C  # Main document body character count
+FIB_CCP_FTN_OFFSET = 0x50  # Footnotes character count
+FIB_CCP_HDD_OFFSET = 0x54  # Headers/footers character count
+FIB_CCP_ATN_OFFSET = 0x5C  # Annotations character count
+
+# Minimum valid document size and text scan range
+MIN_DOC_SIZE = 0x200
+TEXT_SCAN_START = 0x200
+TEXT_SCAN_END = 0x2000
+TEXT_SCAN_STEP = 0x40
+
 
 def read_doc(
     file_like: io.BytesIO, path: str | None = None
@@ -491,34 +514,30 @@ class _DocReader:
         if not word_doc:
             raise LegacyMicrosoftParsingError("No WordDocument Stream")
 
-        if len(word_doc) < 0x200:
+        if len(word_doc) < MIN_DOC_SIZE:
             raise LegacyMicrosoftParsingError("File too small")
 
-        # Magic check
+        # Validate magic number
         magic = struct.unpack_from("<H", word_doc, 0)[0]
-        if magic not in (0xA5EC, 0xA5DC):
+        if magic not in (FIB_MAGIC_WORD97, FIB_MAGIC_WORD95):
             raise LegacyMicrosoftParsingError(
-                f"Not a valid.doc file (Magic: {hex(magic)})"
+                f"Not a valid .doc file (Magic: {hex(magic)})"
             )
 
-        # Check flags
-        flags = struct.unpack_from("<H", word_doc, 0x0A)[0]
-        if flags & 0x0100:
+        # Check encryption flag
+        flags = struct.unpack_from("<H", word_doc, FIB_FLAGS_OFFSET)[0]
+        if flags & FIB_ENCRYPTED_FLAG:
             raise ExtractionFileEncryptedError("DOC is encrypted or password-protected")
 
-        # Character counts aus FIB
-        # Main text
-        ccp_text = struct.unpack_from("<I", word_doc, 0x4C)[0]
-        # Footnotes
-        ccp_ftn = struct.unpack_from("<I", word_doc, 0x50)[0]
-        # Headers/Footers
-        ccp_hdd = struct.unpack_from("<I", word_doc, 0x54)[0]
-        # Annotations
-        ccp_atn = struct.unpack_from("<I", word_doc, 0x5C)[0]
+        # Extract character counts from FIB
+        ccp_text = struct.unpack_from("<I", word_doc, FIB_CCP_TEXT_OFFSET)[0]
+        ccp_ftn = struct.unpack_from("<I", word_doc, FIB_CCP_FTN_OFFSET)[0]
+        ccp_hdd = struct.unpack_from("<I", word_doc, FIB_CCP_HDD_OFFSET)[0]
+        ccp_atn = struct.unpack_from("<I", word_doc, FIB_CCP_ATN_OFFSET)[0]
 
         self._text_start, self._is_unicode = self._find_text_start_and_enc(word_doc)
 
-        # Byte-multiplicator (2 for UTF-16LE, 1 for CP1252)
+        # Byte multiplier: 2 for UTF-16LE, 1 for CP1252
         mult = 2 if self._is_unicode else 1
         encoding = "utf-16-le" if self._is_unicode else "cp1252"
 
@@ -569,9 +588,9 @@ class _DocReader:
 
         self._content = DocContent(
             main_text=main_text,
-            footnotes=(footnotes_text),
-            headers_footers=(headers_text),
-            annotations=(annotations_text),
+            footnotes=footnotes_text,
+            headers_footers=headers_text,
+            annotations=annotations_text,
             images=images,
         )
 
@@ -587,9 +606,7 @@ class _DocReader:
         Returns:
             DocContent: Dataclass with all extracted text regions.
         """
-        content = self._parse_content()
-
-        return content
+        return self._parse_content()
 
     def get_main_text(self) -> str:
         """Get only the main document body text."""
@@ -642,7 +659,8 @@ class _DocReader:
             - German umlauts (ä, ö, ü, etc.) are explicitly checked for UTF-16LE
             - Scan stops at min(file_length - 64, 0x2000) for safety
         """
-        for offset in range(0x200, min(len(word_doc) - 64, 0x2000), 0x40):
+        scan_end = min(len(word_doc) - 64, TEXT_SCAN_END)
+        for offset in range(TEXT_SCAN_START, scan_end, TEXT_SCAN_STEP):
             sample = word_doc[offset : offset + 64]
 
             utf16_score = 0
@@ -664,6 +682,7 @@ class _DocReader:
             elif cp1252_score > 45:
                 return offset, False
 
+        # Fallback: assume text starts at 0x800, CP1252 encoding
         return 0x800, False
 
     @staticmethod
@@ -768,15 +787,3 @@ class _DocReader:
         except Exception as e:
             logger.debug(f"Metadata extraction failed: [{e}]")
             return DocMetadata()
-
-    def list_streams(self) -> List[List[str]]:
-        """
-        List all streams in the OLE container.
-
-        Useful for debugging or exploring document structure.
-
-        Returns:
-            List of stream paths. Each path is a list of directory names
-            (e.g., [['WordDocument'], ['\\x05SummaryInformation']]).
-        """
-        return self.ole.listdir() if self.ole else []

@@ -163,6 +163,40 @@ class _RtfParser:
         extraction, returning whatever content can be retrieved.
     """
 
+    # Destination groups to skip during text extraction (contain metadata/non-text)
+    SKIP_DESTINATIONS = frozenset(
+        [
+            "fonttbl",
+            "colortbl",
+            "stylesheet",
+            "info",
+            "pict",
+            "object",
+            "datafield",
+            "fldinst",
+            "ftnsep",
+            "ftnsepc",
+            "aftnsep",
+            "aftnsepc",
+            "header",
+            "footer",
+            "headerl",
+            "headerr",
+            "headerf",
+            "footerl",
+            "footerr",
+            "footerf",
+            "pnseclvl",
+            "xmlnstbl",
+            "rsidtbl",
+            "mmathPr",
+            "generator",
+            "listtable",
+            "listoverridetable",
+            "revtbl",
+        ]
+    )
+
     # RTF special characters mapping - control words to actual characters
     SPECIAL_CHARS = {
         "par": "\n",
@@ -713,145 +747,14 @@ class _RtfParser:
 
         return result.strip()
 
-    def _strip_rtf_full(self, text: str) -> str:
-        """Full RTF stripping with proper group handling."""
-        result = []
-        i = 0
-        n = len(text)
-        group_depth = 0
-        skip_group = False
-        skip_depth = 0
-
-        while i < n:
-            char = text[i]
-
-            if char == "{":
-                group_depth += 1
-                # Check if this is a destination to skip
-                if i + 1 < n and text[i + 1] == "\\":
-                    # Look ahead for destination markers
-                    ahead = text[i + 1 : i + 30]
-                    if ahead.startswith("\\*") or any(
-                        ahead.startswith("\\" + kw)
-                        for kw in [
-                            "fonttbl",
-                            "colortbl",
-                            "stylesheet",
-                            "info",
-                            "pict",
-                            "object",
-                            "datafield",
-                            "fldinst",
-                            "ftnsep",
-                            "ftnsepc",
-                            "aftnsep",
-                            "aftnsepc",
-                            "header",
-                            "footer",
-                            "headerl",
-                            "headerr",
-                            "headerf",
-                            "footerl",
-                            "footerr",
-                            "footerf",
-                            "pnseclvl",
-                            "xmlnstbl",
-                            "rsidtbl",
-                            "mmathPr",
-                            "generator",
-                            "listtable",
-                            "listoverridetable",
-                            "revtbl",
-                        ]
-                    ):
-                        skip_group = True
-                        skip_depth = group_depth
-                i += 1
-
-            elif char == "}":
-                if skip_group and group_depth == skip_depth:
-                    skip_group = False
-                group_depth -= 1
-                i += 1
-
-            elif skip_group:
-                i += 1
-
-            elif char == "\\":
-                # Control word or escape
-                if i + 1 >= n:
-                    i += 1
-                    continue
-
-                next_char = text[i + 1]
-
-                # Escape sequences
-                if next_char in "\\{}":
-                    result.append(next_char)
-                    i += 2
-
-                # Unicode escape
-                elif next_char == "u":
-                    unicode_match = re.match(r"\\u(-?\d+)\??", text[i:])
-                    if unicode_match:
-                        code = int(unicode_match.group(1))
-                        result.append(chr(code & 0xFFFF))
-                        i += len(unicode_match.group(0))
-                    else:
-                        i += 2
-
-                # Hex escape
-                elif next_char == "'":
-                    if i + 3 < n:
-                        hex_val = text[i + 2 : i + 4]
-                        try:
-                            result.append(chr(int(hex_val, 16)))
-                        except ValueError:
-                            pass
-                        i += 4
-                    else:
-                        i += 2
-
-                # Control word
-                elif next_char.isalpha():
-                    # Find end of control word
-                    j = i + 1
-                    while j < n and text[j].isalpha():
-                        j += 1
-                    # Skip optional numeric parameter
-                    if j < n and (text[j].isdigit() or text[j] == "-"):
-                        while j < n and (text[j].isdigit() or text[j] == "-"):
-                            j += 1
-                    # Skip optional trailing space
-                    if j < n and text[j] == " ":
-                        j += 1
-
-                    control_word = text[i + 1 : j].rstrip()
-                    # Remove numeric suffix for lookup
-                    word_only = re.sub(r"-?\d+$", "", control_word)
-
-                    if word_only in self.SPECIAL_CHARS:
-                        result.append(self.SPECIAL_CHARS[word_only])
-
-                    i = j
-
-                else:
-                    # Handle \~ (non-breaking space), \- (optional hyphen), etc.
-                    if next_char == "~":
-                        result.append("\u00a0")
-                    elif next_char == "-":
-                        pass  # Optional hyphen - don't add
-                    elif next_char == "_":
-                        result.append("\u00ad")
-                    i += 2
-
-            else:
-                # Regular character
-                if char not in "\r":  # Skip carriage returns
-                    result.append(char)
-                i += 1
-
-        return "".join(result)
+    def _is_skip_destination(self, ahead: str) -> bool:
+        """Check if the lookahead text indicates a destination to skip."""
+        if ahead.startswith("\\*"):
+            return True
+        for kw in self.SKIP_DESTINATIONS:
+            if ahead.startswith("\\" + kw):
+                return True
+        return False
 
     def _strip_rtf_full_with_pages(self, text: str) -> str:
         """Full RTF stripping with page break detection.
@@ -885,41 +788,8 @@ class _RtfParser:
                 group_depth += 1
                 # Check if this is a destination to skip
                 if i + 1 < n and text[i + 1] == "\\":
-                    # Look ahead for destination markers
                     ahead = text[i + 1 : i + 30]
-                    if ahead.startswith("\\*") or any(
-                        ahead.startswith("\\" + kw)
-                        for kw in [
-                            "fonttbl",
-                            "colortbl",
-                            "stylesheet",
-                            "info",
-                            "pict",
-                            "object",
-                            "datafield",
-                            "fldinst",
-                            "ftnsep",
-                            "ftnsepc",
-                            "aftnsep",
-                            "aftnsepc",
-                            "header",
-                            "footer",
-                            "headerl",
-                            "headerr",
-                            "headerf",
-                            "footerl",
-                            "footerr",
-                            "footerf",
-                            "pnseclvl",
-                            "xmlnstbl",
-                            "rsidtbl",
-                            "mmathPr",
-                            "generator",
-                            "listtable",
-                            "listoverridetable",
-                            "revtbl",
-                        ]
-                    ):
+                    if self._is_skip_destination(ahead):
                         skip_group = True
                         skip_depth = group_depth
                 i += 1
