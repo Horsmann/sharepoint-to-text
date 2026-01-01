@@ -56,6 +56,7 @@ Per-slide content includes:
     - title: Slide title text
     - content_placeholders: Body text from content areas
     - other_textboxes: Text from non-placeholder shapes
+    - tables: Table data as nested lists
     - images: Embedded images with metadata and binary data
     - formulas: Math formulas as LaTeX
     - comments: Slide comments with author and date
@@ -129,6 +130,9 @@ REL_NS = "{http://schemas.openxmlformats.org/package/2006/relationships}"
 CP_NS = "{http://schemas.openxmlformats.org/package/2006/metadata/core-properties}"
 DC_NS = "{http://purl.org/dc/elements/1.1/}"
 DCTERMS_NS = "{http://purl.org/dc/terms/}"
+
+# Table graphic data URI for PPTX
+TABLE_URI = "http://schemas.openxmlformats.org/drawingml/2006/table"
 
 # Title placeholder types
 TITLE_TYPES = {"title", "ctrTitle"}
@@ -472,16 +476,24 @@ def _get_shape_position(shape_elem) -> Tuple[int, int]:
     """
     try:
         # First, try to get explicit position from xfrm
-        sp_pr = shape_elem.find(f".//{P_NS}spPr") or shape_elem.find(f".//{A_NS}xfrm")
+        sp_pr = shape_elem.find(f".//{P_NS}spPr")
+        if sp_pr is None:
+            sp_pr = shape_elem.find(f".//{A_NS}xfrm")
         if sp_pr is None:
             sp_pr = shape_elem
 
         xfrm = sp_pr.find(f"{A_NS}xfrm")
         if xfrm is None:
+            xfrm = sp_pr.find(f"{P_NS}xfrm")
+        if xfrm is None:
             xfrm = shape_elem.find(f".//{A_NS}xfrm")
+            if xfrm is None:
+                xfrm = shape_elem.find(f".//{P_NS}xfrm")
 
         if xfrm is not None:
             off = xfrm.find(f"{A_NS}off")
+            if off is None:
+                off = xfrm.find(f"{P_NS}off")
             if off is not None:
                 x = int(off.get("x", "0"))
                 y = int(off.get("y", "0"))
@@ -560,6 +572,38 @@ def _extract_text_from_paragraphs(elem) -> str:
     return "\n".join(paragraphs)
 
 
+def _extract_table_from_graphic_frame(elem) -> list[list[str]] | None:
+    """
+    Extract table data from a graphic frame if it contains a DrawingML table.
+
+    Returns a list of rows (list of cell strings), or None if not a table.
+    """
+    graphic_data = elem.find(f".//{A_NS}graphicData")
+    if graphic_data is None:
+        return None
+
+    if graphic_data.get("uri") != TABLE_URI:
+        return None
+
+    tbl = graphic_data.find(f"{A_NS}tbl")
+    if tbl is None:
+        return None
+
+    table_data: list[list[str]] = []
+    for tr in tbl.findall(f"{A_NS}tr"):
+        row_data: list[str] = []
+        for tc in tr.findall(f"{A_NS}tc"):
+            tx_body = tc.find(f"{A_NS}txBody")
+            if tx_body is None:
+                row_data.append("")
+                continue
+            cell_text = _extract_text_from_paragraphs(tx_body).strip()
+            row_data.append(cell_text)
+        table_data.append(row_data)
+
+    return table_data
+
+
 def _extract_formulas_from_element(elem) -> List[Tuple[str, bool]]:
     """
     Extract mathematical formulas from an element's XML content.
@@ -618,6 +662,7 @@ def _process_slide_from_context(
     slide_footer = ""
     content_placeholders: List[str] = []
     other_textboxes: List[str] = []
+    tables: List[List[List[str]]] = []
     images: List[PptxImage] = []
     formulas: List[PptxFormula] = []
 
@@ -649,6 +694,10 @@ def _process_slide_from_context(
     # Pictures (p:pic)
     for pic in sp_tree.findall(f".//{P_NS}pic"):
         shape_elements.append(("pic", pic, _get_shape_position(pic)))
+
+    # Graphic frames (tables, charts, etc.)
+    for frame in sp_tree.findall(f".//{P_NS}graphicFrame"):
+        shape_elements.append(("graphicFrame", frame, _get_shape_position(frame)))
 
     # Sort by position (top to bottom, left to right)
     shape_elements.sort(key=lambda x: x[2])
@@ -756,6 +805,27 @@ def _process_slide_from_context(
             continue
 
         # ---------------------------
+        # Table extraction
+        # ---------------------------
+        if shape_type == "graphicFrame":
+            try:
+                table_data = _extract_table_from_graphic_frame(elem)
+                if not table_data:
+                    continue
+                tables.append(table_data)
+
+                table_text_rows = []
+                for row in table_data:
+                    table_text_rows.append("\t".join(row))
+                table_text = "\n".join(table_text_rows).strip()
+                if table_text:
+                    ordered_content.append((position, "table", table_text))
+            except Exception as e:
+                logger.error(e)
+                logger.exception(f"Failed to extract table on slide {slide_number}")
+            continue
+
+        # ---------------------------
         # Shape (text) extraction
         # ---------------------------
         # Get placeholder info
@@ -832,7 +902,7 @@ def _process_slide_from_context(
     slide_text = "\n".join(slide_text_parts)
 
     # Build base text (without formulas, comments, image captions)
-    base_content_types = {"title", "content", "other"}
+    base_content_types = {"title", "content", "other", "table"}
     base_text_parts = [
         item[2] for item in ordered_content if item[1] in base_content_types
     ]
@@ -844,6 +914,7 @@ def _process_slide_from_context(
         footer=slide_footer,
         content_placeholders=content_placeholders,
         other_textboxes=other_textboxes,
+        tables=tables,
         images=images,
         formulas=formulas,
         comments=comments,
@@ -880,6 +951,7 @@ def read_pptx(
                 - title: Slide title text
                 - content_placeholders: Body text from content areas
                 - other_textboxes: Text from non-placeholder shapes
+                - tables: List of tables as 2D lists of cell text
                 - images: List of PPTXImage with binary data
                 - formulas: List of PPTXFormula as LaTeX
                 - comments: List of PPTXComment

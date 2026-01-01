@@ -11,7 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Email handling expands beyond bodies to include binary attachment extraction and downstream processing; attachments now carry MIME metadata, support checks, and can be iterated through the same extractor pipeline when supported.
 - A dedicated encryption detection layer now prevents unsupported protected files from being partially parsed, with a consistent exception raised across PDF, modern OOXML, ODF, and legacy Office formats.
 - Parser internals for document formats (PDF, DOCX, PPTX, XLSX, ODT/ODS/ODP, legacy DOC) received upgrades to improve table/image handling, formula parsing (OMML-to-LaTeX), and metadata consistency.
-- CI and documentation updates round out the release: workflow hardening, expanded test fixtures, and clearer exception documentation to make failure modes explicit for integrators.
+- Image extraction for MS legacy file formats (PPT/XLS/DOC)
+- JSON (de)serialization
 
 PRs
 - Feature/separated formula parser (#5)

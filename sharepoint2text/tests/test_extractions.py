@@ -443,6 +443,29 @@ def test_read_pptx_2() -> None:
     tc.assertIn("[Comment: 0@2025-12-28T11:15:49.694: Not second?]", full_text)
 
 
+def test_read_pptx_3() -> None:
+    path = "sharepoint2text/tests/resources/modern_ms/pptx_table.pptx"
+    pptx: PptxContent = next(read_pptx(_read_file_to_file_like(path=path)))
+
+    tc.assertEqual(1, len(list(pptx.iterate_tables())))
+    table_1 = list(pptx.iterate_tables())[0]
+    tc.assertListEqual(
+        [
+            ["", "2020", "2021", "2022"],
+            ["A", "1", "2", "3"],
+            ["B", "4", "5", "6"],
+            ["C", "7", "8", "9"],
+            ["D", "10", "11", "12"],
+        ],
+        table_1.get_table(),
+    )
+    tc.assertEqual(TableDim(rows=5, columns=4), table_1.get_dim())
+    tc.assertEqual(
+        "2020\t2021\t2022\nA\t1\t2\t3\nB\t4\t5\t6\nC\t7\t8\t9\nD\t10\t11\t12",
+        pptx.get_full_text(),
+    )
+
+
 def test_read_docx_1() -> None:
     # An actual document from the web - this is likely created on a Windows client
     path = (
