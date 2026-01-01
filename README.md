@@ -2,6 +2,19 @@
 
 A **pure Python** library for extracting text, metadata, and structured elements from Microsoft Office files—both modern (`.docx`, `.xlsx`, `.pptx`) and legacy (`.doc`, `.xls`, `.ppt`) formats—plus PDF, email formats, and plain text.
 
+**Install:** `pip install sharepoint-to-text`
+**Python import:** `import sharepoint2text`
+**CLI:** `sharepoint2text /path/to/file.docx > extraction.json`
+
+## What You Get
+
+- **Unified API**: `sharepoint2text.read_file(path)` yields one or more typed extraction results.
+- **Typed results**: each format returns a specific dataclass (e.g. `DocxContent`, `PdfContent`) that also supports the common interface.
+- **Text**: `get_full_text()` or `iterate_text()` (pages / slides / sheets depending on format).
+- **Structured content**: tables and images where the format supports it.
+- **Metadata**: file metadata (plus format-specific metadata where available).
+- **Serialization**: `result.to_json()` returns a JSON-serializable dict.
+
 ## Why This Library?
 
 ### Pure Python, No System Dependencies
@@ -125,7 +138,7 @@ These are only needed for development workflows:
 
 ### The Unified Interface
 
-All extractors return **generators** that yield content objects implementing a common interface. This design enables memory-efficient processing and supports formats that may contain multiple items (like `.mbox` mailboxes with multiple emails).
+`sharepoint2text.read_file(...)` returns a **generator** of extraction results implementing a common interface. Most formats yield a single item, but some (notably `.mbox`) can yield multiple items.
 
 ```python
 import sharepoint2text
@@ -155,6 +168,28 @@ print(result.get_full_text())
 ```
 
 Notes: `ImageInterface` provides `get_bytes()`, `get_content_type()`, `get_caption()`, `get_description()`, and `get_metadata()` (unit index, image index, content type, width, height). `TableInterface` provides `get_table()` (rows as lists) and `get_dim()` (rows, columns).
+
+Most results also expose **format-specific structured fields** (e.g. `PdfContent.pages`, `PptxContent.slides`, `XlsxContent.sheets`) in addition to the common interface—see **Return Types** below.
+
+### JSON Output (`to_json()`)
+
+All extraction results support `to_json()` for a JSON-serializable representation of the extracted data (including nested dataclasses).
+
+```python
+import json
+import sharepoint2text
+
+result = next(sharepoint2text.read_file("document.docx"))
+print(json.dumps(result.to_json()))
+```
+
+To restore objects from JSON, use `ExtractionInterface.from_json(...)`.
+
+```python
+from sharepoint2text.extractors.data_types import ExtractionInterface
+
+restored = ExtractionInterface.from_json(result.to_json())
+```
 
 ### Understanding `iterate_text()` Output by Format
 
@@ -287,6 +322,17 @@ for result in results:
     print(result.get_full_text())
 ```
 
+## CLI
+
+After installation, a `sharepoint2text` command is available. It accepts a single file path and prints the extraction result as JSON to stdout.
+
+```bash
+sharepoint2text /path/to/file.pdf > extraction.json
+```
+
+- If the format yields **one** item, stdout is a single JSON object.
+- If the format yields **multiple** items (e.g. `.mbox`), stdout is a JSON array of objects.
+
 ## API Reference
 
 ### Main Functions
@@ -338,6 +384,9 @@ class ExtractionInterface(Protocol):
     def iterate_tables() -> Generator[TableInterface, None, None]
     def get_full_text() -> str                   # Complete text as string
     def get_metadata() -> FileMetadataInterface  # Metadata with to_dict()
+    def to_json() -> dict                        # JSON-serializable representation
+    @classmethod
+    def from_json(data: dict) -> "ExtractionInterface"
 ```
 
 #### DocxContent (.docx)
