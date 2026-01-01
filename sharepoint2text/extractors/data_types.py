@@ -87,7 +87,7 @@ class TableData(TableInterface):
 
 
 @dataclass
-class ImageMetadata:
+class ImageMetadata(dict):
     # the index of the unit where this image occurs (1-based for pages/slides)
     # None for formats without pages/slides (e.g. docx, odt, ods, xlsx)
     unit_index: Optional[int] = None
@@ -97,6 +97,32 @@ class ImageMetadata:
     # Pixel dimensions of the image when available
     width: Optional[int] = None
     height: Optional[int] = None
+
+    def __post_init__(self) -> None:
+        dict.__init__(
+            self,
+            unit_index=self.unit_index,
+            image_index=self.image_index,
+            content_type=self.content_type,
+            width=self.width,
+            height=self.height,
+        )
+
+    def __setattr__(self, name: str, value: typing.Any) -> None:
+        super().__setattr__(name, value)
+        if name in getattr(self, "__dataclass_fields__", {}):
+            dict.__setitem__(self, name, value)
+
+    def __setitem__(self, key: str, value: typing.Any) -> None:
+        dict.__setitem__(self, key, value)
+        if key in getattr(self, "__dataclass_fields__", {}):
+            super().__setattr__(key, value)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
 
 
 class ImageInterface(Protocol):
