@@ -99,6 +99,12 @@ include = [
     "/CHANGELOG.md",
 ]
 
+[tool.hatch.build]
+exclude = [
+    "/sharepoint2text/tests",
+    "/sharepoint2text/tests/**",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["sharepoint2text"]
 
