@@ -178,7 +178,17 @@ class ExtractionInterface(Protocol):
 
     @abstractmethod
     def get_full_text(self) -> str:
-        """Full text of the slide deck as one single block of text"""
+        """Convenience full-text representation as a single string.
+
+        Most implementations return a newline-joined representation of the
+        primary text units from `iterate_text()`. Some content types may:
+        - prepend a title or other metadata
+        - omit optional content by default (e.g., formulas, comments, notes)
+        - expose flags on `get_full_text(...)` to include that optional content
+
+        See `README.md` ("Format-Specific Notes on `get_full_text()`") for
+        format-specific details.
+        """
         ...
 
     @abstractmethod

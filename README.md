@@ -240,6 +240,24 @@ for page_num, page_text in enumerate(result.iterate_text(), start=1):
 - **Full-text storage** is simpler and may work better for small documents
 - **Word documents** (`.doc`, `.docx`) only yield one unit from `iterate_text()` since they lack page structure—for these formats, both methods are equivalent
 
+### Format-Specific Notes on `get_full_text()`
+
+`get_full_text()` is intended as a convenient “best default” for each format. In a few formats it intentionally differs from a plain `"\n".join(iterate_text())`, or it omits optional content unless you opt in:
+
+| Format | `get_full_text()` default behavior | Not included by default / where to find it |
+|--------|------------------------------------|--------------------------------------------|
+| `.doc` | Prepends `metadata.title` (if present) and returns main document body | `footnotes`, `headers_footers`, `annotations` are separate fields (`DocContent`) |
+| `.docx` | Returns `base_full_text` (formulas omitted by default) | Pass `include_formulas=True` / `include_comments=True` to `DocxContent.get_full_text(...)` |
+| `.ppt` | Per-slide `title + body + other` concatenated | Speaker notes live in `slide.notes` (`PptSlideContent`) |
+| `.pptx` | Per-slide `base_text` concatenated | Pass `include_formulas/include_comments/include_image_captions` to `PptxContent.get_full_text(...)` |
+| `.odp` | Per-slide `text_combined` concatenated | Pass `include_notes/include_annotations` to `OdpContent.get_full_text(...)` |
+| `.xls` | Concatenation of sheet `text` blocks (no sheet names) | Sheet names are available as `sheet.name` (`XlsSheet`) |
+| `.xlsx`, `.ods` | Includes sheet name + sheet text for each sheet | Images are available via `iterate_images()` / sheet image lists |
+| `.pdf` | Concatenation of extracted page text | Tables/images are available via `iterate_tables()` / `iterate_images()` (`PdfContent.pages`) |
+| `.eml`, `.msg`, `.mbox` | Returns `body_plain` when present, else `body_html` | Attachments are in `EmailContent.attachments` and can be extracted via `iterate_supported_attachments()` |
+| `.txt`, `.csv`, `.tsv`, `.json`, `.md`, `.html` | Returns stripped content (leading/trailing whitespace removed) | Use the raw fields (`.content`) if you need untrimmed text |
+| `.rtf` | Returns the extractor’s `full_text` when available | `iterate_text()` yields per-page text when explicit `\\page` breaks exist |
+
 ### Basic Usage Examples
 
 ```python
