@@ -84,6 +84,9 @@ Repository = "https://github.com/Horsmann/sharepoint-to-text.git"
 Issues = "https://github.com/Horsmann/sharepoint-to-text/issues"
 Changelog = "https://github.com/Horsmann/sharepoint-to-text/blob/main/CHANGELOG.md"
 
+[project.scripts]
+sharepoint2text = "sharepoint2text.cli:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8.4.2",
