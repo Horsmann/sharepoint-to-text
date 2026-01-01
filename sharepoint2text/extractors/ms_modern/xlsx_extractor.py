@@ -106,7 +106,7 @@ Maintenance Notes
 import datetime
 import io
 import logging
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any, Generator
 
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
@@ -125,6 +125,42 @@ from sharepoint2text.extractors.util.zip_utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+# XML namespaces used in XLSX drawings (pre-computed for speed)
+XDR_NS = "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
+A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+# Pre-computed tag names for hot paths
+XDR_ONE_CELL_ANCHOR = f"{{{XDR_NS}}}oneCellAnchor"
+XDR_TWO_CELL_ANCHOR = f"{{{XDR_NS}}}twoCellAnchor"
+XDR_ABSOLUTE_ANCHOR = f"{{{XDR_NS}}}absoluteAnchor"
+XDR_PIC = f"{{{XDR_NS}}}pic"
+XDR_EXT = f"{{{XDR_NS}}}ext"
+XDR_NVPICPR = f"{{{XDR_NS}}}nvPicPr"
+XDR_CNVPR = f"{{{XDR_NS}}}cNvPr"
+XDR_BLIPFILL = f"{{{XDR_NS}}}blipFill"
+A_BLIP = f"{{{A_NS}}}blip"
+R_EMBED = f"{{{R_NS}}}embed"
+
+# Anchor types tuple for iteration
+ANCHOR_TYPES = (XDR_ONE_CELL_ANCHOR, XDR_TWO_CELL_ANCHOR, XDR_ABSOLUTE_ANCHOR)
+
+# EMUs to pixels conversion factor (9525 EMUs = 1 pixel at 96 DPI)
+EMU_PER_PIXEL = 9525
+
+# Content type mapping by file extension (cached at module level)
+_CONTENT_TYPE_MAP = {
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "gif": "image/gif",
+    "bmp": "image/bmp",
+    "tiff": "image/tiff",
+    "tif": "image/tiff",
+    "emf": "image/x-emf",
+    "wmf": "image/x-wmf",
+}
 
 
 def _read_metadata(file_like: io.BytesIO) -> XlsxMetadata:
@@ -224,7 +260,12 @@ def _format_value_for_display(value: Any) -> str:
     return str(value)
 
 
-def _find_last_data_column(rows: List[tuple]) -> int:
+def _is_cell_non_empty(val: Any) -> bool:
+    """Check if a cell value is non-empty."""
+    return val is not None and (not isinstance(val, str) or val.strip() != "")
+
+
+def _find_last_data_column(rows: list[tuple]) -> int:
     """
     Find the index of the last column that contains any data.
 
@@ -243,14 +284,22 @@ def _find_last_data_column(rows: List[tuple]) -> int:
     max_col = 0
     for row in rows:
         for i in range(len(row) - 1, -1, -1):
-            val = row[i]
-            if val is not None and (not isinstance(val, str) or val.strip() != ""):
+            if _is_cell_non_empty(row[i]):
                 max_col = max(max_col, i + 1)
                 break
     return max_col
 
 
-def _is_table_name_row(row: List[Any]) -> bool:
+def _is_meaningful_value(val: Any) -> bool:
+    """Check if a value is meaningful (not None, not empty, not an 'Unnamed:' placeholder)."""
+    if val is None:
+        return False
+    if isinstance(val, str):
+        return bool(val.strip()) and not val.startswith("Unnamed: ")
+    return True
+
+
+def _is_table_name_row(row: list[Any]) -> bool:
     """
     Check if a row is just a table name (single non-empty cell).
 
@@ -266,22 +315,11 @@ def _is_table_name_row(row: List[Any]) -> bool:
     Returns:
         True if the row has exactly one meaningful cell, False otherwise.
     """
-
-    def is_meaningful(val: Any) -> bool:
-        if val is None:
-            return False
-        if isinstance(val, str):
-            # Treat "Unnamed: N" placeholders as empty
-            if val.startswith("Unnamed: "):
-                return False
-            return bool(val.strip())
-        return True
-
-    non_empty = sum(1 for val in row if is_meaningful(val))
+    non_empty = sum(1 for val in row if _is_meaningful_value(val))
     return non_empty == 1 and len(row) > 1
 
 
-def _find_last_data_row(rows: List[tuple]) -> int:
+def _find_last_data_row(rows: list[tuple]) -> int:
     """
     Find the index of the last row that contains any data.
 
@@ -298,14 +336,12 @@ def _find_last_data_row(rows: List[tuple]) -> int:
         return 0
 
     for i in range(len(rows) - 1, -1, -1):
-        row = rows[i]
-        for val in row:
-            if val is not None and (not isinstance(val, str) or val.strip() != ""):
-                return i + 1
+        if any(_is_cell_non_empty(val) for val in rows[i]):
+            return i + 1
     return 0
 
 
-def _read_sheet_data(ws: Worksheet) -> tuple[List[Dict[str, Any]], List[List[Any]]]:
+def _read_sheet_data(ws: Worksheet) -> tuple[list[dict[str, Any]], list[list[Any]]]:
     """
     Read sheet data and return both structured and raw formats.
 
@@ -339,35 +375,34 @@ def _read_sheet_data(ws: Worksheet) -> tuple[List[Dict[str, Any]], List[List[Any
     last_col = _find_last_data_column(rows)
     rows = [row[:last_col] for row in rows]
 
-    # First row is the header
-    header_row = rows[0]
-
-    # Generate column names, using "Unnamed: N" for empty headers
-    headers = []
-    for i, val in enumerate(header_row):
-        if val is None or (isinstance(val, str) and val.strip() == ""):
-            headers.append(f"Unnamed: {i}")
-        else:
-            headers.append(str(val))
+    # Generate headers from first row (empty headers get "Unnamed: N")
+    headers = [
+        (
+            f"Unnamed: {i}"
+            if val is None or (isinstance(val, str) and not val.strip())
+            else str(val)
+        )
+        for i, val in enumerate(rows[0])
+    ]
 
     # Convert remaining rows to records format
-    records = []
-    all_rows = [headers]
+    records: list[dict[str, Any]] = []
+    all_rows: list[list[Any]] = [headers]
 
     for row in rows[1:]:
-        record = {}
-        row_values = []
-        for i, cell_value in enumerate(row):
-            if i < len(headers):
-                record[headers[i]] = _get_cell_value(cell_value)
-            row_values.append(_get_cell_value(cell_value))
+        record = {
+            headers[i]: _get_cell_value(val)
+            for i, val in enumerate(row)
+            if i < len(headers)
+        }
+        row_values = [_get_cell_value(val) for val in row]
         records.append(record)
         all_rows.append(row_values)
 
     return records, all_rows
 
 
-def _format_sheet_as_text(all_rows: List[List[Any]]) -> str:
+def _format_sheet_as_text(all_rows: list[list[Any]]) -> str:
     """
     Format sheet data as an aligned text table.
 
@@ -388,29 +423,25 @@ def _format_sheet_as_text(all_rows: List[List[Any]]) -> str:
     if not all_rows:
         return ""
 
-    # Calculate column widths
-    num_cols = max(len(row) for row in all_rows) if all_rows else 0
+    num_cols = max(len(row) for row in all_rows)
     col_widths = [0] * num_cols
 
-    formatted_rows = []
+    # Format all values and calculate column widths in one pass
+    formatted_rows: list[list[str]] = []
     for row in all_rows:
-        formatted_row = []
-        for i in range(num_cols):
-            val = row[i] if i < len(row) else None
-            formatted_val = _format_value_for_display(val)
-            formatted_row.append(formatted_val)
-            col_widths[i] = max(col_widths[i], len(formatted_val))
+        formatted_row = [
+            _format_value_for_display(row[i] if i < len(row) else None)
+            for i in range(num_cols)
+        ]
+        for i, val in enumerate(formatted_row):
+            col_widths[i] = max(col_widths[i], len(val))
         formatted_rows.append(formatted_row)
 
     # Build text output with right-aligned columns
-    lines = []
-    for formatted_row in formatted_rows:
-        cells = []
-        for i, val in enumerate(formatted_row):
-            cells.append(val.rjust(col_widths[i]))
-        lines.append(" ".join(cells))
-
-    return "\n".join(lines)
+    return "\n".join(
+        " ".join(val.rjust(col_widths[i]) for i, val in enumerate(row))
+        for row in formatted_rows
+    )
 
 
 def _get_content_type(filename: str) -> str:
@@ -424,23 +455,12 @@ def _get_content_type(filename: str) -> str:
         MIME type string (e.g., 'image/png', 'image/jpeg').
     """
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    content_types = {
-        "png": "image/png",
-        "jpg": "image/jpeg",
-        "jpeg": "image/jpeg",
-        "gif": "image/gif",
-        "bmp": "image/bmp",
-        "tiff": "image/tiff",
-        "tif": "image/tiff",
-        "emf": "image/x-emf",
-        "wmf": "image/x-wmf",
-    }
-    return content_types.get(ext, "image/unknown")
+    return _CONTENT_TYPE_MAP.get(ext, "image/unknown")
 
 
 def _get_image_pixel_dimensions(
     image_data: bytes,
-) -> tuple[Optional[int], Optional[int]]:
+) -> tuple[int | None, int | None]:
     """Best-effort extraction of pixel dimensions from common raster formats."""
     if not image_data:
         return None, None
@@ -519,8 +539,8 @@ def _resolve_image_path(target: str) -> str:
 
 
 def _extract_images_from_zip(
-    file_like: io.BytesIO, sheet_names: List[str]
-) -> Dict[int, List[XlsxImage]]:
+    file_like: io.BytesIO, sheet_names: list[str]
+) -> dict[int, list[XlsxImage]]:
     """
     Extract all images from an XLSX file by parsing the ZIP archive directly.
 
@@ -535,15 +555,7 @@ def _extract_images_from_zip(
     Returns:
         Dictionary mapping sheet_index to list of XlsxImage objects.
     """
-    # XML namespaces used in XLSX drawings
-    NS = {
-        "xdr": "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing",
-        "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
-        "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
-        "rel": "http://schemas.openxmlformats.org/package/2006/relationships",
-    }
-
-    images_by_sheet: Dict[int, List[XlsxImage]] = {}
+    images_by_sheet: dict[int, list[XlsxImage]] = {}
     image_counter = 0
 
     ctx = OOXMLZipContext(file_like)
@@ -551,24 +563,17 @@ def _extract_images_from_zip(
         namelist = ctx.namelist
 
         # Build mapping of sheet index to drawing file
-        # Parse xl/worksheets/_rels/sheetN.xml.rels to find drawing references
-        sheet_to_drawing: Dict[int, str] = {}
+        sheet_to_drawing: dict[int, str] = {}
 
         for sheet_idx in range(len(sheet_names)):
-            sheet_num = sheet_idx + 1
-            rels_path = f"xl/worksheets/_rels/sheet{sheet_num}.xml.rels"
+            rels_path = f"xl/worksheets/_rels/sheet{sheet_idx + 1}.xml.rels"
             if rels_path not in namelist:
                 continue
 
             rels_root = ctx.read_xml_root(rels_path)
-            relationships = parse_relationships(rels_root)
-
-            for rel in relationships:
-                rel_type = rel["type"]
-                if "drawing" in rel_type:
-                    target = rel["target"]
-                    drawing_path = _resolve_drawing_path(target)
-                    sheet_to_drawing[sheet_idx] = drawing_path
+            for rel in parse_relationships(rels_root):
+                if "drawing" in rel["type"]:
+                    sheet_to_drawing[sheet_idx] = _resolve_drawing_path(rel["target"])
                     break
 
         # Process each drawing file
@@ -581,77 +586,52 @@ def _extract_images_from_zip(
                 "drawings/", "drawings/_rels/"
             ).replace(".xml", ".xml.rels")
 
-            rid_to_image: Dict[str, str] = {}
+            rid_to_image: dict[str, str] = {}
             if drawing_rels_path in namelist:
-                rels_root = ctx.read_xml_root(drawing_rels_path)
-                relationships = parse_relationships(rels_root)
-
-                for rel in relationships:
-                    rel_type = rel["type"]
-                    if "image" in rel_type:
-                        rid = rel["id"]
-                        target = rel["target"]
-                        image_path = _resolve_image_path(target)
-                        rid_to_image[rid] = image_path
+                for rel in parse_relationships(ctx.read_xml_root(drawing_rels_path)):
+                    if "image" in rel["type"]:
+                        rid_to_image[rel["id"]] = _resolve_image_path(rel["target"])
 
             # Parse the drawing XML to get image metadata
             drawing_root = ctx.read_xml_root(drawing_path)
+            sheet_images: list[XlsxImage] = []
 
-            sheet_images: List[XlsxImage] = []
-
-            # EMUs to pixels conversion factor (9525 EMUs = 1 pixel at 96 DPI)
-            EMU_PER_PIXEL = 9525
-
-            # Find all anchor elements (oneCellAnchor, twoCellAnchor, absoluteAnchor)
-            anchor_types = [
-                f"{{{NS['xdr']}}}oneCellAnchor",
-                f"{{{NS['xdr']}}}twoCellAnchor",
-                f"{{{NS['xdr']}}}absoluteAnchor",
-            ]
-
-            for anchor_type in anchor_types:
+            for anchor_type in ANCHOR_TYPES:
                 for anchor in drawing_root.iter(anchor_type):
-                    # Find the pic element within this anchor
-                    pic = anchor.find("xdr:pic", NS)
+                    pic = anchor.find(XDR_PIC)
                     if pic is None:
                         continue
 
                     try:
-                        # Get dimensions from ext element (sibling of pic)
-                        width = 0
-                        height = 0
-                        ext = anchor.find("xdr:ext", NS)
+                        # Get dimensions from ext element
+                        width, height = 0, 0
+                        ext = anchor.find(XDR_EXT)
                         if ext is not None:
-                            cx = ext.get("cx", "0")
-                            cy = ext.get("cy", "0")
                             try:
-                                width = int(cx) // EMU_PER_PIXEL
-                                height = int(cy) // EMU_PER_PIXEL
+                                width = int(ext.get("cx", "0")) // EMU_PER_PIXEL
+                                height = int(ext.get("cy", "0")) // EMU_PER_PIXEL
                             except ValueError:
                                 pass
 
-                        # Get non-visual properties for name and description
-                        nvPicPr = pic.find("xdr:nvPicPr", NS)
-                        caption = ""
-                        description = ""
-
+                        # Get caption and description from non-visual properties
+                        caption, description = "", ""
+                        nvPicPr = pic.find(XDR_NVPICPR)
                         if nvPicPr is not None:
-                            cNvPr = nvPicPr.find("xdr:cNvPr", NS)
+                            cNvPr = nvPicPr.find(XDR_CNVPR)
                             if cNvPr is not None:
                                 caption = cNvPr.get("name", "")
                                 description = cNvPr.get("descr", "")
 
                         # Get the blip reference to find the image file
-                        blipFill = pic.find("xdr:blipFill", NS)
+                        blipFill = pic.find(XDR_BLIPFILL)
                         if blipFill is None:
                             continue
 
-                        blip = blipFill.find("a:blip", NS)
+                        blip = blipFill.find(A_BLIP)
                         if blip is None:
                             continue
 
-                        # Get the relationship ID
-                        embed_rid = blip.get(f"{{{NS['r']}}}embed", "")
+                        embed_rid = blip.get(R_EMBED, "")
                         if not embed_rid or embed_rid not in rid_to_image:
                             continue
 
@@ -661,12 +641,8 @@ def _extract_images_from_zip(
 
                         # Read the image data
                         image_bytes = ctx.read_bytes(image_path)
-                        image_data = io.BytesIO(image_bytes)
-                        size_bytes = len(image_bytes)
-
-                        # Get filename from path
                         filename = image_path.rsplit("/", 1)[-1]
-                        content_type = _get_content_type(filename)
+
                         if width <= 0 or height <= 0:
                             width, height = _get_image_pixel_dimensions(image_bytes)
 
@@ -676,9 +652,9 @@ def _extract_images_from_zip(
                                 image_index=image_counter,
                                 sheet_index=sheet_idx,
                                 filename=filename,
-                                content_type=content_type,
-                                data=image_data,
-                                size_bytes=size_bytes,
+                                content_type=_get_content_type(filename),
+                                data=io.BytesIO(image_bytes),
+                                size_bytes=len(image_bytes),
                                 width=width,
                                 height=height,
                                 caption=caption,
@@ -687,21 +663,20 @@ def _extract_images_from_zip(
                         )
 
                     except Exception as e:
-                        logger.warning(f"Failed to extract image from drawing: {e}")
-                        continue
+                        logger.debug(f"Failed to extract image from drawing: {e}")
 
             if sheet_images:
                 images_by_sheet[sheet_idx] = sheet_images
 
     except Exception as e:
-        logger.warning(f"Failed to extract images from XLSX: {e}")
+        logger.debug(f"Failed to extract images from XLSX: {e}")
     finally:
         ctx.close()
 
     return images_by_sheet
 
 
-def _read_content(file_like: io.BytesIO) -> List[XlsxSheet]:
+def _read_content(file_like: io.BytesIO) -> list[XlsxSheet]:
     """
     Read all sheets from an XLSX file and extract their content.
 
@@ -724,30 +699,28 @@ def _read_content(file_like: io.BytesIO) -> List[XlsxSheet]:
         - Empty sheets have empty data and text
         - Workbook is closed after extraction
     """
-    logger.debug("Reading content")
     file_like.seek(0)
     wb = load_workbook(file_like, read_only=True, data_only=True)
 
     sheet_names = list(wb.sheetnames)
-    sheets = []
+    sheets: list[XlsxSheet] = []
+
     for sheet_name in sheet_names:
-        logger.debug(f"Reading sheet: [{sheet_name}]")
         ws = wb[sheet_name]
         records, all_rows = _read_sheet_data(ws)
         text = _format_sheet_as_text(all_rows)
 
-        # Determine data rows: skip first row if it's just a table name
-        if all_rows and _is_table_name_row(all_rows[0]):
-            data_rows = all_rows[1:]
-        else:
-            data_rows = all_rows
+        # Skip first row if it's just a table name
+        data_rows = (
+            all_rows[1:] if all_rows and _is_table_name_row(all_rows[0]) else all_rows
+        )
 
         sheets.append(
             XlsxSheet(
                 name=str(sheet_name),
                 data=data_rows,
                 text=text,
-                images=[],  # Will be populated in the image extraction pass
+                images=[],
             )
         )
 
@@ -759,9 +732,6 @@ def _read_content(file_like: io.BytesIO) -> List[XlsxSheet]:
     for sheet_idx, sheet_images in images_by_sheet.items():
         if sheet_idx < len(sheets):
             sheets[sheet_idx].images = sheet_images
-            logger.debug(
-                f"Extracted {len(sheet_images)} images from sheet: [{sheet_names[sheet_idx]}]"
-            )
 
     return sheets
 
