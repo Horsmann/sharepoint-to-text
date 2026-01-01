@@ -6,6 +6,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Protocol
 
+from sharepoint2text.extractors.serialization import serialize_extraction
+
 logger = logging.getLogger(__name__)
 
 
@@ -153,6 +155,11 @@ class ExtractionInterface(Protocol):
         """Returns the metadata of the extracted file"""
         ...
 
+    @abstractmethod
+    def to_json(self) -> dict:
+        """Returns a JSON-serializable dictionary representation."""
+        ...
+
 
 @dataclass
 class EmailAddress:
@@ -264,6 +271,9 @@ class EmailContent(ExtractionInterface):
     def get_metadata(self) -> EmailMetadata:
         return self.metadata
 
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
+
 
 ############
 # legacy doc
@@ -345,6 +355,9 @@ class DocContent(ExtractionInterface):
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
         yield from ()
         return
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
 
 
 ##############
@@ -524,6 +537,9 @@ class DocxContent(ExtractionInterface):
     def get_metadata(self) -> DocxMetadata:
         return self.metadata
 
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
+
 
 ######
 # PDF
@@ -617,6 +633,9 @@ class PdfContent(ExtractionInterface):
             for table in page.tables:
                 yield TableData(data=table)
 
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
+
 
 #########
 # Plain
@@ -647,6 +666,9 @@ class PlainTextContent(ExtractionInterface):
 
     def __post_init__(self):
         self.content = self.content.strip()
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
 
 
 ########
@@ -692,6 +714,9 @@ class HtmlContent(ExtractionInterface):
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
         for table in self.tables:
             yield TableData(data=table)
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
 
 
 #############
@@ -826,6 +851,9 @@ class PptContent(ExtractionInterface):
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
         yield from ()
         return
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
 
 
 ##############
@@ -994,6 +1022,9 @@ class PptxContent(ExtractionInterface):
         yield from ()
         return
 
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
+
 
 #############
 # Legacy XLS
@@ -1057,6 +1088,9 @@ class XlsContent(ExtractionInterface):
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
         for sheet in self.sheets:
             yield sheet
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
 
 
 ##############
@@ -1161,6 +1195,9 @@ class XlsxContent(ExtractionInterface):
         """A single sheet is considered a full table"""
         for sheet in self.sheets:
             yield sheet
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
 
 
 #############################
@@ -1369,6 +1406,9 @@ class OdpContent(ExtractionInterface):
             for table in slide.tables:
                 yield TableData(data=table)
 
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
+
 
 ##################################
 # OpenDocument ODS (Spreadsheet) #
@@ -1428,6 +1468,9 @@ class OdsContent(ExtractionInterface):
         """Ods is a spreadsheet format. The entire sheet is returned as table object"""
         for sheet in self.sheets:
             yield sheet
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
 
 
 ####################################
@@ -1555,6 +1598,9 @@ class OdtContent(ExtractionInterface):
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
         for table in self.tables:
             yield table
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
 
 
 #######
@@ -1760,3 +1806,6 @@ class RtfContent(ExtractionInterface):
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
         yield from ()
         return
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
