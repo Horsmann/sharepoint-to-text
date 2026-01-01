@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.6.0]
+## [Released]
+
+## [0.6.0] - 2026-01-01
 - 0.6.0 focuses on reliability and richer extraction coverage: core data types and interfaces now capture tables, images, and formula output more consistently across formats, and extractor behavior has been tightened with broader fixtures and tests to validate real-world edge cases.
 - Email handling expands beyond bodies to include binary attachment extraction and downstream processing; attachments now carry MIME metadata, support checks, and can be iterated through the same extractor pipeline when supported.
 - A dedicated encryption detection layer now prevents unsupported protected files from being partially parsed, with a consistent exception raised across PDF, modern OOXML, ODF, and legacy Office formats.
@@ -32,8 +34,6 @@ PRs
 - Feature/legacy image extraction (#14)
 - Feature/pptx tables (#15)
 - Feature/security xml (#16)
-
-## [Released]
 
 ## [0.5.0] - 2025-12-29
 - Added support for open office file formats
