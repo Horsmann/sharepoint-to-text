@@ -355,6 +355,12 @@ To emit structured output, use `--json` (prints `result.to_json()` to stdout).
 sharepoint2text --json /path/to/file.pdf > extraction.json
 ```
 
+Some formats include binary payloads (e.g., embedded images in Office/PDF files, email attachments). To keep JSON output small, use `--no-binary` to emit `null` for binary fields instead of base64 blobs:
+
+```bash
+sharepoint2text --json --no-binary /path/to/file.pdf > extraction.no-binary.json
+```
+
 - Without `--json`, multiple items (e.g. `.mbox`) are separated by a blank line.
 - With `--json`, stdout is a single JSON object (one item) or a JSON array (multiple items).
 

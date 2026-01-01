@@ -8,6 +8,7 @@ from typing import Sequence
 
 import sharepoint2text
 from sharepoint2text.extractors.data_types import ExtractionInterface
+from sharepoint2text.extractors.serialization import serialize_extraction
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -25,13 +26,23 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Emit structured JSON (result.to_json()) instead of plain full text.",
     )
+    parser.add_argument(
+        "--no-binary",
+        action="store_true",
+        help="With --json, omit binary payloads (images/attachments) from output (emit null instead).",
+    )
     return parser
 
 
-def _serialize_results(results: list[ExtractionInterface]) -> dict | list[dict]:
+def _serialize_results(
+    results: list[ExtractionInterface], *, include_binary: bool
+) -> dict | list[dict]:
     if len(results) == 1:
-        return results[0].to_json()
-    return [result.to_json() for result in results]
+        return serialize_extraction(results[0], include_binary=include_binary)
+    return [
+        serialize_extraction(result, include_binary=include_binary)
+        for result in results
+    ]
 
 
 def _serialize_full_text(results: list[ExtractionInterface]) -> str:
@@ -43,11 +54,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        if args.no_binary and not args.json:
+            raise ValueError("--no-binary requires --json")
         results = list(sharepoint2text.read_file(args.path))
         if not results:
             raise RuntimeError(f"No extraction results for {args.path}")
         if args.json:
-            payload = _serialize_results(results)
+            payload = _serialize_results(results, include_binary=not args.no_binary)
             json.dump(payload, sys.stdout)
             sys.stdout.write("\n")
         else:
