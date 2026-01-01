@@ -97,21 +97,27 @@ If you want to add support for a new file format:
 
 1. Create a new extractor module in `sharepoint2text/extractors/`:
    - Follow the naming convention: `{format}_extractor.py`
-   - Implement a `read_{format}(file: io.BytesIO) -> dict` function
-   - Return a dictionary with consistent structure (metadata, content, etc.)
+   - Implement a `read_{format}(file_like: io.BytesIO, path: str | None = None)` function
+   - Return a **generator** yielding one or more typed dataclasses that implement `ExtractionInterface`
+   - Populate file metadata via `metadata.populate_from_path(path)` when `path` is provided
+   - Keep behavior consistent with existing extractors:
+     - Single-document formats yield exactly one item (e.g., `.pdf`, `.docx`)
+     - Multi-item formats yield multiple items (notably `.mbox`, one per email)
 
 2. Update `sharepoint2text/router.py`:
-   - Add the MIME type mapping
-   - Add the extractor mapping
+   - Add the extension → extractor registration in `_EXTRACTOR_REGISTRY`
+   - If needed, add a MIME type entry in `sharepoint2text/mime_types.py` so MIME-based detection can route too
+   - If your extension has common aliases (e.g., `.htm` vs `.html`), add an alias in the router so detection is OS-independent
 
 3. Add tests in `sharepoint2text/tests/`:
    - Create test fixtures in `sharepoint2text/tests/resources/`
    - Add extraction tests in `test_extractions.py`
    - Add router tests in `test_router.py`
+   - If your output supports `to_json()`, add a round-trip check (serialize → deserialize) in `test_serialization.py`
 
 4. Update documentation:
    - Add the format to the README.md supported formats table
-   - Document the return structure
+   - Document the return type and what `iterate_text()` yields for the format
 
 ## Code Style Guidelines
 
@@ -119,6 +125,16 @@ If you want to add support for a new file format:
 - Use type hints for function parameters and return values
 - Write docstrings for public functions and classes
 - Keep functions focused and reasonably sized
+
+## Design Notes
+
+- **Prefer dataclasses** for extraction outputs. They work with `to_json()`/`from_json()` via the shared serialization layer in `sharepoint2text/extractors/serialization.py`.
+- **Keep routing deterministic**: extension-based routing should work regardless of platform MIME databases; MIME routing is a helpful secondary path.
+- **Use library exceptions** from `sharepoint2text/exceptions.py` for user-facing failure modes:
+  - `ExtractionFileFormatNotSupportedError` for unsupported formats
+  - `ExtractionFileEncryptedError` for password-protected/encrypted content
+  - `LegacyMicrosoftParsingError` for legacy Office parsing failures
+  - `ExtractionFailedError` for unexpected extraction failures (usually wrapped by `read_file`)
 
 ## Notes on pip
 
