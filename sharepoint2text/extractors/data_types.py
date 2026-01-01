@@ -996,6 +996,7 @@ class PptxSlide:
     footer: str = ""
     content_placeholders: List[str] = field(default_factory=list)
     other_textboxes: List[str] = field(default_factory=list)
+    tables: List[List[List[str]]] = field(default_factory=list)
     images: List[PptxImage] = field(default_factory=list)
     formulas: List[PptxFormula] = field(default_factory=list)
     comments: List[PptxComment] = field(default_factory=list)
@@ -1083,8 +1084,9 @@ class PptxContent(ExtractionInterface):
                 yield img
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
-        yield from ()
-        return
+        for slide in self.slides:
+            for table in slide.tables:
+                yield TableData(data=table)
 
     def to_json(self) -> dict:
         return serialize_extraction(self)
