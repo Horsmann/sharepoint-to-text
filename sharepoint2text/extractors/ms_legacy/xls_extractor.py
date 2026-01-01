@@ -108,15 +108,22 @@ Maintenance Notes
 - Empty sheets produce empty text output
 """
 
+import hashlib
 import io
 import logging
+import struct
 from typing import Any, Dict, Generator, List
 
 import olefile
 import xlrd
 
 from sharepoint2text.exceptions import ExtractionFileEncryptedError
-from sharepoint2text.extractors.data_types import XlsContent, XlsMetadata, XlsSheet
+from sharepoint2text.extractors.data_types import (
+    XlsContent,
+    XlsImage,
+    XlsMetadata,
+    XlsSheet,
+)
 from sharepoint2text.extractors.util.encryption import is_xls_encrypted
 
 logger = logging.getLogger(__name__)
@@ -446,8 +453,335 @@ def read_xls(
 
     full_text = "\n\n".join(sheet.text for sheet in sheets)
 
+    # Extract images from the Workbook stream
+    file_like.seek(0)
+    images = _extract_images_from_workbook(file_like)
+
     yield XlsContent(
         metadata=metadata,
         sheets=sheets,
+        images=images,
         full_text=full_text,
     )
+
+
+# =============================================================================
+# Image Extraction from Workbook Stream
+# =============================================================================
+
+# OfficeArtBlip record type constants (from MS-ODRAW specification)
+# These are the recType values that identify image formats in the Workbook stream
+BLIP_TYPE_EMF = 0xF01A  # OfficeArtBlipEMF - Enhanced Metafile
+BLIP_TYPE_WMF = 0xF01B  # OfficeArtBlipWMF - Windows Metafile
+BLIP_TYPE_PICT = 0xF01C  # OfficeArtBlipPICT - Macintosh PICT
+BLIP_TYPE_JPEG = 0xF01D  # OfficeArtBlipJPEG - JPEG image
+BLIP_TYPE_PNG = 0xF01E  # OfficeArtBlipPNG - PNG image
+BLIP_TYPE_DIB = 0xF01F  # OfficeArtBlipDIB - Device Independent Bitmap
+BLIP_TYPE_TIFF = 0xF029  # OfficeArtBlipTIFF - TIFF image
+
+# recInstance values that indicate the BLIP type (used for secondary UID detection)
+BLIP_INSTANCE_PNG = 0x6E0
+BLIP_INSTANCE_PNG_2 = 0x6E1  # Has secondary UID
+BLIP_INSTANCE_JPEG = 0x46A
+BLIP_INSTANCE_JPEG_2 = 0x46B  # Has secondary UID or CMYK
+
+# Image signatures for detection
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+JPEG_SIGNATURE = b"\xff\xd8\xff"
+GIF_SIGNATURE = b"GIF8"
+BMP_SIGNATURE = b"BM"
+TIFF_LE_SIGNATURE = b"II\x2a\x00"
+TIFF_BE_SIGNATURE = b"MM\x00\x2a"
+
+
+def _detect_image_type(data: bytes) -> tuple[str, str] | None:
+    """
+    Detect image type from binary data by checking signatures.
+
+    Args:
+        data: Raw image bytes.
+
+    Returns:
+        Tuple of (extension, content_type) or None if not recognized.
+    """
+    if len(data) < 8:
+        return None
+
+    if data[:8] == PNG_SIGNATURE:
+        return ("png", "image/png")
+    if data[:3] == JPEG_SIGNATURE:
+        return ("jpeg", "image/jpeg")
+    if data[:4] == GIF_SIGNATURE:
+        return ("gif", "image/gif")
+    if data[:2] == BMP_SIGNATURE:
+        return ("bmp", "image/bmp")
+    if data[:4] == TIFF_LE_SIGNATURE or data[:4] == TIFF_BE_SIGNATURE:
+        return ("tiff", "image/tiff")
+
+    return None
+
+
+def _extract_images_from_workbook(file_like: io.BytesIO) -> List[XlsImage]:
+    """
+    Extract images from the Workbook stream of an XLS file.
+
+    XLS files store images in the Workbook stream using OfficeArt BLIP
+    (Binary Large Image Picture) format, the same format used by PPT files.
+
+    Args:
+        file_like: BytesIO containing the XLS file data.
+
+    Returns:
+        List of XlsImage objects with extracted image data.
+
+    Notes:
+        - Supports PNG, JPEG, GIF, BMP, and TIFF formats
+        - EMF/WMF metafiles are extracted but may not be widely supported
+        - Image dimensions are extracted where available
+    """
+    images: List[XlsImage] = []
+
+    file_like.seek(0)
+    if not olefile.isOleFile(file_like):
+        return images
+
+    file_like.seek(0)
+
+    try:
+        ole = olefile.OleFileIO(file_like)
+        if not ole.exists("Workbook"):
+            ole.close()
+            return images
+
+        workbook_stream = ole.openstream("Workbook")
+        data = workbook_stream.read()
+        ole.close()
+    except Exception as e:
+        logger.debug(f"Failed to read Workbook stream: {e}")
+        return images
+
+    if len(data) < 25:
+        return images
+
+    image_index = 0
+    seen_hashes: set[str] = set()
+
+    # Scan for BLIP records in the stream
+    offset = 0
+    while offset < len(data) - 8:
+        # Check for OfficeArt record header
+        try:
+            rec_ver_instance = struct.unpack("<H", data[offset : offset + 2])[0]
+            rec_type = struct.unpack("<H", data[offset + 2 : offset + 4])[0]
+            rec_len = struct.unpack("<I", data[offset + 4 : offset + 8])[0]
+        except struct.error:
+            offset += 1
+            continue
+
+        # Validate record length
+        if rec_len <= 0 or rec_len > len(data) - offset - 8:
+            offset += 1
+            continue
+
+        # Check if this is a BLIP record
+        is_blip = rec_type in (
+            BLIP_TYPE_EMF,
+            BLIP_TYPE_WMF,
+            BLIP_TYPE_PICT,
+            BLIP_TYPE_JPEG,
+            BLIP_TYPE_PNG,
+            BLIP_TYPE_DIB,
+            BLIP_TYPE_TIFF,
+        )
+
+        if is_blip:
+            record_data = data[offset + 8 : offset + 8 + rec_len]
+
+            if len(record_data) > 17:
+                # BLIP structure:
+                # - 16 bytes: rgbUid1 (MD4 hash of image data)
+                # - 1 byte: tag
+                # - remaining: image data
+
+                blip_header_size = 17
+
+                # Check for secondary UID
+                rec_instance = (rec_ver_instance >> 4) & 0x0FFF
+                if rec_instance in (BLIP_INSTANCE_PNG_2, BLIP_INSTANCE_JPEG_2):
+                    blip_header_size = 33
+
+                if blip_header_size < len(record_data):
+                    image_data = record_data[blip_header_size:]
+
+                    # Detect image type
+                    detected = _detect_image_type(image_data)
+
+                    if detected is None:
+                        # Handle metafiles
+                        if rec_type == BLIP_TYPE_EMF:
+                            detected = ("emf", "image/x-emf")
+                        elif rec_type == BLIP_TYPE_WMF:
+                            detected = ("wmf", "image/x-wmf")
+                        elif rec_type == BLIP_TYPE_DIB:
+                            image_data = _wrap_dib_as_bmp(image_data)
+                            if image_data:
+                                detected = ("bmp", "image/bmp")
+
+                    if detected and len(image_data) > 0:
+                        # Deduplicate by hash
+                        digest = hashlib.sha1(image_data).hexdigest()
+                        if digest not in seen_hashes:
+                            seen_hashes.add(digest)
+                            image_index += 1
+
+                            width, height = _get_image_dimensions(
+                                image_data, detected[0]
+                            )
+
+                            images.append(
+                                XlsImage(
+                                    image_index=image_index,
+                                    content_type=detected[1],
+                                    data=image_data,
+                                    size_bytes=len(image_data),
+                                    width=width,
+                                    height=height,
+                                )
+                            )
+
+            # Skip to next record
+            offset += 8 + rec_len
+        else:
+            offset += 1
+
+    return images
+
+
+def _wrap_dib_as_bmp(dib_data: bytes) -> bytes | None:
+    """
+    Wrap DIB (Device Independent Bitmap) data in a BMP file header.
+
+    Args:
+        dib_data: Raw DIB data starting with BITMAPINFOHEADER.
+
+    Returns:
+        Complete BMP file data or None if invalid DIB.
+    """
+    if len(dib_data) < 40:
+        return None
+
+    header_size = struct.unpack_from("<I", dib_data, 0)[0]
+    if header_size != 40:
+        return None
+
+    try:
+        bits_per_pixel = struct.unpack_from("<H", dib_data, 14)[0]
+
+        if bits_per_pixel not in (1, 4, 8, 16, 24, 32):
+            return None
+
+        color_table_size = 0
+        if bits_per_pixel <= 8:
+            color_table_size = (1 << bits_per_pixel) * 4
+
+        file_size = 14 + len(dib_data)
+        pixel_offset = 14 + header_size + color_table_size
+
+        bmp_header = b"BM" + struct.pack("<IHHI", file_size, 0, 0, pixel_offset)
+        return bmp_header + dib_data
+
+    except struct.error:
+        return None
+
+
+def _get_image_dimensions(
+    data: bytes, image_type: str
+) -> tuple[int | None, int | None]:
+    """
+    Extract image dimensions from image data.
+
+    Args:
+        data: Image binary data.
+        image_type: Image type extension (png, jpeg, bmp, etc.)
+
+    Returns:
+        Tuple of (width, height) or (None, None) if not extractable.
+    """
+    try:
+        if image_type == "png" and len(data) >= 24:
+            if data[12:16] == b"IHDR":
+                width = struct.unpack(">I", data[16:20])[0]
+                height = struct.unpack(">I", data[20:24])[0]
+                return (width, height)
+
+        elif image_type in ("jpeg", "jpg") and len(data) >= 4:
+            return _get_jpeg_dimensions(data)
+
+        elif image_type == "bmp" and len(data) >= 26:
+            if data[:2] == b"BM":
+                width = struct.unpack_from("<i", data, 18)[0]
+                height = abs(struct.unpack_from("<i", data, 22)[0])
+                return (width, height)
+
+        elif image_type == "gif" and len(data) >= 10:
+            width = struct.unpack_from("<H", data, 6)[0]
+            height = struct.unpack_from("<H", data, 8)[0]
+            return (width, height)
+
+    except (struct.error, IndexError):
+        pass
+
+    return (None, None)
+
+
+def _get_jpeg_dimensions(data: bytes) -> tuple[int | None, int | None]:
+    """
+    Extract dimensions from JPEG data by parsing markers.
+
+    Args:
+        data: JPEG binary data.
+
+    Returns:
+        Tuple of (width, height) or (None, None) if not found.
+    """
+    offset = 2  # Skip SOI marker
+
+    while offset < len(data) - 9:
+        if data[offset] != 0xFF:
+            offset += 1
+            continue
+
+        marker = data[offset + 1]
+
+        if marker == 0xFF:
+            offset += 1
+            continue
+
+        # Start of Frame markers
+        if marker in (
+            0xC0,
+            0xC1,
+            0xC2,
+            0xC3,
+            0xC5,
+            0xC6,
+            0xC7,
+            0xC9,
+            0xCA,
+            0xCB,
+            0xCD,
+            0xCE,
+            0xCF,
+        ):
+            if offset + 9 <= len(data):
+                height = struct.unpack(">H", data[offset + 5 : offset + 7])[0]
+                width = struct.unpack(">H", data[offset + 7 : offset + 9])[0]
+                return (width, height)
+
+        if offset + 4 <= len(data):
+            segment_len = struct.unpack(">H", data[offset + 2 : offset + 4])[0]
+            offset += 2 + segment_len
+        else:
+            break
+
+    return (None, None)

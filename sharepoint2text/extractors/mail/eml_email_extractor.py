@@ -262,11 +262,6 @@ def read_eml_format_mail(
     if path:
         content.metadata.populate_from_path(path)
 
-    logger.info(
-        "Extracted EML: from=%s, to=%d recipients, subject=%s",
-        content.from_email.address,
-        len(content.to_emails),
-        content.subject[:50] if content.subject else "(no subject)",
-    )
+    logger.info("Extracted EML")
 
     yield content

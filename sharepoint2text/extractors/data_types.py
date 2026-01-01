@@ -760,6 +760,42 @@ PPT_TEXT_TYPE_QUARTER_BODY = 8  # Quarter body
 
 
 @dataclass
+class PptImage(ImageInterface):
+    """Represents an embedded image in a legacy PPT file."""
+
+    image_index: int = 0
+    content_type: str = ""
+    data: bytes = b""
+    size_bytes: int = 0
+    width: Optional[int] = None
+    height: Optional[int] = None
+    slide_number: int = 0
+
+    def get_bytes(self) -> io.BytesIO:
+        fl = io.BytesIO(self.data)
+        fl.seek(0)
+        return fl
+
+    def get_content_type(self) -> str:
+        return self.content_type.strip()
+
+    def get_caption(self) -> str:
+        return ""
+
+    def get_description(self) -> str:
+        return ""
+
+    def get_metadata(self) -> ImageMetadata:
+        return ImageMetadata(
+            image_index=self.image_index,
+            content_type=self.content_type,
+            unit_index=self.slide_number if self.slide_number > 0 else None,
+            width=self.width if self.width is not None and self.width > 0 else None,
+            height=self.height if self.height is not None and self.height > 0 else None,
+        )
+
+
+@dataclass
 class PptMetadata(FileMetadataInterface):
     """Metadata extracted from a PPT file."""
 
@@ -817,6 +853,7 @@ class PptSlideContent:
     other_text: list[str] = field(default_factory=list)
     all_text: list[PptTextBlock] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    images: list["PptImage"] = field(default_factory=list)
 
     @property
     def text_combined(self) -> str:
@@ -870,8 +907,10 @@ class PptContent(ExtractionInterface):
         return len(self.slides)
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
-        yield from ()
-        return
+        """Iterate over images from all slides."""
+        for slide in self.slides:
+            for img in slide.images:
+                yield img
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
         yield from ()
@@ -1057,6 +1096,41 @@ class PptxContent(ExtractionInterface):
 
 
 @dataclass
+class XlsImage(ImageInterface):
+    """Represents an embedded image in a legacy XLS file."""
+
+    image_index: int = 0
+    content_type: str = ""
+    data: bytes = b""
+    size_bytes: int = 0
+    width: Optional[int] = None
+    height: Optional[int] = None
+
+    def get_bytes(self) -> io.BytesIO:
+        fl = io.BytesIO(self.data)
+        fl.seek(0)
+        return fl
+
+    def get_content_type(self) -> str:
+        return self.content_type.strip()
+
+    def get_caption(self) -> str:
+        return ""
+
+    def get_description(self) -> str:
+        return ""
+
+    def get_metadata(self) -> ImageMetadata:
+        return ImageMetadata(
+            image_index=self.image_index,
+            content_type=self.content_type,
+            unit_index=None,  # XLS images are workbook-level, not sheet-level
+            width=self.width if self.width is not None and self.width > 0 else None,
+            height=self.height if self.height is not None and self.height > 0 else None,
+        )
+
+
+@dataclass
 class XlsMetadata(FileMetadataInterface):
     title: str = ""
     author: str = ""
@@ -1093,6 +1167,7 @@ class XlsSheet(TableInterface):
 class XlsContent(ExtractionInterface):
     metadata: XlsMetadata = field(default_factory=XlsMetadata)
     sheets: List[XlsSheet] = field(default_factory=list)
+    images: List[XlsImage] = field(default_factory=list)
     full_text: str = ""
 
     def iterate_text(self) -> typing.Iterator[str]:
@@ -1107,8 +1182,9 @@ class XlsContent(ExtractionInterface):
         return self.metadata
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
-        yield from ()
-        return
+        """Iterate over images from the workbook."""
+        for img in self.images:
+            yield img
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
         for sheet in self.sheets:
