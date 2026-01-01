@@ -113,9 +113,40 @@ from sharepoint2text.extractors.data_types import (
     EmailContent,
     EmailMetadata,
 )
+from sharepoint2text.extractors.html_extractor import (
+    _HtmlTextExtractor,
+    _HtmlTreeBuilder,
+)
 from sharepoint2text.mime_types import is_supported_mime_type
 
 logger = logging.getLogger(__name__)
+
+_HTML_HINT_RE = re.compile(
+    r"<(html|head|body|p|div|br|span|table|tr|td|style|script)(\\s|>)",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_html(text: str) -> bool:
+    if not text:
+        return False
+    lowered = text.lstrip().lower()
+    if lowered.startswith("<!doctype") or "<html" in lowered or "<body" in lowered:
+        return True
+    return _HTML_HINT_RE.search(text) is not None
+
+
+def _html_to_text(html_text: str) -> str:
+    try:
+        parser = _HtmlTreeBuilder()
+        parser.feed(html_text)
+        root = parser.get_tree()
+        extractor = _HtmlTextExtractor(root)
+        text = extractor.extract()
+        text = text.replace("\u200b", "").replace("\ufeff", "")
+        return text.strip()
+    except Exception:
+        return html_text.strip()
 
 
 def _read_ole_string(ole: OleFileIO, storage: str, stream_name: str) -> str:
@@ -328,7 +359,7 @@ def read_msg_format_mail(
         - Sender is extracted via sender property and parsed as recipient list
         - To, Cc, Bcc fields may be strings or lists depending on msg_parser version
         - reply_to is stored directly from msg_parser (not parsed as addresses)
-        - body_plain and body_html both use msg.body (plain text from msg_parser)
+        - body_plain is plain text; HTML is converted when detected
         - Attachments are returned as EmailAttachment dataclasses
         - For HTML body, additional extraction from RTF may be needed
 
@@ -339,8 +370,7 @@ def read_msg_format_mail(
         - HTML body extraction could be enhanced by parsing RTF content
 
     Known Issues:
-        - body_html currently duplicates body_plain; true HTML extraction
-          would require parsing PidTagBodyHtml or converting compressed RTF
+        - body_html uses the raw HTML body when detected
         - reply_to is stored as raw value, not parsed to EmailAddress list
           (this differs from EML/MBOX extractors)
     """
@@ -361,6 +391,14 @@ def read_msg_format_mail(
 
     attachments = _extract_msg_attachments(file_bytes)
 
+    raw_body = msg.body or ""
+    if _looks_like_html(raw_body):
+        body_plain = _html_to_text(raw_body)
+        body_html = raw_body
+    else:
+        body_plain = raw_body
+        body_html = ""
+
     content = EmailContent(
         subject=msg.subject,
         from_email=from_email,
@@ -368,8 +406,8 @@ def read_msg_format_mail(
         to_cc=_parse_multi_recipients(msg.cc),
         to_bcc=_parse_multi_recipients(msg.bcc),
         reply_to=msg.reply_to,  # Note: stored as-is, not parsed to EmailAddress list
-        body_plain=msg.body,
-        body_html=msg.body,  # Note: same as plain; true HTML requires RTF parsing
+        body_plain=body_plain,
+        body_html=body_html,
         attachments=attachments,
         metadata=meta,
     )

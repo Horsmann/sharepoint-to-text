@@ -1013,7 +1013,8 @@ def test_email__msg_format_with_attachment() -> None:
     # subject
     tc.assertEqual("Test .msg with attachment", mail.subject)
     # body
-    tc.assertEqual("<html><head>", mail.body_plain[:12])
+    tc.assertEqual("", mail.body_plain)
+    tc.assertEqual("<html><head>", mail.body_html[:12])
 
     # metadata
     mail_meta = mail.get_metadata()
