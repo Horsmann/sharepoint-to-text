@@ -103,6 +103,7 @@ Maintenance Notes
 - Text cleaning handles control characters from various PPT versions
 """
 
+import hashlib
 import logging
 import struct
 from datetime import datetime
@@ -123,6 +124,7 @@ from sharepoint2text.extractors.data_types import (
     PPT_TEXT_TYPE_QUARTER_BODY,
     PPT_TEXT_TYPE_TITLE,
     PptContent,
+    PptImage,
     PptMetadata,
     PptSlideContent,
     PptTextBlock,
@@ -273,12 +275,51 @@ def _extract_ppt_content_structured(file_like: BinaryIO) -> PptContent:
 
             # Parse the document structure
             _parse_ppt_document(stream_data, content)
+
+            # Extract images from Pictures stream
+            images = _extract_images_from_pictures_stream(ole)
+            if images:
+                _distribute_images_to_slides(content, images)
         else:
             raise LegacyMicrosoftParsingError(
                 message="No 'PowerPoint Document' stream found - may not be a valid PPT file"
             )
 
     return content
+
+
+def _distribute_images_to_slides(content: PptContent, images: list[PptImage]) -> None:
+    """
+    Distribute extracted images to slides.
+
+    In PPT format, images are stored in a separate Pictures stream without
+    direct references to which slide they belong to. This function distributes
+    images to slides based on the number of slides and images.
+
+    For simple cases:
+    - If there's only one slide, all images go to that slide
+    - If there are equal numbers of slides and images, one image per slide
+    - Otherwise, images are distributed round-robin across slides
+
+    Args:
+        content: PptContent object with slides populated.
+        images: List of extracted PptImage objects.
+    """
+    if not images:
+        return
+
+    # Ensure there's at least one slide
+    if not content.slides:
+        # Create a placeholder slide if none exist
+        content.slides.append(PptSlideContent(slide_number=1))
+
+    num_slides = len(content.slides)
+
+    # Distribute images to slides
+    for i, image in enumerate(images):
+        slide_index = i % num_slides
+        image.slide_number = content.slides[slide_index].slide_number
+        content.slides[slide_index].images.append(image)
 
 
 def _extract_metadata(ole: olefile.OleFileIO) -> PptMetadata:
@@ -1020,3 +1061,339 @@ def _extract_ppt_metadata(file_like: BinaryIO) -> PptMetadata:
 
     with olefile.OleFileIO(file_like) as ole:
         return _extract_metadata(ole)
+
+
+# =============================================================================
+# Image Extraction from Pictures Stream
+# =============================================================================
+
+# OfficeArtBlip record type constants (from MS-ODRAW specification)
+# These are the recType values that identify image formats in the Pictures stream
+BLIP_TYPE_EMF = 0xF01A  # OfficeArtBlipEMF - Enhanced Metafile
+BLIP_TYPE_WMF = 0xF01B  # OfficeArtBlipWMF - Windows Metafile
+BLIP_TYPE_PICT = 0xF01C  # OfficeArtBlipPICT - Macintosh PICT
+BLIP_TYPE_JPEG = 0xF01D  # OfficeArtBlipJPEG - JPEG image
+BLIP_TYPE_PNG = 0xF01E  # OfficeArtBlipPNG - PNG image
+BLIP_TYPE_DIB = 0xF01F  # OfficeArtBlipDIB - Device Independent Bitmap
+BLIP_TYPE_TIFF = 0xF029  # OfficeArtBlipTIFF - TIFF image
+
+# recInstance values that indicate the BLIP type (used for secondary UID detection)
+BLIP_INSTANCE_PNG = 0x6E0
+BLIP_INSTANCE_PNG_2 = 0x6E1  # Has secondary UID
+BLIP_INSTANCE_JPEG = 0x46A
+BLIP_INSTANCE_JPEG_2 = 0x46B  # Has secondary UID or CMYK
+
+# Image signatures for detection
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+JPEG_SIGNATURE = b"\xff\xd8\xff"
+GIF_SIGNATURE = b"GIF8"
+BMP_SIGNATURE = b"BM"
+TIFF_LE_SIGNATURE = b"II\x2a\x00"
+TIFF_BE_SIGNATURE = b"MM\x00\x2a"
+
+# Content type mapping
+CONTENT_TYPE_MAP = {
+    "png": "image/png",
+    "jpeg": "image/jpeg",
+    "jpg": "image/jpeg",
+    "gif": "image/gif",
+    "bmp": "image/bmp",
+    "tiff": "image/tiff",
+    "emf": "image/x-emf",
+    "wmf": "image/x-wmf",
+}
+
+
+def _detect_image_type(data: bytes) -> tuple[str, str] | None:
+    """
+    Detect image type from binary data by checking signatures.
+
+    Args:
+        data: Raw image bytes.
+
+    Returns:
+        Tuple of (extension, content_type) or None if not recognized.
+    """
+    if len(data) < 8:
+        return None
+
+    if data[:8] == PNG_SIGNATURE:
+        return ("png", "image/png")
+    if data[:3] == JPEG_SIGNATURE:
+        return ("jpeg", "image/jpeg")
+    if data[:4] == GIF_SIGNATURE:
+        return ("gif", "image/gif")
+    if data[:2] == BMP_SIGNATURE:
+        return ("bmp", "image/bmp")
+    if data[:4] == TIFF_LE_SIGNATURE or data[:4] == TIFF_BE_SIGNATURE:
+        return ("tiff", "image/tiff")
+
+    return None
+
+
+def _extract_images_from_pictures_stream(ole: olefile.OleFileIO) -> list[PptImage]:
+    """
+    Extract images from the Pictures stream of a PPT file.
+
+    The Pictures stream contains embedded images in BLIP (Binary Large Image
+    Picture) format. Each BLIP has a header followed by the actual image data.
+
+    Args:
+        ole: Open OleFileIO instance.
+
+    Returns:
+        List of PptImage objects with extracted image data.
+
+    Notes:
+        - Supports PNG, JPEG, GIF, BMP, and TIFF formats
+        - EMF/WMF metafiles are extracted but may not be widely supported
+        - Image dimensions are extracted where available
+    """
+    images: list[PptImage] = []
+
+    if not ole.exists("Pictures"):
+        return images
+
+    try:
+        pictures_stream = ole.openstream("Pictures")
+        data = pictures_stream.read()
+    except Exception as e:
+        logger.debug(f"Failed to read Pictures stream: {e}")
+        return images
+
+    if len(data) < 25:
+        return images
+
+    offset = 0
+    image_index = 0
+    seen_hashes: set[str] = set()
+
+    while offset < len(data) - 25:
+        # BLIP records have an 8-byte header:
+        # - 2 bytes: recVer (4 bits) + recInstance (12 bits)
+        # - 2 bytes: recType
+        # - 4 bytes: recLen
+        try:
+            rec_ver_instance = struct.unpack("<H", data[offset : offset + 2])[0]
+            rec_type = struct.unpack("<H", data[offset + 2 : offset + 4])[0]
+            rec_len = struct.unpack("<I", data[offset + 4 : offset + 8])[0]
+        except struct.error:
+            offset += 1
+            continue
+
+        if rec_len <= 0 or rec_len > len(data) - offset - 8:
+            offset += 1
+            continue
+
+        record_data = data[offset + 8 : offset + 8 + rec_len]
+
+        # Check if this is a BLIP record (image container)
+        # BLIP records have specific recType values (OfficeArtBlip* types)
+        is_blip = rec_type in (
+            BLIP_TYPE_EMF,
+            BLIP_TYPE_WMF,
+            BLIP_TYPE_PICT,
+            BLIP_TYPE_JPEG,
+            BLIP_TYPE_PNG,
+            BLIP_TYPE_DIB,
+            BLIP_TYPE_TIFF,
+        )
+
+        if is_blip and len(record_data) > 17:
+            # BLIP structure:
+            # - 16 bytes: rgbUid1 (MD4 hash of image data)
+            # - 1 byte: tag
+            # - remaining: image data (may have additional header depending on type)
+
+            # Skip the 17-byte BLIP header to find the actual image data
+            # For some types there's an additional 16 bytes for a secondary UID
+            blip_header_size = 17
+
+            # Check for secondary UID (indicated by instance value)
+            rec_instance = (rec_ver_instance >> 4) & 0x0FFF
+            if rec_instance in (BLIP_INSTANCE_PNG_2, BLIP_INSTANCE_JPEG_2):
+                # Has secondary UID (rgbUid2)
+                blip_header_size = 33
+
+            if blip_header_size < len(record_data):
+                image_data = record_data[blip_header_size:]
+
+                # Try to detect the actual image type from signatures
+                detected = _detect_image_type(image_data)
+
+                if detected is None:
+                    # For metafiles (EMF/WMF), we may not detect by signature
+                    # but still want to extract them
+                    if rec_type == BLIP_TYPE_EMF:
+                        detected = ("emf", "image/x-emf")
+                    elif rec_type == BLIP_TYPE_WMF:
+                        detected = ("wmf", "image/x-wmf")
+                    elif rec_type == BLIP_TYPE_DIB:
+                        # DIB needs BMP header wrapping
+                        image_data = _wrap_dib_as_bmp(image_data)
+                        if image_data:
+                            detected = ("bmp", "image/bmp")
+
+                if detected and len(image_data) > 0:
+                    # Compute hash to avoid duplicates
+                    digest = hashlib.sha1(image_data).hexdigest()
+                    if digest not in seen_hashes:
+                        seen_hashes.add(digest)
+                        image_index += 1
+
+                        # Try to extract dimensions for PNG/JPEG
+                        width, height = _get_image_dimensions(image_data, detected[0])
+
+                        images.append(
+                            PptImage(
+                                image_index=image_index,
+                                content_type=detected[1],
+                                data=image_data,
+                                size_bytes=len(image_data),
+                                width=width,
+                                height=height,
+                            )
+                        )
+
+        offset += 8 + rec_len
+
+    return images
+
+
+def _wrap_dib_as_bmp(dib_data: bytes) -> bytes | None:
+    """
+    Wrap DIB (Device Independent Bitmap) data in a BMP file header.
+
+    Args:
+        dib_data: Raw DIB data starting with BITMAPINFOHEADER.
+
+    Returns:
+        Complete BMP file data or None if invalid DIB.
+    """
+    if len(dib_data) < 40:
+        return None
+
+    # Check for BITMAPINFOHEADER (40 bytes)
+    header_size = struct.unpack_from("<I", dib_data, 0)[0]
+    if header_size != 40:
+        return None
+
+    try:
+        bits_per_pixel = struct.unpack_from("<H", dib_data, 14)[0]
+
+        if bits_per_pixel not in (1, 4, 8, 16, 24, 32):
+            return None
+
+        # Calculate color table size
+        color_table_size = 0
+        if bits_per_pixel <= 8:
+            color_table_size = (1 << bits_per_pixel) * 4
+
+        # BMP file header (14 bytes)
+        file_size = 14 + len(dib_data)
+        pixel_offset = 14 + header_size + color_table_size
+
+        bmp_header = b"BM" + struct.pack("<IHHI", file_size, 0, 0, pixel_offset)
+        return bmp_header + dib_data
+
+    except struct.error:
+        return None
+
+
+def _get_image_dimensions(
+    data: bytes, image_type: str
+) -> tuple[int | None, int | None]:
+    """
+    Extract image dimensions from image data.
+
+    Args:
+        data: Image binary data.
+        image_type: Image type extension (png, jpeg, bmp, etc.)
+
+    Returns:
+        Tuple of (width, height) or (None, None) if not extractable.
+    """
+    try:
+        if image_type == "png" and len(data) >= 24:
+            # PNG: IHDR chunk starts at byte 8, width at 16, height at 20
+            if data[12:16] == b"IHDR":
+                width = struct.unpack(">I", data[16:20])[0]
+                height = struct.unpack(">I", data[20:24])[0]
+                return (width, height)
+
+        elif image_type in ("jpeg", "jpg") and len(data) >= 4:
+            # JPEG: Need to parse markers to find SOF
+            return _get_jpeg_dimensions(data)
+
+        elif image_type == "bmp" and len(data) >= 26:
+            # BMP: Width at offset 18, height at offset 22
+            if data[:2] == b"BM":
+                width = struct.unpack_from("<i", data, 18)[0]
+                height = abs(struct.unpack_from("<i", data, 22)[0])
+                return (width, height)
+
+        elif image_type == "gif" and len(data) >= 10:
+            # GIF: Width at offset 6, height at offset 8
+            width = struct.unpack_from("<H", data, 6)[0]
+            height = struct.unpack_from("<H", data, 8)[0]
+            return (width, height)
+
+    except (struct.error, IndexError):
+        pass
+
+    return (None, None)
+
+
+def _get_jpeg_dimensions(data: bytes) -> tuple[int | None, int | None]:
+    """
+    Extract dimensions from JPEG data by parsing markers.
+
+    Args:
+        data: JPEG binary data.
+
+    Returns:
+        Tuple of (width, height) or (None, None) if not found.
+    """
+    offset = 2  # Skip SOI marker
+
+    while offset < len(data) - 9:
+        if data[offset] != 0xFF:
+            offset += 1
+            continue
+
+        marker = data[offset + 1]
+
+        # Skip padding bytes
+        if marker == 0xFF:
+            offset += 1
+            continue
+
+        # Start of Frame markers (SOF0-SOF15, excluding DHT, DAC, RST, SOI, EOI)
+        if marker in (
+            0xC0,
+            0xC1,
+            0xC2,
+            0xC3,
+            0xC5,
+            0xC6,
+            0xC7,
+            0xC9,
+            0xCA,
+            0xCB,
+            0xCD,
+            0xCE,
+            0xCF,
+        ):
+            if offset + 9 <= len(data):
+                height = struct.unpack(">H", data[offset + 5 : offset + 7])[0]
+                width = struct.unpack(">H", data[offset + 7 : offset + 9])[0]
+                return (width, height)
+
+        # Skip this marker segment
+        if offset + 4 <= len(data):
+            segment_len = struct.unpack(">H", data[offset + 2 : offset + 4])[0]
+            offset += 2 + segment_len
+        else:
+            break
+
+    return (None, None)

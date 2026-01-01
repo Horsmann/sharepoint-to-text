@@ -668,11 +668,63 @@ def test_read_ppt() -> None:
 
     # test iterator
     tc.assertEqual(48, len(list(ppt.iterate_text())))
-    tc.assertEqual(0, len(list(ppt.iterate_images())))
+    tc.assertEqual(6, len(list(ppt.iterate_images())))
     tc.assertEqual(0, len(list(ppt.iterate_tables())))
 
     # test full text
     tc.assertEqual("European Union", ppt.get_full_text()[:14])
+
+
+def test_read_ppt__image_extraction() -> None:
+    """Test image extraction from legacy PPT files."""
+    path = "sharepoint2text/tests/resources/legacy_ms/ppt_with_images.ppt"
+    ppt: PptContent = next(read_ppt(_read_file_to_file_like(path=path)))
+
+    # Basic structure
+    tc.assertEqual(2, ppt.slide_count)
+    tc.assertEqual(2, len(ppt.slides))
+
+    # Image extraction
+    images = list(ppt.iterate_images())
+    tc.assertEqual(2, len(images))
+
+    # First image (PNG)
+    img1 = images[0]
+    tc.assertEqual("image/png", img1.get_content_type())
+    tc.assertEqual(1, img1.image_index)
+    tc.assertEqual(1, img1.slide_number)
+    tc.assertEqual(1718, img1.width)
+    tc.assertEqual(348, img1.height)
+    tc.assertEqual(83623, img1.size_bytes)
+
+    # Verify PNG data starts with correct signature
+    img1_bytes = img1.get_bytes()
+    tc.assertEqual(b"\x89PNG\r\n\x1a\n", img1_bytes.read(8))
+
+    # Second image (JPEG)
+    img2 = images[1]
+    tc.assertEqual("image/jpeg", img2.get_content_type())
+    tc.assertEqual(2, img2.image_index)
+    tc.assertEqual(2, img2.slide_number)
+    tc.assertEqual(800, img2.width)
+    tc.assertEqual(450, img2.height)
+    tc.assertEqual(183928, img2.size_bytes)
+
+    # Verify JPEG data starts with correct signature
+    img2_bytes = img2.get_bytes()
+    tc.assertEqual(b"\xff\xd8\xff", img2_bytes.read(3))
+
+    # Check ImageMetadata
+    tc.assertEqual(
+        ImageMetadata(
+            unit_index=1,
+            image_index=1,
+            content_type="image/png",
+            width=1718,
+            height=348,
+        ),
+        img1.get_metadata(),
+    )
 
 
 def test_read_doc() -> None:
