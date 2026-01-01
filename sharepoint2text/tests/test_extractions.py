@@ -53,6 +53,7 @@ from sharepoint2text.extractors.plain_extractor import read_plain_text
 logger = logging.getLogger(__name__)
 
 tc = TestCase()
+tc.maxDiff = None
 
 
 def _read_file_to_file_like(path: str) -> io.BytesIO:
@@ -650,6 +651,26 @@ def test_read_xls_2() -> None:
     tc.assertEqual(0, len(list(xls.iterate_images())))
     tc.assertEqual(1, len(list(xls.iterate_tables())))
     tc.assertEqual(TableDim(rows=2, columns=2), list(xls.iterate_tables())[0].get_dim())
+
+
+def test_read_xls_3_images() -> None:
+    path = "sharepoint2text/tests/resources/legacy_ms/xls_with_images.xls"
+    xls: XlsContent = next(read_xls(file_like=_read_file_to_file_like(path=path)))
+
+    tc.assertEqual(1, len(xls.images))
+    tc.assertEqual(1, len(list(xls.iterate_images())))
+    tc.assertEqual(1, xls.images[0].image_index)
+    tc.assertEqual(183928, xls.images[0].size_bytes)
+    tc.assertEqual(
+        ImageMetadata(
+            unit_index=None,
+            image_index=1,
+            content_type="image/jpeg",
+            width=800,
+            height=450,
+        ),
+        xls.images[0].get_metadata(),
+    )
 
 
 def test_read_ppt() -> None:
