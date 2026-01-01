@@ -7,32 +7,28 @@ Thank you for your interest in contributing to sharepoint-to-text! This document
 ### Prerequisites
 
 - Python 3.10 or higher
-- [uv](https://github.com/astral-sh/uv) (recommended) or pip
+- [uv](https://github.com/astral-sh/uv) (required for development)
 
 ### Development Setup
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-org/sharepoint-to-text.git
+   git clone https://github.com/Horsmann/sharepoint-to-text.git
    cd sharepoint-to-text
    ```
 
 2. Create a virtual environment and install dependencies:
    ```bash
-   # Using uv (recommended)
-   uv venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   uv pip install -e ".[dev]"
+   # Uses uv.lock and installs all dependency groups (including dev)
+   uv sync --all-groups
 
-   # Or using pip
-   python -m venv .venv
-   source .venv/bin/activate
-   pip install -e ".[dev]"
+   # Optional: activate the created virtual environment
+   source .venv/bin/activate  # On Windows: .venv\\Scripts\\activate
    ```
 
 3. Install pre-commit hooks:
    ```bash
-   pre-commit install
+   uv run pre-commit install
    ```
 
 ## Development Workflow
@@ -40,7 +36,7 @@ Thank you for your interest in contributing to sharepoint-to-text! This document
 ### Running Tests
 
 ```bash
-pytest
+uv run pytest
 ```
 
 ### Code Formatting
@@ -48,7 +44,7 @@ pytest
 This project uses [Black](https://github.com/psf/black) for code formatting:
 
 ```bash
-black sharepoint2text
+uv run black sharepoint2text
 ```
 
 ### Pre-commit Hooks
@@ -56,7 +52,7 @@ black sharepoint2text
 Pre-commit hooks run automatically on `git commit`. To run them manually:
 
 ```bash
-pre-commit run --all-files
+uv run pre-commit run --all-files
 ```
 
 ## Making Changes
@@ -123,6 +119,10 @@ If you want to add support for a new file format:
 - Use type hints for function parameters and return values
 - Write docstrings for public functions and classes
 - Keep functions focused and reasonably sized
+
+## Notes on pip
+
+This repository uses `uv.lock` and dependency groups. For development (tests/linting), use `uv sync --all-groups`.
 
 ## Reporting Issues
 
