@@ -12,6 +12,7 @@ from sharepoint2text.extractors.data_types import (
     EmailContent,
     ExtractionInterface,
     HtmlContent,
+    ImageMetadata,
     OdpContent,
     OdsContent,
     OdtContent,
@@ -50,6 +51,32 @@ def test_serialize_for_json() -> None:
         json.dumps(payload)
     except Exception as e:
         tc.fail("Unexpected exception: {}".format(e))
+
+
+def test_image_metadata_json_serializable() -> None:
+    meta = ImageMetadata(
+        unit_index=3,
+        image_index=7,
+        content_type="image/png",
+        width=120,
+        height=80,
+    )
+
+    try:
+        json.dumps(meta)
+    except Exception as e:
+        tc.fail(f"JSON dump failed on object {e}")
+
+    tc.assertEqual(
+        {
+            "unit_index": 3,
+            "image_index": 7,
+            "content_type": "image/png",
+            "width": 120,
+            "height": 80,
+        },
+        meta.to_dict(),
+    )
 
 
 def test_deserialize_pptx() -> None:
