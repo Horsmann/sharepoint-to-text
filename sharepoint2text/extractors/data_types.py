@@ -6,7 +6,10 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Protocol
 
-from sharepoint2text.extractors.serialization import serialize_extraction
+from sharepoint2text.extractors.serialization import (
+    deserialize_extraction,
+    serialize_extraction,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +162,28 @@ class ExtractionInterface(Protocol):
     def to_json(self) -> dict:
         """Returns a JSON-serializable dictionary representation."""
         ...
+
+    @classmethod
+    def from_json(cls, data: dict) -> "ExtractionInterface":
+        """
+        Deserialize a JSON dictionary back to an ExtractionInterface instance.
+
+        This is the inverse of to_json(). It reconstructs the original
+        dataclass hierarchy from the serialized JSON representation.
+
+        Args:
+            data: A dictionary produced by to_json() or serialize_extraction()
+
+        Returns:
+            An instance of the appropriate ExtractionInterface subclass
+
+        Example:
+            >>> content = read_file("document.docx")
+            >>> json_data = content.to_json()
+            >>> restored = ExtractionInterface.from_json(json_data)
+            >>> assert restored.get_full_text() == content.get_full_text()
+        """
+        return deserialize_extraction(data)
 
 
 @dataclass
