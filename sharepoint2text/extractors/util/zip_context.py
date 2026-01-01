@@ -1,6 +1,6 @@
 import io
 import zipfile
-from xml.etree import ElementTree as ET
+from xml.etree.ElementTree import Element as XmlElement
 
 from sharepoint2text.extractors.util.zip_utils import read_zip_text, read_zip_xml_root
 
@@ -21,7 +21,7 @@ class ZipContext:
     def exists(self, path: str) -> bool:
         return path in self._namelist
 
-    def read_xml_root(self, path: str) -> ET.Element:
+    def read_xml_root(self, path: str) -> XmlElement:
         return read_zip_xml_root(self._zip, path)
 
     def read_text(self, path: str) -> str:

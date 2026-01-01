@@ -4,7 +4,7 @@ A **pure Python** library for extracting text, metadata, and structured elements
 
 ## Why This Library?
 
-### Pure Python, No External Dependencies
+### Pure Python, No System Dependencies
 
 Unlike popular alternatives that shell out to **LibreOffice** or **Apache Tika** (requiring Java), `sharepoint-to-text` is a **native Python implementation** with no system-level dependencies:
 
@@ -98,6 +98,28 @@ git clone https://github.com/Horsmann/sharepoint-to-text.git
 cd sharepoint-to-text
 pip install -e .
 ```
+
+## Libraries
+
+### Core Libraries (runtime)
+
+These are required for normal use of the library:
+
+- `defusedxml`: Hardened XML parsing for OOXML/ODF formats
+- `mail-parser`: RFC 822 email parsing (`.eml`)
+- `msg-parser`: Outlook `.msg` extraction
+- `olefile`: OLE2 container parsing for legacy Office formats
+- `openpyxl`: `.xlsx` parsing
+- `pypdf`: `.pdf` parsing
+- `xlrd`: `.xls` parsing
+
+### Development Libraries
+
+These are only needed for development workflows:
+
+- `pytest`: test runner
+- `pre-commit`: linting/format hooks
+- `black`: code formatter
 
 ## Quick Start
 
