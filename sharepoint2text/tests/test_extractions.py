@@ -1507,6 +1507,9 @@ def test_read_open_office__heading_units() -> None:
         read_odt(file_like=_read_file_to_file_like(path=path), path=path)
     )
 
+    tc.assertEqual(1, len(list(odt.iterate_tables())))
+    tc.assertEqual(1, len(list(odt.iterate_images())))
+
     # unit extraction
     units = list(odt.iterate_units())
     tc.assertEqual(5, len(units))
