@@ -571,7 +571,7 @@ def test_read_docx_2() -> None:
     tc.assertEqual("An image of space", docx.images[0].get_caption())
     # get_bytes returns BytesIO with image data
     image_bytes = docx.images[0].get_bytes()
-    tc.assertGreater(len(image_bytes.getvalue()), 0)
+    tc.assertEqual(828786, len(image_bytes.getvalue()))
     tc.assertEqual(docx.images[0].size_bytes, len(image_bytes.getvalue()))
     # get_metadata returns ImageMetadata
     img_meta = docx.images[0].get_metadata()
@@ -1471,7 +1471,7 @@ def test_read_open_office__spreadsheet() -> None:
     # Sheet 1: Sales Data
     tc.assertEqual("Sales Data", ods.sheets[0].name)
     # Verify data rows exist
-    tc.assertGreater(len(ods.sheets[0].data), 0)
+    tc.assertEqual(8, len(ods.sheets[0].data))
     # Verify header row content
     tc.assertIn("Product", ods.sheets[0].text)
     tc.assertIn("Q1", ods.sheets[0].text)
