@@ -408,6 +408,86 @@ class _DocReader:
         return images
 
     @staticmethod
+    def _extract_png_images_from_bytes(data: bytes) -> List[DocImage]:
+        signature = b"\x89PNG\r\n\x1a\n"
+        images: List[DocImage] = []
+        seen_hashes: set[str] = set()
+        image_counter = 0
+
+        offset = 0
+        while True:
+            start = data.find(signature, offset)
+            if start < 0:
+                break
+
+            pos = start + len(signature)
+            width: Optional[int] = None
+            height: Optional[int] = None
+
+            try:
+                while pos + 12 <= len(data):
+                    length = struct.unpack(">I", data[pos : pos + 4])[0]
+                    chunk_type = data[pos + 4 : pos + 8]
+                    chunk_start = pos + 8
+                    chunk_end = chunk_start + length
+                    crc_end = chunk_end + 4
+                    if crc_end > len(data):
+                        break
+
+                    if chunk_type == b"IHDR" and length == 13:
+                        width = struct.unpack(
+                            ">I", data[chunk_start : chunk_start + 4]
+                        )[0]
+                        height = struct.unpack(
+                            ">I", data[chunk_start + 4 : chunk_start + 8]
+                        )[0]
+
+                    pos = crc_end
+                    if chunk_type == b"IEND":
+                        png_bytes = data[start:pos]
+                        digest = hashlib.sha1(png_bytes).hexdigest()
+                        if digest not in seen_hashes:
+                            seen_hashes.add(digest)
+                            image_counter += 1
+                            images.append(
+                                DocImage(
+                                    image_index=image_counter,
+                                    content_type="image/png",
+                                    data=png_bytes,
+                                    size_bytes=len(png_bytes),
+                                    width=width,
+                                    height=height,
+                                )
+                            )
+                        break
+            except Exception:
+                pass
+
+            offset = start + 1
+
+        return images
+
+    @staticmethod
+    def _extract_simple_tables_from_text(text: str) -> List[List[List[str]]]:
+        """Best-effort table extraction from flattened legacy DOC text."""
+        tables: List[List[List[str]]] = []
+        for line in (text or "").splitlines():
+            tokens = [t for t in line.split() if t]
+            if len(tokens) < 4 or len(tokens) % 2 != 0:
+                continue
+            half = len(tokens) // 2
+            headers = tokens[:half]
+            values = tokens[half:]
+            if not headers or not values:
+                continue
+            if not all(re.fullmatch(r"[A-Za-z]+", h) for h in headers):
+                continue
+            if not all(re.fullmatch(r"\d+(?:[.,]\d+)?", v) for v in values):
+                continue
+            tables.append([headers, values])
+        return tables
+
+    @staticmethod
     def _filter_low_entropy_images(images: List[DocImage]) -> List[DocImage]:
         """Filter likely mask/placeholder bitmaps when duplicates exist.
 
@@ -567,6 +647,24 @@ class _DocReader:
         atn_data = word_doc[pos : pos + ccp_atn * mult] if ccp_atn > 0 else b""
 
         images = self._extract_images_from_word_document(word_doc)
+        table_stream = self._get_stream("1Table") or self._get_stream("0Table")
+        images.extend(self._extract_png_images_from_bytes(word_doc))
+        if table_stream:
+            images.extend(self._extract_png_images_from_bytes(table_stream))
+
+        # De-duplicate across sources and normalize indices.
+        dedup: List[DocImage] = []
+        seen_hashes: set[str] = set()
+        for image in images:
+            digest = hashlib.sha1(image.data).hexdigest() if image.data else ""
+            if digest and digest in seen_hashes:
+                continue
+            if digest:
+                seen_hashes.add(digest)
+            dedup.append(image)
+        images = dedup
+        for idx, image in enumerate(images, start=1):
+            image.image_index = idx
 
         main_text = self._clean_text(main_data.decode(encoding, errors="replace"))
         footnotes_text = (
@@ -594,12 +692,15 @@ class _DocReader:
             if idx < len(captions):
                 image.caption = captions[idx]
 
+        tables = self._extract_simple_tables_from_text(main_text)
+
         self._content = DocContent(
             main_text=main_text,
             footnotes=footnotes_text,
             headers_footers=headers_text,
             annotations=annotations_text,
             images=images,
+            tables=tables,
         )
 
         return self._content

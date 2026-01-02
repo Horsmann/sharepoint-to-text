@@ -1004,6 +1004,60 @@ def test_read_doc__image_extraction_2() -> None:
     tc.assertEqual(336, images[1].height)
 
 
+def test_read_doc__heading_units() -> None:
+    path = "sharepoint2text/tests/resources/legacy_ms/headings.doc"
+    doc: DocContent = next(
+        read_doc(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+
+    tc.assertEqual(1, len(list(doc.iterate_tables())))
+    tc.assertEqual(1, len(list(doc.iterate_images())))
+
+    # unit extraction
+    units = list(doc.iterate_units())
+    tc.assertEqual(5, len(units))
+
+    # 1
+    tc.assertListEqual(["Intro"], units[0].get_metadata().location)
+    tc.assertEqual("This is the intro text.", units[0].get_text())
+
+    # 2
+    tc.assertListEqual(["Chapter 1"], units[1].get_metadata().location)
+    tc.assertEqual("Welcome to chapter 1", units[1].get_text())
+
+    # 3
+    tc.assertListEqual(
+        ["Chapter 1", "Subsection in Chapter 1"], units[2].get_metadata().location
+    )
+    tc.assertEqual("This is a subsection in chapter 1", units[2].get_text())
+    tc.assertListEqual(
+        [["A", "B", "C", "D"], ["1", "2", "3", "4"]],
+        units[3].get_tables()[0].get_table(),
+    )
+
+    # 4
+    tc.assertListEqual(["Chapter 2"], units[3].get_metadata().location)
+    tc.assertEqual("Welcome to chapter 2", units[3].get_text())
+    tc.assertEqual(1, len(list(units[3].get_images())))
+    tc.assertEqual(62421, len(list(units[3].get_images())[0].get_bytes().getvalue()))
+    tc.assertEqual(
+        ImageMetadata(
+            unit_index=4,
+            image_index=1,
+            content_type="image/png",
+            width=948,
+            height=400,
+        ),
+        list(units[3].get_images())[0].get_metadata(),
+    )
+
+    # 5
+    tc.assertListEqual(
+        ["Chapter 2", "Subsection in Chapter 2"], units[4].get_metadata().location
+    )
+    tc.assertEqual("This is a subsection in chapter 2", units[4].get_text())
+
+
 def test_read_rtf() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/2025.144.un.rtf"
     rtf_gen: typing.Generator[RtfContent] = read_rtf(

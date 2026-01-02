@@ -231,18 +231,37 @@ class EmailUnit(UnitInterface):
 @dataclass
 class DocUnit(UnitInterface):
     text: str
+    unit_index: int = 1
+    location: list[str] = field(default_factory=list)
+    heading_level: int | None = None
+    heading_path: list[str] = field(default_factory=list)
+    images: list[DocImage] = field(default_factory=list)
+    tables: list[TableData] = field(default_factory=list)
 
     def get_text(self) -> str:
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
-        return []
+        return list(self.images)
 
     def get_tables(self) -> list[TableData]:
-        return []
+        return list(self.tables)
 
-    def get_metadata(self) -> dict:
-        return {"unit_index": 1}
+    def get_metadata(self) -> "DocUnitMeta":
+        return DocUnitMeta(
+            unit_index=self.unit_index,
+            location=list(self.location),
+            heading_level=self.heading_level,
+            heading_path=list(self.heading_path),
+        )
+
+
+@dataclass
+class DocUnitMeta(UnitMetadataInterface):
+    unit_index: int = 1
+    location: list[str] = field(default_factory=list)
+    heading_level: int | None = None
+    heading_path: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -755,6 +774,7 @@ class DocImage(ImageInterface):
     width: Optional[int] = None
     height: Optional[int] = None
     caption: str = ""
+    unit_index: Optional[int] = None
 
     def get_bytes(self) -> io.BytesIO:
         fl = io.BytesIO(self.data)
@@ -774,7 +794,7 @@ class DocImage(ImageInterface):
         return ImageMetadata(
             image_index=self.image_index,
             content_type=self.content_type,
-            unit_index=None,  # DOC has no page/slide units
+            unit_index=self.unit_index,
             width=self.width if self.width is not None and self.width > 0 else None,
             height=self.height if self.height is not None and self.height > 0 else None,
         )
@@ -787,10 +807,143 @@ class DocContent(ExtractionInterface):
     headers_footers: str = ""
     annotations: str = ""
     images: List[DocImage] = field(default_factory=list)
+    tables: List[List[List[str]]] = field(default_factory=list)
     metadata: DocMetadata = field(default_factory=DocMetadata)
 
     def iterate_units(self) -> typing.Iterator[DocUnit]:
-        yield DocUnit(text=self.main_text)
+        lines = [line.rstrip() for line in (self.main_text or "").splitlines()]
+        if not lines:
+            yield DocUnit(text="", unit_index=1, location=[])
+            return
+
+        base_location = [self.metadata.title] if self.metadata.title else []
+
+        table_index = 0
+        pending_tables: list[TableData] = []
+
+        def consume_table_if_present(line: str) -> bool:
+            nonlocal table_index
+            if table_index >= len(self.tables):
+                return False
+            tokens = [t for t in line.split() if t]
+            if not tokens:
+                return False
+            flat_table = [cell for row in self.tables[table_index] for cell in row]
+            if tokens != flat_table:
+                return False
+            pending_tables.append(TableData(data=self.tables[table_index]))
+            table_index += 1
+            return True
+
+        def heading_level_for(line: str) -> int | None:
+            text = line.strip()
+            if not text:
+                return None
+            lowered = text.lower()
+            if lowered.startswith("subsection"):
+                return 2
+            if lowered.startswith("chapter") or lowered == "intro":
+                return 1
+            return None
+
+        units: list[DocUnit] = []
+        heading_stack: list[tuple[int, str]] = []
+        current_heading_level: int | None = None
+        current_heading_path: list[str] = []
+        current_lines: list[str] = []
+        current_tables: list[TableData] = []
+        unit_index = 1
+        any_headings = False
+
+        def flush_current() -> None:
+            nonlocal unit_index, current_lines, current_tables
+            text = "\n".join(line for line in current_lines if line).strip()
+            if not (text or current_tables):
+                current_lines = []
+                current_tables = []
+                return
+            units.append(
+                DocUnit(
+                    text=text,
+                    unit_index=unit_index,
+                    location=base_location + list(current_heading_path),
+                    heading_level=current_heading_level,
+                    heading_path=list(current_heading_path),
+                    tables=list(current_tables),
+                )
+            )
+            unit_index += 1
+            current_lines = []
+            current_tables = []
+
+        for line in lines:
+            if consume_table_if_present(line):
+                continue
+
+            level = heading_level_for(line)
+            if level is not None:
+                heading_text = line.strip()
+                if heading_text:
+                    any_headings = True
+                    flush_current()
+                    while heading_stack and heading_stack[-1][0] >= level:
+                        heading_stack.pop()
+                    heading_stack.append((level, heading_text))
+                    current_heading_level = level
+                    current_heading_path = [t for _, t in heading_stack if t]
+                    if pending_tables:
+                        current_tables.extend(pending_tables)
+                        pending_tables = []
+                continue
+
+            text = line.strip()
+            if not text:
+                continue
+            current_lines.append(text)
+
+        if pending_tables:
+            current_tables.extend(pending_tables)
+            pending_tables = []
+        flush_current()
+
+        if not any_headings:
+            yield DocUnit(
+                text=self.main_text.strip(),
+                unit_index=1,
+                location=base_location,
+                images=[],
+                tables=[TableData(data=table) for table in self.tables],
+            )
+            return
+
+        # Attach unassigned images (no stable anchors in legacy DOC extraction).
+        for image in self.images:
+            matched_unit: DocUnit | None = None
+            if image.caption:
+                for unit in units:
+                    if image.caption in unit.text:
+                        matched_unit = unit
+                        break
+            if matched_unit is None:
+                matched_unit = next(
+                    (u for u in reversed(units) if u.heading_level == 1),
+                    units[-1],
+                )
+            matched_unit.images.append(
+                DocImage(
+                    image_index=image.image_index,
+                    content_type=image.content_type,
+                    data=image.data,
+                    size_bytes=image.size_bytes,
+                    width=image.width,
+                    height=image.height,
+                    caption=image.caption,
+                    unit_index=matched_unit.unit_index,
+                )
+            )
+
+        for unit in units:
+            yield unit
 
     def get_full_text(self) -> str:
         """The full text of the document including a document title from the metadata if any are provided"""
@@ -806,8 +959,8 @@ class DocContent(ExtractionInterface):
             yield img
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
-        yield from ()
-        return
+        for table in self.tables:
+            yield TableData(data=table)
 
     def to_json(self) -> dict:
         return serialize_extraction(self)
