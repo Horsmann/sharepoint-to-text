@@ -120,6 +120,7 @@ from sharepoint2text.extractors.data_types import (
 )
 from sharepoint2text.extractors.util.encryption import is_ooxml_encrypted
 from sharepoint2text.extractors.util.ooxml_context import OOXMLZipContext
+from sharepoint2text.extractors.util.zip_bomb import validate_zip_bytesio
 from sharepoint2text.extractors.util.zip_utils import (
     parse_relationships,
 )
@@ -784,6 +785,8 @@ def read_xlsx(
     file_like.seek(0)
     if is_ooxml_encrypted(file_like):
         raise ExtractionFileEncryptedError("XLSX is encrypted or password-protected")
+
+    validate_zip_bytesio(file_like, source="read_xlsx")
 
     sheets = _read_content(file_like)
     metadata = _read_metadata(file_like)

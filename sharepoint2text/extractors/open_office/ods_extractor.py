@@ -124,6 +124,7 @@ from sharepoint2text.extractors.data_types import (
     OdsSheet,
 )
 from sharepoint2text.extractors.util.encryption import is_odf_encrypted
+from sharepoint2text.extractors.util.zip_bomb import open_zipfile
 from sharepoint2text.extractors.util.zip_utils import read_zip_xml_root
 
 logger = logging.getLogger(__name__)
@@ -580,7 +581,7 @@ def read_ods(
     if is_odf_encrypted(file_like):
         raise ExtractionFileEncryptedError("ODS is encrypted or password-protected")
 
-    with zipfile.ZipFile(file_like, "r") as z:
+    with open_zipfile(file_like, source="read_ods") as z:
         # Extract metadata
         metadata = _extract_metadata(z)
 

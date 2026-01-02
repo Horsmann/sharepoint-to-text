@@ -118,6 +118,7 @@ from sharepoint2text.extractors.data_types import (
     OdpSlide,
 )
 from sharepoint2text.extractors.util.encryption import is_odf_encrypted
+from sharepoint2text.extractors.util.zip_bomb import open_zipfile
 from sharepoint2text.extractors.util.zip_utils import read_zip_xml_root
 
 logger = logging.getLogger(__name__)
@@ -505,7 +506,7 @@ def read_odp(
     if is_odf_encrypted(file_like):
         raise ExtractionFileEncryptedError("ODP is encrypted or password-protected")
 
-    with zipfile.ZipFile(file_like, "r") as z:
+    with open_zipfile(file_like, source="read_odp") as z:
         # Extract metadata
         metadata = _extract_metadata(z)
 

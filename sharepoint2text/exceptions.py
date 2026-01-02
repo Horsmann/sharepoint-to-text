@@ -77,6 +77,25 @@ class ExtractionFileEncryptedError(ExtractionError):
             self.__cause__ = cause
 
 
+class ExtractionZipBombError(ExtractionError):
+    """
+    Raised when a ZIP container is deemed unsafe (probable ZIP bomb).
+
+    Applies to formats that are ZIP containers (OOXML/ODF: .docx/.pptx/.odt/.ods/.odp)
+    and other ZIP-based processing.
+    """
+
+    def __init__(
+        self,
+        message: str = "ZIP container rejected (possible ZIP bomb)",
+        *,
+        cause: Optional[Exception] = None,
+    ):
+        super().__init__(message)
+        if cause is not None:
+            self.__cause__ = cause
+
+
 class ExtractionFailedError(ExtractionError):
     """
     Raised when extraction fails for an unexpected reason.

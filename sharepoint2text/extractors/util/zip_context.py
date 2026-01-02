@@ -1,7 +1,7 @@
 import io
-import zipfile
 from xml.etree.ElementTree import Element as XmlElement
 
+from sharepoint2text.extractors.util.zip_bomb import open_zipfile
 from sharepoint2text.extractors.util.zip_utils import read_zip_text, read_zip_xml_root
 
 
@@ -11,7 +11,7 @@ class ZipContext:
     def __init__(self, file_like: io.BytesIO):
         self.file_like = file_like
         self.file_like.seek(0)
-        self._zip = zipfile.ZipFile(self.file_like, "r")
+        self._zip = open_zipfile(self.file_like, source=type(self).__name__)
         self._namelist = set(self._zip.namelist())
 
     @property

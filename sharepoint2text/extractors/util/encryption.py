@@ -3,6 +3,8 @@ import zipfile
 
 import olefile
 
+from sharepoint2text.extractors.util.zip_bomb import open_zipfile
+
 
 def _has_ole_encryption_stream(ole: olefile.OleFileIO) -> bool:
     for stream in ("EncryptionInfo", "EncryptedPackage", "DataSpaces"):
@@ -30,7 +32,7 @@ def is_odf_encrypted(file_like: io.BytesIO) -> bool:
         return False
 
     file_like.seek(0)
-    with zipfile.ZipFile(file_like) as zf:
+    with open_zipfile(file_like, source="is_odf_encrypted") as zf:
         try:
             manifest = zf.read("META-INF/manifest.xml").decode("utf-8", errors="ignore")
         except KeyError:
