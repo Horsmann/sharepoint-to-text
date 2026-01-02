@@ -377,9 +377,6 @@ def test_read_pptx_1() -> None:
     tc.assertEqual(12538, pptx.slides[1].images[0].size_bytes)
     tc.assertIsNotNone(pptx.slides[1].images[0].blob)
 
-    # iterator
-    tc.assertEqual(3, len(list(pptx.iterate_units())))
-
     # full text
     expected = (
         "EU-funding visibility - art. 22 GA"
@@ -387,6 +384,22 @@ def test_read_pptx_1() -> None:
         + "To be applied on all materials and communica"
     )
     tc.assertEqual(expected, pptx.get_full_text()[:79])
+
+    #########
+    # Units #
+    #########
+    tc.assertEqual(3, len(list(pptx.iterate_units())))
+    tc.assertEqual(len(pptx.slides), len(list(pptx.iterate_units())))
+    units = list(pptx.iterate_units())
+
+    tc.assertEqual(0, len(units[0].get_images()))
+    tc.assertEqual("EU-funding visibility", units[0].get_text()[:21])
+
+    tc.assertEqual(5, len(units[1].get_images()))
+    tc.assertEqual("This is the wrong EU ", units[1].get_text()[:21])
+
+    tc.assertEqual(0, len(units[2].get_images()))
+    tc.assertEqual("EU-funding visibility", units[2].get_text()[:21])
 
 
 def test_read_pptx_2() -> None:
@@ -465,6 +478,22 @@ def test_read_pptx_3() -> None:
     tc.assertEqual(
         "2020\t2021\t2022\nA\t1\t2\t3\nB\t4\t5\t6\nC\t7\t8\t9\nD\t10\t11\t12",
         pptx.get_full_text(),
+    )
+
+    #########
+    # Units #
+    #########
+    units = list(pptx.iterate_units())
+    tc.assertEqual(1, len(units))
+    tc.assertListEqual(
+        [
+            ["", "2020", "2021", "2022"],
+            ["A", "1", "2", "3"],
+            ["B", "4", "5", "6"],
+            ["C", "7", "8", "9"],
+            ["D", "10", "11", "12"],
+        ],
+        units[0].get_tables()[0].get_table(),
     )
 
 

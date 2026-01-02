@@ -326,15 +326,17 @@ class PptxUnit(UnitInterface):
     slide_number: int
     text: str
     include_image_captions: bool = False
+    images: list[PptxImage] = field(default_factory=list)
+    tables: list[TableData] = field(default_factory=list)
 
     def get_text(self) -> str:
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
-        return []
+        return list(self.images)
 
     def get_tables(self) -> list[TableData]:
-        return []
+        return list(self.tables)
 
     def get_metadata(self) -> dict:
         return {
@@ -1575,6 +1577,8 @@ class PptxContent(ExtractionInterface):
             yield PptxUnit(
                 slide_number=slide.slide_number,
                 include_image_captions=include_image_captions,
+                images=list(slide.images),
+                tables=[TableData(data=table) for table in slide.tables],
                 text=slide.get_text(
                     include_image_captions=include_image_captions,
                 ).strip(),
