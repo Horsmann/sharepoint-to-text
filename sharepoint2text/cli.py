@@ -24,12 +24,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--json",
         action="store_true",
-        help="Emit structured JSON (result.to_json()) instead of plain full text.",
+        help="Emit structured JSON instead of plain full text (omits binary payloads by default).",
     )
     parser.add_argument(
-        "--no-binary",
+        "--binary",
         action="store_true",
-        help="With --json, omit binary payloads (images/attachments) from output (emit null instead).",
+        help="With --json, include binary payloads (images/attachments) as base64 blobs.",
     )
     return parser
 
@@ -51,16 +51,28 @@ def _serialize_full_text(results: list[ExtractionInterface]) -> str:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
-    args = parser.parse_args(argv)
+    try:
+        args, unknown = parser.parse_known_args(argv)
+    except SystemExit as exc:
+        code = exc.code if isinstance(exc.code, int) else 1
+        return code
+
+    if unknown:
+        unknown_str = " ".join(unknown)
+        print(
+            f"sharepoint2text: warning: unsupported arguments: {unknown_str}",
+            file=sys.stderr,
+        )
+        return 1
 
     try:
-        if args.no_binary and not args.json:
-            raise ValueError("--no-binary requires --json")
+        if args.binary and not args.json:
+            raise ValueError("--binary requires --json")
         results = list(sharepoint2text.read_file(args.path))
         if not results:
             raise RuntimeError(f"No extraction results for {args.path}")
         if args.json:
-            payload = _serialize_results(results, include_binary=not args.no_binary)
+            payload = _serialize_results(results, include_binary=bool(args.binary))
             json.dump(payload, sys.stdout)
             sys.stdout.write("\n")
         else:

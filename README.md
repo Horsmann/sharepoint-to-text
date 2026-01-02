@@ -5,7 +5,7 @@ A **pure Python** library for extracting text, metadata, and structured elements
 **Install:** `pip install sharepoint-to-text`
 **Python import:** `import sharepoint2text`
 **CLI (text):** `sharepoint2text /path/to/file.docx > extraction.txt`
-**CLI (JSON):** `sharepoint2text --json /path/to/file.docx > extraction.json`
+**CLI (JSON):** `sharepoint2text --json /path/to/file.docx > extraction.json` (no binary by default; add `--binary` to include)
 
 ## What You Get
 
@@ -355,10 +355,13 @@ To emit structured output, use `--json` (prints `result.to_json()` to stdout).
 sharepoint2text --json /path/to/file.pdf > extraction.json
 ```
 
-Some formats include binary payloads (e.g., embedded images in Office/PDF files, email attachments). To keep JSON output small, use `--no-binary` to emit `null` for binary fields instead of base64 blobs:
+Some formats include binary payloads (e.g., embedded images in Office/PDF files, email attachments). The CLI omits binary payloads in JSON by default (emits `null` for binary fields). Use `--binary` to include base64 blobs:
 
 ```bash
-sharepoint2text --json --no-binary /path/to/file.pdf > extraction.no-binary.json
+sharepoint2text --json /path/to/file.pdf > extraction.json
+
+# include binary payloads
+sharepoint2text --json --binary /path/to/file.pdf > extraction.with-binary.json
 ```
 
 - Without `--json`, multiple items (e.g. `.mbox`) are separated by a blank line.
