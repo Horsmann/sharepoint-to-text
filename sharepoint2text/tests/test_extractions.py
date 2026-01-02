@@ -1710,19 +1710,6 @@ def test_read_open_office__presentation() -> None:
     tc.assertIn("Hello World Presentation", full_text)
     tc.assertIn("Content Slide", full_text)
     tc.assertIn("Thank You!", full_text)
-    tc.assertNotIn("[Annotation:", full_text)
-    tc.assertNotIn("[Note:", full_text)
-
-    # Full text with annotations
-    full_text_with_annotations = odp.get_full_text(include_annotations=True)
-    tc.assertIn(
-        "[Annotation: User@2025-12-28T12:00:00: This is a comment by User on the presentation content.]",
-        full_text_with_annotations,
-    )
-
-    # Full text with notes
-    full_text_with_notes = odp.get_full_text(include_notes=True)
-    tc.assertIn("[Note: Speaker notes for Slide 1:", full_text_with_notes)
 
     tc.assertEqual(0, len(list(odp.iterate_images())))
 
@@ -1922,6 +1909,11 @@ def test_open_office__presentation_image_interface() -> None:
         ),
         list(odp.iterate_images())[0].get_metadata(),
     )
+
+    #########
+    # Units #
+    #########
+    tc.assertEqual(1, len(list(odp.iterate_units())))
 
 
 def test_open_office__spreadsheet_image_interface() -> None:

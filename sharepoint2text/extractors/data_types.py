@@ -2190,9 +2190,7 @@ class OdpContent(ExtractionInterface):
     metadata: OdpMetadata = field(default_factory=OdpMetadata)
     slides: List[OdpSlide] = field(default_factory=list)
 
-    def iterate_units(
-        self, include_annotations: bool = False, include_notes: bool = False
-    ) -> typing.Iterator[OdpUnit]:
+    def iterate_units(self) -> typing.Iterator[OdpUnit]:
         """Iterate over slides, yielding combined text per slide.
 
         Args:
@@ -2202,38 +2200,14 @@ class OdpContent(ExtractionInterface):
         for slide in self.slides:
             parts = [slide.text_combined]
 
-            if include_annotations:
-                for annotation in slide.annotations:
-                    parts.append(
-                        f"[Annotation: {annotation.creator}@{annotation.date}: {annotation.text}]"
-                    )
-
-            if include_notes:
-                for note in slide.notes:
-                    parts.append(f"[Note: {note}]")
-
             yield OdpUnit(
                 slide_number=slide.slide_number,
-                include_annotations=include_annotations,
-                include_notes=include_notes,
                 text="\n".join(parts),
             )
 
-    def get_full_text(
-        self, include_annotations: bool = False, include_notes: bool = False
-    ) -> str:
-        """Get full text of all slides.
-
-        Args:
-            include_annotations: Include annotations/comments in output (default: False)
-            include_notes: Include speaker notes in output (default: False)
-        """
-        return _join_unit_text(
-            self.iterate_units(
-                include_annotations=include_annotations,
-                include_notes=include_notes,
-            )
-        )
+    def get_full_text(self) -> str:
+        """Get full text of all slides."""
+        return _join_unit_text(self.iterate_units())
 
     def get_metadata(self) -> OdpMetadata:
         """Returns the metadata of the extracted file."""
