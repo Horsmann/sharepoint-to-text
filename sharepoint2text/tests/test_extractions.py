@@ -119,7 +119,8 @@ def test_read_plain_csv() -> None:
     tc.assertEqual('Text; Date\n"Hello World"; "2025-12-25"', plain.content)
 
     tc.assertEqual(
-        'Text; Date\n"Hello World"; "2025-12-25"', "\n".join(plain.iterate_units())
+        'Text; Date\n"Hello World"; "2025-12-25"',
+        "\n".join(unit.get_text() for unit in plain.iterate_units()),
     )
     tc.assertEqual(0, len(list(plain.iterate_images())))
     tc.assertEqual(0, len(list(plain.iterate_tables())))
@@ -134,7 +135,8 @@ def test_read_plain_tsv() -> None:
     tc.assertEqual("Text\tDate\nHello World\t2025-12-25", plain.content)
     tc.assertEqual("Text\tDate\nHello World\t2025-12-25", plain.get_full_text())
     tc.assertEqual(
-        "Text\tDate\nHello World\t2025-12-25", "\n".join(plain.iterate_units())
+        "Text\tDate\nHello World\t2025-12-25",
+        "\n".join(unit.get_text() for unit in plain.iterate_units()),
     )
     tc.assertEqual(0, len(list(plain.iterate_images())))
     tc.assertEqual(0, len(list(plain.iterate_tables())))
@@ -149,7 +151,8 @@ def test_read_plain_markdown() -> None:
     tc.assertEqual("# Markdown file\n\nThis is a text", plain.content)
     tc.assertEqual("# Markdown file\n\nThis is a text", plain.get_full_text())
     tc.assertEqual(
-        "# Markdown file\n\nThis is a text", "\n".join(plain.iterate_units())
+        "# Markdown file\n\nThis is a text",
+        "\n".join(unit.get_text() for unit in plain.iterate_units()),
     )
     tc.assertEqual(0, len(list(plain.iterate_images())))
     tc.assertEqual(0, len(list(plain.iterate_tables())))
@@ -645,7 +648,7 @@ def test_read_xls_1() -> None:
 
     xls_it = xls.iterate_units()
     # test first page
-    s1 = next(xls_it)
+    s1 = next(xls_it).get_text()
     expected = (
         "EUROPEAN UNION\n"
         "                             European Commission\n"
@@ -654,7 +657,7 @@ def test_read_xls_1() -> None:
     tc.assertEqual(expected, s1[:113])
 
     # test second page
-    s2 = next(xls_it)
+    s2 = next(xls_it).get_text()
     tc.assertIn(
         "The content of this pocketbook is based on a range of sources including Eurostat",
         s2,
@@ -917,7 +920,8 @@ def test_email__eml_format() -> None:
     # interface methods
     tc.assertEqual("Plain email.\n\nHope it works well!\n\nMikel", mail.get_full_text())
     tc.assertEqual(
-        "Plain email.\n\nHope it works well!\n\nMikel", list(mail.iterate_units())[0]
+        "Plain email.\n\nHope it works well!\n\nMikel",
+        list(mail.iterate_units())[0].get_text(),
     )
     tc.assertEqual(0, len(list(mail.iterate_images())))
     tc.assertEqual(0, len(list(mail.iterate_tables())))
@@ -1531,7 +1535,7 @@ def test_read_open_office__spreadsheet() -> None:
     tc.assertEqual(2, len(list(ods.iterate_tables())))
 
     # check length of full text with length of all sheets
-    total_length_iteration = sum([len(e) for e in ods.iterate_units()])
+    total_length_iteration = sum(len(unit.get_text()) for unit in ods.iterate_units())
     # one line break is added
     length_total = len(ods.get_full_text()) - 1
     tc.assertEqual(total_length_iteration, length_total)

@@ -165,9 +165,211 @@ class UnitInterface(Protocol):
         ...
 
 
+@dataclass
+class EmailUnit(UnitInterface):
+    text: str
+    body_type: str = ""  # plain|html|empty
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_metadata(self) -> dict:
+        return {"unit_index": 1, "body_type": self.body_type}
+
+
+@dataclass
+class DocUnit(UnitInterface):
+    text: str
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_metadata(self) -> dict:
+        return {"unit_index": 1}
+
+
+@dataclass
+class DocxUnit(UnitInterface):
+    text: str
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_metadata(self) -> dict:
+        return {"unit_index": 1}
+
+
+@dataclass
+class PdfUnit(UnitInterface):
+    page_number: int
+    text: str
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_metadata(self) -> dict:
+        return {"unit_index": self.page_number, "page_number": self.page_number}
+
+
+@dataclass
+class PlainTextUnit(UnitInterface):
+    text: str
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_metadata(self) -> dict:
+        return {"unit_index": 1}
+
+
+@dataclass
+class HtmlUnit(UnitInterface):
+    text: str
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_metadata(self) -> dict:
+        return {"unit_index": 1}
+
+
+@dataclass
+class PptUnit(UnitInterface):
+    slide_number: int
+    text: str
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_metadata(self) -> dict:
+        return {"unit_index": self.slide_number, "slide_number": self.slide_number}
+
+
+@dataclass
+class PptxUnit(UnitInterface):
+    slide_number: int
+    text: str
+    include_image_captions: bool = False
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_metadata(self) -> dict:
+        return {
+            "unit_index": self.slide_number,
+            "slide_number": self.slide_number,
+            "include_image_captions": self.include_image_captions,
+        }
+
+
+@dataclass
+class XlsUnit(UnitInterface):
+    sheet_index: int
+    sheet_name: str
+    text: str
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_metadata(self) -> dict:
+        return {
+            "unit_index": self.sheet_index,
+            "sheet_index": self.sheet_index,
+            "sheet_name": self.sheet_name,
+        }
+
+
+@dataclass
+class XlsxUnit(UnitInterface):
+    sheet_index: int
+    sheet_name: str
+    text: str
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_metadata(self) -> dict:
+        return {
+            "unit_index": self.sheet_index,
+            "sheet_index": self.sheet_index,
+            "sheet_name": self.sheet_name,
+        }
+
+
+@dataclass
+class OdpUnit(UnitInterface):
+    slide_number: int
+    text: str
+    include_annotations: bool = False
+    include_notes: bool = False
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_metadata(self) -> dict:
+        return {
+            "unit_index": self.slide_number,
+            "slide_number": self.slide_number,
+            "include_annotations": self.include_annotations,
+            "include_notes": self.include_notes,
+        }
+
+
+@dataclass
+class OdsUnit(UnitInterface):
+    sheet_index: int
+    sheet_name: str
+    text: str
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_metadata(self) -> dict:
+        return {
+            "unit_index": self.sheet_index,
+            "sheet_index": self.sheet_index,
+            "sheet_name": self.sheet_name,
+        }
+
+
+@dataclass
+class OdtUnit(UnitInterface):
+    text: str
+    kind: str = "body"  # body|annotation
+    annotation_creator: str | None = None
+    annotation_date: str | None = None
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_metadata(self) -> dict:
+        metadata = {"kind": self.kind}
+        if self.annotation_creator is not None:
+            metadata["annotation_creator"] = self.annotation_creator
+        if self.annotation_date is not None:
+            metadata["annotation_date"] = self.annotation_date
+        return metadata
+
+
+@dataclass
+class RtfUnit(UnitInterface):
+    page_number: int
+    text: str
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_metadata(self) -> dict:
+        return {"unit_index": self.page_number, "page_number": self.page_number}
+
+
+def _join_unit_text(units: typing.Iterable[UnitInterface]) -> str:
+    return "\n".join(unit.get_text() for unit in units)
+
+
 class ExtractionInterface(Protocol):
     @abstractmethod
-    def iterate_units(self) -> typing.Iterator[str]:
+    def iterate_units(self) -> typing.Iterator[UnitInterface]:
         """
         Returns an iterator over the extracted text i.e., the main text body of a file.
         Additional text areas may be missing if they are not part of the main text body of the file.
@@ -275,12 +477,14 @@ class EmailContent(ExtractionInterface):
         self.subject = self.subject.strip()
         self.body_plain = self.body_plain.strip()
 
-    def iterate_units(self) -> typing.Iterator[str]:
-        yield (
-            self.body_plain
-            if self.body_plain
-            else self.body_html if self.body_html else ""
-        )
+    def iterate_units(self) -> typing.Iterator[EmailUnit]:
+        if self.body_plain:
+            yield EmailUnit(text=self.body_plain, body_type="plain")
+            return
+        if self.body_html:
+            yield EmailUnit(text=self.body_html, body_type="html")
+            return
+        yield EmailUnit(text="", body_type="empty")
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
         # not supported
@@ -342,7 +546,7 @@ class EmailContent(ExtractionInterface):
                 attachment.data.seek(0)
 
     def get_full_text(self) -> str:
-        return "\n".join(self.iterate_units())
+        return _join_unit_text(self.iterate_units())
 
     def get_metadata(self) -> EmailMetadata:
         return self.metadata
@@ -413,13 +617,14 @@ class DocContent(ExtractionInterface):
     images: List[DocImage] = field(default_factory=list)
     metadata: DocMetadata = field(default_factory=DocMetadata)
 
-    def iterate_units(self) -> typing.Iterator[str]:
-        for text in [self.main_text]:
-            yield text
+    def iterate_units(self) -> typing.Iterator[DocUnit]:
+        yield DocUnit(text=self.main_text)
 
     def get_full_text(self) -> str:
         """The full text of the document including a document title from the metadata if any are provided"""
-        return (self.metadata.title + "\n" + "\n".join(self.iterate_units())).strip()
+        return (
+            self.metadata.title + "\n" + _join_unit_text(self.iterate_units())
+        ).strip()
 
     def get_metadata(self) -> FileMetadataInterface:
         return self.metadata
@@ -580,8 +785,8 @@ class DocxContent(ExtractionInterface):
     formulas: List[DocxFormula] = field(default_factory=list)
     full_text: str = ""  # Full text including formulas
 
-    def iterate_units(self) -> typing.Iterator[str]:
-        yield self.full_text
+    def iterate_units(self) -> typing.Iterator[DocxUnit]:
+        yield DocxUnit(text=self.full_text)
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
         for img in self.images:
@@ -593,7 +798,7 @@ class DocxContent(ExtractionInterface):
 
     def get_full_text(self) -> str:
         """Get full text of the document."""
-        return "\n".join(self.iterate_units())
+        return _join_unit_text(self.iterate_units())
 
     def get_metadata(self) -> DocxMetadata:
         return self.metadata
@@ -665,12 +870,12 @@ class PdfContent(ExtractionInterface):
     pages: List[PdfPage] = field(default_factory=list)
     metadata: PdfMetadata = field(default_factory=PdfMetadata)
 
-    def iterate_units(self) -> typing.Iterator[str]:
-        for page in self.pages:
-            yield page.text
+    def iterate_units(self) -> typing.Iterator[PdfUnit]:
+        for page_number, page in enumerate(self.pages, start=1):
+            yield PdfUnit(page_number=page_number, text=page.text)
 
     def get_full_text(self) -> str:
-        return "\n".join(self.iterate_units())
+        return _join_unit_text(self.iterate_units())
 
     def get_metadata(self) -> PdfMetadata:
         return self.metadata
@@ -708,11 +913,11 @@ class PlainTextContent(ExtractionInterface):
     content: str = ""
     metadata: FileMetadataInterface = field(default_factory=FileMetadataInterface)
 
-    def iterate_units(self) -> typing.Iterator[str]:
-        yield self.content.strip()
+    def iterate_units(self) -> typing.Iterator[PlainTextUnit]:
+        yield PlainTextUnit(text=self.content.strip())
 
     def get_full_text(self) -> str:
-        return "\n".join(list(self.iterate_units()))
+        return _join_unit_text(self.iterate_units())
 
     def get_metadata(self) -> FileMetadataInterface:
         return self.metadata
@@ -759,11 +964,11 @@ class HtmlContent(ExtractionInterface):
     )  # List of {text: "...", href: "..."}
     metadata: HtmlMetadata = field(default_factory=HtmlMetadata)
 
-    def iterate_units(self) -> typing.Iterator[str]:
-        yield self.content.strip()
+    def iterate_units(self) -> typing.Iterator[HtmlUnit]:
+        yield HtmlUnit(text=self.content.strip())
 
     def get_full_text(self) -> str:
-        return "\n".join(list(self.iterate_units()))
+        return _join_unit_text(self.iterate_units())
 
     def get_metadata(self) -> HtmlMetadata:
         return self.metadata
@@ -924,14 +1129,14 @@ class PptContent(ExtractionInterface):
     all_text: list[str] = field(default_factory=list)
     streams: list[list[str]] = field(default_factory=list)
 
-    def iterate_units(self) -> typing.Iterator[str]:
+    def iterate_units(self) -> typing.Iterator[PptUnit]:
         """Iterate over slide text, yielding combined text per slide."""
         for slide in self.slides:
-            yield slide.text_combined
+            yield PptUnit(slide_number=slide.slide_number, text=slide.text_combined)
 
     def get_full_text(self) -> str:
         """Full text of the slide deck as one single block of text"""
-        return "\n".join(self.iterate_units())
+        return _join_unit_text(self.iterate_units())
 
     def get_metadata(self) -> PptMetadata:
         """Returns the metadata of the extracted file."""
@@ -1068,11 +1273,15 @@ class PptxContent(ExtractionInterface):
     def iterate_units(
         self,
         include_image_captions: bool = False,
-    ) -> typing.Iterator[str]:
+    ) -> typing.Iterator[PptxUnit]:
         for slide in self.slides:
-            yield slide.get_text(
+            yield PptxUnit(
+                slide_number=slide.slide_number,
                 include_image_captions=include_image_captions,
-            ).strip()
+                text=slide.get_text(
+                    include_image_captions=include_image_captions,
+                ).strip(),
+            )
 
     def get_full_text(
         self,
@@ -1083,12 +1292,8 @@ class PptxContent(ExtractionInterface):
         Args:
             include_image_captions: Include image captions/alt text in output (default: False)
         """
-        return "\n".join(
-            list(
-                self.iterate_units(
-                    include_image_captions=include_image_captions,
-                )
-            )
+        return _join_unit_text(
+            self.iterate_units(include_image_captions=include_image_captions)
         )
 
     def get_metadata(self) -> PptxMetadata:
@@ -1189,9 +1394,13 @@ class XlsContent(ExtractionInterface):
     images: List[XlsImage] = field(default_factory=list)
     full_text: str = ""
 
-    def iterate_units(self) -> typing.Iterator[str]:
-        for sheet in self.sheets:
-            yield sheet.text.strip()
+    def iterate_units(self) -> typing.Iterator[XlsUnit]:
+        for sheet_index, sheet in enumerate(self.sheets, start=1):
+            yield XlsUnit(
+                sheet_index=sheet_index,
+                sheet_name=sheet.name,
+                text=sheet.text.strip(),
+            )
 
     def get_full_text(self) -> str:
         return self.full_text.strip()
@@ -1295,12 +1504,16 @@ class XlsxContent(ExtractionInterface):
     metadata: XlsxMetadata = field(default_factory=XlsxMetadata)
     sheets: List[XlsxSheet] = field(default_factory=list)
 
-    def iterate_units(self) -> typing.Iterator[str]:
-        for sheet in self.sheets:
-            yield sheet.name + "\n" + sheet.text.strip()
+    def iterate_units(self) -> typing.Iterator[XlsxUnit]:
+        for sheet_index, sheet in enumerate(self.sheets, start=1):
+            yield XlsxUnit(
+                sheet_index=sheet_index,
+                sheet_name=sheet.name,
+                text=sheet.name + "\n" + sheet.text.strip(),
+            )
 
     def get_full_text(self) -> str:
-        return "\n".join(list(self.iterate_units()))
+        return _join_unit_text(self.iterate_units())
 
     def get_metadata(self) -> XlsxMetadata:
         """Returns the metadata of the extracted file."""
@@ -1468,7 +1681,7 @@ class OdpContent(ExtractionInterface):
 
     def iterate_units(
         self, include_annotations: bool = False, include_notes: bool = False
-    ) -> typing.Iterator[str]:
+    ) -> typing.Iterator[OdpUnit]:
         """Iterate over slides, yielding combined text per slide.
 
         Args:
@@ -1488,7 +1701,12 @@ class OdpContent(ExtractionInterface):
                 for note in slide.notes:
                     parts.append(f"[Note: {note}]")
 
-            yield "\n".join(parts)
+            yield OdpUnit(
+                slide_number=slide.slide_number,
+                include_annotations=include_annotations,
+                include_notes=include_notes,
+                text="\n".join(parts),
+            )
 
     def get_full_text(
         self, include_annotations: bool = False, include_notes: bool = False
@@ -1499,11 +1717,10 @@ class OdpContent(ExtractionInterface):
             include_annotations: Include annotations/comments in output (default: False)
             include_notes: Include speaker notes in output (default: False)
         """
-        return "\n".join(
-            list(
-                self.iterate_units(
-                    include_annotations=include_annotations, include_notes=include_notes
-                )
+        return _join_unit_text(
+            self.iterate_units(
+                include_annotations=include_annotations,
+                include_notes=include_notes,
             )
         )
 
@@ -1561,14 +1778,18 @@ class OdsContent(ExtractionInterface):
     metadata: OdsMetadata = field(default_factory=OdsMetadata)
     sheets: List[OdsSheet] = field(default_factory=list)
 
-    def iterate_units(self) -> typing.Iterator[str]:
+    def iterate_units(self) -> typing.Iterator[OdsUnit]:
         """Iterate over sheets, yielding text per sheet."""
-        for sheet in self.sheets:
-            yield (sheet.name + "\n" + sheet.text.strip()).strip()
+        for sheet_index, sheet in enumerate(self.sheets, start=1):
+            yield OdsUnit(
+                sheet_index=sheet_index,
+                sheet_name=sheet.name,
+                text=(sheet.name + "\n" + sheet.text.strip()).strip(),
+            )
 
     def get_full_text(self) -> str:
         """Get full text of all sheets."""
-        return "\n".join(list(self.iterate_units()))
+        return _join_unit_text(self.iterate_units())
 
     def get_metadata(self) -> OdsMetadata:
         """Returns the metadata of the extracted file."""
@@ -1687,17 +1908,24 @@ class OdtContent(ExtractionInterface):
     styles: List[str] = field(default_factory=list)
     full_text: str = ""
 
-    def iterate_units(self, include_annotations: bool = False) -> typing.Iterator[str]:
+    def iterate_units(
+        self, include_annotations: bool = False
+    ) -> typing.Iterator[OdtUnit]:
         """Iterate over document text.
 
         Args:
             include_annotations: Include annotations/comments in output
         """
-        yield self.full_text
+        yield OdtUnit(text=self.full_text, kind="body")
 
         if include_annotations:
             for annotation in self.annotations:
-                yield f"[Annotation: {annotation.creator}@{annotation.date}: {annotation.text}]"
+                yield OdtUnit(
+                    text=f"[Annotation: {annotation.creator}@{annotation.date}: {annotation.text}]",
+                    kind="annotation",
+                    annotation_creator=annotation.creator,
+                    annotation_date=annotation.date,
+                )
 
     def get_full_text(self, include_annotations: bool = False) -> str:
         """Get full text of the document.
@@ -1705,7 +1933,7 @@ class OdtContent(ExtractionInterface):
         Args:
             include_annotations: Include annotations/comments in output (default: False)
         """
-        return "\n".join(self.iterate_units(include_annotations))
+        return _join_unit_text(self.iterate_units(include_annotations))
 
     def get_metadata(self) -> OdtMetadata:
         """Returns the metadata of the extracted file."""
@@ -1891,29 +2119,29 @@ class RtfContent(ExtractionInterface):
     full_text: str = ""
     raw_text_blocks: List[str] = field(default_factory=list)
 
-    def iterate_units(self) -> typing.Iterator[str]:
+    def iterate_units(self) -> typing.Iterator[RtfUnit]:
         """Iterate over pages, yielding text per page.
 
         RTF documents are split on explicit page breaks (\\page).
         If no page breaks exist, yields the full document as a single unit.
         """
         if self.pages:
-            for page in self.pages:
+            for page_number, page in enumerate(self.pages, start=1):
                 if page.strip():
-                    yield page
+                    yield RtfUnit(page_number=page_number, text=page)
         elif self.full_text:
-            yield self.full_text
+            yield RtfUnit(page_number=1, text=self.full_text)
         else:
             # Fallback: combine all paragraphs
             combined = "\n".join(p.text for p in self.paragraphs if p.text.strip())
             if combined:
-                yield combined
+                yield RtfUnit(page_number=1, text=combined)
 
     def get_full_text(self) -> str:
         """Full text of the RTF document as one single block of text."""
         if self.full_text:
             return self.full_text
-        return "\n".join(self.iterate_units())
+        return _join_unit_text(self.iterate_units())
 
     def get_metadata(self) -> RtfMetadata:
         """Returns the metadata of the extracted file."""

@@ -117,7 +117,7 @@ If you want to add support for a new file format:
 
 4. Update documentation:
    - Add the format to the README.md supported formats table
-   - Document the return type and what `iterate_units()` yields for the format
+   - Document the return type and what `iterate_units()` yields (unit text + unit metadata) for the format
 
 ## Code Style Guidelines
 

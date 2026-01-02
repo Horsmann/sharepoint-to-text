@@ -11,7 +11,7 @@ A **pure Python** library for extracting text, metadata, and structured elements
 
 - **Unified API**: `sharepoint2text.read_file(path)` yields one or more typed extraction results.
 - **Typed results**: each format returns a specific dataclass (e.g. `DocxContent`, `PdfContent`) that also supports the common interface.
-- **Text**: `get_full_text()` or `iterate_units()` (pages / slides / sheets depending on format).
+- **Text**: `get_full_text()` or `iterate_units()` (pages / slides / sheets depending on format; call `unit.get_text()` for the string).
 - **Structured content**: tables and images where the format supports it.
 - **Metadata**: file metadata (plus format-specific metadata where available).
 - **Serialization**: `result.to_json()` returns a JSON-serializable dict.
@@ -153,7 +153,7 @@ for result in sharepoint2text.read_file("document.docx"):  # or .doc, .pdf, .ppt
 
     # Iterate over logical units (varies by format - see below)
     for unit in result.iterate_units():
-        print(unit)
+        print(unit.get_text())
 
     # Iterate over extracted images
     for image in result.iterate_images():
@@ -228,9 +228,9 @@ store_in_vectordb(text=result.get_full_text(), metadata={"source": "report.pdf"}
 
 # Option 2: Store each page separately with page numbers
 result = next(sharepoint2text.read_file("report.pdf"))
-for page_num, page_text in enumerate(result.iterate_units(), start=1):
+for page_num, unit in enumerate(result.iterate_units(), start=1):
     store_in_vectordb(
-        text=page_text,
+        text=unit.get_text(),
         metadata={"source": "report.pdf", "page": page_num}
     )
 ```
@@ -242,7 +242,7 @@ for page_num, page_text in enumerate(result.iterate_units(), start=1):
 
 ### Format-Specific Notes on `get_full_text()`
 
-`get_full_text()` is intended as a convenient “best default” for each format. In a few formats it intentionally differs from a plain `"\n".join(iterate_units())`, or it omits optional content unless you opt in:
+`get_full_text()` is intended as a convenient “best default” for each format. In a few formats it intentionally differs from a plain `"\n".join(unit.get_text() for unit in iterate_units())`, or it omits optional content unless you opt in:
 
 | Format | `get_full_text()` default behavior | Not included by default / where to find it |
 |--------|------------------------------------|--------------------------------------------|
@@ -413,7 +413,7 @@ All content types implement the common interface:
 
 ```python
 class ExtractionInterface(Protocol):
-    def iterate_units() -> Iterator[str]         # Iterate over logical units
+    def iterate_units() -> Iterator[UnitInterface]  # Iterate over logical units
     def iterate_images() -> Generator[ImageInterface, None, None]
     def iterate_tables() -> Generator[TableInterface, None, None]
     def get_full_text() -> str                   # Complete text as string
@@ -664,9 +664,9 @@ def prepare_for_rag(file_path: str) -> list[dict]:
         meta = result.get_metadata()
 
         for i, unit in enumerate(result.iterate_units()):
-            if unit.strip():  # Skip empty units
+            if unit.get_text().strip():  # Skip empty units
                 chunks.append({
-                    "text": unit,
+                    "text": unit.get_text(),
                     "metadata": {
                         "source": file_path,
                         "chunk_index": i,
