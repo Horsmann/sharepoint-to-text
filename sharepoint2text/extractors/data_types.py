@@ -307,248 +307,13 @@ class ImageMetadata(dict):
         self.image_number = value
 
 
-@dataclass
-class PlainUnitMetadata(UnitMetadataInterface):
-    """Plain Unit Metadata"""
-
-    pass
-
-
-@dataclass
-class PlainTextUnit(UnitInterface):
-    text: str
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_images(self) -> list[ImageInterface]:
-        return []
-
-    def get_tables(self) -> list[TableData]:
-        return []
-
-    def get_metadata(self) -> PlainUnitMetadata:
-        return PlainUnitMetadata(unit_number=1)
-
-
-@dataclass
-class HtmlUnitMetadata(UnitMetadataInterface):
-    """Html Unit Metadata"""
-
-    pass
-
-
-@dataclass
-class HtmlUnit(UnitInterface):
-    text: str
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_images(self) -> list[ImageInterface]:
-        return []
-
-    def get_tables(self) -> list[TableData]:
-        return []
-
-    def get_metadata(self) -> HtmlUnitMetadata:
-        return HtmlUnitMetadata(unit_number=1)
-
-
-@dataclass
-class XlsUnitMetadata(UnitMetadataInterface):
-    sheet_name: str
-
-
-@dataclass
-class XlsUnit(UnitInterface):
-    sheet_number: int
-    sheet_name: str
-    text: str
-    tables: list[TableData] = field(default_factory=list)
-    images: list[XlsImage] = field(default_factory=list)
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_images(self) -> list[ImageInterface]:
-        return list(self.images)
-
-    def get_tables(self) -> list[TableData]:
-        return list(self.tables)
-
-    def get_metadata(self) -> XlsUnitMetadata:
-        return XlsUnitMetadata(
-            unit_number=self.sheet_number, sheet_name=self.sheet_name
-        )
-
-
-@dataclass
-class XlsxUnitMetadata(UnitMetadataInterface):
-    sheet_number: int
-    sheet_name: str
-
-
-@dataclass
-class XlsxUnit(UnitInterface):
-    sheet_index: int
-    sheet_name: str
-    text: str
-    images: list[XlsxImage] = field(default_factory=list)
-    tables: list[TableData] = field(default_factory=list)
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_images(self) -> list[ImageInterface]:
-        return list(self.images)
-
-    def get_tables(self) -> list[TableData]:
-        return list(self.tables)
-
-    def get_metadata(self) -> XlsxUnitMetadata:
-        return XlsxUnitMetadata(
-            unit_number=self.sheet_index,
-            sheet_name=self.sheet_name,
-            sheet_number=self.sheet_index,
-        )
-
-
-@dataclass
-class OdpUnit(UnitInterface):
-    slide_number: int
-    text: str
-    location: list[str] = field(default_factory=list)
-    images: list[OdpImage] = field(default_factory=list)
-    tables: list[TableData] = field(default_factory=list)
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_images(self) -> list[ImageInterface]:
-        return list(self.images)
-
-    def get_tables(self) -> list[TableData]:
-        return list(self.tables)
-
-    def get_metadata(self) -> OdpUnitMetadata:
-        return OdpUnitMetadata(
-            unit_number=self.slide_number,
-            location=list(self.location),
-            slide_number=self.slide_number,
-        )
-
-
-@dataclass
-class OdpUnitMetadata(UnitMetadataInterface):
-    unit_number: int
-    location: list[str] = field(default_factory=list)
-    slide_number: int = 1
-
-
-@dataclass
-class OdsUnit(UnitInterface):
-    sheet_number: int
-    sheet_name: str
-    text: str
-    images: list[OdsImage] = field(default_factory=list)
-    tables: list[TableData] = field(default_factory=list)
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_images(self) -> list[ImageInterface]:
-        return list(self.images)
-
-    def get_tables(self) -> list[TableData]:
-        return list(self.tables)
-
-    def get_metadata(self) -> OdsUnitMetadata:
-        return OdsUnitMetadata(
-            unit_number=self.sheet_number,
-            sheet_number=self.sheet_number,
-            sheet_name=self.sheet_name,
-        )
-
-
-@dataclass
-class OdsUnitMetadata(UnitMetadataInterface):
-    unit_number: int
-    sheet_number: int
-    sheet_name: str
-
-
-@dataclass
-class OdtUnit(UnitInterface):
-    text: str
-    unit_number: int
-    heading_level: int | None = None
-    heading_path: list[str] = field(default_factory=list)
-    kind: str = "body"  # body|annotation
-    annotation_creator: str | None = None
-    annotation_date: str | None = None
-    images: list[ImageInterface] = field(default_factory=list)
-    tables: list[TableData] = field(default_factory=list)
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_images(self) -> list[ImageInterface]:
-        return list(self.images)
-
-    def get_tables(self) -> list[TableData]:
-        return list(self.tables)
-
-    def get_metadata(self) -> OdtUnitMetadata:
-        return OdtUnitMetadata(
-            unit_number=self.unit_number,
-            heading_level=self.heading_level,
-            heading_path=list(self.heading_path),
-            kind=self.kind,
-            annotation_creator=self.annotation_creator,
-            annotation_date=self.annotation_date,
-        )
-
-
-@dataclass
-class OdtUnitMetadata(UnitMetadataInterface):
-    unit_number: int
-    heading_level: int | None = None
-    heading_path: list[str] = field(default_factory=list)
-    kind: str = "body"  # body|annotation
-    annotation_creator: str | None = None
-    annotation_date: str | None = None
-
-
-@dataclass
-class RtfUnitMetadata(UnitMetadataInterface):
-    page_number: int
-
-
-@dataclass
-class RtfUnit(UnitInterface):
-    page_number: int
-    text: str
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_images(self) -> list[ImageInterface]:
-        return []
-
-    def get_tables(self) -> list[TableData]:
-        return []
-
-    def get_metadata(self) -> RtfUnitMetadata:
-        return RtfUnitMetadata(
-            unit_number=self.page_number, page_number=self.page_number
-        )
-
-
 def _join_unit_text(units: typing.Iterable[UnitInterface]) -> str:
     return "\n".join(unit.get_text() for unit in units)
 
 
+#########
+# Email #
+#########
 @dataclass
 class EmailUnitMetadata(UnitMetadataInterface):
     body_type: str
@@ -1461,6 +1226,30 @@ class PdfContent(ExtractionInterface):
 
 
 @dataclass
+class PlainUnitMetadata(UnitMetadataInterface):
+    """Plain Unit Metadata"""
+
+    pass
+
+
+@dataclass
+class PlainTextUnit(UnitInterface):
+    text: str
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return []
+
+    def get_tables(self) -> list[TableData]:
+        return []
+
+    def get_metadata(self) -> PlainUnitMetadata:
+        return PlainUnitMetadata(unit_number=1)
+
+
+@dataclass
 class PlainTextContent(ExtractionInterface):
     content: str = ""
     metadata: FileMetadataInterface = field(default_factory=FileMetadataInterface)
@@ -1492,6 +1281,30 @@ class PlainTextContent(ExtractionInterface):
 ########
 # HTML
 ########
+
+
+@dataclass
+class HtmlUnitMetadata(UnitMetadataInterface):
+    """Html Unit Metadata"""
+
+    pass
+
+
+@dataclass
+class HtmlUnit(UnitInterface):
+    text: str
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return []
+
+    def get_tables(self) -> list[TableData]:
+        return []
+
+    def get_metadata(self) -> HtmlUnitMetadata:
+        return HtmlUnitMetadata(unit_number=1)
 
 
 @dataclass
@@ -1926,6 +1739,34 @@ class PptxContent(ExtractionInterface):
 
 
 @dataclass
+class XlsUnitMetadata(UnitMetadataInterface):
+    sheet_name: str
+
+
+@dataclass
+class XlsUnit(UnitInterface):
+    sheet_number: int
+    sheet_name: str
+    text: str
+    tables: list[TableData] = field(default_factory=list)
+    images: list[XlsImage] = field(default_factory=list)
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return list(self.images)
+
+    def get_tables(self) -> list[TableData]:
+        return list(self.tables)
+
+    def get_metadata(self) -> XlsUnitMetadata:
+        return XlsUnitMetadata(
+            unit_number=self.sheet_number, sheet_name=self.sheet_name
+        )
+
+
+@dataclass
 class XlsImage(ImageInterface):
     """Represents an embedded image in a legacy XLS file."""
 
@@ -2042,6 +1883,37 @@ class XlsContent(ExtractionInterface):
 ##############
 # Modern XLSX
 ##############
+
+
+@dataclass
+class XlsxUnitMetadata(UnitMetadataInterface):
+    sheet_number: int
+    sheet_name: str
+
+
+@dataclass
+class XlsxUnit(UnitInterface):
+    sheet_index: int
+    sheet_name: str
+    text: str
+    images: list[XlsxImage] = field(default_factory=list)
+    tables: list[TableData] = field(default_factory=list)
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return list(self.images)
+
+    def get_tables(self) -> list[TableData]:
+        return list(self.tables)
+
+    def get_metadata(self) -> XlsxUnitMetadata:
+        return XlsxUnitMetadata(
+            unit_number=self.sheet_index,
+            sheet_name=self.sheet_name,
+            sheet_number=self.sheet_index,
+        )
 
 
 @dataclass
@@ -2269,6 +2141,38 @@ OdtImage = OpenDocumentImage
 
 
 @dataclass
+class OdpUnit(UnitInterface):
+    slide_number: int
+    text: str
+    location: list[str] = field(default_factory=list)
+    images: list[OdpImage] = field(default_factory=list)
+    tables: list[TableData] = field(default_factory=list)
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return list(self.images)
+
+    def get_tables(self) -> list[TableData]:
+        return list(self.tables)
+
+    def get_metadata(self) -> OdpUnitMetadata:
+        return OdpUnitMetadata(
+            unit_number=self.slide_number,
+            location=list(self.location),
+            slide_number=self.slide_number,
+        )
+
+
+@dataclass
+class OdpUnitMetadata(UnitMetadataInterface):
+    unit_number: int
+    location: list[str] = field(default_factory=list)
+    slide_number: int = 1
+
+
+@dataclass
 class OdpSlide:
     """Represents a single slide in the presentation."""
 
@@ -2346,6 +2250,38 @@ class OdpContent(ExtractionInterface):
 
 
 @dataclass
+class OdsUnit(UnitInterface):
+    sheet_number: int
+    sheet_name: str
+    text: str
+    images: list[OdsImage] = field(default_factory=list)
+    tables: list[TableData] = field(default_factory=list)
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return list(self.images)
+
+    def get_tables(self) -> list[TableData]:
+        return list(self.tables)
+
+    def get_metadata(self) -> OdsUnitMetadata:
+        return OdsUnitMetadata(
+            unit_number=self.sheet_number,
+            sheet_number=self.sheet_number,
+            sheet_name=self.sheet_name,
+        )
+
+
+@dataclass
+class OdsUnitMetadata(UnitMetadataInterface):
+    unit_number: int
+    sheet_number: int
+    sheet_name: str
+
+
+@dataclass
 class OdsSheet(TableInterface):
     """Represents a single sheet in the spreadsheet."""
 
@@ -2412,6 +2348,48 @@ class OdsContent(ExtractionInterface):
 ####################################
 # OpenDocument ODT (Text Document) #
 ####################################
+
+
+@dataclass
+class OdtUnit(UnitInterface):
+    text: str
+    unit_number: int
+    heading_level: int | None = None
+    heading_path: list[str] = field(default_factory=list)
+    kind: str = "body"  # body|annotation
+    annotation_creator: str | None = None
+    annotation_date: str | None = None
+    images: list[ImageInterface] = field(default_factory=list)
+    tables: list[TableData] = field(default_factory=list)
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return list(self.images)
+
+    def get_tables(self) -> list[TableData]:
+        return list(self.tables)
+
+    def get_metadata(self) -> OdtUnitMetadata:
+        return OdtUnitMetadata(
+            unit_number=self.unit_number,
+            heading_level=self.heading_level,
+            heading_path=list(self.heading_path),
+            kind=self.kind,
+            annotation_creator=self.annotation_creator,
+            annotation_date=self.annotation_date,
+        )
+
+
+@dataclass
+class OdtUnitMetadata(UnitMetadataInterface):
+    unit_number: int
+    heading_level: int | None = None
+    heading_path: list[str] = field(default_factory=list)
+    kind: str = "body"  # body|annotation
+    annotation_creator: str | None = None
+    annotation_date: str | None = None
 
 
 @dataclass
@@ -2699,6 +2677,31 @@ class OdtContent(ExtractionInterface):
 #######
 # RTF #
 #######
+
+
+@dataclass
+class RtfUnitMetadata(UnitMetadataInterface):
+    page_number: int
+
+
+@dataclass
+class RtfUnit(UnitInterface):
+    page_number: int
+    text: str
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return []
+
+    def get_tables(self) -> list[TableData]:
+        return []
+
+    def get_metadata(self) -> RtfUnitMetadata:
+        return RtfUnitMetadata(
+            unit_number=self.page_number, page_number=self.page_number
+        )
 
 
 @dataclass
