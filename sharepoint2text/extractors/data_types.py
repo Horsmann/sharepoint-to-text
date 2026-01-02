@@ -165,6 +165,16 @@ class UnitInterface(Protocol):
         ...
 
     @abstractmethod
+    def get_images(self) -> list[ImageInterface]:
+        """Returns the images of the units as a list."""
+        ...
+
+    @abstractmethod
+    def get_tables(self) -> list[TableData]:
+        """Returns the images of the units as a list."""
+        ...
+
+    @abstractmethod
     def get_metadata(self) -> UnitMetadataInterface:
         """Returns (additional) metadata of a unit."""
         ...
