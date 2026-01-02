@@ -1670,6 +1670,19 @@ def test_read_open_office__heading_units() -> None:
     # 1
     tc.assertListEqual(["Intro"], units[0].get_metadata().location)
     tc.assertEqual("This is the intro text.", units[0].get_text())
+    tc.assertTrue(isinstance(units[0].get_metadata(), OdtUnitMetadata))
+    tc.assertEqual(
+        OdtUnitMetadata(
+            unit_number=1,
+            location=["Intro"],
+            heading_level=1,
+            heading_path=["Intro"],
+            kind="body",
+            annotation_creator=None,
+            annotation_date=None,
+        ),
+        units[0].get_metadata(),
+    )
 
     # 2
     tc.assertListEqual(["Chapter 1"], units[1].get_metadata().location)
