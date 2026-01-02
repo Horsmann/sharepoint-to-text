@@ -838,6 +838,16 @@ def test_read_xls_2() -> None:
     tc.assertEqual(1, len(list(xls.iterate_tables())))
     tc.assertEqual(TableDim(rows=2, columns=2), list(xls.iterate_tables())[0].get_dim())
 
+    #########
+    # Units #
+    #########
+    tc.assertEqual(1, len(list(xls.iterate_units())))
+    units = list(xls.iterate_units())
+    tc.assertListEqual(
+        [["colA", "colB"], ["1", "2"]], units[0].get_tables()[0].get_table()
+    )
+    tc.assertEqual(TableDim(rows=2, columns=2), units[0].get_tables()[0])
+
 
 def test_read_xls_3_images() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/xls_with_images.xls"

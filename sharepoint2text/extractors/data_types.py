@@ -98,6 +98,11 @@ class TableDim:
 class TableData(TableInterface):
     data: list[list[typing.Any]] = field(default_factory=list)
 
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, TableDim):
+            return self.get_dim() == other
+        return super().__eq__(other)
+
     def get_table(self) -> list[list[typing.Any]]:
         """Return table data as a list of rows.
 
@@ -400,6 +405,7 @@ class XlsUnit(UnitInterface):
     sheet_index: int
     sheet_name: str
     text: str
+    tables: list[TableData] = field(default_factory=list)
 
     def get_text(self) -> str:
         return self.text
@@ -408,7 +414,7 @@ class XlsUnit(UnitInterface):
         return []
 
     def get_tables(self) -> list[TableData]:
-        return []
+        return list(self.tables)
 
     def get_metadata(self) -> dict:
         return {
@@ -492,22 +498,31 @@ class OdsUnit(UnitInterface):
     sheet_index: int
     sheet_name: str
     text: str
+    images: list[OdsImage] = field(default_factory=list)
+    tables: list[TableData] = field(default_factory=list)
 
     def get_text(self) -> str:
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
-        return []
+        return list(self.images)
 
     def get_tables(self) -> list[TableData]:
-        return []
+        return list(self.tables)
 
-    def get_metadata(self) -> dict:
-        return {
-            "unit_index": self.sheet_index,
-            "sheet_index": self.sheet_index,
-            "sheet_name": self.sheet_name,
-        }
+    def get_metadata(self) -> "OdsUnitMeta":
+        return OdsUnitMeta(
+            unit_index=self.sheet_index,
+            sheet_index=self.sheet_index,
+            sheet_name=self.sheet_name,
+        )
+
+
+@dataclass
+class OdsUnitMeta(UnitMetadataInterface):
+    unit_index: int
+    sheet_index: int
+    sheet_name: str
 
 
 @dataclass
@@ -1922,9 +1937,19 @@ class XlsContent(ExtractionInterface):
 
     def iterate_units(self) -> typing.Iterator[XlsUnit]:
         for sheet_index, sheet in enumerate(self.sheets, start=1):
+            table = sheet.get_table()
+            normalized_table = (
+                [
+                    [str(cell) if cell is not None else None for cell in row]
+                    for row in table
+                ]
+                if table
+                else []
+            )
             yield XlsUnit(
                 sheet_index=sheet_index,
                 sheet_name=sheet.name,
+                tables=[TableData(data=normalized_table)] if normalized_table else [],
                 text=sheet.text.strip(),
             )
 
@@ -2286,6 +2311,8 @@ class OdsContent(ExtractionInterface):
             yield OdsUnit(
                 sheet_index=sheet_index,
                 sheet_name=sheet.name,
+                images=list(sheet.images),
+                tables=[TableData(data=sheet.data)] if sheet.data else [],
                 text=(sheet.name + "\n" + sheet.text.strip()).strip(),
             )
 
