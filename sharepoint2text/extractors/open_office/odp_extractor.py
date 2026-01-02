@@ -115,11 +115,11 @@ from sharepoint2text.exceptions import (
     ExtractionFileEncryptedError,
 )
 from sharepoint2text.extractors.data_types import (
-    OdpAnnotation,
     OdpContent,
-    OdpImage,
-    OdpMetadata,
     OdpSlide,
+    OpenDocumentAnnotation,
+    OpenDocumentImage,
+    OpenDocumentMetadata,
 )
 from sharepoint2text.extractors.util.encryption import is_odf_encrypted
 from sharepoint2text.extractors.util.zip_bomb import open_zipfile
@@ -173,10 +173,10 @@ def _get_text_recursive(element: ET.Element) -> str:
     return "".join(parts)
 
 
-def _extract_metadata(z: zipfile.ZipFile) -> OdpMetadata:
+def _extract_metadata(z: zipfile.ZipFile) -> OpenDocumentMetadata:
     """Extract metadata from meta.xml."""
     logger.debug("Extracting ODP metadata")
-    metadata = OdpMetadata()
+    metadata = OpenDocumentMetadata()
 
     if "meta.xml" not in z.namelist():
         return metadata
@@ -244,7 +244,7 @@ def _extract_metadata(z: zipfile.ZipFile) -> OdpMetadata:
     return metadata
 
 
-def _extract_annotations(element: ET.Element) -> list[OdpAnnotation]:
+def _extract_annotations(element: ET.Element) -> list[OpenDocumentAnnotation]:
     """Extract annotations/comments from an element."""
     annotations = []
 
@@ -263,7 +263,9 @@ def _extract_annotations(element: ET.Element) -> list[OdpAnnotation]:
             text_parts.append(_get_text_recursive(p))
         text = "\n".join(text_parts)
 
-        annotations.append(OdpAnnotation(creator=creator, date=date, text=text))
+        annotations.append(
+            OpenDocumentAnnotation(creator=creator, date=date, text=text)
+        )
 
     return annotations
 
@@ -289,7 +291,7 @@ def _extract_image(
     frame: ET.Element,
     slide_number: int,
     image_index: int,
-) -> OdpImage | None:
+) -> OpenDocumentImage | None:
     """Extract image data from a frame element.
 
     Extracts images with their metadata:
@@ -332,7 +334,7 @@ def _extract_image(
 
     if href.startswith("http"):
         # External image reference
-        return OdpImage(
+        return OpenDocumentImage(
             href=href,
             name=name,
             width=width,
@@ -351,7 +353,7 @@ def _extract_image(
                 content_type = (
                     mimetypes.guess_type(href)[0] or "application/octet-stream"
                 )
-                return OdpImage(
+                return OpenDocumentImage(
                     href=href,
                     name=name or href.split("/")[-1],
                     content_type=content_type,
@@ -366,7 +368,7 @@ def _extract_image(
                 )
     except Exception as e:
         logger.debug(f"Failed to extract image {href}: {e}")
-        return OdpImage(href=href, name=name, error=str(e))
+        return OpenDocumentImage(href=href, name=name, error=str(e))
 
     return None
 
@@ -491,7 +493,7 @@ def read_odp(
 
     Yields:
         OdpContent: Single OdpContent object containing:
-            - metadata: OdpMetadata with title, creator, dates
+            - metadata: OpenDocumentMetadata with title, creator, dates
             - slides: List of OdpSlide objects with per-slide content
 
     Raises:

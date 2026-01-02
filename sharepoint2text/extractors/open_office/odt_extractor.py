@@ -117,17 +117,17 @@ from sharepoint2text.exceptions import (
     ExtractionFileEncryptedError,
 )
 from sharepoint2text.extractors.data_types import (
-    OdtAnnotation,
     OdtBookmark,
     OdtContent,
     OdtHeaderFooter,
     OdtHyperlink,
-    OdtImage,
-    OdtMetadata,
     OdtNote,
     OdtParagraph,
     OdtRun,
     OdtTable,
+    OpenDocumentAnnotation,
+    OpenDocumentImage,
+    OpenDocumentMetadata,
 )
 from sharepoint2text.extractors.util.encryption import is_odf_encrypted
 from sharepoint2text.extractors.util.zip_context import ZipContext
@@ -232,10 +232,10 @@ def _get_text_recursive(element: ET.Element) -> str:
     return "".join(parts)
 
 
-def _extract_metadata_from_context(ctx: _OdtContext) -> OdtMetadata:
+def _extract_metadata_from_context(ctx: _OdtContext) -> OpenDocumentMetadata:
     """Extract metadata from cached meta.xml root."""
     logger.debug("Extracting ODT metadata")
-    metadata = OdtMetadata()
+    metadata = OpenDocumentMetadata()
 
     root = ctx.meta_root
     if root is None:
@@ -409,7 +409,7 @@ def _extract_notes(body: ET.Element) -> tuple[list[OdtNote], list[OdtNote]]:
     return footnotes, endnotes
 
 
-def _extract_annotations(body: ET.Element) -> list[OdtAnnotation]:
+def _extract_annotations(body: ET.Element) -> list[OpenDocumentAnnotation]:
     """Extract annotations/comments from the document."""
     logger.debug("Extracting ODT annotations")
     annotations = []
@@ -427,7 +427,9 @@ def _extract_annotations(body: ET.Element) -> list[OdtAnnotation]:
             text_parts.append(_get_text_recursive(p))
         text = "\n".join(text_parts)
 
-        annotations.append(OdtAnnotation(creator=creator, date=date, text=text))
+        annotations.append(
+            OpenDocumentAnnotation(creator=creator, date=date, text=text)
+        )
 
     return annotations
 
@@ -497,7 +499,9 @@ def _extract_caption_from_paragraph(para: ET.Element) -> str:
     return caption
 
 
-def _extract_images_from_context(ctx: _OdtContext, body: ET.Element) -> list[OdtImage]:
+def _extract_images_from_context(
+    ctx: _OdtContext, body: ET.Element
+) -> list[OpenDocumentImage]:
     """Extract images from the document using cached context.
 
     Extracts images with their metadata:
@@ -563,7 +567,7 @@ def _extract_images_from_context(ctx: _OdtContext, body: ET.Element) -> list[Odt
                             mimetypes.guess_type(href)[0] or "application/octet-stream"
                         )
                         images.append(
-                            OdtImage(
+                            OpenDocumentImage(
                                 href=href,
                                 name=name or href.split("/")[-1],
                                 content_type=content_type,
@@ -579,7 +583,7 @@ def _extract_images_from_context(ctx: _OdtContext, body: ET.Element) -> list[Odt
                         )
             except Exception as e:
                 logger.debug(f"Failed to extract image {href}: {e}")
-                images.append(OdtImage(href=href, name=name, error=str(e)))
+                images.append(OpenDocumentImage(href=href, name=name, error=str(e)))
 
     # Then, find simple images (not in text-boxes)
     for frame in body.findall(".//draw:frame", NS):
@@ -619,7 +623,7 @@ def _extract_images_from_context(ctx: _OdtContext, body: ET.Element) -> list[Odt
                                 or "application/octet-stream"
                             )
                             images.append(
-                                OdtImage(
+                                OpenDocumentImage(
                                     href=href,
                                     name=name or href.split("/")[-1],
                                     content_type=content_type,
@@ -635,11 +639,11 @@ def _extract_images_from_context(ctx: _OdtContext, body: ET.Element) -> list[Odt
                             )
                 except Exception as e:
                     logger.debug(f"Failed to extract image {href}: {e}")
-                    images.append(OdtImage(href=href, name=name, error=str(e)))
+                    images.append(OpenDocumentImage(href=href, name=name, error=str(e)))
             elif href:
                 image_counter += 1
                 images.append(
-                    OdtImage(
+                    OpenDocumentImage(
                         href=href,
                         name=name,
                         width=width,
@@ -786,14 +790,14 @@ def read_odt(
 
     Yields:
         OdtContent: Single OdtContent object containing:
-            - metadata: OdtMetadata with title, creator, dates, etc.
+            - metadata: OpenDocumentMetadata with title, creator, dates, etc.
             - paragraphs: List of OdtParagraph with text and runs
             - tables: List of tables as OdtTable objects
             - headers/footers: From master pages in styles.xml
-            - images: List of OdtImage with binary data
+            - images: List of OpenDocumentImage with binary data
             - hyperlinks: List of OdtHyperlink with text and URL
             - footnotes/endnotes: OdtNote objects
-            - annotations: OdtAnnotation objects with creator and date
+            - annotations: OpenDocumentAnnotation objects with creator and date
             - bookmarks: OdtBookmark objects
             - styles: List of style names
             - full_text: Complete document text

@@ -121,11 +121,11 @@ from sharepoint2text.exceptions import (
     ExtractionFileEncryptedError,
 )
 from sharepoint2text.extractors.data_types import (
-    OdsAnnotation,
     OdsContent,
-    OdsImage,
-    OdsMetadata,
     OdsSheet,
+    OpenDocumentAnnotation,
+    OpenDocumentImage,
+    OpenDocumentMetadata,
 )
 from sharepoint2text.extractors.util.encryption import is_odf_encrypted
 from sharepoint2text.extractors.util.zip_bomb import open_zipfile
@@ -178,10 +178,10 @@ def _get_text_recursive(element: ET.Element) -> str:
     return "".join(parts)
 
 
-def _extract_metadata(z: zipfile.ZipFile) -> OdsMetadata:
+def _extract_metadata(z: zipfile.ZipFile) -> OpenDocumentMetadata:
     """Extract metadata from meta.xml."""
     logger.debug("Extracting ODS metadata")
-    metadata = OdsMetadata()
+    metadata = OpenDocumentMetadata()
 
     if "meta.xml" not in z.namelist():
         return metadata
@@ -300,7 +300,7 @@ def _extract_cell_value(cell: ET.Element) -> tuple[Any, str]:
     return None, ""
 
 
-def _extract_annotations(cell: ET.Element) -> list[OdsAnnotation]:
+def _extract_annotations(cell: ET.Element) -> list[OpenDocumentAnnotation]:
     """Extract annotations/comments from a cell."""
     annotations = []
 
@@ -318,7 +318,9 @@ def _extract_annotations(cell: ET.Element) -> list[OdsAnnotation]:
             text_parts.append(_get_text_recursive(p))
         text = "\n".join(text_parts)
 
-        annotations.append(OdsAnnotation(creator=creator, date=date, text=text))
+        annotations.append(
+            OpenDocumentAnnotation(creator=creator, date=date, text=text)
+        )
 
     return annotations
 
@@ -328,7 +330,7 @@ def _extract_images(
     table: ET.Element,
     sheet_number: int,
     image_counter: int,
-) -> tuple[list[OdsImage], int]:
+) -> tuple[list[OpenDocumentImage], int]:
     """Extract images from a table/sheet.
 
     Extracts images with their metadata:
@@ -344,7 +346,7 @@ def _extract_images(
         image_counter: The current global image counter across all sheets.
 
     Returns:
-        A tuple of (list of OdsImage, updated image_counter).
+        A tuple of (list of OpenDocumentImage, updated image_counter).
     """
     images = []
 
@@ -384,7 +386,7 @@ def _extract_images(
         if href.startswith("http"):
             # External image reference
             images.append(
-                OdsImage(
+                OpenDocumentImage(
                     href=href,
                     name=name,
                     width=width,
@@ -405,7 +407,7 @@ def _extract_images(
                             mimetypes.guess_type(href)[0] or "application/octet-stream"
                         )
                         images.append(
-                            OdsImage(
+                            OpenDocumentImage(
                                 href=href,
                                 name=name or href.split("/")[-1],
                                 content_type=content_type,
@@ -421,7 +423,7 @@ def _extract_images(
                         )
             except Exception as e:
                 logger.debug(f"Failed to extract image {href}: {e}")
-                images.append(OdsImage(href=href, name=name, error=str(e)))
+                images.append(OpenDocumentImage(href=href, name=name, error=str(e)))
 
     return images, image_counter
 
@@ -565,7 +567,7 @@ def read_ods(
 
     Yields:
         OdsContent: Single OdsContent object containing:
-            - metadata: OdsMetadata with title, creator, dates
+            - metadata: OpenDocumentMetadata with title, creator, dates
             - sheets: List of OdsSheet objects with per-sheet data
 
     Raises:

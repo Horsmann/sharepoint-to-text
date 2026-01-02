@@ -18,17 +18,15 @@ from sharepoint2text.extractors.data_types import (
     HtmlUnitMetadata,
     ImageInterface,
     ImageMetadata,
-    OdpAnnotation,
     OdpContent,
     OdpUnitMetadata,
-    OdsAnnotation,
     OdsContent,
-    OdtAnnotation,
     OdtContent,
     OdtHeaderFooter,
     OdtNote,
     OdtTable,
     OdtUnitMetadata,
+    OpenDocumentAnnotation,
     PdfContent,
     PdfUnitMetadata,
     PlainTextContent,
@@ -1552,7 +1550,7 @@ def test_read_open_office__document() -> None:
     # comments
     tc.assertListEqual(
         [
-            OdtAnnotation(
+            OpenDocumentAnnotation(
                 creator="User",
                 date="2025-12-28T12:00:00",
                 text="This is a comment by User on the sample text.",
@@ -1799,7 +1797,7 @@ def test_read_open_office__presentation() -> None:
     # Annotation on slide 2
     tc.assertEqual(1, len(odp.slides[1].annotations))
     tc.assertEqual(
-        OdpAnnotation(
+        OpenDocumentAnnotation(
             creator="User",
             date="2025-12-28T12:00:00",
             text="This is a comment by User on the presentation content.",
@@ -1877,7 +1875,7 @@ def test_read_open_office__spreadsheet() -> None:
     tc.assertEqual(2, len(ods.sheets[0].annotations))
     # First annotation: on Widget A cell
     tc.assertEqual(
-        OdsAnnotation(
+        OpenDocumentAnnotation(
             creator="User",
             date="2025-12-28T12:00:00",
             text="This is our best-selling product line.",
@@ -1886,7 +1884,7 @@ def test_read_open_office__spreadsheet() -> None:
     )
     # Second annotation: on the notes row
     tc.assertEqual(
-        OdsAnnotation(
+        OpenDocumentAnnotation(
             creator="User",
             date="2025-12-28T14:30:00",
             text="Remember to update these figures after the quarterly review meeting.",
@@ -1905,7 +1903,7 @@ def test_read_open_office__spreadsheet() -> None:
     # Summary sheet has 1 annotation
     tc.assertEqual(1, len(ods.sheets[1].annotations))
     tc.assertEqual(
-        OdsAnnotation(
+        OpenDocumentAnnotation(
             creator="User",
             date="2025-12-28T15:00:00",
             text="These formulas reference the Sales Data sheet. Update source data to refresh.",

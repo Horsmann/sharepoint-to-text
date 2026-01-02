@@ -2123,18 +2123,6 @@ class OpenDocumentImage(ImageInterface):
         )
 
 
-# Type aliases for backwards compatibility and semantic clarity
-OdpMetadata = OpenDocumentMetadata
-OdsMetadata = OpenDocumentMetadata
-OdtMetadata = OpenDocumentMetadata
-OdpAnnotation = OpenDocumentAnnotation
-OdsAnnotation = OpenDocumentAnnotation
-OdtAnnotation = OpenDocumentAnnotation
-OdpImage = OpenDocumentImage
-OdsImage = OpenDocumentImage
-OdtImage = OpenDocumentImage
-
-
 ###############
 # OpenDocument ODP (Presentation)
 ###############
@@ -2145,7 +2133,7 @@ class OdpUnit(UnitInterface):
     slide_number: int
     text: str
     location: list[str] = field(default_factory=list)
-    images: list[OdpImage] = field(default_factory=list)
+    images: list[OpenDocumentImage] = field(default_factory=list)
     tables: list[TableData] = field(default_factory=list)
 
     def get_text(self) -> str:
@@ -2182,8 +2170,8 @@ class OdpSlide:
     body_text: List[str] = field(default_factory=list)
     other_text: List[str] = field(default_factory=list)
     tables: List[List[List[str]]] = field(default_factory=list)
-    annotations: List[OdpAnnotation] = field(default_factory=list)
-    images: List[OdpImage] = field(default_factory=list)
+    annotations: List[OpenDocumentAnnotation] = field(default_factory=list)
+    images: List[OpenDocumentImage] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)  # Speaker notes
 
     @property
@@ -2201,7 +2189,7 @@ class OdpSlide:
 class OdpContent(ExtractionInterface):
     """Complete extracted content from an ODP file."""
 
-    metadata: OdpMetadata = field(default_factory=OdpMetadata)
+    metadata: OpenDocumentMetadata = field(default_factory=OpenDocumentMetadata)
     slides: List[OdpSlide] = field(default_factory=list)
 
     def iterate_units(self) -> typing.Iterator[OdpUnit]:
@@ -2221,7 +2209,7 @@ class OdpContent(ExtractionInterface):
         """Get full text of all slides."""
         return _join_unit_text(self.iterate_units())
 
-    def get_metadata(self) -> OdpMetadata:
+    def get_metadata(self) -> OpenDocumentMetadata:
         """Returns the metadata of the extracted file."""
         return self.metadata
 
@@ -2254,7 +2242,7 @@ class OdsUnit(UnitInterface):
     sheet_number: int
     sheet_name: str
     text: str
-    images: list[OdsImage] = field(default_factory=list)
+    images: list[OpenDocumentImage] = field(default_factory=list)
     tables: list[TableData] = field(default_factory=list)
 
     def get_text(self) -> str:
@@ -2288,8 +2276,8 @@ class OdsSheet(TableInterface):
     name: str = ""
     data: List[List[typing.Any]] = field(default_factory=list)
     text: str = ""
-    annotations: List[OdsAnnotation] = field(default_factory=list)
-    images: List[OdsImage] = field(default_factory=list)
+    annotations: List[OpenDocumentAnnotation] = field(default_factory=list)
+    images: List[OpenDocumentImage] = field(default_factory=list)
 
     def get_table(self) -> list[list[typing.Any]]:
         return self.data
@@ -2304,7 +2292,7 @@ class OdsSheet(TableInterface):
 class OdsContent(ExtractionInterface):
     """Complete extracted content from an ODS file."""
 
-    metadata: OdsMetadata = field(default_factory=OdsMetadata)
+    metadata: OpenDocumentMetadata = field(default_factory=OpenDocumentMetadata)
     sheets: List[OdsSheet] = field(default_factory=list)
 
     def iterate_units(self) -> typing.Iterator[OdsUnit]:
@@ -2322,7 +2310,7 @@ class OdsContent(ExtractionInterface):
         """Get full text of all sheets."""
         return _join_unit_text(self.iterate_units())
 
-    def get_metadata(self) -> OdsMetadata:
+    def get_metadata(self) -> OpenDocumentMetadata:
         """Returns the metadata of the extracted file."""
         return self.metadata
 
@@ -2467,16 +2455,16 @@ class OdtTable(TableInterface):
 class OdtContent(ExtractionInterface):
     """Complete extracted content from an ODT file."""
 
-    metadata: OdtMetadata = field(default_factory=OdtMetadata)
+    metadata: OpenDocumentMetadata = field(default_factory=OpenDocumentMetadata)
     paragraphs: List[OdtParagraph] = field(default_factory=list)
     tables: List[OdtTable] = field(default_factory=list)
     headers: List[OdtHeaderFooter] = field(default_factory=list)
     footers: List[OdtHeaderFooter] = field(default_factory=list)
-    images: List[OdtImage] = field(default_factory=list)
+    images: List[OpenDocumentImage] = field(default_factory=list)
     hyperlinks: List[OdtHyperlink] = field(default_factory=list)
     footnotes: List[OdtNote] = field(default_factory=list)
     endnotes: List[OdtNote] = field(default_factory=list)
-    annotations: List[OdtAnnotation] = field(default_factory=list)
+    annotations: List[OpenDocumentAnnotation] = field(default_factory=list)
     bookmarks: List[OdtBookmark] = field(default_factory=list)
     styles: List[str] = field(default_factory=list)
     full_text: str = ""
@@ -2658,7 +2646,7 @@ class OdtContent(ExtractionInterface):
         """Get full text of the document."""
         return self.full_text
 
-    def get_metadata(self) -> OdtMetadata:
+    def get_metadata(self) -> OpenDocumentMetadata:
         """Returns the metadata of the extracted file."""
         return self.metadata
 
