@@ -252,7 +252,7 @@ class EmailUnit(UnitInterface):
 @dataclass
 class DocUnit(UnitInterface):
     text: str
-    unit_index: int = 1
+    unit_number: int = 1
     location: list[str] = field(default_factory=list)
     heading_level: int | None = None
     heading_path: list[str] = field(default_factory=list)
@@ -268,9 +268,9 @@ class DocUnit(UnitInterface):
     def get_tables(self) -> list[TableData]:
         return list(self.tables)
 
-    def get_metadata(self) -> "DocUnitMeta":
+    def get_metadata(self) -> DocUnitMeta:
         return DocUnitMeta(
-            unit_index=self.unit_index,
+            unit_number=self.unit_number,
             location=list(self.location),
             heading_level=self.heading_level,
             heading_path=list(self.heading_path),
@@ -279,7 +279,7 @@ class DocUnit(UnitInterface):
 
 @dataclass
 class DocUnitMeta(UnitMetadataInterface):
-    unit_index: int = 1
+    unit_number: int = 1
     location: list[str] = field(default_factory=list)
     heading_level: int | None = None
     heading_path: list[str] = field(default_factory=list)
@@ -288,7 +288,7 @@ class DocUnitMeta(UnitMetadataInterface):
 @dataclass
 class DocxUnit(UnitInterface):
     text: str
-    unit_index: int = 1
+    unit_number: int = 1
     location: list[str] = field(default_factory=list)
     heading_level: int | None = None
     heading_path: list[str] = field(default_factory=list)
@@ -306,7 +306,7 @@ class DocxUnit(UnitInterface):
 
     def get_metadata(self) -> DocxUnitMetadata:
         return DocxUnitMetadata(
-            unit_index=self.unit_index,
+            unit_number=self.unit_number,
             location=list(self.location),
             heading_level=self.heading_level,
             heading_path=list(self.heading_path),
@@ -315,7 +315,7 @@ class DocxUnit(UnitInterface):
 
 @dataclass
 class DocxUnitMetadata(UnitMetadataInterface):
-    unit_index: int = 1
+    unit_number: int
     location: list[str] = field(default_factory=list)
     heading_level: int | None = None
     heading_path: list[str] = field(default_factory=list)
@@ -410,7 +410,7 @@ class PptxUnit(UnitInterface):
 
     def get_metadata(self) -> dict:
         return {
-            "unit_index": self.slide_number,
+            "unit_number": self.slide_number,
             "slide_number": self.slide_number,
             "include_image_captions": self.include_image_captions,
         }
@@ -418,7 +418,7 @@ class PptxUnit(UnitInterface):
 
 @dataclass
 class XlsUnit(UnitInterface):
-    sheet_index: int
+    sheet_number: int
     sheet_name: str
     text: str
     tables: list[TableData] = field(default_factory=list)
@@ -435,8 +435,8 @@ class XlsUnit(UnitInterface):
 
     def get_metadata(self) -> dict:
         return {
-            "unit_index": self.sheet_index,
-            "sheet_index": self.sheet_index,
+            "unit_number": self.sheet_number,
+            "sheet_number": self.sheet_number,
             "sheet_name": self.sheet_name,
         }
 
@@ -487,9 +487,9 @@ class OdpUnit(UnitInterface):
     def get_tables(self) -> list[TableData]:
         return list(self.tables)
 
-    def get_metadata(self) -> "OdpUnitMeta":
+    def get_metadata(self) -> OdpUnitMeta:
         return OdpUnitMeta(
-            unit_index=self.slide_number,
+            unit_number=self.slide_number,
             location=list(self.location),
             heading_level=self.heading_level,
             heading_path=list(self.heading_path),
@@ -501,7 +501,7 @@ class OdpUnit(UnitInterface):
 
 @dataclass
 class OdpUnitMeta(UnitMetadataInterface):
-    unit_index: int = 1
+    unit_number: int
     location: list[str] = field(default_factory=list)
     heading_level: int | None = None
     heading_path: list[str] = field(default_factory=list)
@@ -512,7 +512,7 @@ class OdpUnitMeta(UnitMetadataInterface):
 
 @dataclass
 class OdsUnit(UnitInterface):
-    sheet_index: int
+    sheet_number: int
     sheet_name: str
     text: str
     images: list[OdsImage] = field(default_factory=list)
@@ -527,25 +527,25 @@ class OdsUnit(UnitInterface):
     def get_tables(self) -> list[TableData]:
         return list(self.tables)
 
-    def get_metadata(self) -> "OdsUnitMeta":
+    def get_metadata(self) -> OdsUnitMeta:
         return OdsUnitMeta(
-            unit_index=self.sheet_index,
-            sheet_index=self.sheet_index,
+            unit_number=self.sheet_number,
+            sheet_number=self.sheet_number,
             sheet_name=self.sheet_name,
         )
 
 
 @dataclass
 class OdsUnitMeta(UnitMetadataInterface):
-    unit_index: int
-    sheet_index: int
+    unit_number: int
+    sheet_number: int
     sheet_name: str
 
 
 @dataclass
 class OdtUnit(UnitInterface):
     text: str
-    unit_index: int = 1
+    unit_number: int
     location: list[str] = field(default_factory=list)
     heading_level: int | None = None
     heading_path: list[str] = field(default_factory=list)
@@ -566,7 +566,7 @@ class OdtUnit(UnitInterface):
 
     def get_metadata(self) -> OdtUnitMetadata:
         return OdtUnitMetadata(
-            unit_index=self.unit_index,
+            unit_number=self.unit_number,
             location=list(self.location),
             heading_level=self.heading_level,
             heading_path=list(self.heading_path),
@@ -578,7 +578,7 @@ class OdtUnit(UnitInterface):
 
 @dataclass
 class OdtUnitMetadata(UnitMetadataInterface):
-    unit_index: int = 1
+    unit_number: int
     location: list[str] = field(default_factory=list)
     heading_level: int | None = None
     heading_path: list[str] = field(default_factory=list)
@@ -818,14 +818,14 @@ class DocMetadata(FileMetadataInterface):
 
 @dataclass
 class DocImage(ImageInterface):
-    image_index: int = 0
-    content_type: str = ""
+    image_number: int
+    content_type: str
     data: bytes = b""
     size_bytes: int = 0
     width: Optional[int] = None
     height: Optional[int] = None
     caption: str = ""
-    unit_index: Optional[int] = None
+    unit_number: Optional[int] = None
 
     def get_bytes(self) -> io.BytesIO:
         fl = io.BytesIO(self.data)
@@ -843,9 +843,9 @@ class DocImage(ImageInterface):
 
     def get_metadata(self) -> ImageMetadata:
         return ImageMetadata(
-            image_number=self.image_index,
+            image_number=self.image_number,
             content_type=self.content_type,
-            unit_number=self.unit_index,
+            unit_number=self.unit_number,
             width=self.width if self.width is not None and self.width > 0 else None,
             height=self.height if self.height is not None and self.height > 0 else None,
         )
@@ -864,7 +864,7 @@ class DocContent(ExtractionInterface):
     def iterate_units(self) -> typing.Iterator[DocUnit]:
         lines = [line.rstrip() for line in (self.main_text or "").splitlines()]
         if not lines:
-            yield DocUnit(text="", unit_index=1, location=[])
+            yield DocUnit(text="", unit_number=1, location=[])
             return
 
         base_location = [self.metadata.title] if self.metadata.title else []
@@ -916,7 +916,7 @@ class DocContent(ExtractionInterface):
             units.append(
                 DocUnit(
                     text=text,
-                    unit_index=unit_index,
+                    unit_number=unit_index,
                     location=base_location + list(current_heading_path),
                     heading_level=current_heading_level,
                     heading_path=list(current_heading_path),
@@ -960,7 +960,7 @@ class DocContent(ExtractionInterface):
         if not any_headings:
             yield DocUnit(
                 text=self.main_text.strip(),
-                unit_index=1,
+                unit_number=1,
                 location=base_location,
                 images=[],
                 tables=[TableData(data=table) for table in self.tables],
@@ -982,14 +982,14 @@ class DocContent(ExtractionInterface):
                 )
             matched_unit.images.append(
                 DocImage(
-                    image_index=image.image_index,
+                    image_number=image.image_number,
                     content_type=image.content_type,
                     data=image.data,
                     size_bytes=image.size_bytes,
                     width=image.width,
                     height=image.height,
                     caption=image.caption,
-                    unit_index=matched_unit.unit_index,
+                    unit_number=matched_unit.unit_number,
                 )
             )
 
@@ -1269,7 +1269,7 @@ class DocxContent(ExtractionInterface):
                 [
                     DocxUnit(
                         text=text,
-                        unit_index=unit_index,
+                        unit_number=unit_index,
                         location=list(current_heading_path),
                         heading_level=current_heading_level,
                         heading_path=list(current_heading_path),
@@ -1335,7 +1335,7 @@ class DocxContent(ExtractionInterface):
 
         yield DocxUnit(
             text=self.full_text,
-            unit_index=1,
+            unit_number=1,
             location=[self.metadata.title] if self.metadata.title else [],
             heading_level=None,
             heading_path=[],
@@ -1964,7 +1964,7 @@ class XlsContent(ExtractionInterface):
                 else []
             )
             yield XlsUnit(
-                sheet_index=sheet_index,
+                sheet_number=sheet_index,
                 sheet_name=sheet.name,
                 tables=[TableData(data=normalized_table)] if normalized_table else [],
                 images=list(self.images) if sheet_index == 1 else [],
@@ -2327,7 +2327,7 @@ class OdsContent(ExtractionInterface):
         """Iterate over sheets, yielding text per sheet."""
         for sheet_index, sheet in enumerate(self.sheets, start=1):
             yield OdsUnit(
-                sheet_index=sheet_index,
+                sheet_number=sheet_index,
                 sheet_name=sheet.name,
                 images=list(sheet.images),
                 tables=[TableData(data=sheet.data)] if sheet.data else [],
@@ -2470,7 +2470,7 @@ class OdtContent(ExtractionInterface):
                 OdtUnit(
                     text=self.full_text,
                     kind="body",
-                    unit_index=1,
+                    unit_number=1,
                     location=base_location,
                     images=list(self.images),
                     tables=[TableData(data=table.data) for table in self.tables],
@@ -2503,7 +2503,7 @@ class OdtContent(ExtractionInterface):
             units.append(
                 OdtUnit(
                     text=text,
-                    unit_index=unit_index,
+                    unit_number=unit_index,
                     location=base_location + list(current_heading_path),
                     heading_level=current_heading_level,
                     heading_path=list(current_heading_path),
@@ -2560,7 +2560,7 @@ class OdtContent(ExtractionInterface):
                 OdtUnit(
                     text=self.full_text,
                     kind="body",
-                    unit_index=1,
+                    unit_number=1,
                     location=base_location,
                     images=list(self.images),
                     tables=[TableData(data=table.data) for table in self.tables],
@@ -2614,7 +2614,7 @@ class OdtContent(ExtractionInterface):
                             units[-1],
                         )
 
-                image.unit_index = matched_unit.unit_index
+                image.unit_index = matched_unit.unit_number
                 matched_unit.images.append(image)
 
         for unit in units:

@@ -392,7 +392,7 @@ class _DocReader:
             image_counter += 1
             images.append(
                 DocImage(
-                    image_index=image_counter,
+                    image_number=image_counter,
                     content_type="image/bmp",
                     data=bmp_data,
                     size_bytes=len(bmp_data),
@@ -404,7 +404,7 @@ class _DocReader:
 
         images = _DocReader._filter_low_entropy_images(images)
         for idx, image in enumerate(images, start=1):
-            image.image_index = idx
+            image.image_number = idx
         return images
 
     @staticmethod
@@ -451,7 +451,7 @@ class _DocReader:
                             image_counter += 1
                             images.append(
                                 DocImage(
-                                    image_index=image_counter,
+                                    image_number=image_counter,
                                     content_type="image/png",
                                     data=png_bytes,
                                     size_bytes=len(png_bytes),
@@ -664,7 +664,7 @@ class _DocReader:
             dedup.append(image)
         images = dedup
         for idx, image in enumerate(images, start=1):
-            image.image_index = idx
+            image.image_number = idx
 
         main_text = self._clean_text(main_data.decode(encoding, errors="replace"))
         footnotes_text = (
