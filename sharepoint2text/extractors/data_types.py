@@ -447,8 +447,6 @@ class XlsxUnit(UnitInterface):
 class OdpUnit(UnitInterface):
     slide_number: int
     text: str
-    include_annotations: bool = False
-    include_notes: bool = False
 
     def get_text(self) -> str:
         return self.text
@@ -460,12 +458,7 @@ class OdpUnit(UnitInterface):
         return []
 
     def get_metadata(self) -> dict:
-        return {
-            "unit_index": self.slide_number,
-            "slide_number": self.slide_number,
-            "include_annotations": self.include_annotations,
-            "include_notes": self.include_notes,
-        }
+        return {"unit_index": self.slide_number, "slide_number": self.slide_number}
 
 
 @dataclass

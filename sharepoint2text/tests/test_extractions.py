@@ -1890,6 +1890,7 @@ def test_open_office__presentation_image_interface() -> None:
     )
     tc.assertEqual(1, len(odp.slides[0].images))
     tc.assertEqual(1, len(list(odp.iterate_images())))
+    tc.assertEqual(35712, len(list(odp.iterate_images())[0].get_bytes().getvalue()))
     tc.assertEqual(0, len(list(odp.iterate_tables())))
     tc.assertEqual(
         "",
@@ -1914,6 +1915,18 @@ def test_open_office__presentation_image_interface() -> None:
     # Units #
     #########
     tc.assertEqual(1, len(list(odp.iterate_units())))
+    units = list(odp.iterate_units())
+    tc.assertEqual(
+        ImageMetadata(
+            unit_index=1,
+            image_index=1,
+            content_type="image/png",
+            width=924,
+            height=163,
+        ),
+        units[0].get_metadata(),
+    )
+    tc.assertEqual(35712, units[0].get_images()[0].get_bytes().getvalue())
 
 
 def test_open_office__spreadsheet_image_interface() -> None:
