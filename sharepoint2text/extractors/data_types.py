@@ -328,6 +328,11 @@ class DocxUnitMetadata(UnitMetadataInterface):
 
 
 @dataclass
+class PdfUnitMetadata(UnitMetadataInterface):
+    page_number: int
+
+
+@dataclass
 class PdfUnit(UnitInterface):
     page_number: int
     text: str
@@ -341,8 +346,10 @@ class PdfUnit(UnitInterface):
     def get_tables(self) -> list[TableData]:
         return []
 
-    def get_metadata(self) -> dict:
-        return {"unit_index": self.page_number, "page_number": self.page_number}
+    def get_metadata(self) -> PdfUnitMetadata:
+        return PdfUnitMetadata(
+            unit_number=self.page_number, page_number=self.page_number
+        )
 
 
 @dataclass
