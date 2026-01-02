@@ -968,7 +968,9 @@ def _extract_paragraphs_from_context(ctx: _DocxContext) -> list[DocxParagraph]:
     return paragraphs
 
 
-def _extract_tables_from_context(ctx: _DocxContext) -> list[list[list[str]]]:
+def _extract_tables_from_context(
+    ctx: _DocxContext,
+) -> tuple[list[list[list[str]]], list[int]]:
     """
     Extract tables as lists of lists of cell text.
 
@@ -981,23 +983,41 @@ def _extract_tables_from_context(ctx: _DocxContext) -> list[list[list[str]]]:
     """
     body = ctx.document_body
     if body is None:
-        return []
+        return [], []
 
     tables: list[list[list[str]]] = []
-    for tbl in body.findall(f".//{W_TBL}"):
-        table_data: list[list[str]] = []
-        for tr in tbl.findall(W_TR):
-            row_data: list[str] = []
-            for tc in tr.findall(W_TC):
-                # Collect text from each paragraph in the cell
-                cell_text_parts = [
-                    _collect_text_from_element(p) for p in tc.findall(f".//{W_P}")
-                ]
-                row_data.append("\n".join(cell_text_parts))
-            table_data.append(row_data)
-        tables.append(table_data)
+    table_anchor_paragraph_indices: list[int] = []
 
-    return tables
+    # We anchor a table to the index of the last top-level paragraph that
+    # appears before it in the body. This makes it possible to associate
+    # tables with heading-based units built from top-level paragraphs.
+    current_paragraph_index = -1
+    for child in list(body):
+        if child.tag == W_P:
+            current_paragraph_index += 1
+            continue
+        if child.tag != W_TBL:
+            continue
+
+        anchor = current_paragraph_index if current_paragraph_index >= 0 else 0
+
+        # Preserve the previous behavior of extracting nested tables by walking
+        # the current table subtree in document order.
+        for tbl in child.iter(W_TBL):
+            table_data: list[list[str]] = []
+            for tr in tbl.findall(W_TR):
+                row_data: list[str] = []
+                for tc in tr.findall(W_TC):
+                    # Collect text from each paragraph in the cell
+                    cell_text_parts = [
+                        _collect_text_from_element(p) for p in tc.findall(f".//{W_P}")
+                    ]
+                    row_data.append("\n".join(cell_text_parts))
+                table_data.append(row_data)
+            tables.append(table_data)
+            table_anchor_paragraph_indices.append(anchor)
+
+    return tables, table_anchor_paragraph_indices
 
 
 def _extract_images_from_context(ctx: _DocxContext) -> list[DocxImage]:
@@ -1029,6 +1049,8 @@ def _extract_images_from_context(ctx: _DocxContext) -> list[DocxImage]:
 
     # Map of rel_id -> (caption, description) from document drawings
     image_metadata: dict[str, tuple[str, str]] = {}
+    # Map of rel_id -> set(top-level paragraph indices) where the image occurs.
+    image_anchor_paragraph_indices: dict[str, set[int]] = {}
 
     if body is not None:
         paragraphs = list(body.findall(W_P))
@@ -1083,6 +1105,9 @@ def _extract_images_from_context(ctx: _DocxContext) -> list[DocxImage]:
                 if blip is not None:
                     if r_embed := blip.get(R_EMBED):
                         image_metadata[r_embed] = (caption, description)
+                        image_anchor_paragraph_indices.setdefault(r_embed, set()).add(
+                            para_idx
+                        )
 
     # Extract images using relationships
     images: list[DocxImage] = []
@@ -1119,6 +1144,9 @@ def _extract_images_from_context(ctx: _DocxContext) -> list[DocxImage]:
                     image_index=image_counter,
                     caption=caption,
                     description=description,
+                    anchor_paragraph_indices=sorted(
+                        image_anchor_paragraph_indices.get(rel_id, set())
+                    ),
                 )
             )
         except Exception as e:
@@ -1269,7 +1297,7 @@ def read_docx(
             paragraphs = _extract_paragraphs_from_context(ctx)
 
             # === Tables ===
-            tables = _extract_tables_from_context(ctx)
+            tables, table_anchor_paragraph_indices = _extract_tables_from_context(ctx)
 
             # === Headers and Footers ===
             headers, footers = _extract_header_footers_from_context(ctx)
@@ -1315,6 +1343,7 @@ def read_docx(
                 metadata=metadata,
                 paragraphs=paragraphs,
                 tables=tables,
+                table_anchor_paragraph_indices=table_anchor_paragraph_indices,
                 headers=headers,
                 footers=footers,
                 images=images,

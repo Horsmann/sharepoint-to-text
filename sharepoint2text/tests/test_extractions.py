@@ -625,6 +625,46 @@ def test_read_docx__image_extraction_2() -> None:
         docx.images[1].get_description(),
     )
 
+    # units
+    tc.assertEqual(14, len(list(docx.iterate_units())))
+    units = list(docx.iterate_units())
+    tc.assertListEqual(["II. List of figures"], units[0].get_metadata()["location"])
+    tc.assertListEqual(["III. List of tables"], units[1].get_metadata()["location"])
+    tc.assertListEqual(["IV. List of formulas"], units[2].get_metadata()["location"])
+    tc.assertListEqual(
+        ["V. List of abbreviations"], units[3].get_metadata()["location"]
+    )
+    tc.assertListEqual(["VI. List of symbols"], units[4].get_metadata()["location"])
+    tc.assertListEqual(["Title 1 Chapter"], units[5].get_metadata()["location"])
+    tc.assertListEqual(["Title 2 Chapter"], units[6].get_metadata()["location"])
+    tc.assertListEqual(
+        ["Title 2 Chapter", "2.1 Title Subchapter"], units[7].get_metadata()["location"]
+    )
+    # unit has an image
+    tc.assertListEqual(
+        ["Title 2 Chapter", "2.1 Title Subchapter", "2.1.1 Title Subchapter"],
+        units[8].get_metadata()["location"],
+    )
+    tc.assertEqual(54423, len(units[8].get_images()[0].get_bytes().getvalue()))
+
+    # unit has an table
+    tc.assertListEqual(
+        ["Title 2 Chapter", "2.1 Title Subchapter", "2.1.2 Title Subchapter"],
+        units[9].get_metadata()["location"],
+    )
+    tc.assertEqual(TableDim(rows=3, columns=4), units[9].get_tables()[0].get_dim())
+
+    tc.assertListEqual(
+        ["Title 2 Chapter", "2.2 Title Subchapter"],
+        units[10].get_metadata()["location"],
+    )
+    tc.assertListEqual(["Title 3 Chapter"], units[11].get_metadata()["location"])
+    tc.assertListEqual(["Title 4 Chapter"], units[12].get_metadata()["location"])
+    tc.assertListEqual(["VII. Appendix"], units[13].get_metadata()["location"])
+    tc.assertListEqual(["VIII. Bibliography"], units[14].get_metadata()["location"])
+    tc.assertListEqual(["VIII. Bibliography"], units[15].get_metadata()["location"])
+    tc.assertListEqual(["IX. Affidavit"], units[16].get_metadata()["location"])
+
 
 def test_read_docx__units() -> None:
     path = "sharepoint2text/tests/resources/modern_ms/headings.docx"
@@ -633,12 +673,17 @@ def test_read_docx__units() -> None:
     units = list(docx.iterate_units())
     tc.assertEqual(8, len(units))
 
+    tc.assertTrue(hasattr(units[0], "get_images"))
+    tc.assertTrue(hasattr(units[0], "get_tables"))
+
     # first unit
     tc.assertEqual(["Sample Document"], units[0].get_metadata()["location"])
     tc.assertEqual(
         "This document was created using accessibility techniques for headings, lists, image alternate text, tables, and columns. It should be completely accessible using assistive technologies such as screen readers.",
         units[0].get_text(),
     )
+    tc.assertEqual(0, len(units[0].get_images()))
+    tc.assertEqual(0, len(units[0].get_tables()))
 
     # second unit
     tc.assertEqual(["Sample Document", "Headings"], units[1].get_metadata()["location"])
@@ -646,6 +691,8 @@ def test_read_docx__units() -> None:
         'There are eight section headings in this document. At the beginning, "Sample Document" is a level 1 heading. The main section headings, such as "Headings" and "Lists" are level 2 headings. The Tables section contains two sub-headings, "Simple Table" and "Complex Table," which are both level 3 headings.',
         units[1].get_text(),
     )
+    tc.assertEqual(0, len(units[1].get_images()))
+    tc.assertEqual(0, len(units[1].get_tables()))
 
     # third unit
     tc.assertEqual(["Sample Document", "Lists"], units[2].get_metadata()["location"])
@@ -665,6 +712,24 @@ def test_read_docx__units() -> None:
         ),
         units[2].get_text(),
     )
+    tc.assertEqual(0, len(units[2].get_images()))
+    tc.assertEqual(0, len(units[2].get_tables()))
+
+    # Images section
+    tc.assertEqual(["Sample Document", "Images"], units[4].get_metadata()["location"])
+    tc.assertEqual(2, len(units[4].get_images()))
+    tc.assertSetEqual(
+        {"image1.gif", "image2.png"}, {img.filename for img in units[4].get_images()}
+    )
+    tc.assertEqual(5437, len(units[4].get_images()[0].get_bytes().getvalue()))
+    tc.assertEqual(7570, len(units[4].get_images()[1].get_bytes().getvalue()))
+    tc.assertEqual(0, len(units[4].get_tables()))
+
+    # Tables section
+    tc.assertEqual(1, len(units[5].get_tables()))
+    tc.assertEqual(docx.tables[0], units[5].get_tables()[0].get_table())
+    tc.assertEqual(1, len(units[6].get_tables()))
+    tc.assertEqual(docx.tables[1], units[6].get_tables()[0].get_table())
 
 
 ####################

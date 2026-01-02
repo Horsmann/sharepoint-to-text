@@ -196,9 +196,17 @@ class DocxUnit(UnitInterface):
     location: list[str] = field(default_factory=list)
     heading_level: int | None = None
     heading_path: list[str] = field(default_factory=list)
+    images: list[DocxImage] = field(default_factory=list)
+    tables: list[TableData] = field(default_factory=list)
 
     def get_text(self) -> str:
         return self.text
+
+    def get_images(self) -> list[DocxImage]:
+        return list(self.images)
+
+    def get_tables(self) -> list[TableData]:
+        return list(self.tables)
 
     def get_metadata(self) -> dict:
         meta: dict[str, typing.Any] = {
@@ -711,6 +719,7 @@ class DocxImage(ImageInterface):
     image_index: int = 0
     caption: str = ""  # Title/name of the image shape
     description: str = ""  # Alt text / description for accessibility
+    anchor_paragraph_indices: list[int] = field(default_factory=list)
 
     def get_bytes(self) -> io.BytesIO:
         """Returns the bytes of the image as a BytesIO object."""
@@ -797,6 +806,7 @@ class DocxContent(ExtractionInterface):
     styles: List[str] = field(default_factory=list)
     formulas: List[DocxFormula] = field(default_factory=list)
     full_text: str = ""  # Full text including formulas
+    table_anchor_paragraph_indices: list[int] = field(default_factory=list)
 
     def iterate_units(self) -> typing.Iterator[DocxUnit]:
         heading_re = re.compile(r"^heading\s*(\d+)\b", flags=re.IGNORECASE)
@@ -818,14 +828,42 @@ class DocxContent(ExtractionInterface):
         current_heading_level: int | None = None
         current_heading_path: list[str] = []
         current_lines: list[str] = []
+        current_heading_start_paragraph_index: int | None = None
 
-        def flush_current() -> typing.Iterator[DocxUnit]:
+        # Pre-index images and tables by their anchor paragraph indices so we can
+        # attach them to heading-based units.
+        images_by_paragraph: dict[int, list[DocxImage]] = {}
+        for img in self.images:
+            for para_idx in img.anchor_paragraph_indices:
+                images_by_paragraph.setdefault(para_idx, []).append(img)
+
+        table_anchors = self.table_anchor_paragraph_indices
+        if len(table_anchors) != len(self.tables):
+            table_anchors = [0 for _ in self.tables]
+        tables_by_paragraph: dict[int, list[TableData]] = {}
+        for table, para_idx in zip(self.tables, table_anchors):
+            tables_by_paragraph.setdefault(para_idx, []).append(TableData(data=table))
+
+        def flush_current(
+            *,
+            end_paragraph_index: int,
+        ) -> typing.Iterator[DocxUnit]:
             nonlocal unit_index
             if not current_heading_path:
                 return iter(())
 
             text = "\n".join(line for line in current_lines if line.strip()).strip()
-            if not text:
+            start_paragraph_index = current_heading_start_paragraph_index
+            if start_paragraph_index is None:
+                return iter(())
+
+            unit_images: list[DocxImage] = []
+            unit_tables: list[TableData] = []
+            for para_idx in range(start_paragraph_index, end_paragraph_index + 1):
+                unit_images.extend(images_by_paragraph.get(para_idx, ()))
+                unit_tables.extend(tables_by_paragraph.get(para_idx, ()))
+
+            if not text and not unit_images and not unit_tables:
                 return iter(())
 
             unit_index += 1
@@ -837,15 +875,17 @@ class DocxContent(ExtractionInterface):
                         location=list(current_heading_path),
                         heading_level=current_heading_level,
                         heading_path=list(current_heading_path),
+                        images=unit_images,
+                        tables=unit_tables,
                     )
                 ]
             )
 
-        for paragraph in self.paragraphs:
+        for paragraph_index, paragraph in enumerate(self.paragraphs):
             level = heading_level(paragraph.style)
             if level is not None:
                 any_headings = True
-                yield from flush_current()
+                yield from flush_current(end_paragraph_index=paragraph_index - 1)
 
                 heading_text = paragraph.text.strip()
                 while heading_stack and heading_stack[-1][0] >= level:
@@ -855,13 +895,15 @@ class DocxContent(ExtractionInterface):
                 current_heading_level = level
                 current_heading_path = [t for _, t in heading_stack if t]
                 current_lines = []
+                current_heading_start_paragraph_index = paragraph_index
                 continue
 
             text = paragraph.text.strip()
             if text:
                 current_lines.append(text)
 
-        yield from flush_current()
+        if self.paragraphs:
+            yield from flush_current(end_paragraph_index=len(self.paragraphs) - 1)
 
         if any_headings:
             return
@@ -872,6 +914,8 @@ class DocxContent(ExtractionInterface):
             location=[self.metadata.title] if self.metadata.title else [],
             heading_level=None,
             heading_path=[],
+            images=list(self.images),
+            tables=[TableData(data=table) for table in self.tables],
         )
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
