@@ -12,12 +12,14 @@ from sharepoint2text.extractors.data_types import (
     DocxFormula,
     DocxNote,
     EmailContent,
+    EmailUnitMetadata,
     FileMetadataInterface,
     HtmlContent,
     ImageInterface,
     ImageMetadata,
     OdpAnnotation,
     OdpContent,
+    OdpUnitMetadata,
     OdsAnnotation,
     OdsContent,
     OdtAnnotation,
@@ -25,6 +27,7 @@ from sharepoint2text.extractors.data_types import (
     OdtHeaderFooter,
     OdtNote,
     OdtTable,
+    OdtUnitMetadata,
     PdfContent,
     PlainTextContent,
     PptContent,
@@ -1183,6 +1186,15 @@ def test_email__eml_format() -> None:
         "<6B7EC235-5B17-4CA8-B2B8-39290DEB43A3@test.lindsaar.net>", mail_meta.message_id
     )
 
+    #########
+    # Units #
+    #########
+    units = list(mail.iterate_units())
+    tc.assertTrue(isinstance(units[0].get_metadata(), EmailUnitMetadata))
+    tc.assertEqual(
+        EmailUnitMetadata(unit_number=1, body_type="plain"), units[0].get_metadata()
+    )
+
 
 def test_email__msg_format() -> None:
     path = "sharepoint2text/tests/resources/mails/basic_email.msg"
@@ -1602,6 +1614,19 @@ def test_read_open_office__document() -> None:
         [["Header 1", "Header 2"], ["Cell A", "Cell B"]],
         units[0].get_tables()[0].get_table(),
     )
+    tc.assertTrue(isinstance(units[0].get_metadata(), OdtUnitMetadata))
+    tc.assertEqual(
+        OdtUnitMetadata(
+            unit_number=1,
+            location=["Hello World Document"],
+            heading_level=1,
+            heading_path=["Hello World Document"],
+            kind="body",
+            annotation_creator=None,
+            annotation_date=None,
+        ),
+        units[0].get_metadata(),
+    )
 
 
 def test_read_open_office__presentation_with_table() -> None:
@@ -1620,6 +1645,20 @@ def test_read_open_office__presentation_with_table() -> None:
     tc.assertEqual(
         [["A", "B"], ["1", "2"]],
         list(odp.iterate_units())[0].get_tables()[0].get_table(),
+    )
+
+    tc.assertTrue(isinstance(units[0].get_metadata(), OdpUnitMetadata))
+    tc.assertEqual(
+        OdpUnitMetadata(
+            unit_number=1,
+            location=[],
+            heading_level=None,
+            heading_path=[],
+            slide_number=1,
+            include_annotations=False,
+            include_notes=False,
+        ),
+        units[0].get_metadata(),
     )
 
 

@@ -204,8 +204,9 @@ class ImageInterface(Protocol):
         pass
 
 
+@dataclass
 class UnitMetadataInterface(Protocol):
-    pass
+    unit_number: int
 
 
 class UnitInterface(Protocol):
@@ -232,6 +233,11 @@ class UnitInterface(Protocol):
 
 
 @dataclass
+class EmailUnitMetadata(UnitMetadataInterface):
+    body_type: str
+
+
+@dataclass
 class EmailUnit(UnitInterface):
     text: str
     body_type: str = ""  # plain|html|empty
@@ -245,8 +251,8 @@ class EmailUnit(UnitInterface):
     def get_tables(self) -> list[TableData]:
         return []
 
-    def get_metadata(self) -> dict:
-        return {"unit_index": 1, "body_type": self.body_type}
+    def get_metadata(self) -> UnitMetadataInterface:
+        return EmailUnitMetadata(unit_number=1, body_type=self.body_type)
 
 
 @dataclass
@@ -487,8 +493,8 @@ class OdpUnit(UnitInterface):
     def get_tables(self) -> list[TableData]:
         return list(self.tables)
 
-    def get_metadata(self) -> OdpUnitMeta:
-        return OdpUnitMeta(
+    def get_metadata(self) -> OdpUnitMetadata:
+        return OdpUnitMetadata(
             unit_number=self.slide_number,
             location=list(self.location),
             heading_level=self.heading_level,
@@ -500,7 +506,7 @@ class OdpUnit(UnitInterface):
 
 
 @dataclass
-class OdpUnitMeta(UnitMetadataInterface):
+class OdpUnitMetadata(UnitMetadataInterface):
     unit_number: int
     location: list[str] = field(default_factory=list)
     heading_level: int | None = None
@@ -527,8 +533,8 @@ class OdsUnit(UnitInterface):
     def get_tables(self) -> list[TableData]:
         return list(self.tables)
 
-    def get_metadata(self) -> OdsUnitMeta:
-        return OdsUnitMeta(
+    def get_metadata(self) -> OdsUnitMetadata:
+        return OdsUnitMetadata(
             unit_number=self.sheet_number,
             sheet_number=self.sheet_number,
             sheet_name=self.sheet_name,
@@ -536,7 +542,7 @@ class OdsUnit(UnitInterface):
 
 
 @dataclass
-class OdsUnitMeta(UnitMetadataInterface):
+class OdsUnitMetadata(UnitMetadataInterface):
     unit_number: int
     sheet_number: int
     sheet_name: str
