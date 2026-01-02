@@ -868,6 +868,23 @@ def test_read_xls_3_images() -> None:
         xls.images[0].get_metadata(),
     )
 
+    #########
+    # Units #
+    #########
+    tc.assertEqual(3, len(list(xls.iterate_units())))
+    units = list(xls.iterate_units())
+    tc.assertEqual(183928, len(units[0].get_images()[0].get_bytes().getvalue()))
+    tc.assertEqual(
+        ImageMetadata(
+            unit_index=None,
+            image_index=1,
+            content_type="image/jpeg",
+            width=800,
+            height=450,
+        ),
+        units[0].get_images()[0].get_metadata(),
+    )
+
 
 def test_read_ppt() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/eurouni2.ppt"

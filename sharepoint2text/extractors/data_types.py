@@ -406,12 +406,13 @@ class XlsUnit(UnitInterface):
     sheet_name: str
     text: str
     tables: list[TableData] = field(default_factory=list)
+    images: list[XlsImage] = field(default_factory=list)
 
     def get_text(self) -> str:
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
-        return []
+        return list(self.images)
 
     def get_tables(self) -> list[TableData]:
         return list(self.tables)
@@ -1950,6 +1951,7 @@ class XlsContent(ExtractionInterface):
                 sheet_index=sheet_index,
                 sheet_name=sheet.name,
                 tables=[TableData(data=normalized_table)] if normalized_table else [],
+                images=list(self.images) if sheet_index == 1 else [],
                 text=sheet.text.strip(),
             )
 
