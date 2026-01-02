@@ -698,6 +698,7 @@ class DocxParagraph:
     style: Optional[str] = None
     alignment: Optional[str] = None
     runs: List[DocxRun] = field(default_factory=list)
+    has_page_break: bool = False
 
 
 @dataclass
@@ -829,6 +830,7 @@ class DocxContent(ExtractionInterface):
         current_heading_path: list[str] = []
         current_lines: list[str] = []
         current_heading_start_paragraph_index: int | None = None
+        current_has_payload: bool = False
 
         # Pre-index images and tables by their anchor paragraph indices so we can
         # attach them to heading-based units.
@@ -844,9 +846,43 @@ class DocxContent(ExtractionInterface):
         for table, para_idx in zip(self.tables, table_anchors):
             tables_by_paragraph.setdefault(para_idx, []).append(TableData(data=table))
 
+        heading_indices: list[int] = [
+            idx
+            for idx, paragraph in enumerate(self.paragraphs)
+            if heading_level(paragraph.style) is not None
+        ]
+        heading_index_set = set(heading_indices)
+        next_heading_for_index: list[int | None] = [None] * len(self.paragraphs)
+        next_heading: int | None = None
+        for idx in range(len(self.paragraphs) - 1, -1, -1):
+            next_heading_for_index[idx] = next_heading
+            if idx in heading_index_set:
+                next_heading = idx
+
+        heading_has_payload: dict[int, bool] = {}
+        for idx, heading_idx in enumerate(heading_indices):
+            end_idx = (
+                heading_indices[idx + 1] - 1
+                if idx + 1 < len(heading_indices)
+                else len(self.paragraphs) - 1
+            )
+            has_payload = False
+            for para_idx in range(heading_idx + 1, end_idx + 1):
+                paragraph = self.paragraphs[para_idx]
+                if paragraph.text.strip():
+                    has_payload = True
+                    break
+                if images_by_paragraph.get(para_idx) or tables_by_paragraph.get(
+                    para_idx
+                ):
+                    has_payload = True
+                    break
+            heading_has_payload[heading_idx] = has_payload
+
         def flush_current(
             *,
             end_paragraph_index: int,
+            next_heading_level: int | None = None,
         ) -> typing.Iterator[DocxUnit]:
             nonlocal unit_index
             if not current_heading_path:
@@ -863,7 +899,14 @@ class DocxContent(ExtractionInterface):
                 unit_images.extend(images_by_paragraph.get(para_idx, ()))
                 unit_tables.extend(tables_by_paragraph.get(para_idx, ()))
 
-            if not text and not unit_images and not unit_tables:
+            if (
+                not text
+                and not unit_images
+                and not unit_tables
+                and next_heading_level is not None
+                and current_heading_level is not None
+                and next_heading_level > current_heading_level
+            ):
                 return iter(())
 
             unit_index += 1
@@ -885,7 +928,9 @@ class DocxContent(ExtractionInterface):
             level = heading_level(paragraph.style)
             if level is not None:
                 any_headings = True
-                yield from flush_current(end_paragraph_index=paragraph_index - 1)
+                yield from flush_current(
+                    end_paragraph_index=paragraph_index - 1, next_heading_level=level
+                )
 
                 heading_text = paragraph.text.strip()
                 while heading_stack and heading_stack[-1][0] >= level:
@@ -896,11 +941,36 @@ class DocxContent(ExtractionInterface):
                 current_heading_path = [t for _, t in heading_stack if t]
                 current_lines = []
                 current_heading_start_paragraph_index = paragraph_index
+                current_has_payload = bool(
+                    images_by_paragraph.get(paragraph_index)
+                    or tables_by_paragraph.get(paragraph_index)
+                )
                 continue
+
+            if images_by_paragraph.get(paragraph_index) or tables_by_paragraph.get(
+                paragraph_index
+            ):
+                current_has_payload = True
+
+            if (
+                current_heading_path
+                and not current_has_payload
+                and paragraph.has_page_break
+            ):
+                next_heading_index = next_heading_for_index[paragraph_index]
+                if next_heading_index is not None and heading_has_payload.get(
+                    next_heading_index, False
+                ):
+                    yield from flush_current(end_paragraph_index=paragraph_index)
+                    current_heading_start_paragraph_index = paragraph_index + 1
+                    current_lines = []
+                    current_has_payload = False
+                    continue
 
             text = paragraph.text.strip()
             if text:
                 current_lines.append(text)
+                current_has_payload = True
 
         if self.paragraphs:
             yield from flush_current(end_paragraph_index=len(self.paragraphs) - 1)

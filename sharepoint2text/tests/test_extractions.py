@@ -626,7 +626,7 @@ def test_read_docx__image_extraction_2() -> None:
     )
 
     # units
-    tc.assertEqual(14, len(list(docx.iterate_units())))
+    tc.assertEqual(17, len(list(docx.iterate_units())))
     units = list(docx.iterate_units())
     tc.assertListEqual(["II. List of figures"], units[0].get_metadata()["location"])
     tc.assertListEqual(["III. List of tables"], units[1].get_metadata()["location"])

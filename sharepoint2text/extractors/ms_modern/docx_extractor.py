@@ -193,6 +193,9 @@ W_ENDNOTE = f"{W_NS}endnote"
 W_COMMENT = f"{W_NS}comment"
 W_BODY = f"{W_NS}body"
 W_SECTPR = f"{W_NS}sectPr"
+W_BR = f"{W_NS}br"
+W_TYPE = f"{W_NS}type"
+W_LAST_RENDERED_PAGE_BREAK = f"{W_NS}lastRenderedPageBreak"
 W_PGSZ = f"{W_NS}pgSz"
 W_PGMAR = f"{W_NS}pgMar"
 W_KEEPNEXT = f"{W_NS}keepNext"
@@ -932,6 +935,10 @@ def _extract_paragraphs_from_context(ctx: _DocxContext) -> list[DocxParagraph]:
 
         style_name = style_map.get(style_id, style_id) if style_id else None
 
+        has_page_break = any(
+            br.get(W_TYPE) == "page" for br in p.iter(W_BR) if br is not None
+        ) or (p.find(f".//{W_LAST_RENDERED_PAGE_BREAK}") is not None)
+
         # Extract runs
         runs: list[DocxRun] = []
         for r in p.findall(f".//{W_R}"):
@@ -962,6 +969,7 @@ def _extract_paragraphs_from_context(ctx: _DocxContext) -> list[DocxParagraph]:
                 style=style_name,
                 alignment=alignment,
                 runs=runs,
+                has_page_break=has_page_break,
             )
         )
 
