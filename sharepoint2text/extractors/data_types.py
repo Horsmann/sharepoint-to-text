@@ -380,6 +380,13 @@ class PlainTextUnit(UnitInterface):
 
 
 @dataclass
+class HtmlUnitMetadata(UnitMetadataInterface):
+    """Html Unit Metadata"""
+
+    pass
+
+
+@dataclass
 class HtmlUnit(UnitInterface):
     text: str
 
@@ -392,8 +399,8 @@ class HtmlUnit(UnitInterface):
     def get_tables(self) -> list[TableData]:
         return []
 
-    def get_metadata(self) -> dict:
-        return {"unit_index": 1}
+    def get_metadata(self) -> HtmlUnitMetadata:
+        return HtmlUnitMetadata(unit_number=1)
 
 
 @dataclass
