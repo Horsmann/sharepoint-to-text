@@ -112,6 +112,7 @@ from typing import Any, BinaryIO, Generator
 import olefile
 
 from sharepoint2text.exceptions import (
+    ExtractionError,
     ExtractionFileEncryptedError,
     LegacyMicrosoftParsingError,
 )
@@ -231,13 +232,20 @@ def read_ppt(
         - Falls back to container parsing for notes and additional context
         - Raw extraction is used as last resort if structured parsing fails
     """
-    file_like.seek(0)
-    if is_ppt_encrypted(file_like):
-        raise ExtractionFileEncryptedError("PPT is encrypted or password-protected")
+    try:
+        file_like.seek(0)
+        if is_ppt_encrypted(file_like):
+            raise ExtractionFileEncryptedError("PPT is encrypted or password-protected")
 
-    content = _extract_ppt_content_structured(file_like)
-    content.metadata.populate_from_path(path)
-    yield content
+        content = _extract_ppt_content_structured(file_like)
+        content.metadata.populate_from_path(path)
+        yield content
+    except ExtractionError:
+        raise
+    except Exception as exc:
+        raise LegacyMicrosoftParsingError(
+            "Failed to extract PPT file", cause=exc
+        ) from exc
 
 
 def _extract_ppt_content_structured(file_like: BinaryIO) -> PptContent:

@@ -117,7 +117,11 @@ from typing import Any, Dict, Generator, List
 import olefile
 import xlrd
 
-from sharepoint2text.exceptions import ExtractionFileEncryptedError
+from sharepoint2text.exceptions import (
+    ExtractionError,
+    ExtractionFileEncryptedError,
+    LegacyMicrosoftParsingError,
+)
 from sharepoint2text.extractors.data_types import (
     XlsContent,
     XlsImage,
@@ -453,27 +457,34 @@ def read_xls(
         - Large spreadsheets with many cells may use significant memory
         - Consider streaming approaches for very large files
     """
-    file_like.seek(0)
-    if is_xls_encrypted(file_like):
-        raise ExtractionFileEncryptedError("XLS is encrypted or password-protected")
+    try:
+        file_like.seek(0)
+        if is_xls_encrypted(file_like):
+            raise ExtractionFileEncryptedError("XLS is encrypted or password-protected")
 
-    sheets = _read_content(file_like=file_like)
-    file_like.seek(0)
-    metadata = _read_metadata(file_like=file_like)
-    metadata.populate_from_path(path)
+        sheets = _read_content(file_like=file_like)
+        file_like.seek(0)
+        metadata = _read_metadata(file_like=file_like)
+        metadata.populate_from_path(path)
 
-    full_text = "\n\n".join(sheet.text for sheet in sheets)
+        full_text = "\n\n".join(sheet.text for sheet in sheets)
 
-    # Extract images from the Workbook stream
-    file_like.seek(0)
-    images = _extract_images_from_workbook(file_like)
+        # Extract images from the Workbook stream
+        file_like.seek(0)
+        images = _extract_images_from_workbook(file_like)
 
-    yield XlsContent(
-        metadata=metadata,
-        sheets=sheets,
-        images=images,
-        full_text=full_text,
-    )
+        yield XlsContent(
+            metadata=metadata,
+            sheets=sheets,
+            images=images,
+            full_text=full_text,
+        )
+    except ExtractionError:
+        raise
+    except Exception as exc:
+        raise LegacyMicrosoftParsingError(
+            "Failed to extract XLS file", cause=exc
+        ) from exc
 
 
 # =============================================================================

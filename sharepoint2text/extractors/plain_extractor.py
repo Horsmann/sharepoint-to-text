@@ -79,6 +79,7 @@ import io
 import logging
 from typing import Any, Generator
 
+from sharepoint2text.exceptions import ExtractionError, ExtractionFailedError
 from sharepoint2text.extractors.data_types import (
     FileMetadataInterface,
     PlainTextContent,
@@ -127,17 +128,24 @@ def read_plain_text(
         ...         print(f"Lines: {len(lines)}")
         ...         print(f"First line: {lines[0] if lines else '(empty)'}")
     """
-    logger.debug("Reading plain text file")
-    file_like.seek(0)
+    try:
+        logger.debug("Reading plain text file")
+        file_like.seek(0)
 
-    content = file_like.read()
+        content = file_like.read()
 
-    if isinstance(content, bytes):
-        text = content.decode("utf-8", errors="ignore")
-    else:
-        text = content
+        if isinstance(content, bytes):
+            text = content.decode("utf-8", errors="ignore")
+        else:
+            text = content
 
-    metadata = FileMetadataInterface()
-    metadata.populate_from_path(path)
+        metadata = FileMetadataInterface()
+        metadata.populate_from_path(path)
 
-    yield PlainTextContent(content=text, metadata=metadata)
+        yield PlainTextContent(content=text, metadata=metadata)
+    except ExtractionError:
+        raise
+    except Exception as exc:
+        raise ExtractionFailedError(
+            "Failed to extract plain text file", cause=exc
+        ) from exc

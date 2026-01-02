@@ -111,7 +111,11 @@ import mimetypes
 from typing import Any, Generator
 from xml.etree import ElementTree as ET
 
-from sharepoint2text.exceptions import ExtractionFileEncryptedError
+from sharepoint2text.exceptions import (
+    ExtractionError,
+    ExtractionFailedError,
+    ExtractionFileEncryptedError,
+)
 from sharepoint2text.extractors.data_types import (
     OdtAnnotation,
     OdtBookmark,
@@ -810,54 +814,59 @@ def read_odt(
         - ZIP file is opened once and all XML is cached
         - content.xml and styles.xml are parsed once and reused
     """
-    file_like.seek(0)
-    if is_odf_encrypted(file_like):
-        raise ExtractionFileEncryptedError("ODT is encrypted or password-protected")
-
-    # Create context and load all XML files once
-    ctx = _OdtContext(file_like)
     try:
-        # Validate content.xml exists
-        if ctx.content_root is None:
-            raise ValueError("Invalid ODT file: content.xml not found")
+        file_like.seek(0)
+        if is_odf_encrypted(file_like):
+            raise ExtractionFileEncryptedError("ODT is encrypted or password-protected")
 
-        # Find the document body
-        body = ctx.content_root.find(".//office:body/office:text", NS)
-        if body is None:
-            raise ValueError("Invalid ODT file: document body not found")
+        # Create context and load all XML files once
+        ctx = _OdtContext(file_like)
+        try:
+            # Validate content.xml exists
+            if ctx.content_root is None:
+                raise ExtractionFailedError("Invalid ODT file: content.xml not found")
 
-        # Extract metadata from cached meta.xml
-        metadata = _extract_metadata_from_context(ctx)
+            # Find the document body
+            body = ctx.content_root.find(".//office:body/office:text", NS)
+            if body is None:
+                raise ExtractionFailedError("Invalid ODT file: document body not found")
 
-        # Extract content from body
-        paragraphs = _extract_paragraphs(body)
-        tables = _extract_tables(body)
-        hyperlinks = _extract_hyperlinks(body)
-        footnotes, endnotes = _extract_notes(body)
-        annotations = _extract_annotations(body)
-        bookmarks = _extract_bookmarks(body)
-        images = _extract_images_from_context(ctx, body)
-        headers, footers = _extract_headers_footers_from_context(ctx)
-        styles = _extract_styles_from_context(ctx)
-        full_text = _extract_full_text(body)
-    finally:
-        ctx.close()
+            # Extract metadata from cached meta.xml
+            metadata = _extract_metadata_from_context(ctx)
 
-    # Populate file metadata from path
-    metadata.populate_from_path(path)
+            # Extract content from body
+            paragraphs = _extract_paragraphs(body)
+            tables = _extract_tables(body)
+            hyperlinks = _extract_hyperlinks(body)
+            footnotes, endnotes = _extract_notes(body)
+            annotations = _extract_annotations(body)
+            bookmarks = _extract_bookmarks(body)
+            images = _extract_images_from_context(ctx, body)
+            headers, footers = _extract_headers_footers_from_context(ctx)
+            styles = _extract_styles_from_context(ctx)
+            full_text = _extract_full_text(body)
+        finally:
+            ctx.close()
 
-    yield OdtContent(
-        metadata=metadata,
-        paragraphs=paragraphs,
-        tables=tables,
-        headers=headers,
-        footers=footers,
-        images=images,
-        hyperlinks=hyperlinks,
-        footnotes=footnotes,
-        endnotes=endnotes,
-        annotations=annotations,
-        bookmarks=bookmarks,
-        styles=styles,
-        full_text=full_text,
-    )
+        # Populate file metadata from path
+        metadata.populate_from_path(path)
+
+        yield OdtContent(
+            metadata=metadata,
+            paragraphs=paragraphs,
+            tables=tables,
+            headers=headers,
+            footers=footers,
+            images=images,
+            hyperlinks=hyperlinks,
+            footnotes=footnotes,
+            endnotes=endnotes,
+            annotations=annotations,
+            bookmarks=bookmarks,
+            styles=styles,
+            full_text=full_text,
+        )
+    except ExtractionError:
+        raise
+    except Exception as exc:
+        raise ExtractionFailedError("Failed to extract ODT file", cause=exc) from exc

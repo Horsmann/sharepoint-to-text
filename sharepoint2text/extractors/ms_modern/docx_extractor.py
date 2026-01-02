@@ -115,7 +115,11 @@ import logging
 from typing import Any, Callable, Generator, Optional
 from xml.etree import ElementTree as ET
 
-from sharepoint2text.exceptions import ExtractionFileEncryptedError
+from sharepoint2text.exceptions import (
+    ExtractionError,
+    ExtractionFailedError,
+    ExtractionFileEncryptedError,
+)
 from sharepoint2text.extractors.data_types import (
     DocxComment,
     DocxContent,
@@ -1250,79 +1254,86 @@ def read_docx(
         - Images are loaded into memory as BytesIO objects
         - Large documents may use significant memory
     """
-    file_like.seek(0)
-    if is_ooxml_encrypted(file_like):
-        raise ExtractionFileEncryptedError("DOCX is encrypted or password-protected")
-
-    # Create context that opens ZIP once and caches all parsed XML
-    ctx = _DocxContext(file_like)
     try:
-        # === Core Properties (Metadata) ===
-        metadata = _extract_metadata_from_context(ctx)
+        file_like.seek(0)
+        if is_ooxml_encrypted(file_like):
+            raise ExtractionFileEncryptedError(
+                "DOCX is encrypted or password-protected"
+            )
 
-        # === Paragraphs ===
-        paragraphs = _extract_paragraphs_from_context(ctx)
+        # Create context that opens ZIP once and caches all parsed XML
+        ctx = _DocxContext(file_like)
+        try:
+            # === Core Properties (Metadata) ===
+            metadata = _extract_metadata_from_context(ctx)
 
-        # === Tables ===
-        tables = _extract_tables_from_context(ctx)
+            # === Paragraphs ===
+            paragraphs = _extract_paragraphs_from_context(ctx)
 
-        # === Headers and Footers ===
-        headers, footers = _extract_header_footers_from_context(ctx)
+            # === Tables ===
+            tables = _extract_tables_from_context(ctx)
 
-        # === Images ===
-        images = _extract_images_from_context(ctx)
+            # === Headers and Footers ===
+            headers, footers = _extract_header_footers_from_context(ctx)
 
-        # === Hyperlinks ===
-        hyperlinks = _extract_hyperlinks_from_context(ctx)
+            # === Images ===
+            images = _extract_images_from_context(ctx)
 
-        # === Footnotes ===
-        footnotes = _extract_footnotes_from_context(ctx)
+            # === Hyperlinks ===
+            hyperlinks = _extract_hyperlinks_from_context(ctx)
 
-        # === Endnotes ===
-        endnotes = _extract_endnotes_from_context(ctx)
+            # === Footnotes ===
+            footnotes = _extract_footnotes_from_context(ctx)
 
-        # === Formulas ===
-        formulas = _extract_formulas_from_context(ctx)
+            # === Endnotes ===
+            endnotes = _extract_endnotes_from_context(ctx)
 
-        # === Comments ===
-        comments = _extract_comments_from_context(ctx)
+            # === Formulas ===
+            formulas = _extract_formulas_from_context(ctx)
 
-        # === Sections (page layout) ===
-        sections = _extract_sections_from_context(ctx)
+            # === Comments ===
+            comments = _extract_comments_from_context(ctx)
 
-        # === Styles used ===
-        styles = list({para.style for para in paragraphs if para.style})
+            # === Sections (page layout) ===
+            sections = _extract_sections_from_context(ctx)
 
-        # === Full text (convenience) - use cached body for both ===
-        body = ctx.document_body
-        full_text = _extract_full_text_from_body(body, include_formulas=True)
-        base_full_text = _extract_full_text_from_body(body, include_formulas=False)
+            # === Styles used ===
+            styles = list({para.style for para in paragraphs if para.style})
 
-        metadata.populate_from_path(path)
+            # === Full text (convenience) - use cached body for both ===
+            body = ctx.document_body
+            full_text = _extract_full_text_from_body(body, include_formulas=True)
+            base_full_text = _extract_full_text_from_body(body, include_formulas=False)
 
-        logger.info(
-            "Extracted DOCX: %d paragraphs, %d tables, %d images",
-            len(paragraphs),
-            len(tables),
-            len(images),
-        )
+            metadata.populate_from_path(path)
 
-        yield DocxContent(
-            metadata=metadata,
-            paragraphs=paragraphs,
-            tables=tables,
-            headers=headers,
-            footers=footers,
-            images=images,
-            hyperlinks=hyperlinks,
-            footnotes=footnotes,
-            endnotes=endnotes,
-            comments=comments,
-            sections=sections,
-            styles=styles,
-            formulas=formulas,
-            full_text=full_text,
-            base_full_text=base_full_text,
-        )
-    finally:
-        ctx.close()
+            logger.info(
+                "Extracted DOCX: %d paragraphs, %d tables, %d images",
+                len(paragraphs),
+                len(tables),
+                len(images),
+            )
+
+            yield DocxContent(
+                metadata=metadata,
+                paragraphs=paragraphs,
+                tables=tables,
+                headers=headers,
+                footers=footers,
+                images=images,
+                hyperlinks=hyperlinks,
+                footnotes=footnotes,
+                endnotes=endnotes,
+                comments=comments,
+                sections=sections,
+                styles=styles,
+                formulas=formulas,
+                full_text=full_text,
+                base_full_text=base_full_text,
+            )
+        finally:
+            ctx.close()
+    except ExtractionError:
+        raise
+    except Exception as exc:
+        raise ExtractionFailedError("Failed to extract DOCX file", cause=exc) from exc

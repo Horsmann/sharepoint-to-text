@@ -73,6 +73,7 @@ from typing import Any, Generator
 
 from mailparser import parse_from_bytes
 
+from sharepoint2text.exceptions import ExtractionError, ExtractionFailedError
 from sharepoint2text.extractors.data_types import (
     EmailAddress,
     EmailAttachment,
@@ -256,12 +257,17 @@ def read_eml_format_mail(
         - For very large emails (>10MB), consider memory implications
         - Stream position is reset; original position is not preserved
     """
-    file_like.seek(0)
-    content = _read_eml_format(file_like.getvalue())
+    try:
+        file_like.seek(0)
+        content = _read_eml_format(file_like.getvalue())
 
-    if path:
-        content.metadata.populate_from_path(path)
+        if path:
+            content.metadata.populate_from_path(path)
 
-    logger.info("Extracted EML")
+        logger.info("Extracted EML")
 
-    yield content
+        yield content
+    except ExtractionError:
+        raise
+    except Exception as exc:
+        raise ExtractionFailedError("Failed to extract EML file", cause=exc) from exc

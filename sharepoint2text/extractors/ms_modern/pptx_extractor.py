@@ -103,7 +103,11 @@ import logging
 from typing import Any, Generator, List
 from xml.etree import ElementTree as ET
 
-from sharepoint2text.exceptions import ExtractionFileEncryptedError
+from sharepoint2text.exceptions import (
+    ExtractionError,
+    ExtractionFailedError,
+    ExtractionFileEncryptedError,
+)
 from sharepoint2text.extractors.data_types import (
     PptxComment,
     PptxContent,
@@ -945,35 +949,42 @@ def read_pptx(
         - Images are loaded into memory as binary blobs
         - Large presentations with many images may use significant memory
     """
-    logger.debug("Reading pptx")
-    file_like.seek(0)
-    if is_ooxml_encrypted(file_like):
-        raise ExtractionFileEncryptedError("PPTX is encrypted or password-protected")
-
-    # Create context that opens ZIP once and caches all parsed XML
-    ctx = _PptxContext(file_like)
     try:
-        # Extract metadata from cached XML
-        metadata = _extract_metadata_from_context(ctx)
+        logger.debug("Reading pptx")
+        file_like.seek(0)
+        if is_ooxml_encrypted(file_like):
+            raise ExtractionFileEncryptedError(
+                "PPTX is encrypted or password-protected"
+            )
 
-        # Get slide order from cached presentation.xml
-        slide_paths = ctx.slide_order
+        # Create context that opens ZIP once and caches all parsed XML
+        ctx = _PptxContext(file_like)
+        try:
+            # Extract metadata from cached XML
+            metadata = _extract_metadata_from_context(ctx)
 
-        # Process each slide using cached XML
-        slides_result: List[PptxSlide] = []
-        for slide_index, slide_path in enumerate(slide_paths, start=1):
-            slide = _process_slide_from_context(ctx, slide_path, slide_index)
-            slides_result.append(slide)
+            # Get slide order from cached presentation.xml
+            slide_paths = ctx.slide_order
 
-        metadata.populate_from_path(path)
+            # Process each slide using cached XML
+            slides_result: List[PptxSlide] = []
+            for slide_index, slide_path in enumerate(slide_paths, start=1):
+                slide = _process_slide_from_context(ctx, slide_path, slide_index)
+                slides_result.append(slide)
 
-        total_images = sum(len(slide.images) for slide in slides_result)
-        logger.info(
-            "Extracted PPTX: %d slides, %d images",
-            len(slides_result),
-            total_images,
-        )
+            metadata.populate_from_path(path)
 
-        yield PptxContent(metadata=metadata, slides=slides_result)
-    finally:
-        ctx.close()
+            total_images = sum(len(slide.images) for slide in slides_result)
+            logger.info(
+                "Extracted PPTX: %d slides, %d images",
+                len(slides_result),
+                total_images,
+            )
+
+            yield PptxContent(metadata=metadata, slides=slides_result)
+        finally:
+            ctx.close()
+    except ExtractionError:
+        raise
+    except Exception as exc:
+        raise ExtractionFailedError("Failed to extract PPTX file", cause=exc) from exc

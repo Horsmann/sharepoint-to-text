@@ -100,6 +100,7 @@ import logging
 import re
 from typing import Any, Generator, List, Optional
 
+from sharepoint2text.exceptions import ExtractionError, ExtractionFailedError
 from sharepoint2text.extractors.data_types import (
     RtfAnnotation,
     RtfBookmark,
@@ -955,13 +956,18 @@ def read_rtf(
         - Parsing errors fall back to simple text extraction
         - Invalid RTF files return partial content rather than failing
     """
-    logger.debug("Reading RTF file")
-    file_like.seek(0)
-    data = file_like.read()
+    try:
+        logger.debug("Reading RTF file")
+        file_like.seek(0)
+        data = file_like.read()
 
-    parser = _RtfParser(data)
-    content = parser.parse()
+        parser = _RtfParser(data)
+        content = parser.parse()
 
-    content.metadata.populate_from_path(path)
+        content.metadata.populate_from_path(path)
 
-    yield content
+        yield content
+    except ExtractionError:
+        raise
+    except Exception as exc:
+        raise ExtractionFailedError("Failed to extract RTF file", cause=exc) from exc

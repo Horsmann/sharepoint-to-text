@@ -95,6 +95,7 @@ import re
 from email.utils import parsedate_to_datetime
 from typing import Any, Generator
 
+from sharepoint2text.exceptions import ExtractionError, ExtractionFailedError
 from sharepoint2text.extractors.data_types import (
     EmailAddress,
     EmailContent,
@@ -491,27 +492,32 @@ def read_mbox_format_mail(
         First
         Second
     """
-    file_like.seek(0)
-    data = file_like.read()
+    try:
+        file_like.seek(0)
+        data = file_like.read()
 
-    # Split mbox into individual messages in memory
-    message_bytes_list = _split_mbox_messages(data)
+        # Split mbox into individual messages in memory
+        message_bytes_list = _split_mbox_messages(data)
 
-    message_count = 0
-    for msg_bytes in message_bytes_list:
-        # Parse message from bytes using standard library
-        message = email.message_from_bytes(msg_bytes)
-        m = parse_email_message(message)
+        message_count = 0
+        for msg_bytes in message_bytes_list:
+            # Parse message from bytes using standard library
+            message = email.message_from_bytes(msg_bytes)
+            m = parse_email_message(message)
 
-        if path:
-            m.metadata.populate_from_path(path)
+            if path:
+                m.metadata.populate_from_path(path)
 
-        message_count += 1
-        logger.debug(
-            "Extracted message %d: subject=%s",
-            message_count,
-            m.subject[:50] if m.subject else "(no subject)",
-        )
-        yield m
+            message_count += 1
+            logger.debug(
+                "Extracted message %d: subject=%s",
+                message_count,
+                m.subject[:50] if m.subject else "(no subject)",
+            )
+            yield m
 
-    logger.info("Extracted MBOX: %d messages", message_count)
+        logger.info("Extracted MBOX: %d messages", message_count)
+    except ExtractionError:
+        raise
+    except Exception as exc:
+        raise ExtractionFailedError("Failed to extract MBOX file", cause=exc) from exc

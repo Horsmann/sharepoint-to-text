@@ -99,6 +99,7 @@ import re
 from html.parser import HTMLParser
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
+from sharepoint2text.exceptions import ExtractionError, ExtractionFailedError
 from sharepoint2text.extractors.data_types import (
     HtmlContent,
     HtmlMetadata,
@@ -540,63 +541,68 @@ def read_html(
         ...         for heading in doc.headings:
         ...             print(f"  {heading['level']}: {heading['text']}")
     """
-    logger.debug("Reading HTML file")
-    file_like.seek(0)
+    try:
+        logger.debug("Reading HTML file")
+        file_like.seek(0)
 
-    content = file_like.read()
+        content = file_like.read()
 
-    # Detect encoding from content if possible, default to utf-8
-    encoding = "utf-8"
-
-    # Try to detect encoding from meta tag or BOM
-    if content.startswith(b"\xef\xbb\xbf"):
+        # Detect encoding from content if possible, default to utf-8
         encoding = "utf-8"
-        content = content[3:]
-    elif content.startswith(b"\xff\xfe"):
-        encoding = "utf-16-le"
-    elif content.startswith(b"\xfe\xff"):
-        encoding = "utf-16-be"
-    else:
-        # Try to find charset in meta tag
-        charset_match = re.search(
-            rb'<meta[^>]+charset=["\']?([^"\'\s>]+)', content, re.IGNORECASE
+
+        # Try to detect encoding from meta tag or BOM
+        if content.startswith(b"\xef\xbb\xbf"):
+            encoding = "utf-8"
+            content = content[3:]
+        elif content.startswith(b"\xff\xfe"):
+            encoding = "utf-16-le"
+        elif content.startswith(b"\xfe\xff"):
+            encoding = "utf-16-be"
+        else:
+            # Try to find charset in meta tag
+            charset_match = re.search(
+                rb'<meta[^>]+charset=["\']?([^"\'\s>]+)', content, re.IGNORECASE
+            )
+            if charset_match:
+                encoding = charset_match.group(1).decode("ascii", errors="ignore")
+
+        try:
+            html_text = content.decode(encoding, errors="replace")
+        except (UnicodeDecodeError, LookupError):
+            html_text = content.decode("utf-8", errors="replace")
+
+        # Parse the HTML
+        try:
+            parser = _HtmlTreeBuilder()
+            parser.feed(html_text)
+            root = parser.get_tree()
+        except Exception:
+            # Last resort: return empty content
+            logger.warning("Failed to parse HTML content")
+            metadata = HtmlMetadata()
+            metadata.populate_from_path(path)
+            yield HtmlContent(content="", metadata=metadata)
+            return
+
+        # Extract text content
+        extractor = _HtmlTextExtractor(root)
+        text = extractor.extract(path)
+
+        logger.info(
+            "Extracted HTML: %d characters, %d tables, %d links",
+            len(text),
+            len(extractor.tables),
+            len(extractor.links),
         )
-        if charset_match:
-            encoding = charset_match.group(1).decode("ascii", errors="ignore")
 
-    try:
-        html_text = content.decode(encoding, errors="replace")
-    except (UnicodeDecodeError, LookupError):
-        html_text = content.decode("utf-8", errors="replace")
-
-    # Parse the HTML
-    try:
-        parser = _HtmlTreeBuilder()
-        parser.feed(html_text)
-        root = parser.get_tree()
-    except Exception:
-        # Last resort: return empty content
-        logger.warning("Failed to parse HTML content")
-        metadata = HtmlMetadata()
-        metadata.populate_from_path(path)
-        yield HtmlContent(content="", metadata=metadata)
-        return
-
-    # Extract text content
-    extractor = _HtmlTextExtractor(root)
-    text = extractor.extract(path)
-
-    logger.info(
-        "Extracted HTML: %d characters, %d tables, %d links",
-        len(text),
-        len(extractor.tables),
-        len(extractor.links),
-    )
-
-    yield HtmlContent(
-        content=text,
-        tables=extractor.tables,
-        headings=extractor.headings,
-        links=extractor.links,
-        metadata=extractor.metadata,
-    )
+        yield HtmlContent(
+            content=text,
+            tables=extractor.tables,
+            headings=extractor.headings,
+            links=extractor.links,
+            metadata=extractor.metadata,
+        )
+    except ExtractionError:
+        raise
+    except Exception as exc:
+        raise ExtractionFailedError("Failed to extract HTML file", cause=exc) from exc

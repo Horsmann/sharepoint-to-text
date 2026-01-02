@@ -107,6 +107,7 @@ from typing import Any, Generator
 from msg_parser import MsOxMessage
 from olefile import OleFileIO
 
+from sharepoint2text.exceptions import ExtractionError, ExtractionFailedError
 from sharepoint2text.extractors.data_types import (
     EmailAddress,
     EmailAttachment,
@@ -374,45 +375,50 @@ def read_msg_format_mail(
         - reply_to is stored as raw value, not parsed to EmailAddress list
           (this differs from EML/MBOX extractors)
     """
-    file_like.seek(0)
-    file_bytes = file_like.read()
-    msg = MsOxMessage(io.BytesIO(file_bytes))
+    try:
+        file_like.seek(0)
+        file_bytes = file_like.read()
+        msg = MsOxMessage(io.BytesIO(file_bytes))
 
-    # Build metadata with date and message ID
-    meta = EmailMetadata(
-        message_id=msg.message_id,
-        date=parsedate_to_datetime(msg.sent_date).isoformat(),
-    )
+        # Build metadata with date and message ID
+        meta = EmailMetadata(
+            message_id=msg.message_id,
+            date=parsedate_to_datetime(msg.sent_date).isoformat(),
+        )
 
-    # Parse sender - expecting at least one result
-    # msg.sender may be a single string or list depending on version
-    sender_list = _parse_multi_recipients(msg.sender)
-    from_email = sender_list[0] if sender_list else EmailAddress()
+        # Parse sender - expecting at least one result
+        # msg.sender may be a single string or list depending on version
+        sender_list = _parse_multi_recipients(msg.sender)
+        from_email = sender_list[0] if sender_list else EmailAddress()
 
-    attachments = _extract_msg_attachments(file_bytes)
+        attachments = _extract_msg_attachments(file_bytes)
 
-    raw_body = msg.body or ""
-    if _looks_like_html(raw_body):
-        body_plain = _html_to_text(raw_body)
-        body_html = raw_body
-    else:
-        body_plain = raw_body
-        body_html = ""
+        raw_body = msg.body or ""
+        if _looks_like_html(raw_body):
+            body_plain = _html_to_text(raw_body)
+            body_html = raw_body
+        else:
+            body_plain = raw_body
+            body_html = ""
 
-    content = EmailContent(
-        subject=msg.subject,
-        from_email=from_email,
-        to_emails=_parse_multi_recipients(msg.to),
-        to_cc=_parse_multi_recipients(msg.cc),
-        to_bcc=_parse_multi_recipients(msg.bcc),
-        reply_to=msg.reply_to,  # Note: stored as-is, not parsed to EmailAddress list
-        body_plain=body_plain,
-        body_html=body_html,
-        attachments=attachments,
-        metadata=meta,
-    )
+        content = EmailContent(
+            subject=msg.subject,
+            from_email=from_email,
+            to_emails=_parse_multi_recipients(msg.to),
+            to_cc=_parse_multi_recipients(msg.cc),
+            to_bcc=_parse_multi_recipients(msg.bcc),
+            reply_to=msg.reply_to,  # Note: stored as-is, not parsed to EmailAddress list
+            body_plain=body_plain,
+            body_html=body_html,
+            attachments=attachments,
+            metadata=meta,
+        )
 
-    if path:
-        content.metadata.populate_from_path(path)
+        if path:
+            content.metadata.populate_from_path(path)
 
-    yield content
+        yield content
+    except ExtractionError:
+        raise
+    except Exception as exc:
+        raise ExtractionFailedError("Failed to extract MSG file", cause=exc) from exc

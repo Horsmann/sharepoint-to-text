@@ -109,7 +109,11 @@ import zipfile
 from typing import Any, Generator
 from xml.etree import ElementTree as ET
 
-from sharepoint2text.exceptions import ExtractionFileEncryptedError
+from sharepoint2text.exceptions import (
+    ExtractionError,
+    ExtractionFailedError,
+    ExtractionFileEncryptedError,
+)
 from sharepoint2text.extractors.data_types import (
     OdpAnnotation,
     OdpContent,
@@ -502,36 +506,43 @@ def read_odp(
         ...         for slide in ppt.slides:
         ...             print(f"  {slide.slide_number}: {slide.title}")
     """
-    file_like.seek(0)
-    if is_odf_encrypted(file_like):
-        raise ExtractionFileEncryptedError("ODP is encrypted or password-protected")
+    try:
+        file_like.seek(0)
+        if is_odf_encrypted(file_like):
+            raise ExtractionFileEncryptedError("ODP is encrypted or password-protected")
 
-    with open_zipfile(file_like, source="read_odp") as z:
-        # Extract metadata
-        metadata = _extract_metadata(z)
+        with open_zipfile(file_like, source="read_odp") as z:
+            # Extract metadata
+            metadata = _extract_metadata(z)
 
-        # Parse content.xml
-        if "content.xml" not in z.namelist():
-            raise ValueError("Invalid ODP file: content.xml not found")
+            # Parse content.xml
+            if "content.xml" not in z.namelist():
+                raise ExtractionFailedError("Invalid ODP file: content.xml not found")
 
-        content_root = read_zip_xml_root(z, "content.xml")
+            content_root = read_zip_xml_root(z, "content.xml")
 
-        # Find the presentation body
-        body = content_root.find(".//office:body/office:presentation", NS)
-        if body is None:
-            raise ValueError("Invalid ODP file: presentation body not found")
+            # Find the presentation body
+            body = content_root.find(".//office:body/office:presentation", NS)
+            if body is None:
+                raise ExtractionFailedError(
+                    "Invalid ODP file: presentation body not found"
+                )
 
-        # Extract slides
-        slides = []
-        image_counter = 0
-        for slide_num, page in enumerate(body.findall("draw:page", NS), start=1):
-            slide, image_counter = _extract_slide(z, page, slide_num, image_counter)
-            slides.append(slide)
+            # Extract slides
+            slides = []
+            image_counter = 0
+            for slide_num, page in enumerate(body.findall("draw:page", NS), start=1):
+                slide, image_counter = _extract_slide(z, page, slide_num, image_counter)
+                slides.append(slide)
 
-    # Populate file metadata from path
-    metadata.populate_from_path(path)
+        # Populate file metadata from path
+        metadata.populate_from_path(path)
 
-    yield OdpContent(
-        metadata=metadata,
-        slides=slides,
-    )
+        yield OdpContent(
+            metadata=metadata,
+            slides=slides,
+        )
+    except ExtractionError:
+        raise
+    except Exception as exc:
+        raise ExtractionFailedError("Failed to extract ODP file", cause=exc) from exc

@@ -119,6 +119,7 @@ from typing import Any, Generator, List, Optional
 import olefile
 
 from sharepoint2text.exceptions import (
+    ExtractionError,
     ExtractionFileEncryptedError,
     LegacyMicrosoftParsingError,
 )
@@ -204,20 +205,27 @@ def read_doc(
         - OLE container is opened and closed within this function
         - Large documents may use significant memory during parsing
     """
-    file_like.seek(0)
-    with _DocReader(file_like) as doc:
-        document = doc.read()
-        document.metadata = doc.get_metadata()
-        document.metadata.populate_from_path(path)
+    try:
+        file_like.seek(0)
+        with _DocReader(file_like) as doc:
+            document = doc.read()
+            document.metadata = doc.get_metadata()
+            document.metadata.populate_from_path(path)
 
-        text_len = len(document.main_text)
-        logger.info(
-            "Extracted DOC: %d characters, %d words",
-            text_len,
-            document.metadata.num_words or len(document.main_text.split()),
-        )
+            text_len = len(document.main_text)
+            logger.info(
+                "Extracted DOC: %d characters, %d words",
+                text_len,
+                document.metadata.num_words or len(document.main_text.split()),
+            )
 
-        yield document
+            yield document
+    except ExtractionError:
+        raise
+    except Exception as exc:
+        raise LegacyMicrosoftParsingError(
+            "Failed to extract DOC file", cause=exc
+        ) from exc
 
 
 class _DocReader:

@@ -115,7 +115,11 @@ import zipfile
 from typing import Any, Generator
 from xml.etree import ElementTree as ET
 
-from sharepoint2text.exceptions import ExtractionFileEncryptedError
+from sharepoint2text.exceptions import (
+    ExtractionError,
+    ExtractionFailedError,
+    ExtractionFileEncryptedError,
+)
 from sharepoint2text.extractors.data_types import (
     OdsAnnotation,
     OdsContent,
@@ -577,36 +581,45 @@ def read_ods(
         ...             for row in sheet.data[:5]:
         ...                 print(row)
     """
-    file_like.seek(0)
-    if is_odf_encrypted(file_like):
-        raise ExtractionFileEncryptedError("ODS is encrypted or password-protected")
+    try:
+        file_like.seek(0)
+        if is_odf_encrypted(file_like):
+            raise ExtractionFileEncryptedError("ODS is encrypted or password-protected")
 
-    with open_zipfile(file_like, source="read_ods") as z:
-        # Extract metadata
-        metadata = _extract_metadata(z)
+        with open_zipfile(file_like, source="read_ods") as z:
+            # Extract metadata
+            metadata = _extract_metadata(z)
 
-        # Parse content.xml
-        if "content.xml" not in z.namelist():
-            raise ValueError("Invalid ODS file: content.xml not found")
+            # Parse content.xml
+            if "content.xml" not in z.namelist():
+                raise ExtractionFailedError("Invalid ODS file: content.xml not found")
 
-        content_root = read_zip_xml_root(z, "content.xml")
+            content_root = read_zip_xml_root(z, "content.xml")
 
-        # Find the spreadsheet body
-        body = content_root.find(".//office:body/office:spreadsheet", NS)
-        if body is None:
-            raise ValueError("Invalid ODS file: spreadsheet body not found")
+            # Find the spreadsheet body
+            body = content_root.find(".//office:body/office:spreadsheet", NS)
+            if body is None:
+                raise ExtractionFailedError(
+                    "Invalid ODS file: spreadsheet body not found"
+                )
 
-        # Extract sheets
-        sheets = []
-        image_counter = 0
-        for sheet_num, table in enumerate(body.findall("table:table", NS), start=1):
-            sheet, image_counter = _extract_sheet(z, table, sheet_num, image_counter)
-            sheets.append(sheet)
+            # Extract sheets
+            sheets = []
+            image_counter = 0
+            for sheet_num, table in enumerate(body.findall("table:table", NS), start=1):
+                sheet, image_counter = _extract_sheet(
+                    z, table, sheet_num, image_counter
+                )
+                sheets.append(sheet)
 
-    # Populate file metadata from path
-    metadata.populate_from_path(path)
+        # Populate file metadata from path
+        metadata.populate_from_path(path)
 
-    yield OdsContent(
-        metadata=metadata,
-        sheets=sheets,
-    )
+        yield OdsContent(
+            metadata=metadata,
+            sheets=sheets,
+        )
+    except ExtractionError:
+        raise
+    except Exception as exc:
+        raise ExtractionFailedError("Failed to extract ODS file", cause=exc) from exc

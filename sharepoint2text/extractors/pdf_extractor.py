@@ -112,7 +112,11 @@ from typing import Any, Generator, Iterable, Optional, Protocol
 from pypdf import PdfReader
 from pypdf.generic import ContentStream
 
-from sharepoint2text.exceptions import ExtractionFileEncryptedError
+from sharepoint2text.exceptions import (
+    ExtractionError,
+    ExtractionFailedError,
+    ExtractionFileEncryptedError,
+)
 from sharepoint2text.extractors.data_types import (
     PdfContent,
     PdfImage,
@@ -204,47 +208,52 @@ def read_pdf(
         ...             print(f"  Text: {page.text[:100]}...")
         ...             print(f"  Images: {len(page.images)}")
     """
-    file_like.seek(0)
-    reader = PdfReader(file_like)
-    if reader.is_encrypted:
-        raise ExtractionFileEncryptedError("PDF is encrypted or password-protected")
-    logger.debug("Parsing PDF with %d pages", len(reader.pages))
+    try:
+        file_like.seek(0)
+        reader = PdfReader(file_like)
+        if reader.is_encrypted:
+            raise ExtractionFileEncryptedError("PDF is encrypted or password-protected")
+        logger.debug("Parsing PDF with %d pages", len(reader.pages))
 
-    pages = []
-    total_images = 0
-    total_tables = 0
-    for page_num, page in enumerate(reader.pages, start=1):
-        images = _extract_image_bytes(page, page_num)
-        total_images += len(images)
-        page_text = page.extract_text() or ""
-        raw_lines = page_text.splitlines()
-        spatial_lines = _extract_lines_with_spacing(page)
-        raw_tables = _TableExtractor.extract(raw_lines)
-        spatial_tables = _TableExtractor.extract(spatial_lines)
-        tables = _TableExtractor.choose_tables(raw_tables, spatial_tables)
-        total_tables += len(tables)
-        pages.append(
-            PdfPage(
-                text=page_text,
-                images=images,
-                tables=tables,
+        pages = []
+        total_images = 0
+        total_tables = 0
+        for page_num, page in enumerate(reader.pages, start=1):
+            images = _extract_image_bytes(page, page_num)
+            total_images += len(images)
+            page_text = page.extract_text() or ""
+            raw_lines = page_text.splitlines()
+            spatial_lines = _extract_lines_with_spacing(page)
+            raw_tables = _TableExtractor.extract(raw_lines)
+            spatial_tables = _TableExtractor.extract(spatial_lines)
+            tables = _TableExtractor.choose_tables(raw_tables, spatial_tables)
+            total_tables += len(tables)
+            pages.append(
+                PdfPage(
+                    text=page_text,
+                    images=images,
+                    tables=tables,
+                )
             )
+
+        metadata = PdfMetadata(total_pages=len(reader.pages))
+        metadata.populate_from_path(path)
+
+        logger.info(
+            "Extracted PDF: %d pages, %d images, %d tables",
+            len(reader.pages),
+            total_images,
+            total_tables,
         )
 
-    metadata = PdfMetadata(total_pages=len(reader.pages))
-    metadata.populate_from_path(path)
-
-    logger.info(
-        "Extracted PDF: %d pages, %d images, %d tables",
-        len(reader.pages),
-        total_images,
-        total_tables,
-    )
-
-    yield PdfContent(
-        pages=pages,
-        metadata=metadata,
-    )
+        yield PdfContent(
+            pages=pages,
+            metadata=metadata,
+        )
+    except ExtractionError:
+        raise
+    except Exception as exc:
+        raise ExtractionFailedError("Failed to extract PDF file", cause=exc) from exc
 
 
 def _extract_image_bytes(page: PageLike, page_num: int) -> list[PdfImage]:

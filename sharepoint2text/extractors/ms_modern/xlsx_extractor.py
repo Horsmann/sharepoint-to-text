@@ -111,7 +111,11 @@ from typing import Any, Generator
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
-from sharepoint2text.exceptions import ExtractionFileEncryptedError
+from sharepoint2text.exceptions import (
+    ExtractionError,
+    ExtractionFailedError,
+    ExtractionFileEncryptedError,
+)
 from sharepoint2text.extractors.data_types import (
     XlsxContent,
     XlsxImage,
@@ -782,23 +786,30 @@ def read_xlsx(
         - Large spreadsheets still load all data into memory
         - Consider streaming approaches for very large files
     """
-    file_like.seek(0)
-    if is_ooxml_encrypted(file_like):
-        raise ExtractionFileEncryptedError("XLSX is encrypted or password-protected")
+    try:
+        file_like.seek(0)
+        if is_ooxml_encrypted(file_like):
+            raise ExtractionFileEncryptedError(
+                "XLSX is encrypted or password-protected"
+            )
 
-    validate_zip_bytesio(file_like, source="read_xlsx")
+        validate_zip_bytesio(file_like, source="read_xlsx")
 
-    sheets = _read_content(file_like)
-    metadata = _read_metadata(file_like)
-    metadata.populate_from_path(path)
+        sheets = _read_content(file_like)
+        metadata = _read_metadata(file_like)
+        metadata.populate_from_path(path)
 
-    total_rows = sum(len(sheet.data) for sheet in sheets)
-    total_images = sum(len(sheet.images) for sheet in sheets)
-    logger.info(
-        "Extracted XLSX: %d sheets, %d total rows, %d images",
-        len(sheets),
-        total_rows,
-        total_images,
-    )
+        total_rows = sum(len(sheet.data) for sheet in sheets)
+        total_images = sum(len(sheet.images) for sheet in sheets)
+        logger.info(
+            "Extracted XLSX: %d sheets, %d total rows, %d images",
+            len(sheets),
+            total_rows,
+            total_images,
+        )
 
-    yield XlsxContent(metadata=metadata, sheets=sheets)
+        yield XlsxContent(metadata=metadata, sheets=sheets)
+    except ExtractionError:
+        raise
+    except Exception as exc:
+        raise ExtractionFailedError("Failed to extract XLSX file", cause=exc) from exc
