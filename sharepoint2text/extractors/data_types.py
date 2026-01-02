@@ -476,11 +476,7 @@ class XlsxUnit(UnitInterface):
 class OdpUnit(UnitInterface):
     slide_number: int
     text: str
-    include_annotations: bool = False
-    include_notes: bool = False
     location: list[str] = field(default_factory=list)
-    heading_level: int | None = None
-    heading_path: list[str] = field(default_factory=list)
     images: list[OdpImage] = field(default_factory=list)
     tables: list[TableData] = field(default_factory=list)
 
@@ -497,11 +493,7 @@ class OdpUnit(UnitInterface):
         return OdpUnitMetadata(
             unit_number=self.slide_number,
             location=list(self.location),
-            heading_level=self.heading_level,
-            heading_path=list(self.heading_path),
             slide_number=self.slide_number,
-            include_annotations=self.include_annotations,
-            include_notes=self.include_notes,
         )
 
 
@@ -509,11 +501,7 @@ class OdpUnit(UnitInterface):
 class OdpUnitMetadata(UnitMetadataInterface):
     unit_number: int
     location: list[str] = field(default_factory=list)
-    heading_level: int | None = None
-    heading_path: list[str] = field(default_factory=list)
     slide_number: int = 1
-    include_annotations: bool = False
-    include_notes: bool = False
 
 
 @dataclass

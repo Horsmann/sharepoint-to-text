@@ -1649,15 +1649,7 @@ def test_read_open_office__presentation_with_table() -> None:
 
     tc.assertTrue(isinstance(units[0].get_metadata(), OdpUnitMetadata))
     tc.assertEqual(
-        OdpUnitMetadata(
-            unit_number=1,
-            location=[],
-            heading_level=None,
-            heading_path=[],
-            slide_number=1,
-            include_annotations=False,
-            include_notes=False,
-        ),
+        OdpUnitMetadata(unit_number=1, location=[], slide_number=1),
         units[0].get_metadata(),
     )
 
