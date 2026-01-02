@@ -47,6 +47,81 @@ def _odf_length_to_px(length: str | None) -> int | None:
     return None
 
 
+##############
+# Interfaces #
+##############
+class ExtractionInterface(Protocol):
+    @abstractmethod
+    def iterate_units(self) -> typing.Iterator[UnitInterface]:
+        """
+        Returns an iterator over the extracted text i.e., the main text body of a file.
+        Additional text areas may be missing if they are not part of the main text body of the file.
+        This greatly depends on the underlying data source.
+        A PDF returns text per pages, PowerPoint files return slides as units.
+        Excel files return sheets.
+        Content of footnotes, headers or alike is not part of this iterator's return values.
+        The legacy and modern Word documents have no per-page representation in the files, they return only a single unit which is the full text.
+        """
+        ...
+
+    @abstractmethod
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        """Iterates over the extracted images"""
+        ...
+
+    @abstractmethod
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        """Iterates over the extracted tables"""
+        ...
+
+    @abstractmethod
+    def get_full_text(self) -> str:
+        """Convenience full-text representation as a single string.
+
+        Most implementations return a newline-joined representation of the
+        primary text units from `iterate_units()`. Some content types may:
+        - prepend a title or other metadata
+        - omit optional content by default (e.g., formulas, comments, notes)
+        - expose flags on `get_full_text(...)` to include that optional content
+
+        See `README.md` ("Format-Specific Notes on `get_full_text()`") for
+        format-specific details.
+        """
+        ...
+
+    @abstractmethod
+    def get_metadata(self) -> FileMetadataInterface:
+        """Returns the metadata of the extracted file"""
+        ...
+
+    @abstractmethod
+    def to_json(self) -> dict:
+        """Returns a JSON-serializable dictionary representation."""
+        ...
+
+    @classmethod
+    def from_json(cls, data: dict) -> ExtractionInterface:
+        """
+        Deserialize a JSON dictionary back to an ExtractionInterface instance.
+
+        This is the inverse of to_json(). It reconstructs the original
+        dataclass hierarchy from the serialized JSON representation.
+
+        Args:
+            data: A dictionary produced by to_json() or serialize_extraction()
+
+        Returns:
+            An instance of the appropriate ExtractionInterface subclass
+
+        Example:
+            >>> content = read_file("document.docx")
+            >>> json_data = content.to_json()
+            >>> restored = ExtractionInterface.from_json(json_data)
+            >>> assert restored.get_full_text() == content.get_full_text()
+        """
+        return deserialize_extraction(data)
+
+
 @dataclass
 class FileMetadataInterface:
     filename: str | None = None
@@ -86,6 +161,61 @@ class TableInterface(Protocol):
     def get_dim(self) -> TableDim:
         """Return the table dimensions (rows, columns)."""
         pass
+
+
+class ImageInterface(Protocol):
+
+    @abstractmethod
+    def get_bytes(self) -> io.BytesIO:
+        """Returns the bytes of the image as a BytesIO object."""
+        pass
+
+    @abstractmethod
+    def get_content_type(self) -> str:
+        """Returns the content type of the image as a string."""
+        pass
+
+    @abstractmethod
+    def get_caption(self) -> str:
+        """Returns the caption of the image as a string."""
+        pass
+
+    @abstractmethod
+    def get_description(self) -> str:
+        """Returns the descriptive text of the image as a string."""
+        pass
+
+    @abstractmethod
+    def get_metadata(self) -> ImageMetadata:
+        pass
+
+
+@dataclass
+class UnitMetadataInterface(Protocol):
+    unit_number: int
+
+
+class UnitInterface(Protocol):
+
+    @abstractmethod
+    def get_text(self) -> str:
+        """Returns the text of the units as a string."""
+        ...
+
+    @abstractmethod
+    def get_images(self) -> list[ImageInterface]:
+        """Returns the images of the units as a list."""
+        ...
+
+    @abstractmethod
+    def get_tables(self) -> list[TableData]:
+        """Returns the images of the units as a list."""
+        ...
+
+    @abstractmethod
+    def get_metadata(self) -> UnitMetadataInterface:
+        """Returns (additional) metadata of a unit."""
+        ...
 
 
 @dataclass
@@ -177,183 +307,6 @@ class ImageMetadata(dict):
         self.image_number = value
 
 
-class ImageInterface(Protocol):
-
-    @abstractmethod
-    def get_bytes(self) -> io.BytesIO:
-        """Returns the bytes of the image as a BytesIO object."""
-        pass
-
-    @abstractmethod
-    def get_content_type(self) -> str:
-        """Returns the content type of the image as a string."""
-        pass
-
-    @abstractmethod
-    def get_caption(self) -> str:
-        """Returns the caption of the image as a string."""
-        pass
-
-    @abstractmethod
-    def get_description(self) -> str:
-        """Returns the descriptive text of the image as a string."""
-        pass
-
-    @abstractmethod
-    def get_metadata(self) -> ImageMetadata:
-        pass
-
-
-@dataclass
-class UnitMetadataInterface(Protocol):
-    unit_number: int
-
-
-class UnitInterface(Protocol):
-
-    @abstractmethod
-    def get_text(self) -> str:
-        """Returns the text of the units as a string."""
-        ...
-
-    @abstractmethod
-    def get_images(self) -> list[ImageInterface]:
-        """Returns the images of the units as a list."""
-        ...
-
-    @abstractmethod
-    def get_tables(self) -> list[TableData]:
-        """Returns the images of the units as a list."""
-        ...
-
-    @abstractmethod
-    def get_metadata(self) -> UnitMetadataInterface:
-        """Returns (additional) metadata of a unit."""
-        ...
-
-
-@dataclass
-class EmailUnitMetadata(UnitMetadataInterface):
-    body_type: str
-
-
-@dataclass
-class EmailUnit(UnitInterface):
-    text: str
-    body_type: str = ""  # plain|html|empty
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_images(self) -> list[ImageInterface]:
-        return []
-
-    def get_tables(self) -> list[TableData]:
-        return []
-
-    def get_metadata(self) -> UnitMetadataInterface:
-        return EmailUnitMetadata(unit_number=1, body_type=self.body_type)
-
-
-@dataclass
-class DocUnit(UnitInterface):
-    text: str
-    unit_number: int = 1
-    location: list[str] = field(default_factory=list)
-    heading_level: int | None = None
-    heading_path: list[str] = field(default_factory=list)
-    images: list[DocImage] = field(default_factory=list)
-    tables: list[TableData] = field(default_factory=list)
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_images(self) -> list[ImageInterface]:
-        return list(self.images)
-
-    def get_tables(self) -> list[TableData]:
-        return list(self.tables)
-
-    def get_metadata(self) -> DocUnitMeta:
-        return DocUnitMeta(
-            unit_number=self.unit_number,
-            location=list(self.location),
-            heading_level=self.heading_level,
-            heading_path=list(self.heading_path),
-        )
-
-
-@dataclass
-class DocUnitMeta(UnitMetadataInterface):
-    unit_number: int = 1
-    location: list[str] = field(default_factory=list)
-    heading_level: int | None = None
-    heading_path: list[str] = field(default_factory=list)
-
-
-@dataclass
-class DocxUnit(UnitInterface):
-    text: str
-    unit_number: int = 1
-    location: list[str] = field(default_factory=list)
-    heading_level: int | None = None
-    heading_path: list[str] = field(default_factory=list)
-    images: list[DocxImage] = field(default_factory=list)
-    tables: list[TableData] = field(default_factory=list)
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_images(self) -> list[DocxImage]:
-        return list(self.images)
-
-    def get_tables(self) -> list[TableData]:
-        return list(self.tables)
-
-    def get_metadata(self) -> DocxUnitMetadata:
-        return DocxUnitMetadata(
-            unit_number=self.unit_number,
-            location=list(self.location),
-            heading_level=self.heading_level,
-            heading_path=list(self.heading_path),
-        )
-
-
-@dataclass
-class DocxUnitMetadata(UnitMetadataInterface):
-    unit_number: int
-    location: list[str] = field(default_factory=list)
-    heading_level: int | None = None
-    heading_path: list[str] = field(default_factory=list)
-
-
-@dataclass
-class PdfUnitMetadata(UnitMetadataInterface):
-    """PDF unit metadata"""
-
-    pass
-
-
-@dataclass
-class PdfUnit(UnitInterface):
-    page_number: int
-    text: str
-    images: list[ImageInterface] = field(default_factory=list)
-    tables: list[TableData] = field(default_factory=list)
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_images(self) -> list[ImageInterface]:
-        return list(self.images)
-
-    def get_tables(self) -> list[TableData]:
-        return list(self.tables)
-
-    def get_metadata(self) -> PdfUnitMetadata:
-        return PdfUnitMetadata(unit_number=self.page_number)
-
-
 @dataclass
 class PlainUnitMetadata(UnitMetadataInterface):
     """Plain Unit Metadata"""
@@ -400,58 +353,6 @@ class HtmlUnit(UnitInterface):
 
     def get_metadata(self) -> HtmlUnitMetadata:
         return HtmlUnitMetadata(unit_number=1)
-
-
-@dataclass
-class PptUnitMetadata(UnitMetadataInterface):
-    """Ppt Unit Metadata"""
-
-    ...
-
-
-@dataclass
-class PptUnit(UnitInterface):
-    slide_number: int
-    text: str
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_images(self) -> list[ImageInterface]:
-        return []
-
-    def get_tables(self) -> list[TableData]:
-        return []
-
-    def get_metadata(self) -> PptUnitMetadata:
-        return PptUnitMetadata(unit_number=self.slide_number)
-
-
-@dataclass
-class PptxUnitMetadata(UnitMetadataInterface):
-    """Pptx Unit Metadata"""
-
-    pass
-
-
-@dataclass
-class PptxUnit(UnitInterface):
-    slide_number: int
-    text: str
-    images: list[PptxImage] = field(default_factory=list)
-    tables: list[TableData] = field(default_factory=list)
-
-    def get_text(self) -> str:
-        return self.text
-
-    def get_images(self) -> list[ImageInterface]:
-        return list(self.images)
-
-    def get_tables(self) -> list[TableData]:
-        return list(self.tables)
-
-    def get_metadata(self) -> PptxUnitMetadata:
-        return PptxUnitMetadata(unit_number=self.slide_number)
 
 
 @dataclass
@@ -648,76 +549,27 @@ def _join_unit_text(units: typing.Iterable[UnitInterface]) -> str:
     return "\n".join(unit.get_text() for unit in units)
 
 
-class ExtractionInterface(Protocol):
-    @abstractmethod
-    def iterate_units(self) -> typing.Iterator[UnitInterface]:
-        """
-        Returns an iterator over the extracted text i.e., the main text body of a file.
-        Additional text areas may be missing if they are not part of the main text body of the file.
-        This greatly depends on the underlying data source.
-        A PDF returns text per pages, PowerPoint files return slides as units.
-        Excel files return sheets.
-        Content of footnotes, headers or alike is not part of this iterator's return values.
-        The legacy and modern Word documents have no per-page representation in the files, they return only a single unit which is the full text.
-        """
-        ...
+@dataclass
+class EmailUnitMetadata(UnitMetadataInterface):
+    body_type: str
 
-    @abstractmethod
-    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
-        """Iterates over the extracted images"""
-        ...
 
-    @abstractmethod
-    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
-        """Iterates over the extracted tables"""
-        ...
+@dataclass
+class EmailUnit(UnitInterface):
+    text: str
+    body_type: str = ""  # plain|html|empty
 
-    @abstractmethod
-    def get_full_text(self) -> str:
-        """Convenience full-text representation as a single string.
+    def get_text(self) -> str:
+        return self.text
 
-        Most implementations return a newline-joined representation of the
-        primary text units from `iterate_units()`. Some content types may:
-        - prepend a title or other metadata
-        - omit optional content by default (e.g., formulas, comments, notes)
-        - expose flags on `get_full_text(...)` to include that optional content
+    def get_images(self) -> list[ImageInterface]:
+        return []
 
-        See `README.md` ("Format-Specific Notes on `get_full_text()`") for
-        format-specific details.
-        """
-        ...
+    def get_tables(self) -> list[TableData]:
+        return []
 
-    @abstractmethod
-    def get_metadata(self) -> FileMetadataInterface:
-        """Returns the metadata of the extracted file"""
-        ...
-
-    @abstractmethod
-    def to_json(self) -> dict:
-        """Returns a JSON-serializable dictionary representation."""
-        ...
-
-    @classmethod
-    def from_json(cls, data: dict) -> ExtractionInterface:
-        """
-        Deserialize a JSON dictionary back to an ExtractionInterface instance.
-
-        This is the inverse of to_json(). It reconstructs the original
-        dataclass hierarchy from the serialized JSON representation.
-
-        Args:
-            data: A dictionary produced by to_json() or serialize_extraction()
-
-        Returns:
-            An instance of the appropriate ExtractionInterface subclass
-
-        Example:
-            >>> content = read_file("document.docx")
-            >>> json_data = content.to_json()
-            >>> restored = ExtractionInterface.from_json(json_data)
-            >>> assert restored.get_full_text() == content.get_full_text()
-        """
-        return deserialize_extraction(data)
+    def get_metadata(self) -> UnitMetadataInterface:
+        return EmailUnitMetadata(unit_number=1, body_type=self.body_type)
 
 
 @dataclass
@@ -839,6 +691,42 @@ class EmailContent(ExtractionInterface):
 ############
 # legacy doc
 #############
+
+
+@dataclass
+class DocUnit(UnitInterface):
+    text: str
+    unit_number: int = 1
+    location: list[str] = field(default_factory=list)
+    heading_level: int | None = None
+    heading_path: list[str] = field(default_factory=list)
+    images: list[DocImage] = field(default_factory=list)
+    tables: list[TableData] = field(default_factory=list)
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return list(self.images)
+
+    def get_tables(self) -> list[TableData]:
+        return list(self.tables)
+
+    def get_metadata(self) -> DocUnitMeta:
+        return DocUnitMeta(
+            unit_number=self.unit_number,
+            location=list(self.location),
+            heading_level=self.heading_level,
+            heading_path=list(self.heading_path),
+        )
+
+
+@dataclass
+class DocUnitMeta(UnitMetadataInterface):
+    unit_number: int = 1
+    location: list[str] = field(default_factory=list)
+    heading_level: int | None = None
+    heading_path: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -1059,6 +947,42 @@ class DocContent(ExtractionInterface):
 ##############
 # modern docx
 ###############
+
+
+@dataclass
+class DocxUnit(UnitInterface):
+    text: str
+    unit_number: int = 1
+    location: list[str] = field(default_factory=list)
+    heading_level: int | None = None
+    heading_path: list[str] = field(default_factory=list)
+    images: list[DocxImage] = field(default_factory=list)
+    tables: list[TableData] = field(default_factory=list)
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[DocxImage]:
+        return list(self.images)
+
+    def get_tables(self) -> list[TableData]:
+        return list(self.tables)
+
+    def get_metadata(self) -> DocxUnitMetadata:
+        return DocxUnitMetadata(
+            unit_number=self.unit_number,
+            location=list(self.location),
+            heading_level=self.heading_level,
+            heading_path=list(self.heading_path),
+        )
+
+
+@dataclass
+class DocxUnitMetadata(UnitMetadataInterface):
+    unit_number: int
+    location: list[str] = field(default_factory=list)
+    heading_level: int | None = None
+    heading_path: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -1404,6 +1328,35 @@ class DocxContent(ExtractionInterface):
 ######
 # PDF
 ######
+
+
+@dataclass
+class PdfUnitMetadata(UnitMetadataInterface):
+    """PDF unit metadata"""
+
+    pass
+
+
+@dataclass
+class PdfUnit(UnitInterface):
+    page_number: int
+    text: str
+    images: list[ImageInterface] = field(default_factory=list)
+    tables: list[TableData] = field(default_factory=list)
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return list(self.images)
+
+    def get_tables(self) -> list[TableData]:
+        return list(self.tables)
+
+    def get_metadata(self) -> PdfUnitMetadata:
+        return PdfUnitMetadata(unit_number=self.page_number)
+
+
 @dataclass
 class PdfImage(ImageInterface):
     index: int = 0
@@ -1600,6 +1553,31 @@ PPT_TEXT_TYPE_QUARTER_BODY = 8  # Quarter body
 
 
 @dataclass
+class PptUnitMetadata(UnitMetadataInterface):
+    """Ppt Unit Metadata"""
+
+    ...
+
+
+@dataclass
+class PptUnit(UnitInterface):
+    slide_number: int
+    text: str
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return []
+
+    def get_tables(self) -> list[TableData]:
+        return []
+
+    def get_metadata(self) -> PptUnitMetadata:
+        return PptUnitMetadata(unit_number=self.slide_number)
+
+
+@dataclass
 class PptImage(ImageInterface):
     """Represents an embedded image in a legacy PPT file."""
 
@@ -1764,6 +1742,33 @@ class PptContent(ExtractionInterface):
 ##############
 # Modern PPTX
 ##############
+
+
+@dataclass
+class PptxUnitMetadata(UnitMetadataInterface):
+    """Pptx Unit Metadata"""
+
+    pass
+
+
+@dataclass
+class PptxUnit(UnitInterface):
+    slide_number: int
+    text: str
+    images: list[PptxImage] = field(default_factory=list)
+    tables: list[TableData] = field(default_factory=list)
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return list(self.images)
+
+    def get_tables(self) -> list[TableData]:
+        return list(self.tables)
+
+    def get_metadata(self) -> PptxUnitMetadata:
+        return PptxUnitMetadata(unit_number=self.slide_number)
 
 
 @dataclass
