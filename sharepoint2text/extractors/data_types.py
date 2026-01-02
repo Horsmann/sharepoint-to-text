@@ -374,15 +374,17 @@ class XlsxUnit(UnitInterface):
     sheet_index: int
     sheet_name: str
     text: str
+    images: list[XlsxImage] = field(default_factory=list)
+    tables: list[TableData] = field(default_factory=list)
 
     def get_text(self) -> str:
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
-        return []
+        return list(self.images)
 
     def get_tables(self) -> list[TableData]:
-        return []
+        return list(self.tables)
 
     def get_metadata(self) -> dict:
         return {
@@ -1810,6 +1812,8 @@ class XlsxContent(ExtractionInterface):
             yield XlsxUnit(
                 sheet_index=sheet_index,
                 sheet_name=sheet.name,
+                images=list(sheet.images),
+                tables=[TableData(data=sheet.data)] if sheet.data else [],
                 text=sheet.name + "\n" + sheet.text.strip(),
             )
 

@@ -245,6 +245,22 @@ def test_read_xlsx_3() -> None:
     tc.assertEqual(0, len(list(xlsx.iterate_images())))
     tc.assertEqual(TableDim(4, 4), list(xlsx.iterate_tables())[0].get_dim())
 
+    #########
+    # Units #
+    #########
+    units = list(xlsx.iterate_units())
+    tc.assertEqual(1, len(units))
+    tc.assertListEqual(
+        [
+            [None, "Name", None, "Age"],
+            [None, "A", None, 25],
+            [None, None, None, None],
+            [None, "B", None, 28],
+        ],
+        units[0].get_tables()[0].get_table(),
+    )
+    tc.assertEqual(0, len(units[0].get_images()))
+
 
 def test_read_xlsx_4__image_extraction() -> None:
     path = "sharepoint2text/tests/resources/modern_ms/image_in_excel.xlsx"
