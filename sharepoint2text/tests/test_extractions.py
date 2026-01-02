@@ -29,6 +29,7 @@ from sharepoint2text.extractors.data_types import (
     PlainTextContent,
     PptContent,
     PptImage,
+    PptxComment,
     PptxContent,
     RtfContent,
     TableData,
@@ -435,15 +436,12 @@ def test_read_pptx_2() -> None:
     text_with_formulas = pptx.get_full_text(include_formulas=True)
     tc.assertIn("$$f(x)=\\frac{1}{\\sqrt{2\\pi\\sigma^{2}}}", text_with_formulas)
 
-    # Test with comments included
-    text_with_comments = pptx.get_full_text(include_comments=True)
-    tc.assertIn("[Comment: 0@2025-12-28T11:15:49.694: Not second?]", text_with_comments)
-
-    # Test with all included (formulas + comments)
-    full_text = pptx.get_full_text(include_formulas=True, include_comments=True)
-    tc.assertIn("The slide title", full_text)
-    tc.assertIn("$$f(x)=\\frac{1}{\\sqrt{2\\pi\\sigma^{2}}}", full_text)
-    tc.assertIn("[Comment: 0@2025-12-28T11:15:49.694: Not second?]", full_text)
+    # comments go separately - they are not part of the full text body
+    tc.assertListEqual(
+        [PptxComment(author="0", text="Not second?", date="2025-12-28T11:15:49.694")],
+        pptx.slides[0].comments,
+    )
+    tc.assertNotIn("Not second?", pptx.get_full_text(include_formulas=True))
 
 
 def test_read_pptx_3() -> None:
@@ -520,10 +518,7 @@ def test_read_docx_2() -> None:
         docx.full_text,
     )
     tc.assertEqual(docx.full_text, docx.get_full_text())
-    tc.assertEqual(
-        docx.full_text + "\n[Comment: User@2025-12-28T09:16:57Z: Nice!]",
-        docx.get_full_text(include_comments=True),
-    )
+    tc.assertNotIn("Nice!", docx.get_full_text())
     tc.assertListEqual(
         [DocxComment(id="0", author="User", date="2025-12-28T09:16:57Z", text="Nice!")],
         docx.comments,

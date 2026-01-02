@@ -567,12 +567,8 @@ class DocxContent(ExtractionInterface):
     formulas: List[DocxFormula] = field(default_factory=list)
     full_text: str = ""  # Full text including formulas
 
-    def iterate_text(self, include_comments: bool = False) -> typing.Iterator[str]:
+    def iterate_text(self) -> typing.Iterator[str]:
         yield self.full_text
-
-        if include_comments:
-            for comment in self.comments:
-                yield f"[Comment: {comment.author}@{comment.date}: {comment.text}]"
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
         for img in self.images:
@@ -582,13 +578,9 @@ class DocxContent(ExtractionInterface):
         for table in self.tables:
             yield TableData(data=table)
 
-    def get_full_text(self, include_comments: bool = False) -> str:
-        """Get full text of the document.
-
-        Args:
-            include_comments: Include document comments in output (default: False)
-        """
-        return "\n".join(self.iterate_text(include_comments=include_comments))
+    def get_full_text(self) -> str:
+        """Get full text of the document."""
+        return "\n".join(self.iterate_text())
 
     def get_metadata(self) -> DocxMetadata:
         return self.metadata
@@ -1037,10 +1029,9 @@ class PptxSlide:
     def get_text(
         self,
         include_formulas: bool = False,
-        include_comments: bool = False,
         include_image_captions: bool = False,
     ) -> str:
-        """Get slide text with optional inclusion of formulas, comments, and image captions."""
+        """Get slide text with optional inclusion of formulas and image captions."""
         parts = [self.base_text] if self.base_text else []
 
         if include_formulas:
@@ -1055,12 +1046,6 @@ class PptxSlide:
                 if image.description:
                     parts.append(f"[Image: {image.description}]")
 
-        if include_comments:
-            for comment in self.comments:
-                parts.append(
-                    f"[Comment: {comment.author}@{comment.date}: {comment.text}]"
-                )
-
         return "\n".join(parts)
 
 
@@ -1072,34 +1057,29 @@ class PptxContent(ExtractionInterface):
     def iterate_text(
         self,
         include_formulas: bool = False,
-        include_comments: bool = False,
         include_image_captions: bool = False,
     ) -> typing.Iterator[str]:
         for slide in self.slides:
             yield slide.get_text(
                 include_formulas=include_formulas,
-                include_comments=include_comments,
                 include_image_captions=include_image_captions,
             ).strip()
 
     def get_full_text(
         self,
         include_formulas: bool = False,
-        include_comments: bool = False,
         include_image_captions: bool = False,
     ) -> str:
         """Get full text of all slides.
 
         Args:
             include_formulas: Include LaTeX formulas in output (default: False)
-            include_comments: Include slide comments in output (default: False)
             include_image_captions: Include image captions/alt text in output (default: False)
         """
         return "\n".join(
             list(
                 self.iterate_text(
                     include_formulas=include_formulas,
-                    include_comments=include_comments,
                     include_image_captions=include_image_captions,
                 )
             )

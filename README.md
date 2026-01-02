@@ -247,9 +247,9 @@ for page_num, page_text in enumerate(result.iterate_text(), start=1):
 | Format | `get_full_text()` default behavior | Not included by default / where to find it |
 |--------|------------------------------------|--------------------------------------------|
 | `.doc` | Prepends `metadata.title` (if present) and returns main document body | `footnotes`, `headers_footers`, `annotations` are separate fields (`DocContent`) |
-| `.docx` | Returns `full_text` (including formulas) | Pass `include_comments=True` to `DocxContent.get_full_text(...)` |
+| `.docx` | Returns `full_text` (including formulas) | Comments are available on `DocxContent.comments` (not included in `get_full_text()`) |
 | `.ppt` | Per-slide `title + body + other` concatenated | Speaker notes live in `slide.notes` (`PptSlideContent`) |
-| `.pptx` | Per-slide `base_text` concatenated | Pass `include_formulas/include_comments/include_image_captions` to `PptxContent.get_full_text(...)` |
+| `.pptx` | Per-slide `base_text` concatenated | Pass `include_formulas/include_image_captions` to `PptxContent.get_full_text(...)` (comments are available on `PptxSlide.comments`) |
 | `.odp` | Per-slide `text_combined` concatenated | Pass `include_notes/include_annotations` to `OdpContent.get_full_text(...)` |
 | `.xls` | Concatenation of sheet `text` blocks (no sheet names) | Sheet names are available as `sheet.name` (`XlsSheet`) |
 | `.xlsx`, `.ods` | Includes sheet name + sheet text for each sheet | Images are available via `iterate_images()` / sheet image lists |
