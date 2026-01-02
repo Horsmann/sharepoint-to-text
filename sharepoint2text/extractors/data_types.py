@@ -2234,8 +2234,100 @@ class OdtContent(ExtractionInterface):
     full_text: str = ""
 
     def iterate_units(self) -> typing.Iterator[OdtUnit]:
-        """Iterate over document text."""
+        """Iterate over heading-based units.
+
+        Units are built from paragraph runs separated by headings (paragraphs with
+        an outline level). Heading text itself becomes the unit location and is
+        not included in the unit body text.
+        """
         base_location = [self.metadata.title] if self.metadata.title else []
+
+        if not self.paragraphs:
+            yield OdtUnit(
+                text=self.full_text,
+                kind="body",
+                unit_index=1,
+                location=base_location,
+                images=list(self.images),
+                tables=[TableData(data=table.data) for table in self.tables],
+            )
+            return
+
+        heading_stack: list[tuple[int, str]] = []
+        current_heading_level: int | None = None
+        current_heading_path: list[str] = []
+        current_lines: list[str] = []
+        current_tables: list[TableData] = []
+        current_images: list[ImageInterface] = []
+        unit_index = 1
+        any_headings = False
+
+        table_iter = iter(self.tables)
+        in_table_block = False
+
+        def flush_current() -> typing.Iterator[OdtUnit]:
+            nonlocal unit_index, current_lines, current_tables, current_images
+            text = "\n".join(line for line in current_lines if line).strip()
+            if not (text or current_tables or current_images):
+                current_lines = []
+                current_tables = []
+                current_images = []
+                return iter(())
+
+            unit = OdtUnit(
+                text=text,
+                unit_index=unit_index,
+                location=base_location + list(current_heading_path),
+                heading_level=current_heading_level,
+                heading_path=list(current_heading_path),
+                kind="body",
+                images=list(current_images),
+                tables=list(current_tables),
+            )
+            unit_index += 1
+            current_lines = []
+            current_tables = []
+            current_images = []
+            return iter((unit,))
+
+        for paragraph in self.paragraphs:
+            heading_level = paragraph.outline_level
+            if heading_level is not None:
+                heading_text = paragraph.text.strip()
+                if heading_text:
+                    any_headings = True
+                    yield from flush_current()
+
+                    while heading_stack and heading_stack[-1][0] >= heading_level:
+                        heading_stack.pop()
+                    heading_stack.append((heading_level, heading_text))
+                    current_heading_level = heading_level
+                    current_heading_path = [t for _, t in heading_stack if t]
+                continue
+
+            style = paragraph.style_name or ""
+            is_table_paragraph = style.startswith("Table") or "Table_" in style
+            if is_table_paragraph:
+                if not in_table_block:
+                    in_table_block = True
+                    try:
+                        table = next(table_iter)
+                    except StopIteration:
+                        table = None
+                    if table is not None:
+                        current_tables.append(TableData(data=table.data))
+                continue
+            in_table_block = False
+
+            text = paragraph.text.strip()
+            if text:
+                current_lines.append(text)
+
+        yield from flush_current()
+
+        if any_headings:
+            return
+
         yield OdtUnit(
             text=self.full_text,
             kind="body",
@@ -2247,7 +2339,7 @@ class OdtContent(ExtractionInterface):
 
     def get_full_text(self) -> str:
         """Get full text of the document."""
-        return _join_unit_text(self.iterate_units())
+        return self.full_text
 
     def get_metadata(self) -> OdtMetadata:
         """Returns the metadata of the extracted file."""

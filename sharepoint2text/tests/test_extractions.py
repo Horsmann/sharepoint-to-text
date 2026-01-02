@@ -1518,10 +1518,27 @@ def test_read_open_office__heading_units() -> None:
     # 2
     tc.assertListEqual(["Chapter 1"], units[1].get_metadata().location)
     tc.assertEqual("Welcome to chapter 1", units[1].get_text())
-    #
-    # tc.assertListEqual(["Chapter 1", "Subsection in Chapter 1"], units[2].get_metadata().location)
-    # tc.assertListEqual(["Chapter 2"], units[3].get_metadata().location)
-    # tc.assertListEqual(["Chapter 2", "Subsection in Chapter 2"], units[4].get_metadata().location)
+
+    # 3
+    tc.assertListEqual(
+        ["Chapter 1", "Subsection in Chapter 1"], units[2].get_metadata().location
+    )
+    tc.assertEqual("This is a subsection in chapter 1", units[2].get_text())
+    tc.assertListEqual(
+        [["A", "B", "C", "D"], ["1", "2", "3", "4"]],
+        units[3].get_tables()[0].get_table(),
+    )
+
+    # 4
+    tc.assertListEqual(["Chapter 2"], units[3].get_metadata().location)
+    tc.assertEqual("Welcome to chapter 2", units[3].get_text())
+    tc.assertEqual(0, len(units[3].get_images()[0].get_bytes().getvalue()))
+
+    # 5
+    tc.assertListEqual(
+        ["Chapter 2", "Subsection in Chapter 2"], units[4].get_metadata().location
+    )
+    tc.assertEqual("This is a subsection in chapter 2", units[4].get_text())
 
 
 def test_read_open_office__presentation() -> None:
