@@ -182,6 +182,15 @@ def _deserialize_dataclass(
         # Can't determine the class, return dict as-is
         return data
 
+    # Backwards-compatibility shims for renamed fields.
+    if cls.__name__ == "ImageMetadata":
+        if "unit_number" not in data and "unit_index" in data:
+            data = dict(data)
+            data["unit_number"] = data["unit_index"]
+        if "image_number" not in data and "image_index" in data:
+            data = dict(data)
+            data["image_number"] = data["image_index"]
+
     # Get field type hints
     field_types = _get_field_types(cls)
     field_names = {f.name for f in fields(cls)}

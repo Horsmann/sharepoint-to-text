@@ -55,8 +55,8 @@ def test_serialize_for_json() -> None:
 
 def test_image_metadata_json_serializable() -> None:
     meta = ImageMetadata(
-        unit_index=3,
-        image_index=7,
+        unit_number=3,
+        image_number=7,
         content_type="image/png",
         width=120,
         height=80,
@@ -69,8 +69,8 @@ def test_image_metadata_json_serializable() -> None:
 
     tc.assertEqual(
         {
-            "unit_index": 3,
-            "image_index": 7,
+            "unit_number": 3,
+            "image_number": 7,
             "content_type": "image/png",
             "width": 120,
             "height": 80,

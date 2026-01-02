@@ -280,15 +280,15 @@ def test_read_xlsx_4__image_extraction() -> None:
     img_meta = list(xlsx.iterate_images())[0].get_metadata()
     tc.assertEqual(
         ImageMetadata(
-            unit_index=None,
-            image_index=1,
+            unit_number=None,
+            image_number=1,
             content_type="image/png",
             width=600,
             height=300,
         ),
         img_meta,
     )
-    tc.assertIsNone(img_meta.unit_index)
+    tc.assertIsNone(img_meta.unit_number)
     tc.assertEqual(600, img_meta.width)
     tc.assertEqual(300, img_meta.height)
 
@@ -318,8 +318,8 @@ def test_read_pptx_1() -> None:
     tc.assertEqual(0, len(list(pptx.iterate_tables())))
     tc.assertEqual(
         ImageMetadata(
-            unit_index=2,
-            image_index=1,
+            unit_number=2,
+            image_number=1,
             content_type="image/png",
             width=130,
             height=111,
@@ -328,8 +328,8 @@ def test_read_pptx_1() -> None:
     )
     tc.assertEqual(
         ImageMetadata(
-            unit_index=2,
-            image_index=2,
+            unit_number=2,
+            image_number=2,
             content_type="image/jpeg",
             width=264,
             height=255,
@@ -338,8 +338,8 @@ def test_read_pptx_1() -> None:
     )
     tc.assertEqual(
         ImageMetadata(
-            unit_index=2,
-            image_index=3,
+            unit_number=2,
+            image_number=3,
             content_type="image/jpeg",
             width=279,
             height=186,
@@ -348,8 +348,8 @@ def test_read_pptx_1() -> None:
     )
     tc.assertEqual(
         ImageMetadata(
-            unit_index=2,
-            image_index=4,
+            unit_number=2,
+            image_number=4,
             content_type="image/jpeg",
             width=305,
             height=250,
@@ -358,8 +358,8 @@ def test_read_pptx_1() -> None:
     )
     tc.assertEqual(
         ImageMetadata(
-            unit_index=2,
-            image_index=5,
+            unit_number=2,
+            image_number=5,
             content_type="image/jpeg",
             width=286,
             height=191,
@@ -467,8 +467,8 @@ def test_read_pptx_2() -> None:
     tc.assertEqual(1535390, len(pptx.slides[0].images[0].get_bytes().getvalue()))
     tc.assertEqual(
         ImageMetadata(
-            unit_index=1,
-            image_index=1,
+            unit_number=1,
+            image_number=1,
             content_type="image/jpeg",
             width=1647,
             height=1098,
@@ -547,8 +547,8 @@ def test_read_docx_1() -> None:
     tc.assertEqual(7, len(list(docx.iterate_tables())))
     tc.assertEqual(
         ImageMetadata(
-            unit_index=None,
-            image_index=1,
+            unit_number=None,
+            image_number=1,
             content_type="image/png",
             width=1823,
             height=1052,
@@ -633,8 +633,8 @@ def test_read_docx_2() -> None:
     img_meta = docx.images[0].get_metadata()
     tc.assertEqual(
         ImageMetadata(
-            unit_index=None,
-            image_index=1,
+            unit_number=None,
+            image_number=1,
             content_type="image/png",
             width=930,
             height=506,
@@ -859,8 +859,8 @@ def test_read_xls_3_images() -> None:
     tc.assertEqual(183928, xls.images[0].size_bytes)
     tc.assertEqual(
         ImageMetadata(
-            unit_index=None,
-            image_index=1,
+            unit_number=None,
+            image_number=1,
             content_type="image/jpeg",
             width=800,
             height=450,
@@ -876,8 +876,8 @@ def test_read_xls_3_images() -> None:
     tc.assertEqual(183928, len(units[0].get_images()[0].get_bytes().getvalue()))
     tc.assertEqual(
         ImageMetadata(
-            unit_index=None,
-            image_index=1,
+            unit_number=None,
+            image_number=1,
             content_type="image/jpeg",
             width=800,
             height=450,
@@ -953,8 +953,8 @@ def test_read_ppt__image_extraction() -> None:
     # Check ImageMetadata
     tc.assertEqual(
         ImageMetadata(
-            unit_index=1,
-            image_index=1,
+            unit_number=1,
+            image_number=1,
             content_type="image/png",
             width=1718,
             height=348,
@@ -1019,8 +1019,8 @@ def test_read_doc__image_extraction_1() -> None:
     tc.assertEqual(660, images[0].height)
     tc.assertEqual(
         ImageMetadata(
-            unit_index=None,
-            image_index=1,
+            unit_number=None,
+            image_number=1,
             content_type="image/bmp",
             width=1304,
             height=660,
@@ -1087,8 +1087,8 @@ def test_read_doc__heading_units() -> None:
     tc.assertEqual(62421, len(list(units[3].get_images())[0].get_bytes().getvalue()))
     tc.assertEqual(
         ImageMetadata(
-            unit_index=4,
-            image_index=1,
+            unit_number=4,
+            image_number=1,
             content_type="image/png",
             width=948,
             height=400,
@@ -1661,8 +1661,8 @@ def test_read_open_office__heading_units() -> None:
     tc.assertEqual(62421, len(list(units[3].get_images())[0].get_bytes().getvalue()))
     tc.assertEqual(
         ImageMetadata(
-            unit_index=4,
-            image_index=1,
+            unit_number=4,
+            image_number=1,
             content_type="image/png",
             width=412,
             height=195,
@@ -1918,8 +1918,8 @@ def test_open_office__document_image_interface() -> None:
     )
     tc.assertEqual(
         ImageMetadata(
-            unit_index=None,
-            image_index=1,
+            unit_number=None,
+            image_number=1,
             content_type="image/png",
             width=643,
             height=92,
@@ -1933,8 +1933,8 @@ def test_open_office__document_image_interface() -> None:
     )
     tc.assertEqual(
         ImageMetadata(
-            unit_index=None,
-            image_index=2,
+            unit_number=None,
+            image_number=2,
             content_type="image/png",
             width=643,
             height=70,
@@ -1965,8 +1965,8 @@ def test_open_office__presentation_image_interface() -> None:
     )
     tc.assertEqual(
         ImageMetadata(
-            unit_index=1,
-            image_index=1,
+            unit_number=1,
+            image_number=1,
             content_type="image/png",
             width=924,
             height=163,
@@ -1981,8 +1981,8 @@ def test_open_office__presentation_image_interface() -> None:
     units = list(odp.iterate_units())
     tc.assertEqual(
         ImageMetadata(
-            unit_index=1,
-            image_index=1,
+            unit_number=1,
+            image_number=1,
             content_type="image/png",
             width=924,
             height=163,
@@ -2060,8 +2060,8 @@ def test_read_pdf_1() -> None:
     tc.assertEqual(1, len(list(pdf.iterate_images())))
     tc.assertEqual(
         ImageMetadata(
-            unit_index=2,
-            image_index=1,
+            unit_number=2,
+            image_number=1,
             content_type="image/png",
             width=910,
             height=344,
@@ -2086,8 +2086,8 @@ def test_read_pdf_2() -> None:
     img_1 = images[0]
     tc.assertEqual(
         ImageMetadata(
-            unit_index=1,
-            image_index=1,
+            unit_number=1,
+            image_number=1,
             content_type="image/png",
             width=1030,
             height=454,
@@ -2099,8 +2099,8 @@ def test_read_pdf_2() -> None:
     img_2 = images[1]
     tc.assertEqual(
         ImageMetadata(
-            unit_index=1,
-            image_index=2,
+            unit_number=1,
+            image_number=2,
             content_type="image/png",
             width=1172,
             height=430,

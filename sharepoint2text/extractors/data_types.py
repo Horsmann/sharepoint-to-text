@@ -124,11 +124,11 @@ class TableData(TableInterface):
 
 @dataclass
 class ImageMetadata(dict):
-    # the index of the unit where this image occurs (1-based for pages/slides)
+    # the number of the unit where this image occurs (1-based for pages/slides)
     # None for formats without pages/slides (e.g. docx, odt, ods, xlsx)
-    unit_index: Optional[int] = None
-    # A sequential index which shows which nth image this is. The first image has value 1
-    image_index: int = 0
+    unit_number: Optional[int] = None
+    # A sequential number which shows which nth image this is. The first image has value 1
+    image_number: int = 0
     content_type: str = ""
     # Pixel dimensions of the image when available
     width: Optional[int] = None
@@ -137,8 +137,8 @@ class ImageMetadata(dict):
     def __post_init__(self) -> None:
         dict.__init__(
             self,
-            unit_index=self.unit_index,
-            image_index=self.image_index,
+            unit_number=self.unit_number,
+            image_number=self.image_number,
             content_type=self.content_type,
             width=self.width,
             height=self.height,
@@ -159,6 +159,22 @@ class ImageMetadata(dict):
 
     def to_json(self) -> dict:
         return serialize_extraction(self)
+
+    @property
+    def unit_index(self) -> Optional[int]:
+        return self.unit_number
+
+    @unit_index.setter
+    def unit_index(self, value: Optional[int]) -> None:
+        self.unit_number = value
+
+    @property
+    def image_index(self) -> int:
+        return self.image_number
+
+    @image_index.setter
+    def image_index(self, value: int) -> None:
+        self.image_number = value
 
 
 class ImageInterface(Protocol):
@@ -827,9 +843,9 @@ class DocImage(ImageInterface):
 
     def get_metadata(self) -> ImageMetadata:
         return ImageMetadata(
-            image_index=self.image_index,
+            image_number=self.image_index,
             content_type=self.content_type,
-            unit_index=self.unit_index,
+            unit_number=self.unit_index,
             width=self.width if self.width is not None and self.width > 0 else None,
             height=self.height if self.height is not None and self.height > 0 else None,
         )
@@ -1083,9 +1099,9 @@ class DocxImage(ImageInterface):
     def get_metadata(self) -> ImageMetadata:
         """Returns the metadata of the image."""
         return ImageMetadata(
-            image_index=self.image_index,
+            image_number=self.image_index,
             content_type=self.content_type,
-            unit_index=None,  # DOCX has no page/slide units
+            unit_number=None,  # DOCX has no page/slide units
             width=self.width if self.width is not None and self.width > 0 else None,
             height=self.height if self.height is not None and self.height > 0 else None,
         )
@@ -1384,9 +1400,9 @@ class PdfImage(ImageInterface):
 
     def get_metadata(self) -> ImageMetadata:
         return ImageMetadata(
-            image_index=self.index,
+            image_number=self.index,
             content_type=self.get_content_type(),
-            unit_index=self.unit_index,
+            unit_number=self.unit_index,
             width=self.width if self.width > 0 else None,
             height=self.height if self.height > 0 else None,
         )
@@ -1567,9 +1583,9 @@ class PptImage(ImageInterface):
 
     def get_metadata(self) -> ImageMetadata:
         return ImageMetadata(
-            image_index=self.image_index,
+            image_number=self.image_index,
             content_type=self.content_type,
-            unit_index=self.slide_number if self.slide_number > 0 else None,
+            unit_number=self.slide_number if self.slide_number > 0 else None,
             width=self.width if self.width is not None and self.width > 0 else None,
             height=self.height if self.height is not None and self.height > 0 else None,
         )
@@ -1743,9 +1759,9 @@ class PptxImage(ImageInterface):
 
     def get_metadata(self) -> ImageMetadata:
         return ImageMetadata(
-            image_index=self.image_index,
+            image_number=self.image_index,
             content_type=self.content_type,
-            unit_index=self.slide_number,
+            unit_number=self.slide_number,
             width=self.width if self.width is not None and self.width > 0 else None,
             height=self.height if self.height is not None and self.height > 0 else None,
         )
@@ -1888,9 +1904,9 @@ class XlsImage(ImageInterface):
 
     def get_metadata(self) -> ImageMetadata:
         return ImageMetadata(
-            image_index=self.image_index,
+            image_number=self.image_index,
             content_type=self.content_type,
-            unit_index=None,  # XLS images are workbook-level, not sheet-level
+            unit_number=None,  # XLS images are workbook-level, not sheet-level
             width=self.width if self.width is not None and self.width > 0 else None,
             height=self.height if self.height is not None and self.height > 0 else None,
         )
@@ -2028,9 +2044,9 @@ class XlsxImage(ImageInterface):
     def get_metadata(self) -> ImageMetadata:
         """Returns the metadata of the image."""
         return ImageMetadata(
-            image_index=self.image_index,
+            image_number=self.image_index,
             content_type=self.content_type,
-            unit_index=None,  # XLSX has sheets, not pages/slides
+            unit_number=None,  # XLSX has sheets, not pages/slides
             width=self.width if self.width > 0 else None,
             height=self.height if self.height > 0 else None,
         )
@@ -2179,9 +2195,9 @@ class OpenDocumentImage(ImageInterface):
         width_px = _odf_length_to_px(self.width)
         height_px = _odf_length_to_px(self.height)
         return ImageMetadata(
-            image_index=self.image_index,
+            image_number=self.image_index,
             content_type=self.content_type,
-            unit_index=self.unit_index,
+            unit_number=self.unit_index,
             width=width_px if width_px and width_px > 0 else None,
             height=height_px if height_px and height_px > 0 else None,
         )
