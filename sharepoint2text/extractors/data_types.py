@@ -329,6 +329,7 @@ class DocxUnitMetadata(UnitMetadataInterface):
 
 @dataclass
 class PdfUnitMetadata(UnitMetadataInterface):
+    unit_number: int
     page_number: int
 
 
@@ -336,15 +337,17 @@ class PdfUnitMetadata(UnitMetadataInterface):
 class PdfUnit(UnitInterface):
     page_number: int
     text: str
+    images: list[ImageInterface] = field(default_factory=list)
+    tables: list[TableData] = field(default_factory=list)
 
     def get_text(self) -> str:
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
-        return []
+        return list(self.images)
 
     def get_tables(self) -> list[TableData]:
-        return []
+        return list(self.tables)
 
     def get_metadata(self) -> PdfUnitMetadata:
         return PdfUnitMetadata(
@@ -1445,7 +1448,12 @@ class PdfContent(ExtractionInterface):
 
     def iterate_units(self) -> typing.Iterator[PdfUnit]:
         for page_number, page in enumerate(self.pages, start=1):
-            yield PdfUnit(page_number=page_number, text=page.text)
+            yield PdfUnit(
+                page_number=page_number,
+                text=page.text,
+                images=list(page.images),
+                tables=[TableData(data=table) for table in page.tables],
+            )
 
     def get_full_text(self) -> str:
         return _join_unit_text(self.iterate_units())

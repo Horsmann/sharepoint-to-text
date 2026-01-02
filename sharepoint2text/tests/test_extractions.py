@@ -29,6 +29,7 @@ from sharepoint2text.extractors.data_types import (
     OdtTable,
     OdtUnitMetadata,
     PdfContent,
+    PdfUnitMetadata,
     PlainTextContent,
     PlainUnitMetadata,
     PptContent,
@@ -2131,6 +2132,15 @@ def test_read_pdf_1() -> None:
     # test full text
     tc.assertEqual("This is a test sentence", pdf.get_full_text()[:23])
 
+    # units
+    units = list(pdf.iterate_units())
+    tc.assertListEqual(
+        [["C1", "C2"], ["R1", "V1"], ["R2", "V2"]], units[0].get_tables()[0].get_table()
+    )
+    tc.assertEqual(
+        PdfUnitMetadata(unit_number=1, page_number=1), units[0].get_metadata()
+    )
+
 
 def test_read_pdf_2() -> None:
     path = "sharepoint2text/tests/resources/pdf/multi_image.pdf"
@@ -2174,6 +2184,13 @@ def test_read_pdf_2() -> None:
     tc.assertEqual(".pdf", metadata.file_extension)
 
     tc.assertEqual(0, len(list(pdf.iterate_tables())))
+
+    # units
+    units = list(pdf.iterate_units())
+    tc.assertEqual(2, len(units[0].get_images()))
+    tc.assertEqual(
+        PdfUnitMetadata(unit_number=1, page_number=1), units[0].get_metadata()
+    )
 
 
 def test_read_pdf_3() -> None:
