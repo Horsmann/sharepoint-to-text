@@ -447,18 +447,44 @@ class XlsxUnit(UnitInterface):
 class OdpUnit(UnitInterface):
     slide_number: int
     text: str
+    include_annotations: bool = False
+    include_notes: bool = False
+    location: list[str] = field(default_factory=list)
+    heading_level: int | None = None
+    heading_path: list[str] = field(default_factory=list)
+    images: list[OdpImage] = field(default_factory=list)
+    tables: list[TableData] = field(default_factory=list)
 
     def get_text(self) -> str:
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
-        return []
+        return list(self.images)
 
     def get_tables(self) -> list[TableData]:
-        return []
+        return list(self.tables)
 
-    def get_metadata(self) -> dict:
-        return {"unit_index": self.slide_number, "slide_number": self.slide_number}
+    def get_metadata(self) -> "OdpUnitMeta":
+        return OdpUnitMeta(
+            unit_index=self.slide_number,
+            location=list(self.location),
+            heading_level=self.heading_level,
+            heading_path=list(self.heading_path),
+            slide_number=self.slide_number,
+            include_annotations=self.include_annotations,
+            include_notes=self.include_notes,
+        )
+
+
+@dataclass
+class OdpUnitMeta(UnitMetadataInterface):
+    unit_index: int = 1
+    location: list[str] = field(default_factory=list)
+    heading_level: int | None = None
+    heading_path: list[str] = field(default_factory=list)
+    slide_number: int = 1
+    include_annotations: bool = False
+    include_notes: bool = False
 
 
 @dataclass
@@ -2184,18 +2210,16 @@ class OdpContent(ExtractionInterface):
     slides: List[OdpSlide] = field(default_factory=list)
 
     def iterate_units(self) -> typing.Iterator[OdpUnit]:
-        """Iterate over slides, yielding combined text per slide.
-
-        Args:
-            include_annotations: Include annotations/comments in output
-            include_notes: Include speaker notes in output
-        """
+        """Iterate over slides, yielding combined text per slide."""
         for slide in self.slides:
             parts = [slide.text_combined]
 
             yield OdpUnit(
                 slide_number=slide.slide_number,
                 text="\n".join(parts),
+                location=[slide.title] if slide.title else [],
+                images=list(slide.images),
+                tables=[TableData(data=table) for table in slide.tables],
             )
 
     def get_full_text(self) -> str:

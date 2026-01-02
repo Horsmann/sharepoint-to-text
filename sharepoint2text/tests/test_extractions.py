@@ -1924,9 +1924,9 @@ def test_open_office__presentation_image_interface() -> None:
             width=924,
             height=163,
         ),
-        units[0].get_metadata(),
+        units[0].get_images()[0].get_metadata(),
     )
-    tc.assertEqual(35712, units[0].get_images()[0].get_bytes().getvalue())
+    tc.assertEqual(35712, len(units[0].get_images()[0].get_bytes().getvalue()))
 
 
 def test_open_office__spreadsheet_image_interface() -> None:
