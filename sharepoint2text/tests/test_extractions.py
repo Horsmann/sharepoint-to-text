@@ -2138,9 +2138,7 @@ def test_read_pdf_1() -> None:
     tc.assertListEqual(
         [["C1", "C2"], ["R1", "V1"], ["R2", "V2"]], units[0].get_tables()[0].get_table()
     )
-    tc.assertEqual(
-        PdfUnitMetadata(unit_number=1, page_number=1), units[0].get_metadata()
-    )
+    tc.assertEqual(PdfUnitMetadata(unit_number=1), units[0].get_metadata())
 
 
 def test_read_pdf_2() -> None:
@@ -2189,9 +2187,7 @@ def test_read_pdf_2() -> None:
     # units
     units = list(pdf.iterate_units())
     tc.assertEqual(2, len(units[0].get_images()))
-    tc.assertEqual(
-        PdfUnitMetadata(unit_number=1, page_number=1), units[0].get_metadata()
-    )
+    tc.assertEqual(PdfUnitMetadata(unit_number=1), units[0].get_metadata())
 
 
 def test_read_pdf_3() -> None:

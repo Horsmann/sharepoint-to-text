@@ -329,8 +329,9 @@ class DocxUnitMetadata(UnitMetadataInterface):
 
 @dataclass
 class PdfUnitMetadata(UnitMetadataInterface):
-    unit_number: int
-    page_number: int
+    """PDF unit metadata"""
+
+    pass
 
 
 @dataclass
@@ -350,9 +351,7 @@ class PdfUnit(UnitInterface):
         return list(self.tables)
 
     def get_metadata(self) -> PdfUnitMetadata:
-        return PdfUnitMetadata(
-            unit_number=self.page_number, page_number=self.page_number
-        )
+        return PdfUnitMetadata(unit_number=self.page_number)
 
 
 @dataclass
@@ -404,6 +403,13 @@ class HtmlUnit(UnitInterface):
 
 
 @dataclass
+class PptUnitMetadata(UnitMetadataInterface):
+    """Ppt Unit Metadata"""
+
+    ...
+
+
+@dataclass
 class PptUnit(UnitInterface):
     slide_number: int
     text: str
@@ -417,8 +423,8 @@ class PptUnit(UnitInterface):
     def get_tables(self) -> list[TableData]:
         return []
 
-    def get_metadata(self) -> dict:
-        return {"unit_index": self.slide_number, "slide_number": self.slide_number}
+    def get_metadata(self) -> PptUnitMetadata:
+        return PptUnitMetadata(unit_number=self.slide_number)
 
 
 @dataclass
