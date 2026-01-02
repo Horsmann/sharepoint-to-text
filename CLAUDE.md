@@ -51,7 +51,7 @@ sharepoint2text/extractors/
 
 All extractors yield objects implementing:
 - `get_full_text()` - complete text as single string
-- `iterate_text()` - yields logical units (pages/slides/sheets)
+- `iterate_units()` - yields logical units (pages/slides/sheets)
 - `iterate_images()` - yields `ImageInterface` objects
 - `iterate_tables()` - yields `TableInterface` objects
 - `get_metadata()` - returns `FileMetadataInterface`

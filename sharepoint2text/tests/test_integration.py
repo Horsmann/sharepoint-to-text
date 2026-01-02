@@ -192,7 +192,7 @@ def test_extract_serialize_deserialize_file():
             for obj in read_file(path=path):
                 # verify that all obj have the ExtractionInterface methods
                 tc.assertTrue(hasattr(obj, "get_metadata"))
-                tc.assertTrue(hasattr(obj, "iterate_text"))
+                tc.assertTrue(hasattr(obj, "iterate_units"))
                 tc.assertTrue(hasattr(obj, "iterate_images"))
                 tc.assertTrue(hasattr(obj, "iterate_tables"))
                 tc.assertTrue(hasattr(obj, "get_full_text"))

@@ -11,7 +11,7 @@ A **pure Python** library for extracting text, metadata, and structured elements
 
 - **Unified API**: `sharepoint2text.read_file(path)` yields one or more typed extraction results.
 - **Typed results**: each format returns a specific dataclass (e.g. `DocxContent`, `PdfContent`) that also supports the common interface.
-- **Text**: `get_full_text()` or `iterate_text()` (pages / slides / sheets depending on format).
+- **Text**: `get_full_text()` or `iterate_units()` (pages / slides / sheets depending on format).
 - **Structured content**: tables and images where the format supports it.
 - **Metadata**: file metadata (plus format-specific metadata where available).
 - **Serialization**: `result.to_json()` returns a JSON-serializable dict.
@@ -152,7 +152,7 @@ for result in sharepoint2text.read_file("document.docx"):  # or .doc, .pdf, .ppt
     metadata = result.get_metadata()  # File metadata (author, dates, etc.)
 
     # Iterate over logical units (varies by format - see below)
-    for unit in result.iterate_text():
+    for unit in result.iterate_units():
         print(unit)
 
     # Iterate over extracted images
@@ -192,11 +192,11 @@ from sharepoint2text.extractors.data_types import ExtractionInterface
 restored = ExtractionInterface.from_json(result.to_json())
 ```
 
-### Understanding `iterate_text()` Output by Format
+### Understanding `iterate_units()` Output by Format
 
 Different file formats have different natural structural units:
 
-| Format | `iterate_text()` yields | Notes |
+| Format | `iterate_units()` yields | Notes |
 |--------|-------------------------|-------|
 | `.docx`, `.doc`, `.odt` | 1 item (full text) | Word/text documents have no page structure in the file format |
 | `.xlsx`, `.xls`, `.ods` | 1 item per **sheet** | Each yield contains sheet content |
@@ -210,14 +210,14 @@ Different file formats have different natural structural units:
 
 **Note on generators:** All extractors return generators. Most formats yield a single content object, but `.mbox` files can yield multiple `EmailContent` objects (one per email in the mailbox). Use `next()` for single-item formats or iterate with `for` to handle all cases.
 
-### Choosing Between `get_full_text()` and `iterate_text()`
+### Choosing Between `get_full_text()` and `iterate_units()`
 
 The interface provides two methods for accessing text content, and **you must decide which is appropriate for your use case**:
 
 | Method | Returns | Best for |
 |--------|---------|----------|
 | `get_full_text()` | All text as a single string | Simple extraction, full-text search, when structure doesn't matter |
-| `iterate_text()` | Yields logical units (pages, slides, sheets) | RAG pipelines, per-unit indexing, preserving document structure |
+| `iterate_units()` | Yields logical units (pages, slides, sheets) | RAG pipelines, per-unit indexing, preserving document structure |
 
 **For RAG and vector storage:** Consider whether storing pages/slides/sheets as separate chunks with metadata (e.g., page numbers) benefits your retrieval strategy. This allows more precise source attribution when users query your system.
 
@@ -228,7 +228,7 @@ store_in_vectordb(text=result.get_full_text(), metadata={"source": "report.pdf"}
 
 # Option 2: Store each page separately with page numbers
 result = next(sharepoint2text.read_file("report.pdf"))
-for page_num, page_text in enumerate(result.iterate_text(), start=1):
+for page_num, page_text in enumerate(result.iterate_units(), start=1):
     store_in_vectordb(
         text=page_text,
         metadata={"source": "report.pdf", "page": page_num}
@@ -238,11 +238,11 @@ for page_num, page_text in enumerate(result.iterate_text(), start=1):
 **Trade-offs to consider:**
 - **Per-unit storage** enables citing specific pages/slides in responses, but creates more chunks
 - **Full-text storage** is simpler and may work better for small documents
-- **Word documents** (`.doc`, `.docx`) only yield one unit from `iterate_text()` since they lack page structure—for these formats, both methods are equivalent
+- **Word documents** (`.doc`, `.docx`) only yield one unit from `iterate_units()` since they lack page structure—for these formats, both methods are equivalent
 
 ### Format-Specific Notes on `get_full_text()`
 
-`get_full_text()` is intended as a convenient “best default” for each format. In a few formats it intentionally differs from a plain `"\n".join(iterate_text())`, or it omits optional content unless you opt in:
+`get_full_text()` is intended as a convenient “best default” for each format. In a few formats it intentionally differs from a plain `"\n".join(iterate_units())`, or it omits optional content unless you opt in:
 
 | Format | `get_full_text()` default behavior | Not included by default / where to find it |
 |--------|------------------------------------|--------------------------------------------|
@@ -256,7 +256,7 @@ for page_num, page_text in enumerate(result.iterate_text(), start=1):
 | `.pdf` | Concatenation of extracted page text | Tables/images are available via `iterate_tables()` / `iterate_images()` (`PdfContent.pages`) |
 | `.eml`, `.msg`, `.mbox` | Returns `body_plain` when present, else `body_html` | Attachments are in `EmailContent.attachments` and can be extracted via `iterate_supported_attachments()` |
 | `.txt`, `.csv`, `.tsv`, `.json`, `.md`, `.html` | Returns stripped content (leading/trailing whitespace removed) | Use the raw fields (`.content`) if you need untrimmed text |
-| `.rtf` | Returns the extractor’s `full_text` when available | `iterate_text()` yields per-page text when explicit `\\page` breaks exist |
+| `.rtf` | Returns the extractor’s `full_text` when available | `iterate_units()` yields per-page text when explicit `\\page` breaks exist |
 
 ### Basic Usage Examples
 
@@ -413,7 +413,7 @@ All content types implement the common interface:
 
 ```python
 class ExtractionInterface(Protocol):
-    def iterate_text() -> Iterator[str]          # Iterate over logical units
+    def iterate_units() -> Iterator[str]         # Iterate over logical units
     def iterate_images() -> Generator[ImageInterface, None, None]
     def iterate_tables() -> Generator[TableInterface, None, None]
     def get_full_text() -> str                   # Complete text as string
@@ -663,7 +663,7 @@ def prepare_for_rag(file_path: str) -> list[dict]:
     for result in sharepoint2text.read_file(file_path):
         meta = result.get_metadata()
 
-        for i, unit in enumerate(result.iterate_text()):
+        for i, unit in enumerate(result.iterate_units()):
             if unit.strip():  # Skip empty units
                 chunks.append({
                     "text": unit,
