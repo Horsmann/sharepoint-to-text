@@ -153,6 +153,10 @@ class ImageInterface(Protocol):
         pass
 
 
+class UnitMetadataInterface(Protocol):
+    pass
+
+
 class UnitInterface(Protocol):
 
     @abstractmethod
@@ -161,8 +165,8 @@ class UnitInterface(Protocol):
         ...
 
     @abstractmethod
-    def get_metadata(self) -> dict:
-        """Returns (additional) metadata of a unit. Returns an empty dictionary if no additional metadata are available"""
+    def get_metadata(self) -> UnitMetadataInterface:
+        """Returns (additional) metadata of a unit."""
         ...
 
 
@@ -208,16 +212,21 @@ class DocxUnit(UnitInterface):
     def get_tables(self) -> list[TableData]:
         return list(self.tables)
 
-    def get_metadata(self) -> dict:
-        meta: dict[str, typing.Any] = {
-            "unit_index": self.unit_index,
-            "location": list(self.location),
-        }
-        if self.heading_level is not None:
-            meta["heading_level"] = self.heading_level
-        if self.heading_path:
-            meta["heading_path"] = list(self.heading_path)
-        return meta
+    def get_metadata(self) -> DocxUnitMetadata:
+        return DocxUnitMetadata(
+            unit_index=self.unit_index,
+            location=list(self.location),
+            heading_level=self.heading_level,
+            heading_path=list(self.heading_path),
+        )
+
+
+@dataclass
+class DocxUnitMetadata(UnitMetadataInterface):
+    unit_index: int = 1
+    location: list[str] = field(default_factory=list)
+    heading_level: int | None = None
+    heading_path: list[str] = field(default_factory=list)
 
 
 @dataclass
