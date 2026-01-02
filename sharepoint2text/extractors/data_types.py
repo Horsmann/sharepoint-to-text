@@ -453,6 +453,11 @@ class PptxUnit(UnitInterface):
 
 
 @dataclass
+class XlsUnitMetadata(UnitMetadataInterface):
+    sheet_name: str
+
+
+@dataclass
 class XlsUnit(UnitInterface):
     sheet_number: int
     sheet_name: str
@@ -469,12 +474,10 @@ class XlsUnit(UnitInterface):
     def get_tables(self) -> list[TableData]:
         return list(self.tables)
 
-    def get_metadata(self) -> dict:
-        return {
-            "unit_number": self.sheet_number,
-            "sheet_number": self.sheet_number,
-            "sheet_name": self.sheet_name,
-        }
+    def get_metadata(self) -> XlsUnitMetadata:
+        return XlsUnitMetadata(
+            unit_number=self.sheet_number, sheet_name=self.sheet_name
+        )
 
 
 @dataclass

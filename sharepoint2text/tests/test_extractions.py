@@ -42,6 +42,7 @@ from sharepoint2text.extractors.data_types import (
     TableData,
     TableDim,
     XlsContent,
+    XlsUnitMetadata,
     XlsxContent,
     XlsxUnitMetadata,
 )
@@ -817,7 +818,6 @@ def test_read_xls_1() -> None:
     tc.assertEqual("European Commission", xls.metadata.company)
 
     # iterator
-    tc.assertEqual(13, len(list(xls.iterate_units())))
     tc.assertEqual(0, len(list(xls.iterate_images())))
     tc.assertEqual(13, len(list(xls.iterate_tables())))
 
@@ -840,6 +840,14 @@ def test_read_xls_1() -> None:
 
     # all text
     tc.assertIsNotNone(xls.get_full_text())
+
+    #########
+    # Units #
+    #########
+    units = list(xls.iterate_units())
+    tc.assertEqual(
+        XlsUnitMetadata(unit_number=1, sheet_name="Title"), units[0].get_metadata()
+    )
 
 
 def test_read_xls_2() -> None:
