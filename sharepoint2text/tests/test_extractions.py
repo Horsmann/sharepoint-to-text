@@ -1160,15 +1160,17 @@ def test_read_rtf_tables_1() -> None:
 
     rtfs = list(rtf_gen)
     tc.assertEqual(1, len(rtfs))
-
+    tc.assertEqual("Europäisches Parlament\n2024-2029", rtfs[0].get_full_text()[:32])
     tables = list(rtfs[0].iterate_tables())
     tc.assertEqual(2, len(tables))
 
-    # First table has 2 rows, 2 columns
     tc.assertEqual(TableDim(rows=2, columns=2), tables[0].get_dim())
-
-    # Second table has 4 rows, 4 columns
     tc.assertEqual(TableDim(rows=4, columns=4), tables[1].get_dim())
+
+    tc.assertListEqual(
+        [["Europäisches Parlament\n2024-2029", ""], ["", ""]],
+        list(rtfs[0].iterate_units())[0].get_tables()[0].get_table(),
+    )
 
 
 def test_read_rtf_tables_2() -> None:

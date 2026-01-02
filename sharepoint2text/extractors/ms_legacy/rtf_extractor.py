@@ -787,6 +787,9 @@ class _RtfParser:
                 if len(between_text) > 20:
                     # Save the current table
                     if current_table_rows:
+                        current_table_rows = self._normalize_table_rows(
+                            current_table_rows
+                        )
                         table_index += 1
                         page_number = self._get_page_for_position(
                             current_table_start_pos or 0, page_break_positions
@@ -812,6 +815,7 @@ class _RtfParser:
 
         # Save the last table if any
         if current_table_rows:
+            current_table_rows = self._normalize_table_rows(current_table_rows)
             table_index += 1
             page_number = self._get_page_for_position(
                 current_table_start_pos or 0, page_break_positions
@@ -839,6 +843,18 @@ class _RtfParser:
                 break
         return page_number
 
+    def _normalize_table_rows(self, rows: List[List[str]]) -> List[List[str]]:
+        """Pad each row so tables are rectangular."""
+        if not rows:
+            return rows
+        max_columns = max((len(r) for r in rows), default=0)
+        if max_columns <= 0:
+            return rows
+        for row in rows:
+            if len(row) < max_columns:
+                row.extend([""] * (max_columns - len(row)))
+        return rows
+
     def _extract_table_cells(self, row_content: str) -> List[str]:
         """Extract cell contents from a table row.
 
@@ -846,16 +862,19 @@ class _RtfParser:
         """
         cells: List[str] = []
 
-        # Split by \cell control word
-        # Each segment before \cell is a cell's content
+        # Split by \cell control word; each segment before \cell is a cell's content.
         cell_parts = re.split(r"\\cell\b", row_content)
 
         for part in cell_parts[:-1]:  # Last part is after the last \cell
             # Strip RTF formatting and get clean text
-            cell_text = self._strip_rtf_simple(part).strip()
-            # Normalize whitespace
-            cell_text = re.sub(r"\s+", " ", cell_text)
-            cells.append(cell_text)
+            cell_text = self._strip_rtf_simple(part)
+            # Drop any leftover long hex runs (typically inline image bytes)
+            cell_text = re.sub(r"[0-9a-fA-F]{64,}", "", cell_text)
+            # Normalize whitespace but preserve line breaks within cells
+            cell_text = re.sub(r"[ \t\f\v]+", " ", cell_text)
+            cell_text = re.sub(r" *\n *", "\n", cell_text)
+            cell_text = re.sub(r"\n{3,}", "\n\n", cell_text)
+            cells.append(cell_text.strip())
 
         return cells
 
@@ -876,9 +895,50 @@ class _RtfParser:
                 self.footnotes.append(RtfFootnote(id=footnote_id, text=footnote_text))
                 footnote_id += 1
 
+    def _remove_ignorable_groups_simple(self, text: str) -> str:
+        """Remove ignorable/binary groups for simple text extraction.
+
+        This is intentionally conservative: it only strips groups that are
+        known to contain non-text/binary payloads (e.g., images) or groups
+        explicitly marked as ignorable destinations ({\\*...}).
+
+        It is used by the "simple" stripper to avoid leaking binary hex into
+        table cell text and other extracted snippets.
+        """
+        lower = text.lower()
+        prefixes = ("{\\pict", "{\\object", "{\\*")
+
+        out: list[str] = []
+        i = 0
+        n = len(text)
+        while i < n:
+            if text[i] != "{":
+                out.append(text[i])
+                i += 1
+                continue
+
+            # If this group starts with an ignorable prefix, skip it entirely
+            if any(lower.startswith(pfx, i) for pfx in prefixes):
+                depth = 0
+                while i < n:
+                    if text[i] == "{":
+                        depth += 1
+                    elif text[i] == "}":
+                        depth -= 1
+                        if depth == 0:
+                            i += 1
+                            break
+                    i += 1
+                continue
+
+            out.append(text[i])
+            i += 1
+
+        return "".join(out)
+
     def _strip_rtf_simple(self, text: str) -> str:
         """Simple RTF stripping - removes control words and groups."""
-        result = text
+        result = self._remove_ignorable_groups_simple(text)
 
         # Handle unicode escapes \u<decimal>?
         result = re.sub(
@@ -896,7 +956,9 @@ class _RtfParser:
 
         # Replace special RTF characters
         for keyword, char in self.SPECIAL_CHARS.items():
-            result = re.sub(r"\\" + re.escape(keyword) + r"(?:\s|$)", char, result)
+            # Match both "\par " and "\par\pard" forms (and similarly for others)
+            pattern = r"\\" + re.escape(keyword) + r"(?:(?:\s+)|(?=\\)|(?=\{)|(?=\})|$)"
+            result = re.sub(pattern, char, result)
 
         # Remove control words with parameters
         result = re.sub(r"\\[a-z]+(-?\d+)?\s?", "", result, flags=re.IGNORECASE)
