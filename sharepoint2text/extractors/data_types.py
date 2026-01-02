@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 import typing
 from abc import abstractmethod
 from dataclasses import asdict, dataclass, field
@@ -191,12 +192,24 @@ class DocUnit(UnitInterface):
 @dataclass
 class DocxUnit(UnitInterface):
     text: str
+    unit_index: int = 1
+    location: list[str] = field(default_factory=list)
+    heading_level: int | None = None
+    heading_path: list[str] = field(default_factory=list)
 
     def get_text(self) -> str:
         return self.text
 
     def get_metadata(self) -> dict:
-        return {"unit_index": 1}
+        meta: dict[str, typing.Any] = {
+            "unit_index": self.unit_index,
+            "location": list(self.location),
+        }
+        if self.heading_level is not None:
+            meta["heading_level"] = self.heading_level
+        if self.heading_path:
+            meta["heading_path"] = list(self.heading_path)
+        return meta
 
 
 @dataclass
@@ -786,7 +799,80 @@ class DocxContent(ExtractionInterface):
     full_text: str = ""  # Full text including formulas
 
     def iterate_units(self) -> typing.Iterator[DocxUnit]:
-        yield DocxUnit(text=self.full_text)
+        heading_re = re.compile(r"^heading\s*(\d+)\b", flags=re.IGNORECASE)
+
+        def heading_level(style: str | None) -> int | None:
+            if not style:
+                return None
+            match = heading_re.match(style.strip())
+            if not match:
+                return None
+            try:
+                return int(match.group(1))
+            except ValueError:
+                return None
+
+        any_headings = False
+        unit_index = 0
+        heading_stack: list[tuple[int, str]] = []
+        current_heading_level: int | None = None
+        current_heading_path: list[str] = []
+        current_lines: list[str] = []
+
+        def flush_current() -> typing.Iterator[DocxUnit]:
+            nonlocal unit_index
+            if not current_heading_path:
+                return iter(())
+
+            text = "\n".join(line for line in current_lines if line.strip()).strip()
+            if not text:
+                return iter(())
+
+            unit_index += 1
+            return iter(
+                [
+                    DocxUnit(
+                        text=text,
+                        unit_index=unit_index,
+                        location=list(current_heading_path),
+                        heading_level=current_heading_level,
+                        heading_path=list(current_heading_path),
+                    )
+                ]
+            )
+
+        for paragraph in self.paragraphs:
+            level = heading_level(paragraph.style)
+            if level is not None:
+                any_headings = True
+                yield from flush_current()
+
+                heading_text = paragraph.text.strip()
+                while heading_stack and heading_stack[-1][0] >= level:
+                    heading_stack.pop()
+                heading_stack.append((level, heading_text))
+
+                current_heading_level = level
+                current_heading_path = [t for _, t in heading_stack if t]
+                current_lines = []
+                continue
+
+            text = paragraph.text.strip()
+            if text:
+                current_lines.append(text)
+
+        yield from flush_current()
+
+        if any_headings:
+            return
+
+        yield DocxUnit(
+            text=self.full_text,
+            unit_index=1,
+            location=[self.metadata.title] if self.metadata.title else [],
+            heading_level=None,
+            heading_path=[],
+        )
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
         for img in self.images:
@@ -798,7 +884,7 @@ class DocxContent(ExtractionInterface):
 
     def get_full_text(self) -> str:
         """Get full text of the document."""
-        return _join_unit_text(self.iterate_units())
+        return self.full_text
 
     def get_metadata(self) -> DocxMetadata:
         return self.metadata

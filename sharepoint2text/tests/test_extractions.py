@@ -626,6 +626,47 @@ def test_read_docx__image_extraction_2() -> None:
     )
 
 
+def test_read_docx__units() -> None:
+    path = "sharepoint2text/tests/resources/modern_ms/headings.docx"
+    docx: DocxContent = next(read_docx(file_like=_read_file_to_file_like(path=path)))
+
+    units = list(docx.iterate_units())
+    tc.assertEqual(8, len(units))
+
+    # first unit
+    tc.assertEqual(["Sample Document"], units[0].get_metadata()["location"])
+    tc.assertEqual(
+        "This document was created using accessibility techniques for headings, lists, image alternate text, tables, and columns. It should be completely accessible using assistive technologies such as screen readers.",
+        units[0].get_text(),
+    )
+
+    # second unit
+    tc.assertEqual(["Sample Document", "Headings"], units[1].get_metadata()["location"])
+    tc.assertEqual(
+        'There are eight section headings in this document. At the beginning, "Sample Document" is a level 1 heading. The main section headings, such as "Headings" and "Lists" are level 2 headings. The Tables section contains two sub-headings, "Simple Table" and "Complex Table," which are both level 3 headings.',
+        units[1].get_text(),
+    )
+
+    # third unit
+    tc.assertEqual(["Sample Document", "Lists"], units[2].get_metadata()["location"])
+    tc.assertEqual(
+        (
+            "The following outline of the sections of this document is an ordered "
+            '(numbered) list with six items. The fifth item, "Tables," contains a nested '
+            "unordered (bulleted) list with two items.\n"
+            "Headings\n"
+            "Lists\n"
+            "Links\n"
+            "Images\n"
+            "Tables\n"
+            "Simple Tables\n"
+            "Complex Tables\n"
+            "Columns"
+        ),
+        units[2].get_text(),
+    )
+
+
 ####################
 # Legacy Microsoft #
 ####################
