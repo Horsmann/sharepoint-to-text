@@ -152,6 +152,19 @@ class ImageInterface(Protocol):
         pass
 
 
+class UnitInterface(Protocol):
+
+    @abstractmethod
+    def get_text(self) -> str:
+        """Returns the text of the units as a string."""
+        ...
+
+    @abstractmethod
+    def get_metadata(self) -> dict:
+        """Returns (additional) metadata of a unit. Returns an empty dictionary if no additional metadata are available"""
+        ...
+
+
 class ExtractionInterface(Protocol):
     @abstractmethod
     def iterate_text(self) -> typing.Iterator[str]:
