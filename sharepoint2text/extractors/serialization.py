@@ -30,27 +30,38 @@ def _base64_to_bytesio(data: str) -> io.BytesIO:
     return io.BytesIO(base64.b64decode(data.encode("utf-8")))
 
 
-def _serialize_for_json(value: typing.Any) -> typing.Any:
+def _serialize_for_json(value: typing.Any, *, include_binary: bool) -> typing.Any:
     if isinstance(value, io.BytesIO):
+        if not include_binary:
+            return None
         return {"_bytesio": _bytesio_to_base64(value)}
     if isinstance(value, (bytes, bytearray)):
+        if not include_binary:
+            return None
         return {"_bytes": _bytes_to_base64(value)}
     if is_dataclass(value) and not isinstance(value, type):
         result = {
             _TYPE_KEY: type(value).__name__,
         }
         for item in fields(value):
-            result[item.name] = _serialize_for_json(getattr(value, item.name))
+            result[item.name] = _serialize_for_json(
+                getattr(value, item.name), include_binary=include_binary
+            )
         return result
     if isinstance(value, dict):
-        return {str(key): _serialize_for_json(val) for key, val in value.items()}
+        return {
+            str(key): _serialize_for_json(val, include_binary=include_binary)
+            for key, val in value.items()
+        }
     if isinstance(value, (list, tuple, set)):
-        return [_serialize_for_json(item) for item in value]
+        return [
+            _serialize_for_json(item, include_binary=include_binary) for item in value
+        ]
     return value
 
 
-def serialize_extraction(value: typing.Any) -> dict:
-    serialized = _serialize_for_json(value)
+def serialize_extraction(value: typing.Any, *, include_binary: bool = True) -> dict:
+    serialized = _serialize_for_json(value, include_binary=include_binary)
     if isinstance(serialized, dict):
         return serialized
     return {"value": serialized}
