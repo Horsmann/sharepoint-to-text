@@ -566,13 +566,9 @@ class DocxContent(ExtractionInterface):
     styles: List[str] = field(default_factory=list)
     formulas: List[DocxFormula] = field(default_factory=list)
     full_text: str = ""  # Full text including formulas
-    base_full_text: str = ""  # Full text without formulas
 
-    def iterate_text(
-        self, include_formulas: bool = False, include_comments: bool = False
-    ) -> typing.Iterator[str]:
-        text = self.full_text if include_formulas else self.base_full_text
-        yield text
+    def iterate_text(self, include_comments: bool = False) -> typing.Iterator[str]:
+        yield self.full_text
 
         if include_comments:
             for comment in self.comments:
@@ -586,16 +582,13 @@ class DocxContent(ExtractionInterface):
         for table in self.tables:
             yield TableData(data=table)
 
-    def get_full_text(
-        self, include_formulas: bool = False, include_comments: bool = False
-    ) -> str:
+    def get_full_text(self, include_comments: bool = False) -> str:
         """Get full text of the document.
 
         Args:
-            include_formulas: Include LaTeX formulas in output (default: False)
             include_comments: Include document comments in output (default: False)
         """
-        return "\n".join(self.iterate_text(include_formulas, include_comments))
+        return "\n".join(self.iterate_text(include_comments=include_comments))
 
     def get_metadata(self) -> DocxMetadata:
         return self.metadata

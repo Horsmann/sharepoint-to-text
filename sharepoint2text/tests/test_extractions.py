@@ -519,6 +519,11 @@ def test_read_docx_2() -> None:
         "Hello World!\nAn image of space\nIncome\ntax\n119\n19\nAnother sentence after the table.\n$$\\frac{3}{4}\\times4=\\sqrt{9}$$",
         docx.full_text,
     )
+    tc.assertEqual(docx.full_text, docx.get_full_text())
+    tc.assertEqual(
+        docx.full_text + "\n[Comment: User@2025-12-28T09:16:57Z: Nice!]",
+        docx.get_full_text(include_comments=True),
+    )
     tc.assertListEqual(
         [DocxComment(id="0", author="User", date="2025-12-28T09:16:57Z", text="Nice!")],
         docx.comments,

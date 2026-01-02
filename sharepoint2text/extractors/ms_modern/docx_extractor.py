@@ -72,9 +72,8 @@ The extractor retrieves:
     - Section properties (page layout)
     - Style names used
 
-Two text outputs are provided:
+One text output is provided:
     - full_text: Complete text including formulas as LaTeX
-    - base_full_text: Text without formula representations
 
 Known Limitations
 -----------------
@@ -1233,7 +1232,6 @@ def read_docx(
             - styles: List of style names used
             - formulas: List of DocxFormula as LaTeX
             - full_text: Complete text including formulas
-            - base_full_text: Complete text without formulas
 
     Raises:
         ExtractionFileEncryptedError: If the DOCX is encrypted or password-protected.
@@ -1303,7 +1301,6 @@ def read_docx(
             # === Full text (convenience) - use cached body for both ===
             body = ctx.document_body
             full_text = _extract_full_text_from_body(body, include_formulas=True)
-            base_full_text = _extract_full_text_from_body(body, include_formulas=False)
 
             metadata.populate_from_path(path)
 
@@ -1329,7 +1326,6 @@ def read_docx(
                 styles=styles,
                 formulas=formulas,
                 full_text=full_text,
-                base_full_text=base_full_text,
             )
         finally:
             ctx.close()
