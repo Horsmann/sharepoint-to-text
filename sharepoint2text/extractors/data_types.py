@@ -1640,7 +1640,8 @@ class PptContent(ExtractionInterface):
 
     def get_full_text(self) -> str:
         """Full text of the slide deck as one single block of text"""
-        return _join_unit_text(self.iterate_units())
+        texts = [unit.get_text().strip() for unit in self.iterate_units()]
+        return "\n".join(text for text in texts if text)
 
     def get_metadata(self) -> PptMetadata:
         """Returns the metadata of the extracted file."""

@@ -638,6 +638,8 @@ def _parse_slide_list_container(data: bytes) -> list[list[PptTextBlock]]:
     slides: list[list[PptTextBlock]] = []
     current_slide_text: list[PptTextBlock] = []
     current_text_type: int | None = None
+    started = False
+    any_text_blocks = False
 
     offset = 0
 
@@ -660,9 +662,15 @@ def _parse_slide_list_container(data: bytes) -> list[list[PptTextBlock]]:
 
         if rec_type == RT_SLIDE_PERSIST_ATOM:
             # New slide boundary
-            if current_slide_text:
-                slides.append(current_slide_text)
-                current_slide_text = []
+            if started:
+                if any_text_blocks:
+                    if current_slide_text:
+                        slides.append(current_slide_text)
+                else:
+                    slides.append(current_slide_text)
+            else:
+                started = True
+            current_slide_text = []
 
         elif rec_type == RT_TEXT_HEADER_ATOM:
             # Text type indicator
@@ -674,6 +682,7 @@ def _parse_slide_list_container(data: bytes) -> list[list[PptTextBlock]]:
                 text = record_data.decode("utf-16-le")
                 text = _clean_text(text)
                 if text:
+                    any_text_blocks = True
                     block = PptTextBlock(
                         text=text,
                         text_type=current_text_type,
@@ -697,6 +706,7 @@ def _parse_slide_list_container(data: bytes) -> list[list[PptTextBlock]]:
                 text = record_data.decode("latin-1")
                 text = _clean_text(text)
                 if text:
+                    any_text_blocks = True
                     block = PptTextBlock(
                         text=text,
                         text_type=current_text_type,
@@ -720,9 +730,13 @@ def _parse_slide_list_container(data: bytes) -> list[list[PptTextBlock]]:
         else:
             offset += 8 + rec_len
 
-    # Don't forget the last slide
-    if current_slide_text:
-        slides.append(current_slide_text)
+    # Don't forget the last slide (even if empty)
+    if started:
+        if any_text_blocks:
+            if current_slide_text:
+                slides.append(current_slide_text)
+        else:
+            slides.append(current_slide_text)
 
     return slides
 
@@ -1014,6 +1028,16 @@ def _clean_text(text: str) -> str:
 
     lines = text.split("\n")
     lines = [" ".join(line.split()) for line in lines]
+    # Some legacy PPT files contain internal marker strings like "___PPT10" in
+    # text atoms; these are not user-visible content.
+    placeholder_prefixes = ("___PPT", "Click to edit")
+    lines = [
+        line
+        for line in lines
+        if not line.startswith(placeholder_prefixes)
+        and line != "*"
+        and not line.endswith("Outline Level")
+    ]
     text = "\n".join(line for line in lines if line)
 
     return text.strip()

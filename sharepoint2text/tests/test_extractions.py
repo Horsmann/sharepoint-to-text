@@ -887,6 +887,8 @@ def test_read_ppt__image_extraction() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/ppt_with_images.ppt"
     ppt: PptContent = next(read_ppt(_read_file_to_file_like(path=path)))
 
+    tc.assertEqual("", ppt.get_full_text())
+
     # Basic structure
     tc.assertEqual(2, ppt.slide_count)
     tc.assertEqual(2, len(ppt.slides))
@@ -932,6 +934,12 @@ def test_read_ppt__image_extraction() -> None:
         ),
         img1.get_metadata(),
     )
+
+    #########
+    # Units #
+    #########
+    tc.assertEqual(2, len(list(ppt.iterate_units())))
+    tc.assertEqual("", list(ppt.iterate_units())[0].get_text())
 
 
 def test_read_doc() -> None:
