@@ -388,11 +388,11 @@ def test_read_pptx_2() -> None:
     path = "sharepoint2text/tests/resources/modern_ms/pptx_formula_image.pptx"
     pptx: PptxContent = next(read_pptx(_read_file_to_file_like(path=path)))
 
-    # Test default get_full_text() - without formulas, comments, or image captions
+    # Test default get_full_text() - formulas included (no comments or image captions)
     # Note: "A beach" is a regular textbox, not an image caption
     base_text = pptx.get_full_text()
     tc.assertEqual(
-        "The slide title\nThe first text line\n\n\n\n\nThe last text line\nA beach",
+        "The slide title\nThe first text line\n\n\n\n\nThe last text line\nA beach\n$$f(x)=\\frac{1}{\\sqrt{2\\pi\\sigma^{2}}}e^{-\\frac{(x-\\mu)^{2}}{2\\sigma^{2}}}$$",
         base_text,
     )
 
@@ -432,16 +432,12 @@ def test_read_pptx_2() -> None:
         pptx.slides[0].images[0].get_metadata(),
     )
 
-    # Test with formulas included
-    text_with_formulas = pptx.get_full_text(include_formulas=True)
-    tc.assertIn("$$f(x)=\\frac{1}{\\sqrt{2\\pi\\sigma^{2}}}", text_with_formulas)
-
     # comments go separately - they are not part of the full text body
     tc.assertListEqual(
         [PptxComment(author="0", text="Not second?", date="2025-12-28T11:15:49.694")],
         pptx.slides[0].comments,
     )
-    tc.assertNotIn("Not second?", pptx.get_full_text(include_formulas=True))
+    tc.assertNotIn("Not second?", pptx.get_full_text())
 
 
 def test_read_pptx_3() -> None:
@@ -1054,7 +1050,7 @@ def test_email__msg_format_with_attachment() -> None:
     )
     tc.assertEqual(1, len(list(attachments[0].iterate_images())))
     tc.assertEqual(
-        "The slide title\nThe first text line\n\n\n\n\nThe last text line\nA beach",
+        "The slide title\nThe first text line\n\n\n\n\nThe last text line\nA beach\n$$f(x)=\\frac{1}{\\sqrt{2\\pi\\sigma^{2}}}e^{-\\frac{(x-\\mu)^{2}}{2\\sigma^{2}}}$$",
         attachments[1].get_full_text(),
     )
     tc.assertEqual(1, len(list(attachments[1].iterate_images())))

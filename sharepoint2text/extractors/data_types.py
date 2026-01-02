@@ -1028,18 +1028,16 @@ class PptxSlide:
 
     def get_text(
         self,
-        include_formulas: bool = False,
         include_image_captions: bool = False,
     ) -> str:
-        """Get slide text with optional inclusion of formulas and image captions."""
+        """Get slide text with formulas included and optional image captions."""
         parts = [self.base_text] if self.base_text else []
 
-        if include_formulas:
-            for formula in self.formulas:
-                if formula.is_display:
-                    parts.append(f"$${formula.latex}$$")
-                else:
-                    parts.append(f"${formula.latex}$")
+        for formula in self.formulas:
+            if formula.is_display:
+                parts.append(f"$${formula.latex}$$")
+            else:
+                parts.append(f"${formula.latex}$")
 
         if include_image_captions:
             for image in self.images:
@@ -1056,30 +1054,25 @@ class PptxContent(ExtractionInterface):
 
     def iterate_text(
         self,
-        include_formulas: bool = False,
         include_image_captions: bool = False,
     ) -> typing.Iterator[str]:
         for slide in self.slides:
             yield slide.get_text(
-                include_formulas=include_formulas,
                 include_image_captions=include_image_captions,
             ).strip()
 
     def get_full_text(
         self,
-        include_formulas: bool = False,
         include_image_captions: bool = False,
     ) -> str:
         """Get full text of all slides.
 
         Args:
-            include_formulas: Include LaTeX formulas in output (default: False)
             include_image_captions: Include image captions/alt text in output (default: False)
         """
         return "\n".join(
             list(
                 self.iterate_text(
-                    include_formulas=include_formulas,
                     include_image_captions=include_image_captions,
                 )
             )
