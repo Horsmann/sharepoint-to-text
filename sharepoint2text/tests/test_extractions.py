@@ -37,6 +37,7 @@ from sharepoint2text.extractors.data_types import (
     PptImage,
     PptxComment,
     PptxContent,
+    PptxUnitMetadata,
     RtfContent,
     RtfUnitMetadata,
     TableData,
@@ -437,6 +438,7 @@ def test_read_pptx_1() -> None:
 
     tc.assertEqual(0, len(units[0].get_images()))
     tc.assertEqual("EU-funding visibility", units[0].get_text()[:21])
+    tc.assertEqual(PptxUnitMetadata(unit_number=1), units[0].get_metadata())
 
     tc.assertEqual(5, len(units[1].get_images()))
     tc.assertEqual("This is the wrong EU ", units[1].get_text()[:21])

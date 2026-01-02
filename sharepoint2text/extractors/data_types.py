@@ -428,10 +428,16 @@ class PptUnit(UnitInterface):
 
 
 @dataclass
+class PptxUnitMetadata(UnitMetadataInterface):
+    """Pptx Unit Metadata"""
+
+    pass
+
+
+@dataclass
 class PptxUnit(UnitInterface):
     slide_number: int
     text: str
-    include_image_captions: bool = False
     images: list[PptxImage] = field(default_factory=list)
     tables: list[TableData] = field(default_factory=list)
 
@@ -444,12 +450,8 @@ class PptxUnit(UnitInterface):
     def get_tables(self) -> list[TableData]:
         return list(self.tables)
 
-    def get_metadata(self) -> dict:
-        return {
-            "unit_number": self.slide_number,
-            "slide_number": self.slide_number,
-            "include_image_captions": self.include_image_captions,
-        }
+    def get_metadata(self) -> PptxUnitMetadata:
+        return PptxUnitMetadata(unit_number=self.slide_number)
 
 
 @dataclass
@@ -1875,7 +1877,6 @@ class PptxContent(ExtractionInterface):
         for slide in self.slides:
             yield PptxUnit(
                 slide_number=slide.slide_number,
-                include_image_captions=include_image_captions,
                 images=list(slide.images),
                 tables=[TableData(data=table) for table in slide.tables],
                 text=slide.get_text(
