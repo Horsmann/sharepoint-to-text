@@ -188,6 +188,12 @@ class EmailUnit(UnitInterface):
     def get_text(self) -> str:
         return self.text
 
+    def get_images(self) -> list[ImageInterface]:
+        return []
+
+    def get_tables(self) -> list[TableData]:
+        return []
+
     def get_metadata(self) -> dict:
         return {"unit_index": 1, "body_type": self.body_type}
 
@@ -198,6 +204,12 @@ class DocUnit(UnitInterface):
 
     def get_text(self) -> str:
         return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return []
+
+    def get_tables(self) -> list[TableData]:
+        return []
 
     def get_metadata(self) -> dict:
         return {"unit_index": 1}
@@ -247,6 +259,12 @@ class PdfUnit(UnitInterface):
     def get_text(self) -> str:
         return self.text
 
+    def get_images(self) -> list[ImageInterface]:
+        return []
+
+    def get_tables(self) -> list[TableData]:
+        return []
+
     def get_metadata(self) -> dict:
         return {"unit_index": self.page_number, "page_number": self.page_number}
 
@@ -258,6 +276,12 @@ class PlainTextUnit(UnitInterface):
     def get_text(self) -> str:
         return self.text
 
+    def get_images(self) -> list[ImageInterface]:
+        return []
+
+    def get_tables(self) -> list[TableData]:
+        return []
+
     def get_metadata(self) -> dict:
         return {"unit_index": 1}
 
@@ -268,6 +292,12 @@ class HtmlUnit(UnitInterface):
 
     def get_text(self) -> str:
         return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return []
+
+    def get_tables(self) -> list[TableData]:
+        return []
 
     def get_metadata(self) -> dict:
         return {"unit_index": 1}
@@ -281,6 +311,12 @@ class PptUnit(UnitInterface):
     def get_text(self) -> str:
         return self.text
 
+    def get_images(self) -> list[ImageInterface]:
+        return []
+
+    def get_tables(self) -> list[TableData]:
+        return []
+
     def get_metadata(self) -> dict:
         return {"unit_index": self.slide_number, "slide_number": self.slide_number}
 
@@ -293,6 +329,12 @@ class PptxUnit(UnitInterface):
 
     def get_text(self) -> str:
         return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return []
+
+    def get_tables(self) -> list[TableData]:
+        return []
 
     def get_metadata(self) -> dict:
         return {
@@ -311,6 +353,12 @@ class XlsUnit(UnitInterface):
     def get_text(self) -> str:
         return self.text
 
+    def get_images(self) -> list[ImageInterface]:
+        return []
+
+    def get_tables(self) -> list[TableData]:
+        return []
+
     def get_metadata(self) -> dict:
         return {
             "unit_index": self.sheet_index,
@@ -327,6 +375,12 @@ class XlsxUnit(UnitInterface):
 
     def get_text(self) -> str:
         return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return []
+
+    def get_tables(self) -> list[TableData]:
+        return []
 
     def get_metadata(self) -> dict:
         return {
@@ -346,6 +400,12 @@ class OdpUnit(UnitInterface):
     def get_text(self) -> str:
         return self.text
 
+    def get_images(self) -> list[ImageInterface]:
+        return []
+
+    def get_tables(self) -> list[TableData]:
+        return []
+
     def get_metadata(self) -> dict:
         return {
             "unit_index": self.slide_number,
@@ -363,6 +423,12 @@ class OdsUnit(UnitInterface):
 
     def get_text(self) -> str:
         return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return []
+
+    def get_tables(self) -> list[TableData]:
+        return []
 
     def get_metadata(self) -> dict:
         return {
@@ -382,6 +448,12 @@ class OdtUnit(UnitInterface):
     def get_text(self) -> str:
         return self.text
 
+    def get_images(self) -> list[ImageInterface]:
+        return []
+
+    def get_tables(self) -> list[TableData]:
+        return []
+
     def get_metadata(self) -> dict:
         metadata = {"kind": self.kind}
         if self.annotation_creator is not None:
@@ -398,6 +470,12 @@ class RtfUnit(UnitInterface):
 
     def get_text(self) -> str:
         return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return []
+
+    def get_tables(self) -> list[TableData]:
+        return []
 
     def get_metadata(self) -> dict:
         return {"unit_index": self.page_number, "page_number": self.page_number}
