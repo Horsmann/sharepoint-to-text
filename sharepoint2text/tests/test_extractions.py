@@ -1152,6 +1152,38 @@ def test_read_rtf() -> None:
     )
 
 
+def test_read_rtf_tables_1() -> None:
+    path = "sharepoint2text/tests/resources/legacy_ms/CULT-OJ-2024-10-03-1_DE.rtf"
+    rtf_gen: typing.Generator[RtfContent] = read_rtf(
+        file_like=_read_file_to_file_like(path=path)
+    )
+
+    rtfs = list(rtf_gen)
+    tc.assertEqual(1, len(rtfs))
+
+    tables = list(rtfs[0].iterate_tables())
+    tc.assertEqual(2, len(tables))
+
+    # First table has 2 rows, 2 columns
+    tc.assertEqual(TableDim(rows=2, columns=2), tables[0].get_dim())
+
+    # Second table has 4 rows, 4 columns
+    tc.assertEqual(TableDim(rows=4, columns=4), tables[1].get_dim())
+
+
+def test_read_rtf_tables_2() -> None:
+    path = "sharepoint2text/tests/resources/legacy_ms/02_dept_transport.rtf"
+    rtf_gen: typing.Generator[RtfContent] = read_rtf(
+        file_like=_read_file_to_file_like(path=path)
+    )
+
+    rtfs = list(rtf_gen)
+    tc.assertEqual(1, len(rtfs))
+
+    tables = list(rtfs[0].iterate_tables())
+    tc.assertEqual(23, len(tables))
+
+
 #################
 # Email formats #
 #################

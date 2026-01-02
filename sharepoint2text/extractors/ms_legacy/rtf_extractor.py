@@ -115,6 +115,7 @@ from sharepoint2text.extractors.data_types import (
     RtfMetadata,
     RtfParagraph,
     RtfStyle,
+    RtfTable,
 )
 
 logger = logging.getLogger(__name__)
@@ -246,6 +247,7 @@ class _RtfParser:
         self.bookmarks: List[RtfBookmark] = []
         self.fields: List[RtfField] = []
         self.images: List[RtfImage] = []
+        self.tables: List[RtfTable] = []
         self.footnotes: List[RtfFootnote] = []
         self.annotations: List[RtfAnnotation] = []
         self.pages: List[str] = []
@@ -285,6 +287,7 @@ class _RtfParser:
             self._extract_hyperlinks(text)
             self._extract_fields(text)
             self._extract_images(text)
+            self._extract_tables(text)
             self._extract_footnotes(text)
 
             # Build full text
@@ -302,6 +305,7 @@ class _RtfParser:
                 bookmarks=self.bookmarks,
                 fields=self.fields,
                 images=self.images,
+                tables=self.tables,
                 footnotes=self.footnotes,
                 annotations=self.annotations,
                 pages=self.pages,
@@ -648,14 +652,33 @@ class _RtfParser:
             )
 
     def _extract_images(self, text: str) -> None:
-        """Extract embedded images from RTF."""
+        """Extract embedded images from RTF.
+
+        Extracts image data, type, and dimensions from \\pict groups.
+        Images are numbered sequentially (1-based) in document order.
+        Page numbers are assigned based on preceding \\page breaks.
+        """
         # Pattern for picture groups
         pict_pattern = re.compile(
             r"\{\\pict([^}]*(?:\{[^}]*\}[^}]*)*)\}", re.DOTALL | re.IGNORECASE
         )
 
+        # Track page breaks to assign page numbers to images
+        page_break_positions = [m.start() for m in re.finditer(r"\\page\b", text)]
+
+        image_index = 0
         for match in pict_pattern.finditer(text):
+            image_index += 1
             pict_content = match.group(1)
+            match_pos = match.start()
+
+            # Determine which page this image is on (1-based)
+            page_number = 1
+            for break_pos in page_break_positions:
+                if break_pos < match_pos:
+                    page_number += 1
+                else:
+                    break
 
             # Determine image type
             image_type = "unknown"
@@ -668,7 +691,7 @@ class _RtfParser:
             elif "\\wmetafile" in pict_content:
                 image_type = "wmf"
 
-            # Extract dimensions
+            # Extract dimensions (in twips)
             width = 0
             height = 0
             width_match = re.search(r"\\picw(\d+)", pict_content)
@@ -678,7 +701,8 @@ class _RtfParser:
             if height_match:
                 height = int(height_match.group(1))
 
-            # Extract hex data (simplified - just note that there's image data)
+            # Extract hex data
+            # RTF images store binary data as hex strings
             hex_data_match = re.search(r"([0-9a-fA-F]{20,})", pict_content)
             data = None
             if hex_data_match:
@@ -694,8 +718,146 @@ class _RtfParser:
                     width=width,
                     height=height,
                     data=data,
+                    image_index=image_index,
+                    page_number=page_number,
                 )
             )
+
+        if self.images:
+            logger.debug(f"Extracted {len(self.images)} images from RTF")
+
+    def _extract_tables(self, text: str) -> None:
+        """Extract tables from RTF.
+
+        RTF tables are defined using control words:
+        - \\trowd: Start of a table row definition
+        - \\cell: End of a cell
+        - \\row: End of a row
+        - \\intbl: Indicates content is inside a table
+
+        Table structure in RTF:
+            \\trowd ... cell definitions ...
+             cell1 text \\cell
+             cell2 text \\cell
+             \\row
+
+        Tables are numbered sequentially (1-based) and assigned to pages
+        based on preceding \\page breaks.
+        """
+        # Track page breaks for page number assignment
+        page_break_positions = [m.start() for m in re.finditer(r"\\page\b", text)]
+
+        # Find all \trowd (row start) and \row (row end) positions
+        trowd_positions = [m.start() for m in re.finditer(r"\\trowd\b", text)]
+        row_positions = [m.end() for m in re.finditer(r"\\row\b", text)]
+
+        if not trowd_positions or not row_positions:
+            return
+
+        # Match each \trowd with its corresponding \row
+        # Each \trowd pairs with the next \row that comes after it
+        table_rows: List[tuple[int, int, str]] = []  # (start, end, content)
+
+        for trowd_pos in trowd_positions:
+            # Find the next \row after this \trowd
+            row_end = None
+            for rpos in row_positions:
+                if rpos > trowd_pos:
+                    row_end = rpos
+                    break
+
+            if row_end is not None:
+                row_content = text[trowd_pos:row_end]
+                table_rows.append((trowd_pos, row_end, row_content))
+
+        # Group consecutive rows into tables
+        current_table_rows: List[List[str]] = []
+        current_table_start_pos: Optional[int] = None
+        last_row_end = -1
+        table_index = 0
+
+        for row_start, row_end, row_content in table_rows:
+            # Check if this row is part of a new table (gap between rows)
+            # If there's significant non-table content between rows, start a new table
+            if current_table_rows and row_start - last_row_end > 100:
+                # Check if there's non-whitespace content between rows
+                between = text[last_row_end:row_start]
+                # Remove control words and check for substantial text
+                between_text = self._strip_rtf_simple(between).strip()
+                if len(between_text) > 20:
+                    # Save the current table
+                    if current_table_rows:
+                        table_index += 1
+                        page_number = self._get_page_for_position(
+                            current_table_start_pos or 0, page_break_positions
+                        )
+                        self.tables.append(
+                            RtfTable(
+                                data=current_table_rows,
+                                table_index=table_index,
+                                page_number=page_number,
+                            )
+                        )
+                    current_table_rows = []
+                    current_table_start_pos = None
+
+            # Extract cells from this row
+            cells = self._extract_table_cells(row_content)
+            if cells:
+                if current_table_start_pos is None:
+                    current_table_start_pos = row_start
+                current_table_rows.append(cells)
+
+            last_row_end = row_end
+
+        # Save the last table if any
+        if current_table_rows:
+            table_index += 1
+            page_number = self._get_page_for_position(
+                current_table_start_pos or 0, page_break_positions
+            )
+            self.tables.append(
+                RtfTable(
+                    data=current_table_rows,
+                    table_index=table_index,
+                    page_number=page_number,
+                )
+            )
+
+        if self.tables:
+            logger.debug(f"Extracted {len(self.tables)} tables from RTF")
+
+    def _get_page_for_position(
+        self, position: int, page_break_positions: List[int]
+    ) -> int:
+        """Determine the page number for a given position in the text."""
+        page_number = 1
+        for break_pos in page_break_positions:
+            if break_pos < position:
+                page_number += 1
+            else:
+                break
+        return page_number
+
+    def _extract_table_cells(self, row_content: str) -> List[str]:
+        """Extract cell contents from a table row.
+
+        Cells are separated by \\cell control words.
+        """
+        cells: List[str] = []
+
+        # Split by \cell control word
+        # Each segment before \cell is a cell's content
+        cell_parts = re.split(r"\\cell\b", row_content)
+
+        for part in cell_parts[:-1]:  # Last part is after the last \cell
+            # Strip RTF formatting and get clean text
+            cell_text = self._strip_rtf_simple(part).strip()
+            # Normalize whitespace
+            cell_text = re.sub(r"\s+", " ", cell_text)
+            cells.append(cell_text)
+
+        return cells
 
     def _extract_footnotes(self, text: str) -> None:
         """Extract footnotes from RTF."""

@@ -2676,15 +2676,17 @@ class RtfUnitMetadata(UnitMetadataInterface):
 class RtfUnit(UnitInterface):
     page_number: int
     text: str
+    images: List[RtfImage] = field(default_factory=list)
+    tables: List[RtfTable] = field(default_factory=list)
 
     def get_text(self) -> str:
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
-        return []
+        return list(self.images)
 
     def get_tables(self) -> list[TableData]:
-        return []
+        return [TableData(data=t.data) for t in self.tables]
 
     def get_metadata(self) -> RtfUnitMetadata:
         return RtfUnitMetadata(
@@ -2807,13 +2809,80 @@ class RtfField:
 
 
 @dataclass
-class RtfImage:
-    """Represents an embedded image."""
+class RtfImage(ImageInterface):
+    """Represents an embedded image in an RTF document."""
 
-    image_type: str = ""  # pngblip, jpegblip, emfblip, wmetafile
-    width: int = 0  # in twips
+    image_type: str = ""  # png, jpeg, emf, wmf
+    width: int = 0  # in twips (1/1440 inch)
     height: int = 0  # in twips
     data: Optional[bytes] = None  # Binary image data
+    image_index: int = 0  # Sequential index of the image (1-based)
+    page_number: Optional[int] = None  # Page where image appears (if known)
+    caption: str = ""  # Image caption/title if available
+    description: str = ""  # Alt text/description if available
+
+    # Content type mapping for RTF image types
+    _CONTENT_TYPES: typing.ClassVar[dict[str, str]] = {
+        "png": "image/png",
+        "jpeg": "image/jpeg",
+        "jpg": "image/jpeg",
+        "emf": "image/x-emf",
+        "wmf": "image/x-wmf",
+        "unknown": "application/octet-stream",
+    }
+
+    def get_bytes(self) -> io.BytesIO:
+        """Returns the bytes of the image as a BytesIO object."""
+        if self.data is None:
+            return io.BytesIO()
+        return io.BytesIO(self.data)
+
+    def get_content_type(self) -> str:
+        """Returns the content type of the image as a string."""
+        return self._CONTENT_TYPES.get(
+            self.image_type.lower(), "application/octet-stream"
+        )
+
+    def get_caption(self) -> str:
+        """Returns the caption of the image as a string."""
+        return self.caption.strip()
+
+    def get_description(self) -> str:
+        """Returns the descriptive text of the image as a string."""
+        return self.description.strip()
+
+    def get_metadata(self) -> ImageMetadata:
+        """Returns the metadata of the image."""
+        # Convert twips to pixels (approximately 1/20 point, 96 dpi)
+        # 1 twip = 1/1440 inch, at 96 dpi: pixels = twips * 96 / 1440 = twips / 15
+        width_px = self.width // 15 if self.width > 0 else None
+        height_px = self.height // 15 if self.height > 0 else None
+        return ImageMetadata(
+            image_number=self.image_index,
+            content_type=self.get_content_type(),
+            unit_number=self.page_number,
+            width=width_px,
+            height=height_px,
+        )
+
+
+@dataclass
+class RtfTable(TableInterface):
+    """Represents a table extracted from an RTF document."""
+
+    data: List[List[str]] = field(default_factory=list)
+    table_index: int = 0  # Sequential index of the table (1-based)
+    page_number: Optional[int] = None  # Page where table appears (if known)
+
+    def get_table(self) -> list[list[typing.Any]]:
+        """Return the table data as a list of rows."""
+        return self.data
+
+    def get_dim(self) -> TableDim:
+        """Return the table dimensions (rows, columns)."""
+        rows = len(self.data)
+        columns = max((len(row) for row in self.data), default=0)
+        return TableDim(rows=rows, columns=columns)
 
 
 @dataclass
@@ -2849,6 +2918,7 @@ class RtfContent(ExtractionInterface):
     bookmarks: List[RtfBookmark] = field(default_factory=list)
     fields: List[RtfField] = field(default_factory=list)
     images: List[RtfImage] = field(default_factory=list)
+    tables: List[RtfTable] = field(default_factory=list)
     footnotes: List[RtfFootnote] = field(default_factory=list)
     annotations: List[RtfAnnotation] = field(default_factory=list)
     pages: List[str] = field(default_factory=list)  # Text per page (split on \page)
@@ -2860,18 +2930,49 @@ class RtfContent(ExtractionInterface):
 
         RTF documents are split on explicit page breaks (\\page).
         If no page breaks exist, yields the full document as a single unit.
+        Images and tables are distributed to units based on their page_number.
         """
+        # Group images and tables by page number
+        images_by_page: dict[int, List[RtfImage]] = {}
+        for img in self.images:
+            page = img.page_number or 1
+            if page not in images_by_page:
+                images_by_page[page] = []
+            images_by_page[page].append(img)
+
+        tables_by_page: dict[int, List[RtfTable]] = {}
+        for tbl in self.tables:
+            page = tbl.page_number or 1
+            if page not in tables_by_page:
+                tables_by_page[page] = []
+            tables_by_page[page].append(tbl)
+
         if self.pages:
             for page_number, page in enumerate(self.pages, start=1):
                 if page.strip():
-                    yield RtfUnit(page_number=page_number, text=page)
+                    yield RtfUnit(
+                        page_number=page_number,
+                        text=page,
+                        images=images_by_page.get(page_number, []),
+                        tables=tables_by_page.get(page_number, []),
+                    )
         elif self.full_text:
-            yield RtfUnit(page_number=1, text=self.full_text)
+            yield RtfUnit(
+                page_number=1,
+                text=self.full_text,
+                images=images_by_page.get(1, []),
+                tables=tables_by_page.get(1, []),
+            )
         else:
             # Fallback: combine all paragraphs
             combined = "\n".join(p.text for p in self.paragraphs if p.text.strip())
             if combined:
-                yield RtfUnit(page_number=1, text=combined)
+                yield RtfUnit(
+                    page_number=1,
+                    text=combined,
+                    images=images_by_page.get(1, []),
+                    tables=tables_by_page.get(1, []),
+                )
 
     def get_full_text(self) -> str:
         """Full text of the RTF document as one single block of text."""
@@ -2884,12 +2985,14 @@ class RtfContent(ExtractionInterface):
         return self.metadata
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
-        yield from ()
-        return
+        """Iterate over all images in the document."""
+        for img in self.images:
+            yield img
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
-        yield from ()
-        return
+        """Iterate over all tables in the document."""
+        for tbl in self.tables:
+            yield tbl
 
     def to_json(self) -> dict:
         return serialize_extraction(self)
