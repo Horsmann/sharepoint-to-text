@@ -1571,6 +1571,29 @@ def test_read_open_office__document() -> None:
     #########
     units = list(odt.iterate_units())
     tc.assertEqual(1, len(units))
+    tc.assertListEqual(
+        [["Header 1", "Header 2"], ["Cell A", "Cell B"]],
+        units[0].get_tables()[0].get_table(),
+    )
+
+
+def test_read_open_office__presentation_with_table() -> None:
+    path = "sharepoint2text/tests/resources/open_office/odp_with_table.odp"
+    odp: OdpContent = next(
+        read_odp(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+
+    tc.assertEqual("A slide with table", odp.get_full_text())
+
+    #########
+    # Units #
+    #########
+    units = list(odp.iterate_units())
+    tc.assertEqual(1, len(units))
+    tc.assertEqual(
+        [["A", "B"], ["1", "2"]],
+        list(odp.iterate_units())[0].get_tables()[0].get_table(),
+    )
 
 
 def test_read_open_office__heading_units() -> None:
