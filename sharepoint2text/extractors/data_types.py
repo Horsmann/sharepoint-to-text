@@ -445,26 +445,46 @@ class OdsUnit(UnitInterface):
 @dataclass
 class OdtUnit(UnitInterface):
     text: str
+    unit_index: int = 1
+    location: list[str] = field(default_factory=list)
+    heading_level: int | None = None
+    heading_path: list[str] = field(default_factory=list)
     kind: str = "body"  # body|annotation
     annotation_creator: str | None = None
     annotation_date: str | None = None
+    images: list[ImageInterface] = field(default_factory=list)
+    tables: list[TableData] = field(default_factory=list)
 
     def get_text(self) -> str:
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
-        return []
+        return list(self.images)
 
     def get_tables(self) -> list[TableData]:
-        return []
+        return list(self.tables)
 
-    def get_metadata(self) -> dict:
-        metadata = {"kind": self.kind}
-        if self.annotation_creator is not None:
-            metadata["annotation_creator"] = self.annotation_creator
-        if self.annotation_date is not None:
-            metadata["annotation_date"] = self.annotation_date
-        return metadata
+    def get_metadata(self) -> OdtUnitMetadata:
+        return OdtUnitMetadata(
+            unit_index=self.unit_index,
+            location=list(self.location),
+            heading_level=self.heading_level,
+            heading_path=list(self.heading_path),
+            kind=self.kind,
+            annotation_creator=self.annotation_creator,
+            annotation_date=self.annotation_date,
+        )
+
+
+@dataclass
+class OdtUnitMetadata(UnitMetadataInterface):
+    unit_index: int = 1
+    location: list[str] = field(default_factory=list)
+    heading_level: int | None = None
+    heading_path: list[str] = field(default_factory=list)
+    kind: str = "body"  # body|annotation
+    annotation_creator: str | None = None
+    annotation_date: str | None = None
 
 
 @dataclass
@@ -2213,32 +2233,21 @@ class OdtContent(ExtractionInterface):
     styles: List[str] = field(default_factory=list)
     full_text: str = ""
 
-    def iterate_units(
-        self, include_annotations: bool = False
-    ) -> typing.Iterator[OdtUnit]:
-        """Iterate over document text.
+    def iterate_units(self) -> typing.Iterator[OdtUnit]:
+        """Iterate over document text."""
+        base_location = [self.metadata.title] if self.metadata.title else []
+        yield OdtUnit(
+            text=self.full_text,
+            kind="body",
+            unit_index=1,
+            location=base_location,
+            images=list(self.images),
+            tables=[TableData(data=table.data) for table in self.tables],
+        )
 
-        Args:
-            include_annotations: Include annotations/comments in output
-        """
-        yield OdtUnit(text=self.full_text, kind="body")
-
-        if include_annotations:
-            for annotation in self.annotations:
-                yield OdtUnit(
-                    text=f"[Annotation: {annotation.creator}@{annotation.date}: {annotation.text}]",
-                    kind="annotation",
-                    annotation_creator=annotation.creator,
-                    annotation_date=annotation.date,
-                )
-
-    def get_full_text(self, include_annotations: bool = False) -> str:
-        """Get full text of the document.
-
-        Args:
-            include_annotations: Include annotations/comments in output (default: False)
-        """
-        return _join_unit_text(self.iterate_units(include_annotations))
+    def get_full_text(self) -> str:
+        """Get full text of the document."""
+        return _join_unit_text(self.iterate_units())
 
     def get_metadata(self) -> OdtMetadata:
         """Returns the metadata of the extracted file."""

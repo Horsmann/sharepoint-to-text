@@ -1458,9 +1458,6 @@ def test_read_open_office__document() -> None:
     )
     tc.assertEqual(TableDim(rows=2, columns=2), list(odt.iterate_tables())[0].get_dim())
 
-    # iterator items
-    tc.assertEqual(1, len(list(odt.iterate_units())))
-
     # full text with defaults
     tc.assertEqual(
         "Hello World Document\n"
@@ -1482,10 +1479,8 @@ def test_read_open_office__document() -> None:
         "Header 2\n"
         "Cell A\n"
         "Cell B\n"
-        "End of document.\n"
-        "[Annotation: User@2025-12-28T12:00:00: This is a comment by User on the "
-        "sample text.]",
-        odt.get_full_text(include_annotations=True),
+        "End of document.",
+        odt.get_full_text(),
     )
 
     tc.assertEqual(0, len(list(odt.iterate_images())))
@@ -1498,6 +1493,35 @@ def test_read_open_office__document() -> None:
         list(odt.iterate_tables())[0].get_table(),
     )
     tc.assertEqual(TableDim(rows=2, columns=2), list(odt.iterate_tables())[0].get_dim())
+
+    #########
+    # Units #
+    #########
+    units = list(odt.iterate_units())
+    tc.assertEqual(1, len(units))
+
+
+def test_read_open_office__heading_units() -> None:
+    path = "sharepoint2text/tests/resources/open_office/headings.odt"
+    odt: OdtContent = next(
+        read_odt(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+
+    # unit extraction
+    units = list(odt.iterate_units())
+    tc.assertEqual(5, len(units))
+
+    # 1
+    tc.assertListEqual(["Intro"], units[0].get_metadata().location)
+    tc.assertEqual("This is the intro text.", units[0].get_text())
+
+    # 2
+    tc.assertListEqual(["Chapter 1"], units[1].get_metadata().location)
+    tc.assertEqual("Welcome to chapter 1", units[1].get_text())
+    #
+    # tc.assertListEqual(["Chapter 1", "Subsection in Chapter 1"], units[2].get_metadata().location)
+    # tc.assertListEqual(["Chapter 2"], units[3].get_metadata().location)
+    # tc.assertListEqual(["Chapter 2", "Subsection in Chapter 2"], units[4].get_metadata().location)
 
 
 def test_read_open_office__presentation() -> None:
