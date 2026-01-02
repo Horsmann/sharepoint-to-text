@@ -1833,6 +1833,11 @@ def test_read_open_office__spreadsheet() -> None:
         full_text[:44].strip(),
     )
 
+    #########
+    # Units #
+    #########
+    tc.assertEqual(2, len(list(ods.iterate_units())))
+
 
 def test_read_open_office__spreadsheet_2() -> None:
     """Verifies the treatment of empty rows and columns in a sheet
@@ -1859,6 +1864,14 @@ def test_read_open_office__spreadsheet_2() -> None:
     tc.assertEqual(0, len(list(ods.iterate_images())))
     tc.assertEqual(3, len(list(ods.iterate_tables())))
     tc.assertEqual(TableDim(rows=4, columns=4), list(ods.iterate_tables())[0].get_dim())
+
+    #########
+    # Units #
+    #########
+    tc.assertEqual(3, len(list(ods.iterate_units())))
+    units = list(ods.iterate_units())
+    tc.assertEqual("Sheet1\nName\tAge\nA\t25\nB\t28", units[0].get_text())
+    tc.assertEqual("Sheet1", units[0].get_metadata().sheet_name)
 
 
 def test_open_office__document_image_interface() -> None:
