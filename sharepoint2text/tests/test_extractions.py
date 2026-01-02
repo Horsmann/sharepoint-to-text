@@ -292,6 +292,16 @@ def test_read_xlsx_4__image_extraction() -> None:
     tc.assertEqual(600, img_meta.width)
     tc.assertEqual(300, img_meta.height)
 
+    #########
+    # Units #
+    #########
+    units = list(xlsx.iterate_units())
+    tc.assertEqual(1, len(units))
+    tc.assertEqual("image/png", list(units[0].get_images())[0].get_content_type())
+    tc.assertEqual(7280, len(list(units[0].get_images())[0].get_bytes().getvalue()))
+    tc.assertEqual("Image 1", list(units[0].get_images())[0].get_caption())
+    tc.assertEqual("Picture", list(units[0].get_images())[0].get_description())
+
 
 def test_read_pptx_1() -> None:
     path = "sharepoint2text/tests/resources/modern_ms/eu-visibility_rules_00704232-AF9F-1A18-BD782C469454ADAD_68401.pptx"
