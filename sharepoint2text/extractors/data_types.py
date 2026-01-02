@@ -353,6 +353,13 @@ class PdfUnit(UnitInterface):
 
 
 @dataclass
+class PlainUnitMetadata(UnitMetadataInterface):
+    """Plain Unit Metadata"""
+
+    pass
+
+
+@dataclass
 class PlainTextUnit(UnitInterface):
     text: str
 
@@ -365,8 +372,8 @@ class PlainTextUnit(UnitInterface):
     def get_tables(self) -> list[TableData]:
         return []
 
-    def get_metadata(self) -> dict:
-        return {"unit_index": 1}
+    def get_metadata(self) -> PlainUnitMetadata:
+        return PlainUnitMetadata(unit_number=1)
 
 
 @dataclass
@@ -455,6 +462,12 @@ class XlsUnit(UnitInterface):
 
 
 @dataclass
+class XlsxUnitMetadata(UnitMetadataInterface):
+    sheet_number: int
+    sheet_name: str
+
+
+@dataclass
 class XlsxUnit(UnitInterface):
     sheet_index: int
     sheet_name: str
@@ -471,12 +484,12 @@ class XlsxUnit(UnitInterface):
     def get_tables(self) -> list[TableData]:
         return list(self.tables)
 
-    def get_metadata(self) -> dict:
-        return {
-            "unit_index": self.sheet_index,
-            "sheet_index": self.sheet_index,
-            "sheet_name": self.sheet_name,
-        }
+    def get_metadata(self) -> XlsxUnitMetadata:
+        return XlsxUnitMetadata(
+            unit_number=self.sheet_index,
+            sheet_name=self.sheet_name,
+            sheet_number=self.sheet_index,
+        )
 
 
 @dataclass
@@ -586,6 +599,11 @@ class OdtUnitMetadata(UnitMetadataInterface):
 
 
 @dataclass
+class RtfUnitMetadata(UnitMetadataInterface):
+    page_number: int
+
+
+@dataclass
 class RtfUnit(UnitInterface):
     page_number: int
     text: str
@@ -599,8 +617,10 @@ class RtfUnit(UnitInterface):
     def get_tables(self) -> list[TableData]:
         return []
 
-    def get_metadata(self) -> dict:
-        return {"unit_index": self.page_number, "page_number": self.page_number}
+    def get_metadata(self) -> RtfUnitMetadata:
+        return RtfUnitMetadata(
+            unit_number=self.page_number, page_number=self.page_number
+        )
 
 
 def _join_unit_text(units: typing.Iterable[UnitInterface]) -> str:

@@ -30,15 +30,18 @@ from sharepoint2text.extractors.data_types import (
     OdtUnitMetadata,
     PdfContent,
     PlainTextContent,
+    PlainUnitMetadata,
     PptContent,
     PptImage,
     PptxComment,
     PptxContent,
     RtfContent,
+    RtfUnitMetadata,
     TableData,
     TableDim,
     XlsContent,
     XlsxContent,
+    XlsxUnitMetadata,
 )
 from sharepoint2text.extractors.html_extractor import read_html
 from sharepoint2text.extractors.mail.eml_email_extractor import read_eml_format_mail
@@ -111,6 +114,10 @@ def test_read_text() -> None:
     tc.assertEqual(1, len(list(plain.iterate_units())))
     tc.assertEqual(0, len(list(plain.iterate_images())))
     tc.assertEqual(0, len(list(plain.iterate_tables())))
+
+    units = list(plain.iterate_units())
+    tc.assertTrue(isinstance(units[0].get_metadata(), PlainUnitMetadata))
+    tc.assertEqual(PlainUnitMetadata(unit_number=1), units[0].get_metadata())
 
 
 def test_read_plain_csv() -> None:
@@ -263,6 +270,10 @@ def test_read_xlsx_3() -> None:
         units[0].get_tables()[0].get_table(),
     )
     tc.assertEqual(0, len(units[0].get_images()))
+    tc.assertEqual(
+        XlsxUnitMetadata(unit_number=1, sheet_number=1, sheet_name="Blatt 1"),
+        units[0].get_metadata(),
+    )
 
 
 def test_read_xlsx_4__image_extraction() -> None:
@@ -1120,9 +1131,15 @@ def test_read_rtf() -> None:
     tc.assertEqual("c1\nSouth Australia", full_text[:18])
     tc.assertEqual("\non 18 December 2025\nNo 144 of 2025", full_text[-35:])
 
-    tc.assertEqual(1, len(list(rtf.iterate_units())))
     tc.assertEqual(0, len(list(rtf.iterate_images())))
     tc.assertEqual(0, len(list(rtf.iterate_tables())))
+
+    units = list(rtf.iterate_units())
+    tc.assertEqual(1, len(units))
+    tc.assertEqual("c1\n\nSouth Australia", units[0].get_text()[:19])
+    tc.assertEqual(
+        RtfUnitMetadata(unit_number=1, page_number=1), units[0].get_metadata()
+    )
 
 
 #################
