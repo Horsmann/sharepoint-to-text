@@ -1618,7 +1618,6 @@ def test_read_open_office__document() -> None:
     tc.assertEqual(
         OdtUnitMetadata(
             unit_number=1,
-            location=["Hello World Document"],
             heading_level=1,
             heading_path=["Hello World Document"],
             kind="body",
@@ -1668,13 +1667,12 @@ def test_read_open_office__heading_units() -> None:
     tc.assertEqual(5, len(units))
 
     # 1
-    tc.assertListEqual(["Intro"], units[0].get_metadata().location)
+    tc.assertListEqual(["Intro"], units[0].get_metadata().heading_path)
     tc.assertEqual("This is the intro text.", units[0].get_text())
     tc.assertTrue(isinstance(units[0].get_metadata(), OdtUnitMetadata))
     tc.assertEqual(
         OdtUnitMetadata(
             unit_number=1,
-            location=["Intro"],
             heading_level=1,
             heading_path=["Intro"],
             kind="body",
@@ -1685,12 +1683,12 @@ def test_read_open_office__heading_units() -> None:
     )
 
     # 2
-    tc.assertListEqual(["Chapter 1"], units[1].get_metadata().location)
+    tc.assertListEqual(["Chapter 1"], units[1].get_metadata().heading_path)
     tc.assertEqual("Welcome to chapter 1", units[1].get_text())
 
     # 3
     tc.assertListEqual(
-        ["Chapter 1", "Subsection in Chapter 1"], units[2].get_metadata().location
+        ["Chapter 1", "Subsection in Chapter 1"], units[2].get_metadata().heading_path
     )
     tc.assertEqual("This is a subsection in chapter 1", units[2].get_text())
     tc.assertListEqual(
@@ -1699,7 +1697,7 @@ def test_read_open_office__heading_units() -> None:
     )
 
     # 4
-    tc.assertListEqual(["Chapter 2"], units[3].get_metadata().location)
+    tc.assertListEqual(["Chapter 2"], units[3].get_metadata().heading_path)
     tc.assertEqual("Welcome to chapter 2", units[3].get_text())
     tc.assertEqual(1, len(list(units[3].get_images())))
     tc.assertEqual(62421, len(list(units[3].get_images())[0].get_bytes().getvalue()))
@@ -1716,7 +1714,7 @@ def test_read_open_office__heading_units() -> None:
 
     # 5
     tc.assertListEqual(
-        ["Chapter 2", "Subsection in Chapter 2"], units[4].get_metadata().location
+        ["Chapter 2", "Subsection in Chapter 2"], units[4].get_metadata().heading_path
     )
     tc.assertEqual("This is a subsection in chapter 2", units[4].get_text())
 

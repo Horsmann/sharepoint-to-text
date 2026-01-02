@@ -540,7 +540,6 @@ class OdsUnitMetadata(UnitMetadataInterface):
 class OdtUnit(UnitInterface):
     text: str
     unit_number: int
-    location: list[str] = field(default_factory=list)
     heading_level: int | None = None
     heading_path: list[str] = field(default_factory=list)
     kind: str = "body"  # body|annotation
@@ -561,7 +560,6 @@ class OdtUnit(UnitInterface):
     def get_metadata(self) -> OdtUnitMetadata:
         return OdtUnitMetadata(
             unit_number=self.unit_number,
-            location=list(self.location),
             heading_level=self.heading_level,
             heading_path=list(self.heading_path),
             kind=self.kind,
@@ -573,7 +571,6 @@ class OdtUnit(UnitInterface):
 @dataclass
 class OdtUnitMetadata(UnitMetadataInterface):
     unit_number: int
-    location: list[str] = field(default_factory=list)
     heading_level: int | None = None
     heading_path: list[str] = field(default_factory=list)
     kind: str = "body"  # body|annotation
@@ -2453,19 +2450,21 @@ class OdtContent(ExtractionInterface):
         """Iterate over heading-based units.
 
         Units are built from paragraph runs separated by headings (paragraphs with
-        an outline level). Heading text itself becomes the unit location and is
-        not included in the unit body text.
+        an outline level). Heading text itself becomes part of the unit heading
+        path and is not included in the unit body text.
         """
-        base_location = [self.metadata.title] if self.metadata.title else []
+        base_heading_path = [self.metadata.title] if self.metadata.title else []
         units: list[OdtUnit] = []
 
         if not self.paragraphs:
+            heading_path = list(base_heading_path)
             units.append(
                 OdtUnit(
                     text=self.full_text,
                     kind="body",
                     unit_number=1,
-                    location=base_location,
+                    heading_level=1 if heading_path else None,
+                    heading_path=heading_path,
                     images=list(self.images),
                     tables=[TableData(data=table.data) for table in self.tables],
                 )
@@ -2494,13 +2493,17 @@ class OdtContent(ExtractionInterface):
                 current_tables = []
                 return
 
+            unit_heading_path = list(base_heading_path)
+            for token in current_heading_path:
+                if not unit_heading_path or unit_heading_path[-1] != token:
+                    unit_heading_path.append(token)
+
             units.append(
                 OdtUnit(
                     text=text,
                     unit_number=unit_index,
-                    location=base_location + list(current_heading_path),
                     heading_level=current_heading_level,
-                    heading_path=list(current_heading_path),
+                    heading_path=unit_heading_path,
                     kind="body",
                     tables=list(current_tables),
                 )
@@ -2550,12 +2553,14 @@ class OdtContent(ExtractionInterface):
         flush_current()
 
         if not any_headings:
+            heading_path = list(base_heading_path)
             units = [
                 OdtUnit(
                     text=self.full_text,
                     kind="body",
                     unit_number=1,
-                    location=base_location,
+                    heading_level=1 if heading_path else None,
+                    heading_path=heading_path,
                     images=list(self.images),
                     tables=[TableData(data=table.data) for table in self.tables],
                 )
