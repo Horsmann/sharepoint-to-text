@@ -2241,16 +2241,21 @@ class OdtContent(ExtractionInterface):
         not included in the unit body text.
         """
         base_location = [self.metadata.title] if self.metadata.title else []
+        units: list[OdtUnit] = []
 
         if not self.paragraphs:
-            yield OdtUnit(
-                text=self.full_text,
-                kind="body",
-                unit_index=1,
-                location=base_location,
-                images=list(self.images),
-                tables=[TableData(data=table.data) for table in self.tables],
+            units.append(
+                OdtUnit(
+                    text=self.full_text,
+                    kind="body",
+                    unit_index=1,
+                    location=base_location,
+                    images=list(self.images),
+                    tables=[TableData(data=table.data) for table in self.tables],
+                )
             )
+            for unit in units:
+                yield unit
             return
 
         heading_stack: list[tuple[int, str]] = []
@@ -2258,37 +2263,35 @@ class OdtContent(ExtractionInterface):
         current_heading_path: list[str] = []
         current_lines: list[str] = []
         current_tables: list[TableData] = []
-        current_images: list[ImageInterface] = []
         unit_index = 1
         any_headings = False
 
-        table_iter = iter(self.tables)
+        table_index = 0
+        pending_tables: list[TableData] = []
         in_table_block = False
 
-        def flush_current() -> typing.Iterator[OdtUnit]:
-            nonlocal unit_index, current_lines, current_tables, current_images
+        def flush_current() -> None:
+            nonlocal unit_index, current_lines, current_tables
             text = "\n".join(line for line in current_lines if line).strip()
-            if not (text or current_tables or current_images):
+            if not (text or current_tables):
                 current_lines = []
                 current_tables = []
-                current_images = []
-                return iter(())
+                return
 
-            unit = OdtUnit(
-                text=text,
-                unit_index=unit_index,
-                location=base_location + list(current_heading_path),
-                heading_level=current_heading_level,
-                heading_path=list(current_heading_path),
-                kind="body",
-                images=list(current_images),
-                tables=list(current_tables),
+            units.append(
+                OdtUnit(
+                    text=text,
+                    unit_index=unit_index,
+                    location=base_location + list(current_heading_path),
+                    heading_level=current_heading_level,
+                    heading_path=list(current_heading_path),
+                    kind="body",
+                    tables=list(current_tables),
+                )
             )
             unit_index += 1
             current_lines = []
             current_tables = []
-            current_images = []
-            return iter((unit,))
 
         for paragraph in self.paragraphs:
             heading_level = paragraph.outline_level
@@ -2296,13 +2299,16 @@ class OdtContent(ExtractionInterface):
                 heading_text = paragraph.text.strip()
                 if heading_text:
                     any_headings = True
-                    yield from flush_current()
+                    flush_current()
 
                     while heading_stack and heading_stack[-1][0] >= heading_level:
                         heading_stack.pop()
                     heading_stack.append((heading_level, heading_text))
                     current_heading_level = heading_level
                     current_heading_path = [t for _, t in heading_stack if t]
+                    if pending_tables:
+                        current_tables.extend(pending_tables)
+                        pending_tables = []
                 continue
 
             style = paragraph.style_name or ""
@@ -2310,12 +2316,10 @@ class OdtContent(ExtractionInterface):
             if is_table_paragraph:
                 if not in_table_block:
                     in_table_block = True
-                    try:
-                        table = next(table_iter)
-                    except StopIteration:
-                        table = None
-                    if table is not None:
-                        current_tables.append(TableData(data=table.data))
+                    if table_index < len(self.tables):
+                        table = self.tables[table_index]
+                        table_index += 1
+                        pending_tables.append(TableData(data=table.data))
                 continue
             in_table_block = False
 
@@ -2323,19 +2327,76 @@ class OdtContent(ExtractionInterface):
             if text:
                 current_lines.append(text)
 
-        yield from flush_current()
+        if pending_tables:
+            current_tables.extend(pending_tables)
+            pending_tables = []
 
-        if any_headings:
+        flush_current()
+
+        if not any_headings:
+            units = [
+                OdtUnit(
+                    text=self.full_text,
+                    kind="body",
+                    unit_index=1,
+                    location=base_location,
+                    images=list(self.images),
+                    tables=[TableData(data=table.data) for table in self.tables],
+                )
+            ]
+            for image in self.images:
+                image.unit_index = 1
+            for unit in units:
+                yield unit
             return
 
-        yield OdtUnit(
-            text=self.full_text,
-            kind="body",
-            unit_index=1,
-            location=base_location,
-            images=list(self.images),
-            tables=[TableData(data=table.data) for table in self.tables],
-        )
+        # Best-effort mapping of unassigned tables/images to units.
+        # (ODT extraction does not currently provide stable positional anchors.)
+        if units:
+            if table_index < len(self.tables):
+                remaining_tables = self.tables[table_index:]
+                for table in remaining_tables:
+                    table_data = TableData(data=table.data)
+                    header_tokens = [
+                        str(cell).strip()
+                        for cell in (table.data[0] if table.data else [])
+                        if str(cell).strip()
+                    ]
+                    matched_unit: OdtUnit | None = None
+                    if header_tokens:
+                        for unit in units:
+                            if all(token in unit.text for token in header_tokens):
+                                matched_unit = unit
+                                break
+                    (matched_unit or units[-1]).tables.append(table_data)
+
+            for image in self.images:
+                matched_unit: OdtUnit | None = None
+                for unit in units:
+                    if image.caption and image.caption in unit.text:
+                        matched_unit = unit
+                        break
+                    if image.description and image.description in unit.text:
+                        matched_unit = unit
+                        break
+                if matched_unit is None:
+                    if len(units) == 1:
+                        matched_unit = units[0]
+                    else:
+                        matched_unit = next(
+                            (
+                                u
+                                for u in reversed(units)
+                                if u.heading_level == 1 or u.heading_level is None
+                            ),
+                            units[-1],
+                        )
+
+                image.unit_index = matched_unit.unit_index
+                matched_unit.images.append(image)
+
+        for unit in units:
+            yield unit
 
     def get_full_text(self) -> str:
         """Get full text of the document."""

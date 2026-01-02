@@ -1535,7 +1535,13 @@ def test_read_open_office__heading_units() -> None:
     # 4
     tc.assertListEqual(["Chapter 2"], units[3].get_metadata().location)
     tc.assertEqual("Welcome to chapter 2", units[3].get_text())
-    tc.assertEqual(0, len(units[3].get_images()[0].get_bytes().getvalue()))
+    tc.assertEqual(1, len(list(units[3].get_images())))
+    tc.assertEqual(62421, len(list(units[3].get_images())[0].get_bytes().getvalue()))
+    # tc.assertEqual(ImageMetadata(unit_index=4,
+    #           image_index=1,
+    #           content_type='image/png',
+    #           width=None,
+    #           height=None), list(units[3].get_images())[0].get_metadata())
 
     # 5
     tc.assertListEqual(
