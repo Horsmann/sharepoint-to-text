@@ -1171,6 +1171,20 @@ def test_read_rtf_tables_1() -> None:
         [["Europäisches Parlament\n2024-2029", ""], ["", ""]],
         list(rtfs[0].iterate_units())[0].get_tables()[0].get_table(),
     )
+    tc.assertListEqual(
+        [
+            ["Verfasserin der Stellungnahme:", "", "", ""],
+            ["", "Nela Riehl (Verts/ALE)", "", ""],
+            ["Federführend:", "", "", ""],
+            [
+                "",
+                "BUDG",
+                "Victor Negrescu (S&D)\nNiclas Herbst (PPE)",
+                "DT\xa0–\xa0PE763.050v01-00",
+            ],
+        ],
+        list(rtfs[0].iterate_units())[0].get_tables()[1].get_table(),
+    )
 
 
 def test_read_rtf_tables_2() -> None:
