@@ -15,6 +15,7 @@ from sharepoint2text.extractors.data_types import (
     EmailUnitMetadata,
     FileMetadataInterface,
     HtmlContent,
+    HtmlUnitMetadata,
     ImageInterface,
     ImageMetadata,
     OdpAnnotation,
@@ -2378,4 +2379,8 @@ def test_read_html() -> None:
     tc.assertListEqual(
         [["Name", "Age"], ["Alice", "25"], ["Bob", "30"]],
         list(html.iterate_tables())[0].get_table(),
+    )
+
+    tc.assertEqual(
+        HtmlUnitMetadata(unit_number=1), list(html.iterate_units())[0].get_metadata()
     )
