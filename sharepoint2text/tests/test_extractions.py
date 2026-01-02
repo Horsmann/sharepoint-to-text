@@ -1537,11 +1537,16 @@ def test_read_open_office__heading_units() -> None:
     tc.assertEqual("Welcome to chapter 2", units[3].get_text())
     tc.assertEqual(1, len(list(units[3].get_images())))
     tc.assertEqual(62421, len(list(units[3].get_images())[0].get_bytes().getvalue()))
-    # tc.assertEqual(ImageMetadata(unit_index=4,
-    #           image_index=1,
-    #           content_type='image/png',
-    #           width=None,
-    #           height=None), list(units[3].get_images())[0].get_metadata())
+    tc.assertEqual(
+        ImageMetadata(
+            unit_index=4,
+            image_index=1,
+            content_type="image/png",
+            width=412,
+            height=195,
+        ),
+        list(units[3].get_images())[0].get_metadata(),
+    )
 
     # 5
     tc.assertListEqual(
@@ -1790,7 +1795,13 @@ def test_open_office__document_image_interface() -> None:
         odt.images[0].get_caption(),
     )
     tc.assertEqual(
-        ImageMetadata(unit_index=None, image_index=1, content_type="image/png"),
+        ImageMetadata(
+            unit_index=None,
+            image_index=1,
+            content_type="image/png",
+            width=643,
+            height=92,
+        ),
         odt.images[0].get_metadata(),
     )
     tc.assertEqual(90038, len(odt.images[0].get_bytes().getvalue()))
@@ -1799,7 +1810,13 @@ def test_open_office__document_image_interface() -> None:
         odt.images[1].get_caption(),
     )
     tc.assertEqual(
-        ImageMetadata(unit_index=None, image_index=2, content_type="image/png"),
+        ImageMetadata(
+            unit_index=None,
+            image_index=2,
+            content_type="image/png",
+            width=643,
+            height=70,
+        ),
         odt.images[1].get_metadata(),
     )
     tc.assertEqual(82881, len(odt.images[1].get_bytes().getvalue()))
@@ -1824,7 +1841,13 @@ def test_open_office__presentation_image_interface() -> None:
         odp.slides[0].images[0].get_description(),
     )
     tc.assertEqual(
-        ImageMetadata(unit_index=1, image_index=1, content_type="image/png"),
+        ImageMetadata(
+            unit_index=1,
+            image_index=1,
+            content_type="image/png",
+            width=924,
+            height=163,
+        ),
         list(odp.iterate_images())[0].get_metadata(),
     )
 

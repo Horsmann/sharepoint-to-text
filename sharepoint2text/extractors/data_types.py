@@ -17,6 +17,36 @@ from sharepoint2text.extractors.serialization import (
 logger = logging.getLogger(__name__)
 
 
+_ODF_LENGTH_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([a-zA-Z]+)?\s*$")
+
+
+def _odf_length_to_px(length: str | None) -> int | None:
+    """Convert an ODF length (e.g. '10.5cm') to pixels using 96 DPI."""
+    if not length:
+        return None
+    match = _ODF_LENGTH_RE.match(length)
+    if not match:
+        return None
+    value = float(match.group(1))
+    unit = (match.group(2) or "px").lower()
+
+    # https://www.w3.org/TR/css-values-3/#absolute-lengths
+    if unit == "px":
+        return int(round(value))
+    if unit == "in":
+        return int(round(value * 96.0))
+    if unit == "cm":
+        return int(round((value / 2.54) * 96.0))
+    if unit == "mm":
+        return int(round((value / 25.4) * 96.0))
+    if unit == "pt":
+        return int(round((value / 72.0) * 96.0))
+    if unit == "pc":  # pica = 12pt
+        return int(round(((value * 12.0) / 72.0) * 96.0))
+
+    return None
+
+
 @dataclass
 class FileMetadataInterface:
     filename: str | None = None
@@ -1946,12 +1976,14 @@ class OpenDocumentImage(ImageInterface):
 
     def get_metadata(self) -> ImageMetadata:
         """Returns the metadata of the image."""
+        width_px = _odf_length_to_px(self.width)
+        height_px = _odf_length_to_px(self.height)
         return ImageMetadata(
             image_index=self.image_index,
             content_type=self.content_type,
             unit_index=self.unit_index,
-            width=None,
-            height=None,
+            width=width_px if width_px and width_px > 0 else None,
+            height=height_px if height_px and height_px > 0 else None,
         )
 
 
