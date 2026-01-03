@@ -16,7 +16,7 @@ from sharepoint2text.extractors.ms_modern.xlsx_extractor import read_xlsx
 from sharepoint2text.extractors.open_office.odp_extractor import read_odp
 from sharepoint2text.extractors.open_office.ods_extractor import read_ods
 from sharepoint2text.extractors.open_office.odt_extractor import read_odt
-from sharepoint2text.extractors.pdf_extractor import read_pdf
+from sharepoint2text.extractors.pdf.pdf_extractor import read_pdf
 from sharepoint2text.extractors.plain_extractor import read_plain_text
 from sharepoint2text.router import get_extractor, is_supported_file
 

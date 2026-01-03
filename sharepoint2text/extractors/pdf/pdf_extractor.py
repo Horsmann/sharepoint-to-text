@@ -80,7 +80,7 @@ Known Limitations
 Usage
 -----
     >>> import io
-    >>> from sharepoint2text.extractors.pdf_extractor import read_pdf
+    >>> from sharepoint2text.extractors.pdf.pdf_extractor import read_pdf
     >>>
     >>> with open("document.pdf", "rb") as f:
     ...     for doc in read_pdf(io.BytesIO(f.read()), path="document.pdf"):
@@ -110,6 +110,7 @@ import unicodedata
 from typing import Any, Generator, Iterable, Optional, Protocol
 
 from pypdf import PdfReader
+from pypdf.errors import DependencyError
 from pypdf.generic import ContentStream
 
 from sharepoint2text.exceptions import (
@@ -123,6 +124,7 @@ from sharepoint2text.extractors.data_types import (
     PdfMetadata,
     PdfPage,
 )
+from sharepoint2text.extractors.pdf._pypdf_aes_fallback import patch_pypdf_fallback_aes
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +169,19 @@ class PageLike(Protocol):
     def pdf(self) -> Any: ...
 
 
+def _open_pdf_reader(file_like: io.BytesIO) -> PdfReader:
+    file_like.seek(0)
+    try:
+        return PdfReader(file_like)
+    except DependencyError as exc:
+        if "AES algorithm" not in str(exc):
+            raise
+        if not patch_pypdf_fallback_aes():
+            raise
+        file_like.seek(0)
+        return PdfReader(file_like)
+
+
 def read_pdf(
     file_like: io.BytesIO, path: Optional[str] = None
 ) -> Generator[PdfContent, Any, None]:
@@ -209,10 +224,16 @@ def read_pdf(
         ...             print(f"  Images: {len(page.images)}")
     """
     try:
-        file_like.seek(0)
-        reader = PdfReader(file_like)
+        reader = _open_pdf_reader(file_like)
         if reader.is_encrypted:
-            raise ExtractionFileEncryptedError("PDF is encrypted or password-protected")
+            try:
+                decrypt_result = reader.decrypt("")
+            except Exception:
+                decrypt_result = 0
+            if decrypt_result == 0:
+                raise ExtractionFileEncryptedError(
+                    "PDF is encrypted or password-protected"
+                )
         logger.debug("Parsing PDF with %d pages", len(reader.pages))
 
         pages = []

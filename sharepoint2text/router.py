@@ -46,7 +46,7 @@ _EXTRACTOR_REGISTRY: dict[str, tuple[str, str]] = {
     "tsv": ("sharepoint2text.extractors.plain_extractor", "read_plain_text"),
     "md": ("sharepoint2text.extractors.plain_extractor", "read_plain_text"),
     # Other formats
-    "pdf": ("sharepoint2text.extractors.pdf_extractor", "read_pdf"),
+    "pdf": ("sharepoint2text.extractors.pdf.pdf_extractor", "read_pdf"),
     "html": ("sharepoint2text.extractors.html_extractor", "read_html"),
 }
 

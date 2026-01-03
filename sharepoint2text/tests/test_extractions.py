@@ -59,7 +59,7 @@ from sharepoint2text.extractors.ms_modern.xlsx_extractor import read_xlsx
 from sharepoint2text.extractors.open_office.odp_extractor import read_odp
 from sharepoint2text.extractors.open_office.ods_extractor import read_ods
 from sharepoint2text.extractors.open_office.odt_extractor import read_odt
-from sharepoint2text.extractors.pdf_extractor import read_pdf
+from sharepoint2text.extractors.pdf.pdf_extractor import read_pdf
 from sharepoint2text.extractors.plain_extractor import read_plain_text
 
 logger = logging.getLogger(__name__)
@@ -2408,6 +2408,19 @@ def test_read_pdf_5() -> None:
     tc.assertEqual(
         TableDim(rows=12, columns=3), list(pdf.iterate_tables())[1].get_dim()
     )
+
+
+def test_read_pdf_6() -> None:
+    path = (
+        "sharepoint2text/tests/resources/pdf/vendor-creation-form-english-version.pdf"
+    )
+    pdf: PdfContent = next(
+        read_pdf(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+
+    full_text = pdf.get_full_text()
+    tc.assertTrue(len(full_text) > 0)
+    tc.assertIn("Supplier Registration Form", full_text)
 
 
 def test_read_html() -> None:
