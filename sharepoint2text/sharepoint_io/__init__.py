@@ -4,6 +4,7 @@ SharePoint client using Microsoft Graph API with Entra ID app authentication.
 
 from sharepoint2text.sharepoint_io.client import (
     EntraIDAppCredentials,
+    FileFilter,
     SharePointFileMetadata,
     SharePointRestClient,
 )
@@ -15,6 +16,7 @@ from sharepoint2text.sharepoint_io.exceptions import (
 
 __all__ = [
     "EntraIDAppCredentials",
+    "FileFilter",
     "SharePointFileMetadata",
     "SharePointRestClient",
     "SharePointAuthError",
