@@ -4,7 +4,7 @@ import logging
 import os
 import unittest
 
-import sharepoint2text.exceptions
+import sharepoint2text.parsing.exceptions
 from sharepoint2text import (
     read_doc,
     read_docx,
@@ -24,7 +24,7 @@ from sharepoint2text import (
     read_xls,
     read_xlsx,
 )
-from sharepoint2text.extractors.data_types import (
+from sharepoint2text.parsing.extractors.data_types import (
     DocContent,
     DocUnit,
     DocxContent,
@@ -54,7 +54,7 @@ from sharepoint2text.extractors.data_types import (
     XlsxContent,
     XlsxUnit,
 )
-from sharepoint2text.extractors.serialization import deserialize_extraction
+from sharepoint2text.parsing.extractors.serialization import deserialize_extraction
 
 logger = logging.getLogger(__name__)
 
@@ -213,7 +213,7 @@ def test_extract_serialize_deserialize_file():
 
                 restored_obj = deserialize_extraction(obj.to_json())
                 tc.assertEqual(type(restored_obj), type(obj))
-        except sharepoint2text.exceptions.ExtractionFileEncryptedError:
+        except sharepoint2text.parsing.exceptions.ExtractionFileEncryptedError:
             # silent ignore - we have encrypted test files
             logger.debug(f"File is encrypted: [{path}]")
             pass

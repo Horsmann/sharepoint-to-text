@@ -3,7 +3,7 @@ from pathlib import Path
 
 import sharepoint2text
 from sharepoint2text.cli import main
-from sharepoint2text.extractors.serialization import serialize_extraction
+from sharepoint2text.parsing.extractors.serialization import serialize_extraction
 
 
 def test_cli_outputs_full_text_by_default(capsys) -> None:

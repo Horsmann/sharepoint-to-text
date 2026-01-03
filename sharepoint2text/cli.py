@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Sequence
 
 import sharepoint2text
-from sharepoint2text.extractors.data_types import ExtractionInterface
-from sharepoint2text.extractors.serialization import serialize_extraction
+from sharepoint2text.parsing.extractors.data_types import ExtractionInterface
+from sharepoint2text.parsing.extractors.serialization import serialize_extraction
 
 
 def _build_parser() -> argparse.ArgumentParser:

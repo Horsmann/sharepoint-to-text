@@ -2,6 +2,8 @@
 
 A **pure Python** library for extracting text, metadata, and structured elements from Microsoft Office files—both modern (`.docx`, `.xlsx`, `.pptx`) and legacy (`.doc`, `.xls`, `.ppt`) formats—plus PDF, email formats, and plain text.
 
+The library also includes an optional SharePoint client for reading files directly from Microsoft SharePoint sites via the Graph API. You still orchestrate the pipeline: pull files (via `sharepoint_io` or your own Graph client), then pass the bytes into the extractors.
+
 **Install:** `uv add sharepoint-to-text`
 **Python import:** `import sharepoint2text`
 **CLI (text):** `sharepoint2text /path/to/file.docx > extraction.txt`
@@ -96,6 +98,28 @@ This library parses Office binary formats (OLE2) and XML-based formats (OOXML) d
 ### Enterprise SharePoint Reality
 
 Enterprise SharePoints contain decades of accumulated documents. While modern `.docx`, `.xlsx`, and `.pptx` files are well-supported, legacy `.doc`, `.xls`, and `.ppt` files remain common. This library provides a **unified interface** for all formats—no conditional logic needed.
+
+### SharePoint Connectivity
+
+For scenarios where documents live in Microsoft SharePoint, the library includes a built-in Graph API client. This is an optional convenience layer, not required for local files or other storage backends. You are responsible for orchestrating the pull (list/download) and then calling the extractors:
+
+```python
+from sharepoint2text.sharepoint_io import SharePointRestClient, EntraIDAppCredentials
+
+credentials = EntraIDAppCredentials(
+    tenant_id="your-tenant-id",
+    client_id="your-client-id",
+    client_secret="your-client-secret",
+)
+client = SharePointRestClient(site_url="https://contoso.sharepoint.com/sites/Docs", credentials=credentials)
+
+# List and download files
+for file in client.list_all_files():
+    content = client.download_file(file.id)
+    # Pass to sharepoint2text extractors...
+```
+
+The client supports filtering by modification date (for delta-sync patterns), folder paths, and file extensions. See [`sharepoint2text/sharepoint_io/SETUP.md`](sharepoint2text/sharepoint_io/SETUP.md) for Azure/Entra ID configuration instructions.
 
 ## Supported Formats
 
@@ -255,7 +279,7 @@ print(json.dumps(result.to_json()))
 To restore objects from JSON, use `ExtractionInterface.from_json(...)`.
 
 ```python
-from sharepoint2text.extractors.data_types import ExtractionInterface
+from sharepoint2text.parsing.extractors.data_types import ExtractionInterface
 
 restored = ExtractionInterface.from_json(result.to_json())
 ```
@@ -773,6 +797,49 @@ def prepare_for_rag(file_path: str) -> list[dict]:
     return chunks
 ```
 
+### SharePoint Integration
+
+This integration is optional; you can use `sharepoint2text` with any storage backend. When using `sharepoint_io`, you still orchestrate download and extraction (as shown below).
+
+```python
+import io
+from datetime import datetime, timedelta, timezone
+
+import sharepoint2text
+from sharepoint2text.sharepoint_io import (
+    EntraIDAppCredentials,
+    FileFilter,
+    SharePointRestClient,
+)
+
+# Configure SharePoint access
+credentials = EntraIDAppCredentials(
+    tenant_id="your-tenant-id",
+    client_id="your-client-id",
+    client_secret="your-client-secret",
+)
+client = SharePointRestClient(
+    site_url="https://contoso.sharepoint.com/sites/Documents",
+    credentials=credentials,
+)
+
+# Delta sync: process files modified in the last 7 days
+one_week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+file_filter = FileFilter(
+    modified_after=one_week_ago,
+    extensions=[".docx", ".pdf", ".pptx"],
+)
+
+for file_meta in client.list_files_filtered(file_filter):
+    # Download and extract
+    content = client.download_file(file_meta.id)
+    extractor = sharepoint2text.get_extractor(file_meta.name)
+
+    for result in extractor(io.BytesIO(content), path=file_meta.name):
+        print(f"File: {file_meta.get_full_path()}")
+        print(f"Text: {result.get_full_text()[:200]}...")
+```
+
 ## Exceptions
 
 - `ExtractionFileFormatNotSupportedError`: Raised when no extractor exists for a given file type (e.g., unsupported extension/MIME mapping in the router).
@@ -782,3 +849,6 @@ def prepare_for_rag(file_path: str) -> list[dict]:
 ## License
 
 Apache 2.0 - see [LICENSE](LICENSE) for details.
+
+## Disclaimer
+This project is not affiliated with, endorsed by, or sponsored by Microsoft.
