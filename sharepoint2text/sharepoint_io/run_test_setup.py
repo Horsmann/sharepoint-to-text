@@ -89,9 +89,63 @@ import dotenv
 
 from sharepoint2text.sharepoint_io.client import (
     EntraIDAppCredentials,
+    SharePointFileMetadata,
     SharePointRestClient,
 )
 from sharepoint2text.sharepoint_io.exceptions import SharePointRequestError
+
+
+def save_file_as_json(
+    client: SharePointRestClient,
+    file_meta: SharePointFileMetadata,
+    output_dir: str = ".",
+) -> str:
+    """
+    Download a file from SharePoint and save it as a JSON file with base64 content.
+
+    The JSON file contains the file content as a base64-encoded string along with
+    all metadata (both standard and custom fields).
+
+    Args:
+        client: SharePoint client to use for downloading
+        file_meta: Metadata of the file to download
+        output_dir: Directory to save the JSON file (default: current directory)
+
+    Returns:
+        Path to the created JSON file
+    """
+    # Download the file content
+    file_bytes = client.download_file(file_meta.id)
+
+    # Encode content as base64
+    content_base64 = base64.b64encode(file_bytes).decode("ascii")
+
+    # Build the JSON structure with all metadata
+    json_data = {
+        "file_content_base64": content_base64,
+        "metadata": {
+            "name": file_meta.name,
+            "id": file_meta.id,
+            "web_url": file_meta.web_url,
+            "download_url": file_meta.download_url,
+            "size": file_meta.size,
+            "mime_type": file_meta.mime_type,
+            "last_modified": file_meta.last_modified,
+            "created": file_meta.created,
+            "parent_path": file_meta.parent_path,
+        },
+        "custom_fields": file_meta.custom_fields or {},
+    }
+
+    # Create output filename (same name as original file + .json)
+    output_filename = f"{file_meta.name}.json"
+    output_path = os.path.join(output_dir, output_filename)
+
+    # Write the JSON file
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(json_data, f, indent=2, ensure_ascii=False)
+
+    return output_path
 
 
 def _get_required_env(key: str) -> str:
@@ -165,6 +219,13 @@ if __name__ == "__main__":
             if f.custom_fields:
                 for key, value in f.custom_fields.items():
                     print(f"      {key}: {value}")
+
+        # Download first file and save as JSON with base64 content and metadata
+        if files:
+            print("\n--- Downloading First File as JSON ---")
+            first_file = files[0]
+            output_path = save_file_as_json(client, first_file, output_dir=".")
+            print(f"  Saved: {output_path}")
 
     except SharePointRequestError as exc:
         print(f"\nSharePoint request failed: {exc}")
