@@ -1401,7 +1401,7 @@ def test_email__msg_format_with_attachment() -> None:
         "R1 V1\n"
         "R2 V2\n"
         "This is page 2\n"
-        "An image of the Google landing page\n",
+        "An image of the Google landing page",
         attachments[0].get_full_text(),
     )
     tc.assertEqual(1, len(list(attachments[0].iterate_images())))
@@ -2477,7 +2477,7 @@ def test_read_html() -> None:
     )
 
 
-def test_read_epub() -> None:
+def test_read_epub__1() -> None:
     """Test EPUB extraction with a sample EPUB file."""
     path = "sharepoint2text/tests/resources/epub/sample.epub"
     epub: EpubContent = next(
@@ -2544,6 +2544,95 @@ def test_read_epub() -> None:
     tc.assertEqual(2, len(epub.toc))
     tc.assertEqual("Chapter 1: Introduction", epub.toc[0]["title"])
     tc.assertEqual("Chapter 2: Getting Started", epub.toc[1]["title"])
+
+
+def test_read_epub__2() -> None:
+    """Test EPUB extraction with a sample EPUB file."""
+    path = "sharepoint2text/tests/resources/epub/BJNR274910013.epub"
+    epub: EpubContent = next(
+        read_epub(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+
+    # general
+    tc.assertEqual(31, len(epub.chapters))
+    tc.assertEqual(3, len(list(epub.iterate_tables())))
+    tc.assertEqual("Gesetz zur Förderung der elektronischen", epub.get_full_text()[:39])
+    tc.assertListEqual(
+        [
+            ["", ""],
+            [
+                "Gesetz zur Förderung der elektronischen Verwaltung (E-Government-Gesetz - "
+                "EGovG)"
+            ],
+            [
+                "E-Government-Gesetz vom 25. Juli 2013 (BGBl. I S. 2749), das zuletzt durch "
+                "Artikel 11 des Gesetzes vom 2. Dezember 2025 (BGBl. 2025 I Nr. 301) "
+                "geändert worden ist"
+            ],
+            [
+                "Gesetze im Internet - ePub herausgegeben vom Bundesministerium der Justiz "
+                "und für Verbraucherschutz"
+            ],
+            ["erzeugt am: 05.12.2025"],
+        ],
+        list(epub.iterate_tables())[0].get_table(),
+    )
+
+    # metadata
+    tc.assertEqual("BJNR274910013.epub", epub.get_metadata().filename)
+    tc.assertEqual(
+        "Gesetz zur Förderung der elektronischen Verwaltung "
+        "(E-Government-Gesetz - EGovG)",
+        epub.get_metadata().title,
+    )
+    tc.assertEqual("2025-12-05", epub.get_metadata().date)
+
+    # units
+    tc.assertEqual(31, len(list(epub.iterate_units())))
+    units = list(epub.iterate_units())
+    # 0
+    tc.assertEqual("", units[0].get_text())
+    tc.assertEqual(1, len(list(units[0].get_tables())))
+    tc.assertListEqual(
+        [
+            ["", ""],
+            [
+                "Gesetz zur Förderung der elektronischen Verwaltung (E-Government-Gesetz - "
+                "EGovG)"
+            ],
+            [
+                "E-Government-Gesetz vom 25. Juli 2013 (BGBl. I S. 2749), das zuletzt durch "
+                "Artikel 11 des Gesetzes vom 2. Dezember 2025 (BGBl. 2025 I Nr. 301) "
+                "geändert worden ist"
+            ],
+            [
+                "Gesetze im Internet - ePub herausgegeben vom Bundesministerium der Justiz "
+                "und für Verbraucherschutz"
+            ],
+            ["erzeugt am: 05.12.2025"],
+        ],
+        units[0].get_tables()[0].get_table(),
+    )
+    tc.assertEqual(
+        EpubUnitMetadata(
+            unit_number=2,
+            href="BJNR274910013.html",
+            title="Gesetz zur Förderung der elektronischen Verwaltung "
+            "(E-Government-Gesetz - EGovG)",
+        ),
+        units[1].get_metadata(),
+    )
+    # 1
+    tc.assertEqual(
+        "Gesetz zur Förderung der elektronischen Verwaltung (E-Government-Gesetz - EGovG)",
+        units[1].get_text()[:80],
+    )
+    # 2
+    tc.assertEqual("Inhaltsübersicht", units[2].get_text())
+    # 3
+    tc.assertEqual("§ 1\n\nGeltungsbereich\n\n(1)", units[3].get_text()[:25])
+    # last page
+    tc.assertEqual("§ 19\n\nÜbergangsvorschriften", units[-1].get_text()[:27])
 
 
 def test_read_macro_enabled_docm() -> None:

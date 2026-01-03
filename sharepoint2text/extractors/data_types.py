@@ -312,7 +312,7 @@ class ImageMetadata(dict):
 
 
 def _join_unit_text(units: typing.Iterable[UnitInterface]) -> str:
-    return "\n".join(unit.get_text() for unit in units)
+    return ("\n".join(unit.get_text() for unit in units)).strip()
 
 
 #########
