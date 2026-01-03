@@ -84,11 +84,13 @@ Troubleshooting
 import base64
 import json
 import os
+from datetime import datetime, timedelta, timezone
 
 import dotenv
 
 from sharepoint2text.sharepoint_io.client import (
     EntraIDAppCredentials,
+    FileFilter,
     SharePointFileMetadata,
     SharePointRestClient,
 )
@@ -226,6 +228,33 @@ if __name__ == "__main__":
             first_file = files[0]
             output_path = save_file_as_json(client, first_file, output_dir=".")
             print(f"  Saved: {output_path}")
+
+        # Demonstrate filtered file listing
+        print("\n--- Files Modified in Last 30 Days ---")
+        thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
+        modified_files = list(client.list_files_modified_since(thirty_days_ago))
+        if not modified_files:
+            print("  No files modified in the last 30 days")
+        else:
+            print(f"  Found {len(modified_files)} file(s):")
+            for f in modified_files[:5]:  # Show first 5
+                path = f.get_full_path()
+                print(f"    - {path} (modified: {f.last_modified})")
+            if len(modified_files) > 5:
+                print(f"    ... and {len(modified_files) - 5} more")
+
+        # Example: Using FileFilter for more complex queries
+        print("\n--- Example: Filtered Query (PDFs only) ---")
+        pdf_filter = FileFilter(extensions=[".pdf"])
+        pdf_files = list(client.list_files_filtered(pdf_filter))
+        if not pdf_files:
+            print("  No PDF files found")
+        else:
+            print(f"  Found {len(pdf_files)} PDF file(s):")
+            for f in pdf_files[:5]:
+                print(f"    - {f.get_full_path()}")
+            if len(pdf_files) > 5:
+                print(f"    ... and {len(pdf_files) - 5} more")
 
     except SharePointRequestError as exc:
         print(f"\nSharePoint request failed: {exc}")

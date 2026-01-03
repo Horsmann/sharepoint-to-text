@@ -4,9 +4,11 @@ SharePoint client using Microsoft Graph API with Entra ID app authentication.
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Callable, Iterator
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlparse
@@ -125,6 +127,143 @@ class SharePointFileMetadata:
     parent_path: str | None = None
     custom_fields: dict[str, Any] | None = None
 
+    def get_full_path(self) -> str:
+        """Get the full path of the file including parent path."""
+        if self.parent_path:
+            return f"{self.parent_path}/{self.name}"
+        return self.name
+
+
+@dataclass
+class FileFilter:
+    """
+    Filter criteria for selecting files from SharePoint.
+
+    Use this to implement delta-sync patterns by filtering on dates,
+    or to target specific folders/paths within a SharePoint site.
+
+    Attributes:
+        created_after: Only include files created after this datetime (inclusive)
+        created_before: Only include files created before this datetime (exclusive)
+        modified_after: Only include files modified after this datetime (inclusive)
+        modified_before: Only include files modified before this datetime (exclusive)
+        folder_paths: List of specific folder paths to search (e.g., ["Documents/Reports"])
+            If empty, searches entire drive. Paths are relative to drive root.
+        path_patterns: Glob-style patterns to match against full file paths
+            (e.g., ["*.docx", "Reports/**/*.pdf", "2024-*/*"])
+            Patterns are matched against the full path including parent folders.
+        extensions: List of file extensions to include (e.g., [".docx", ".pdf"])
+            Extensions should include the leading dot.
+
+    Example:
+        # Get all PDFs modified in the last 7 days from Reports folder
+        filter = FileFilter(
+            modified_after=datetime.now(timezone.utc) - timedelta(days=7),
+            folder_paths=["Documents/Reports"],
+            extensions=[".pdf"],
+        )
+
+        # Get all files matching a pattern
+        filter = FileFilter(
+            path_patterns=["Projects/2024-*/**/*.xlsx"],
+        )
+    """
+
+    created_after: datetime | None = None
+    created_before: datetime | None = None
+    modified_after: datetime | None = None
+    modified_before: datetime | None = None
+    folder_paths: list[str] = field(default_factory=list)
+    path_patterns: list[str] = field(default_factory=list)
+    extensions: list[str] = field(default_factory=list)
+
+    def matches(self, file_meta: SharePointFileMetadata) -> bool:
+        """
+        Check if a file matches all filter criteria.
+
+        Args:
+            file_meta: The file metadata to check
+
+        Returns:
+            True if the file matches all specified criteria, False otherwise
+        """
+        # Check creation date filters
+        if self.created_after or self.created_before:
+            if not file_meta.created:
+                return False
+            created_dt = _parse_iso_datetime(file_meta.created)
+            if created_dt is None:
+                return False
+            if self.created_after and created_dt < self.created_after:
+                return False
+            if self.created_before and created_dt >= self.created_before:
+                return False
+
+        # Check modification date filters
+        if self.modified_after or self.modified_before:
+            if not file_meta.last_modified:
+                return False
+            modified_dt = _parse_iso_datetime(file_meta.last_modified)
+            if modified_dt is None:
+                return False
+            if self.modified_after and modified_dt < self.modified_after:
+                return False
+            if self.modified_before and modified_dt >= self.modified_before:
+                return False
+
+        # Check extension filter
+        if self.extensions:
+            name_lower = file_meta.name.lower()
+            if not any(name_lower.endswith(ext.lower()) for ext in self.extensions):
+                return False
+
+        # Check path pattern filters
+        if self.path_patterns:
+            full_path = file_meta.get_full_path()
+            if not any(
+                fnmatch.fnmatch(full_path, pattern) for pattern in self.path_patterns
+            ):
+                return False
+
+        return True
+
+    def get_target_folders(self) -> list[str]:
+        """
+        Get the list of folders to search.
+
+        Returns:
+            List of folder paths to search, or empty list to search entire drive
+        """
+        return self.folder_paths
+
+
+def _parse_iso_datetime(dt_string: str) -> datetime | None:
+    """
+    Parse an ISO 8601 datetime string to a datetime object.
+
+    Handles formats like: 2024-01-15T10:30:00Z, 2024-01-15T10:30:00.123Z
+    """
+    try:
+        # Handle the 'Z' suffix (UTC)
+        if dt_string.endswith("Z"):
+            dt_string = dt_string[:-1] + "+00:00"
+        # Python 3.11+ has fromisoformat that handles this, but for compatibility:
+        # Remove microseconds if present for simpler parsing
+        if "." in dt_string:
+            # Split at the dot and reconstruct with timezone
+            base, rest = dt_string.split(".", 1)
+            # Find timezone info (+ or - after the dot)
+            tz_idx = rest.find("+")
+            if tz_idx == -1:
+                tz_idx = rest.find("-")
+            if tz_idx != -1:
+                dt_string = base + rest[tz_idx:]
+            else:
+                dt_string = base
+        return datetime.fromisoformat(dt_string)
+    except (ValueError, AttributeError):
+        return None
+
 
 class SharePointRestClient:
     """SharePoint client using Microsoft Graph API."""
@@ -236,6 +375,211 @@ class SharePointRestClient:
             files.append(file_meta)
 
         return files
+
+    def list_files_filtered(
+        self,
+        file_filter: FileFilter,
+        *,
+        drive_id: str | None = None,
+    ) -> Iterator[SharePointFileMetadata]:
+        """
+        List files matching the specified filter criteria.
+
+        This method enables delta-sync patterns by allowing filtering on creation
+        and modification dates, as well as targeting specific folders or path patterns.
+
+        When folder_paths are specified in the filter, only those folders are searched,
+        which can significantly reduce API calls for large document libraries.
+
+        Args:
+            file_filter: Filter criteria to apply
+            drive_id: Optional drive ID to search. If None, uses the default drive.
+
+        Yields:
+            SharePointFileMetadata for each file matching the filter criteria
+
+        Example:
+            # Delta sync: get files modified in the last 24 hours
+            from datetime import datetime, timedelta, timezone
+
+            filter = FileFilter(
+                modified_after=datetime.now(timezone.utc) - timedelta(hours=24),
+            )
+            for file in client.list_files_filtered(filter):
+                print(f"Modified: {file.name}")
+
+            # Get PDFs from specific folders
+            filter = FileFilter(
+                folder_paths=["Documents/Reports", "Documents/Archive"],
+                extensions=[".pdf"],
+            )
+            for file in client.list_files_filtered(filter):
+                process_pdf(file)
+
+            # Wildcard path matching
+            filter = FileFilter(
+                path_patterns=["Projects/2024-*/**/*.xlsx"],
+            )
+            for file in client.list_files_filtered(filter):
+                print(file.get_full_path())
+        """
+        site_id = self.get_site_id()
+        target_folders = file_filter.get_target_folders()
+
+        if target_folders:
+            # Search only specified folders
+            for folder_path in target_folders:
+                yield from self._walk_and_filter(
+                    site_id,
+                    file_filter,
+                    folder_path=folder_path,
+                    drive_id=drive_id,
+                )
+        else:
+            # Search entire drive
+            yield from self._walk_and_filter(
+                site_id,
+                file_filter,
+                folder_path=None,
+                drive_id=drive_id,
+            )
+
+    def _walk_and_filter(
+        self,
+        site_id: str,
+        file_filter: FileFilter,
+        *,
+        folder_path: str | None = None,
+        drive_id: str | None = None,
+    ) -> Iterator[SharePointFileMetadata]:
+        """
+        Walk through a folder (or entire drive) and yield files matching the filter.
+
+        Args:
+            site_id: The SharePoint site ID
+            file_filter: Filter criteria to apply
+            folder_path: Optional folder path to start from (None = root)
+            drive_id: Optional drive ID
+
+        Yields:
+            SharePointFileMetadata for matching files
+        """
+        if folder_path:
+            # Get the folder item ID first, then walk from there
+            folder_item = self._get_folder_by_path(site_id, folder_path, drive_id)
+            if folder_item is None:
+                logger.warning(f"Folder not found: {folder_path}")
+                return
+            item_id = folder_item.get("id")
+            parent_path = folder_path
+        else:
+            item_id = None
+            parent_path = ""
+
+        for file_meta in self._walk_drive_items(
+            site_id, item_id, drive_id=drive_id, parent_path=parent_path
+        ):
+            if file_filter.matches(file_meta):
+                yield file_meta
+
+    def _get_folder_by_path(
+        self,
+        site_id: str,
+        folder_path: str,
+        drive_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """
+        Get folder metadata by path.
+
+        Args:
+            site_id: The SharePoint site ID
+            folder_path: Path to the folder (relative to drive root)
+            drive_id: Optional drive ID
+
+        Returns:
+            Folder item dict or None if not found
+        """
+        encoded_path = quote(folder_path.strip("/"), safe="/")
+
+        if drive_id is None:
+            url = f"{_GRAPH_API_BASE}/sites/{site_id}/drive/root:/{encoded_path}"
+        else:
+            url = f"{_GRAPH_API_BASE}/sites/{site_id}/drives/{drive_id}/root:/{encoded_path}"
+
+        try:
+            data = self._get_json(url)
+            # Verify it's a folder
+            if "folder" in data:
+                return data
+            return None
+        except SharePointRequestError as exc:
+            if exc.status_code == 404:
+                return None
+            raise
+
+    def list_files_modified_since(
+        self,
+        since: datetime,
+        *,
+        folder_paths: list[str] | None = None,
+        extensions: list[str] | None = None,
+        drive_id: str | None = None,
+    ) -> Iterator[SharePointFileMetadata]:
+        """
+        Convenience method for delta-sync: list files modified since a given datetime.
+
+        This is a shorthand for creating a FileFilter with modified_after set.
+
+        Args:
+            since: Only include files modified on or after this datetime
+            folder_paths: Optional list of folder paths to search
+            extensions: Optional list of file extensions to filter (e.g., [".pdf", ".docx"])
+            drive_id: Optional drive ID to search
+
+        Yields:
+            SharePointFileMetadata for each matching file
+
+        Example:
+            # Get all files modified in the last week
+            from datetime import datetime, timedelta, timezone
+
+            one_week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+            for file in client.list_files_modified_since(one_week_ago):
+                print(f"{file.name} - modified: {file.last_modified}")
+        """
+        file_filter = FileFilter(
+            modified_after=since,
+            folder_paths=folder_paths or [],
+            extensions=extensions or [],
+        )
+        yield from self.list_files_filtered(file_filter, drive_id=drive_id)
+
+    def list_files_created_since(
+        self,
+        since: datetime,
+        *,
+        folder_paths: list[str] | None = None,
+        extensions: list[str] | None = None,
+        drive_id: str | None = None,
+    ) -> Iterator[SharePointFileMetadata]:
+        """
+        Convenience method for delta-sync: list files created since a given datetime.
+
+        Args:
+            since: Only include files created on or after this datetime
+            folder_paths: Optional list of folder paths to search
+            extensions: Optional list of file extensions to filter
+            drive_id: Optional drive ID to search
+
+        Yields:
+            SharePointFileMetadata for each matching file
+        """
+        file_filter = FileFilter(
+            created_after=since,
+            folder_paths=folder_paths or [],
+            extensions=extensions or [],
+        )
+        yield from self.list_files_filtered(file_filter, drive_id=drive_id)
 
     def list_drives(self) -> list[dict[str, Any]]:
         """List all document libraries (drives) in the site."""
