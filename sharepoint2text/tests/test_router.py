@@ -2,6 +2,7 @@ import logging
 import unittest
 
 from sharepoint2text.exceptions import ExtractionFileFormatNotSupportedError
+from sharepoint2text.extractors.epub_extractor import read_epub
 from sharepoint2text.extractors.html_extractor import read_html
 from sharepoint2text.extractors.mail.eml_email_extractor import read_eml_format_mail
 from sharepoint2text.extractors.mail.mbox_email_extractor import read_mbox_format_mail
@@ -49,6 +50,11 @@ def test_is_supported():
     tc.assertTrue(is_supported_file("myfile.odt"))
     tc.assertTrue(is_supported_file("myfile.odp"))
     tc.assertTrue(is_supported_file("myfile.ods"))
+    tc.assertTrue(is_supported_file("myfile.epub"))
+    # Macro-enabled Office formats
+    tc.assertTrue(is_supported_file("myfile.docm"))
+    tc.assertTrue(is_supported_file("myfile.xlsm"))
+    tc.assertTrue(is_supported_file("myfile.pptm"))
     # not supported
     tc.assertFalse(is_supported_file("myfile.zip"))
     tc.assertFalse(is_supported_file("myfile.rar"))
@@ -141,6 +147,23 @@ def test_router():
     # mbox
     func = get_extractor("myfile.mbox")
     tc.assertEqual(read_mbox_format_mail, func)
+
+    # epub
+    func = get_extractor("myfile.epub")
+    tc.assertEqual(read_epub, func)
+
+    # Macro-enabled Office formats (use same extractors as non-macro)
+    # docm -> read_docx
+    func = get_extractor("myfile.docm")
+    tc.assertEqual(read_docx, func)
+
+    # xlsm -> read_xlsx
+    func = get_extractor("myfile.xlsm")
+    tc.assertEqual(read_xlsx, func)
+
+    # pptm -> read_pptx
+    func = get_extractor("myfile.pptm")
+    tc.assertEqual(read_pptx, func)
 
     tc.assertRaises(
         ExtractionFileFormatNotSupportedError,

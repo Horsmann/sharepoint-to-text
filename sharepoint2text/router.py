@@ -17,6 +17,10 @@ _EXTRACTOR_REGISTRY: dict[str, tuple[str, str]] = {
     "xlsx": ("sharepoint2text.extractors.ms_modern.xlsx_extractor", "read_xlsx"),
     "docx": ("sharepoint2text.extractors.ms_modern.docx_extractor", "read_docx"),
     "pptx": ("sharepoint2text.extractors.ms_modern.pptx_extractor", "read_pptx"),
+    # Macro-enabled variants (same OOXML structure)
+    "xlsm": ("sharepoint2text.extractors.ms_modern.xlsx_extractor", "read_xlsx"),
+    "docm": ("sharepoint2text.extractors.ms_modern.docx_extractor", "read_docx"),
+    "pptm": ("sharepoint2text.extractors.ms_modern.pptx_extractor", "read_pptx"),
     # Legacy MS Office
     "xls": ("sharepoint2text.extractors.ms_legacy.xls_extractor", "read_xls"),
     "doc": ("sharepoint2text.extractors.ms_legacy.doc_extractor", "read_doc"),

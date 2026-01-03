@@ -2543,3 +2543,36 @@ def test_read_epub() -> None:
     tc.assertEqual(2, len(epub.toc))
     tc.assertEqual("Chapter 1: Introduction", epub.toc[0]["title"])
     tc.assertEqual("Chapter 2: Getting Started", epub.toc[1]["title"])
+
+
+def test_read_macro_enabled_docm() -> None:
+    """Test .docm (macro-enabled Word) extraction - same structure as .docx."""
+    path = "sharepoint2text/tests/resources/modern_ms/sample.docm"
+    result: DocxContent = next(
+        read_docx(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+    # Verify it extracts as DocxContent (same as .docx)
+    tc.assertIsInstance(result, DocxContent)
+    tc.assertTrue(len(result.get_full_text()) > 0)
+
+
+def test_read_macro_enabled_xlsm() -> None:
+    """Test .xlsm (macro-enabled Excel) extraction - same structure as .xlsx."""
+    path = "sharepoint2text/tests/resources/modern_ms/sample.xlsm"
+    result: XlsxContent = next(
+        read_xlsx(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+    # Verify it extracts as XlsxContent (same as .xlsx)
+    tc.assertIsInstance(result, XlsxContent)
+    tc.assertTrue(len(result.sheets) > 0)
+
+
+def test_read_macro_enabled_pptm() -> None:
+    """Test .pptm (macro-enabled PowerPoint) extraction - same structure as .pptx."""
+    path = "sharepoint2text/tests/resources/modern_ms/sample.pptm"
+    result: PptxContent = next(
+        read_pptx(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+    # Verify it extracts as PptxContent (same as .pptx)
+    tc.assertIsInstance(result, PptxContent)
+    tc.assertTrue(len(result.slides) > 0)
