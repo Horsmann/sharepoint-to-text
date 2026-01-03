@@ -77,6 +77,11 @@ dependencies = [
     "xlrd>=2.0.2",
 ]
 
+[project.optional-dependencies]
+pdf-crypto = [
+    "pycryptodome>=3.20.0",
+]
+
 [project.urls]
 Homepage = "https://github.com/Horsmann/sharepoint-to-text"
 Documentation = "https://github.com/Horsmann/sharepoint-to-text#readme"
