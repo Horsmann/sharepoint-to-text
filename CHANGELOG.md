@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Released]
 
+## [0.7.0] - 2026-01-03
+- New `sharepoint2text` CLI entry point with JSON (`--json`) and unit-level JSON (`--json-unit`) output, plus optional base64 binary payloads via `--binary`.
+- Standardized unit processing across formats (including heading-based units for DOCX) to support chunked extraction and per-unit metadata workflows.
+- Extractor refactors for modern/legacy Office and OpenDocument formats improve text/table/image consistency and shared image handling utilities.
+- PDF decryption enhancements add AES fallback support, optional `pdf-crypto` acceleration, and clearer encryption errors for protected files.
+- ZIP bomb mitigation for ZIP-based formats (OOXML/ODF) introduces `ExtractionZipBombError` safeguards.
+- File routing now prefers extensions before MIME types for more deterministic extractor selection.
+- Packaging/dev workflow updates: version sourced from `pyproject.toml`, `py.typed` restored, uv/pre-commit adoption, and refreshed docs/tests.
+
+PRs
+- Allow calling the tool from the CLI (#17)
+- added --json switch to cli tool (#18)
+- Feature/extractor refactoring (#19)
+- use file-ending as primary routing mechanism and fallback to mime type (#20)
+- Feature/cli extension (#21)
+- Feature/zip bomb mitigation (#22)
+- Feature/docx iteration (#23)
+- Feature/refined iterate unit (#24)
+- Feature/unit processing (#25)
+- Feature/pdf decryption (#26)
+
 ## [0.6.0] - 2026-01-01
 - 0.6.0 focuses on reliability and richer extraction coverage: core data types and interfaces now capture tables, images, and formula output more consistently across formats, and extractor behavior has been tightened with broader fixtures and tests to validate real-world edge cases.
 - Email handling expands beyond bodies to include binary attachment extraction and downstream processing; attachments now carry MIME metadata, support checks, and can be iterated through the same extractor pipeline when supported.
