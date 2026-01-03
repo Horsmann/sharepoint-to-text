@@ -933,6 +933,17 @@ def test_read_ppt() -> None:
     tc.assertEqual("European Union", ppt.get_full_text()[:14])
 
 
+def test_read_ppt__presentation_with_notes() -> None:
+    path = "sharepoint2text/tests/resources/legacy_ms/slide_with_notes.ppt"
+    ppt: PptContent = next(
+        read_ppt(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+
+    tc.assertListEqual(
+        ["This is an example text in the notes section"], ppt.slides[0].notes
+    )
+
+
 def test_read_ppt__image_extraction() -> None:
     """Test image extraction from legacy PPT files."""
     path = "sharepoint2text/tests/resources/legacy_ms/ppt_with_images.ppt"
@@ -1700,6 +1711,17 @@ def test_read_open_office__document() -> None:
             annotation_date=None,
         ),
         units[0].get_metadata(),
+    )
+
+
+def test_read_open_office__presentation_with_notes() -> None:
+    path = "sharepoint2text/tests/resources/open_office/slide_with_notes.odp"
+    odp: OdpContent = next(
+        read_odp(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+
+    tc.assertListEqual(
+        ["This is an example text in the notes section"], odp.slides[0].notes
     )
 
 
