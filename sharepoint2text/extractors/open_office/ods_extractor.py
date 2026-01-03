@@ -111,7 +111,7 @@ Maintenance Notes
 import io
 import logging
 import mimetypes
-import zipfile
+from functools import lru_cache
 from typing import Any, Generator
 from xml.etree import ElementTree as ET
 
@@ -128,8 +128,7 @@ from sharepoint2text.extractors.data_types import (
     OpenDocumentMetadata,
 )
 from sharepoint2text.extractors.util.encryption import is_odf_encrypted
-from sharepoint2text.extractors.util.zip_bomb import open_zipfile
-from sharepoint2text.extractors.util.zip_utils import read_zip_xml_root
+from sharepoint2text.extractors.util.zip_context import ZipContext
 
 logger = logging.getLogger(__name__)
 
@@ -148,47 +147,94 @@ NS = {
     "number": "urn:oasis:names:tc:opendocument:xmlns:datastyle:1.0",
 }
 
+_TEXT_SPACE_TAG = f"{{{NS['text']}}}s"
+_TEXT_TAB_TAG = f"{{{NS['text']}}}tab"
+_TEXT_LINE_BREAK_TAG = f"{{{NS['text']}}}line-break"
+_OFFICE_ANNOTATION_TAG = f"{{{NS['office']}}}annotation"
+
+_ATTR_TEXT_C = f"{{{NS['text']}}}c"
+_ATTR_TABLE_NAME = f"{{{NS['table']}}}name"
+_ATTR_TABLE_REPEAT_ROWS = f"{{{NS['table']}}}number-rows-repeated"
+_ATTR_TABLE_REPEAT_COLS = f"{{{NS['table']}}}number-columns-repeated"
+
+_ATTR_OFFICE_VALUE_TYPE = f"{{{NS['office']}}}value-type"
+_ATTR_OFFICE_VALUE = f"{{{NS['office']}}}value"
+_ATTR_OFFICE_DATE_VALUE = f"{{{NS['office']}}}date-value"
+_ATTR_OFFICE_TIME_VALUE = f"{{{NS['office']}}}time-value"
+_ATTR_OFFICE_BOOLEAN_VALUE = f"{{{NS['office']}}}boolean-value"
+
+_ATTR_DRAW_NAME = f"{{{NS['draw']}}}name"
+_ATTR_SVG_WIDTH = f"{{{NS['svg']}}}width"
+_ATTR_SVG_HEIGHT = f"{{{NS['svg']}}}height"
+_ATTR_XLINK_HREF = f"{{{NS['xlink']}}}href"
+
+
+@lru_cache(maxsize=512)
+def _guess_content_type(path: str) -> str:
+    return mimetypes.guess_type(path)[0] or "application/octet-stream"
+
+
+class _OdsContext(ZipContext):
+    """Cached context for ODS extraction."""
+
+    def __init__(self, file_like: io.BytesIO):
+        super().__init__(file_like)
+        self._content_root: ET.Element | None = (
+            self.read_xml_root("content.xml") if self.exists("content.xml") else None
+        )
+        self._meta_root: ET.Element | None = (
+            self.read_xml_root("meta.xml") if self.exists("meta.xml") else None
+        )
+
+    @property
+    def content_root(self) -> ET.Element | None:
+        return self._content_root
+
+    @property
+    def meta_root(self) -> ET.Element | None:
+        return self._meta_root
+
 
 def _get_text_recursive(element: ET.Element) -> str:
     """Recursively extract all text from an element and its children."""
-    parts = []
-    if element.text:
-        parts.append(element.text)
+    parts: list[str] = []
+
+    text = element.text
+    if text:
+        parts.append(text)
 
     for child in element:
-        tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+        tag = child.tag
 
-        if tag == "s":
-            # Space element - get count attribute
-            count = int(child.get(f"{{{NS['text']}}}c", "1"))
+        if tag == _TEXT_SPACE_TAG:
+            count = int(child.get(_ATTR_TEXT_C, "1"))
             parts.append(" " * count)
-        elif tag == "tab":
+        elif tag == _TEXT_TAB_TAG:
             parts.append("\t")
-        elif tag == "line-break":
+        elif tag == _TEXT_LINE_BREAK_TAG:
             parts.append("\n")
-        elif tag == "annotation":
-            # Skip annotations in main text extraction
+        elif tag == _OFFICE_ANNOTATION_TAG:
+            # Skip annotations in main text extraction.
             pass
         else:
             parts.append(_get_text_recursive(child))
 
-        if child.tail:
-            parts.append(child.tail)
+        tail = child.tail
+        if tail:
+            parts.append(tail)
 
     return "".join(parts)
 
 
-def _extract_metadata(z: zipfile.ZipFile) -> OpenDocumentMetadata:
+def _extract_metadata(meta_root: ET.Element | None) -> OpenDocumentMetadata:
     """Extract metadata from meta.xml."""
     logger.debug("Extracting ODS metadata")
     metadata = OpenDocumentMetadata()
 
-    if "meta.xml" not in z.namelist():
+    if meta_root is None:
         return metadata
 
-    root = read_zip_xml_root(z, "meta.xml")
-
-    meta_elem = root.find(".//office:meta", NS)
+    meta_elem = meta_root.find(".//office:meta", NS)
     if meta_elem is None:
         return metadata
 
@@ -257,11 +303,11 @@ def _extract_cell_value(cell: ET.Element) -> tuple[Any, str]:
         - display_text: The string representation for text output
     """
     # Check for value type attribute
-    value_type = cell.get(f"{{{NS['office']}}}value-type", "")
+    value_type = cell.get(_ATTR_OFFICE_VALUE_TYPE, "")
 
     # For numeric values, get the value attribute and convert to proper type
     if value_type in ("float", "currency", "percentage"):
-        value = cell.get(f"{{{NS['office']}}}value", "")
+        value = cell.get(_ATTR_OFFICE_VALUE, "")
         if value:
             try:
                 float_val = float(value)
@@ -274,24 +320,24 @@ def _extract_cell_value(cell: ET.Element) -> tuple[Any, str]:
 
     # For date/time values
     if value_type == "date":
-        value = cell.get(f"{{{NS['office']}}}date-value", "")
+        value = cell.get(_ATTR_OFFICE_DATE_VALUE, "")
         if value:
             return value, value
 
     if value_type == "time":
-        value = cell.get(f"{{{NS['office']}}}time-value", "")
+        value = cell.get(_ATTR_OFFICE_TIME_VALUE, "")
         if value:
             return value, value
 
     # For boolean values
     if value_type == "boolean":
-        value = cell.get(f"{{{NS['office']}}}boolean-value", "")
+        value = cell.get(_ATTR_OFFICE_BOOLEAN_VALUE, "")
         if value:
             return value.lower() == "true", value
 
     # For string values or fallback, get text from paragraphs
-    text_parts = []
-    for p in cell.findall(".//text:p", NS):
+    text_parts: list[str] = []
+    for p in cell.iterfind(".//text:p", NS):
         text_parts.append(_get_text_recursive(p))
 
     text = "\n".join(text_parts)
@@ -326,9 +372,8 @@ def _extract_annotations(cell: ET.Element) -> list[OpenDocumentAnnotation]:
 
 
 def _extract_images(
-    z: zipfile.ZipFile,
+    ctx: _OdsContext,
     table: ET.Element,
-    sheet_number: int,
     image_counter: int,
 ) -> tuple[list[OpenDocumentImage], int]:
     """Extract images from a table/sheet.
@@ -340,20 +385,19 @@ def _extract_images(
     - unit_index: None (ODS has sheets, not pages/slides)
 
     Args:
-        z: The open zipfile containing the spreadsheet.
+        ctx: Cached ZIP context for this spreadsheet.
         table: The table:table XML element for this sheet.
-        sheet_number: The 1-based sheet number.
         image_counter: The current global image counter across all sheets.
 
     Returns:
         A tuple of (list of OpenDocumentImage, updated image_counter).
     """
-    images = []
+    images: list[OpenDocumentImage] = []
 
     for frame in table.findall(".//draw:frame", NS):
-        name = frame.get(f"{{{NS['draw']}}}name", "")
-        width = frame.get(f"{{{NS['svg']}}}width")
-        height = frame.get(f"{{{NS['svg']}}}height")
+        name = frame.get(_ATTR_DRAW_NAME, "")
+        width = frame.get(_ATTR_SVG_WIDTH)
+        height = frame.get(_ATTR_SVG_HEIGHT)
 
         # Extract title and description from frame
         # ODF uses svg:title and svg:desc elements for accessibility
@@ -377,7 +421,7 @@ def _extract_images(
         if image_elem is None:
             continue
 
-        href = image_elem.get(f"{{{NS['xlink']}}}href", "")
+        href = image_elem.get(_ATTR_XLINK_HREF, "")
         if not href:
             continue
 
@@ -400,45 +444,44 @@ def _extract_images(
         else:
             # Internal image reference
             try:
-                if href in z.namelist():
-                    with z.open(href) as img_file:
-                        img_data = img_file.read()
-                        content_type = (
-                            mimetypes.guess_type(href)[0] or "application/octet-stream"
+                if ctx.exists(href):
+                    img_data = ctx.read_bytes(href)
+                    images.append(
+                        OpenDocumentImage(
+                            href=href,
+                            name=name or href.split("/")[-1],
+                            content_type=_guess_content_type(href),
+                            data=io.BytesIO(img_data),
+                            size_bytes=len(img_data),
+                            width=width,
+                            height=height,
+                            image_index=image_counter,
+                            caption=caption,
+                            description=description,
+                            unit_index=None,
                         )
-                        images.append(
-                            OpenDocumentImage(
-                                href=href,
-                                name=name or href.split("/")[-1],
-                                content_type=content_type,
-                                data=io.BytesIO(img_data),
-                                size_bytes=len(img_data),
-                                width=width,
-                                height=height,
-                                image_index=image_counter,
-                                caption=caption,
-                                description=description,
-                                unit_index=None,
-                            )
-                        )
+                    )
             except Exception as e:
-                logger.debug(f"Failed to extract image {href}: {e}")
-                images.append(OpenDocumentImage(href=href, name=name, error=str(e)))
+                logger.debug("Failed to extract image %s: %s", href, e)
+                images.append(
+                    OpenDocumentImage(
+                        href=href,
+                        name=name or href,
+                        error=str(e),
+                        width=width,
+                        height=height,
+                        image_index=image_counter,
+                        caption=caption,
+                        description=description,
+                        unit_index=None,
+                    )
+                )
 
     return images, image_counter
 
 
-def _get_column_name(index: int) -> str:
-    """Convert column index to Excel-style column name (A, B, ..., Z, AA, AB, ...)."""
-    result = ""
-    while index >= 0:
-        result = chr(ord("A") + (index % 26)) + result
-        index = index // 26 - 1
-    return result
-
-
 def _extract_sheet(
-    z: zipfile.ZipFile,
+    ctx: _OdsContext,
     table: ET.Element,
     sheet_number: int,
     image_counter: int,
@@ -457,7 +500,7 @@ def _extract_sheet(
     sheet = OdsSheet()
 
     # Get sheet name
-    sheet.name = table.get(f"{{{NS['table']}}}name", "")
+    sheet.name = table.get(_ATTR_TABLE_NAME, "")
 
     # First pass: collect all rows and find max column count
     raw_rows: list[list[tuple[Any, str]]] = []  # list of (typed_value, display_text)
@@ -468,13 +511,11 @@ def _extract_sheet(
         row_values: list[tuple[Any, str]] = []
 
         # Check for repeated rows
-        row_repeat = int(row.get(f"{{{NS['table']}}}number-rows-repeated", "1"))
+        row_repeat = int(row.get(_ATTR_TABLE_REPEAT_ROWS, "1"))
 
         for cell in row.findall("table:table-cell", NS):
             # Check for repeated cells
-            cell_repeat = int(
-                cell.get(f"{{{NS['table']}}}number-columns-repeated", "1")
-            )
+            cell_repeat = int(cell.get(_ATTR_TABLE_REPEAT_COLS, "1"))
 
             typed_value, display_text = _extract_cell_value(cell)
 
@@ -487,16 +528,14 @@ def _extract_sheet(
                 # Large repeat of empty cells - just add one to track column position
                 row_values.append((None, ""))
             else:
-                for _ in range(cell_repeat):
-                    row_values.append((typed_value, display_text))
+                row_values.extend([(typed_value, display_text)] * cell_repeat)
 
         # Add row for each repeated row (but limit to avoid huge empty areas)
         if row_repeat > 100 and all(v[0] is None for v in row_values):
             # Large repeat of empty rows - add just one
             raw_rows.append(row_values)
         else:
-            for _ in range(row_repeat):
-                raw_rows.append(row_values.copy())
+            raw_rows.extend([row_values] * row_repeat)
 
         if row_values:
             max_cols = max(max_cols, len(row_values))
@@ -540,7 +579,7 @@ def _extract_sheet(
     sheet.data = rows_data
     sheet.text = "\n".join(text_lines)
     sheet.annotations = all_annotations
-    sheet.images, image_counter = _extract_images(z, table, sheet_number, image_counter)
+    sheet.images, image_counter = _extract_images(ctx, table, image_counter)
 
     return sheet, image_counter
 
@@ -588,31 +627,29 @@ def read_ods(
         if is_odf_encrypted(file_like):
             raise ExtractionFileEncryptedError("ODS is encrypted or password-protected")
 
-        with open_zipfile(file_like, source="read_ods") as z:
-            # Extract metadata
-            metadata = _extract_metadata(z)
+        ctx = _OdsContext(file_like)
+        try:
+            metadata = _extract_metadata(ctx.meta_root)
 
-            # Parse content.xml
-            if "content.xml" not in z.namelist():
+            content_root = ctx.content_root
+            if content_root is None:
                 raise ExtractionFailedError("Invalid ODS file: content.xml not found")
 
-            content_root = read_zip_xml_root(z, "content.xml")
-
-            # Find the spreadsheet body
             body = content_root.find(".//office:body/office:spreadsheet", NS)
             if body is None:
                 raise ExtractionFailedError(
                     "Invalid ODS file: spreadsheet body not found"
                 )
 
-            # Extract sheets
-            sheets = []
+            sheets: list[OdsSheet] = []
             image_counter = 0
             for sheet_num, table in enumerate(body.findall("table:table", NS), start=1):
                 sheet, image_counter = _extract_sheet(
-                    z, table, sheet_num, image_counter
+                    ctx, table, sheet_num, image_counter
                 )
                 sheets.append(sheet)
+        finally:
+            ctx.close()
 
         # Populate file metadata from path
         metadata.populate_from_path(path)
