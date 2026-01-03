@@ -105,7 +105,8 @@ Maintenance Notes
 import io
 import logging
 import mimetypes
-import zipfile
+import re
+from functools import lru_cache
 from typing import Any, Generator
 from xml.etree import ElementTree as ET
 
@@ -122,8 +123,7 @@ from sharepoint2text.extractors.data_types import (
     OpenDocumentMetadata,
 )
 from sharepoint2text.extractors.util.encryption import is_odf_encrypted
-from sharepoint2text.extractors.util.zip_bomb import open_zipfile
-from sharepoint2text.extractors.util.zip_utils import read_zip_xml_root
+from sharepoint2text.extractors.util.zip_context import ZipContext
 
 logger = logging.getLogger(__name__)
 
@@ -142,49 +142,122 @@ NS = {
     "presentation": "urn:oasis:names:tc:opendocument:xmlns:presentation:1.0",
 }
 
+_ODF_LENGTH_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([a-zA-Z]+)?\s*$")
+
+# Namespaced tags/attributes used frequently.
+_TEXT_SPACE_TAG = f"{{{NS['text']}}}s"
+_TEXT_TAB_TAG = f"{{{NS['text']}}}tab"
+_TEXT_LINE_BREAK_TAG = f"{{{NS['text']}}}line-break"
+_OFFICE_ANNOTATION_TAG = f"{{{NS['office']}}}annotation"
+
+_ATTR_TEXT_C = f"{{{NS['text']}}}c"
+_ATTR_TEXT_STYLE_NAME = f"{{{NS['text']}}}style-name"
+_ATTR_DRAW_NAME = f"{{{NS['draw']}}}name"
+_ATTR_SVG_X = f"{{{NS['svg']}}}x"
+_ATTR_SVG_Y = f"{{{NS['svg']}}}y"
+_ATTR_SVG_WIDTH = f"{{{NS['svg']}}}width"
+_ATTR_SVG_HEIGHT = f"{{{NS['svg']}}}height"
+_ATTR_XLINK_HREF = f"{{{NS['xlink']}}}href"
+
+
+@lru_cache(maxsize=512)
+def _guess_content_type(path: str) -> str:
+    return mimetypes.guess_type(path)[0] or "application/octet-stream"
+
+
+def _parse_odf_length_to_px(value: str | None) -> float:
+    """Convert an ODF length string into a comparable pixel float.
+
+    This is used to sort frames into a consistent reading order.
+    """
+    if not value:
+        return 0.0
+    match = _ODF_LENGTH_RE.match(value)
+    if not match:
+        return 0.0
+
+    number = float(match.group(1))
+    unit = (match.group(2) or "px").lower()
+
+    # https://www.w3.org/TR/css-values-3/#absolute-lengths (96 dpi)
+    if unit == "px":
+        return number
+    if unit == "in":
+        return number * 96.0
+    if unit == "cm":
+        return (number / 2.54) * 96.0
+    if unit == "mm":
+        return (number / 25.4) * 96.0
+    if unit == "pt":
+        return (number / 72.0) * 96.0
+    if unit == "pc":  # pica = 12pt
+        return ((number * 12.0) / 72.0) * 96.0
+
+    return number
+
+
+class _OdpContext(ZipContext):
+    """Cached context for ODP extraction."""
+
+    def __init__(self, file_like: io.BytesIO):
+        super().__init__(file_like)
+        self._content_root: ET.Element | None = (
+            self.read_xml_root("content.xml") if self.exists("content.xml") else None
+        )
+        self._meta_root: ET.Element | None = (
+            self.read_xml_root("meta.xml") if self.exists("meta.xml") else None
+        )
+
+    @property
+    def content_root(self) -> ET.Element | None:
+        return self._content_root
+
+    @property
+    def meta_root(self) -> ET.Element | None:
+        return self._meta_root
+
 
 def _get_text_recursive(element: ET.Element) -> str:
     """Recursively extract all text from an element and its children."""
-    parts = []
-    if element.text:
-        parts.append(element.text)
+    parts: list[str] = []
+
+    text = element.text
+    if text:
+        parts.append(text)
 
     for child in element:
-        # Handle special elements
-        tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+        tag = child.tag
 
-        if tag == "s":
-            # Space element - get count attribute
-            count = int(child.get(f"{{{NS['text']}}}c", "1"))
+        if tag == _TEXT_SPACE_TAG:
+            count = int(child.get(_ATTR_TEXT_C, "1"))
             parts.append(" " * count)
-        elif tag == "tab":
+        elif tag == _TEXT_TAB_TAG:
             parts.append("\t")
-        elif tag == "line-break":
+        elif tag == _TEXT_LINE_BREAK_TAG:
             parts.append("\n")
-        elif tag == "annotation":
-            # Skip annotations in main text extraction
+        elif tag == _OFFICE_ANNOTATION_TAG:
+            # Skip annotations in main text extraction.
             pass
         else:
             parts.append(_get_text_recursive(child))
 
-        if child.tail:
-            parts.append(child.tail)
+        tail = child.tail
+        if tail:
+            parts.append(tail)
 
     return "".join(parts)
 
 
-def _extract_metadata(z: zipfile.ZipFile) -> OpenDocumentMetadata:
+def _extract_metadata(meta_root: ET.Element | None) -> OpenDocumentMetadata:
     """Extract metadata from meta.xml."""
     logger.debug("Extracting ODP metadata")
     metadata = OpenDocumentMetadata()
 
-    if "meta.xml" not in z.namelist():
+    # Find the office:meta element
+    if meta_root is None:
         return metadata
 
-    root = read_zip_xml_root(z, "meta.xml")
-
-    # Find the office:meta element
-    meta_elem = root.find(".//office:meta", NS)
+    meta_elem = meta_root.find(".//office:meta", NS)
     if meta_elem is None:
         return metadata
 
@@ -272,14 +345,17 @@ def _extract_annotations(element: ET.Element) -> list[OpenDocumentAnnotation]:
 
 def _extract_table(table_elem: ET.Element) -> list[list[str]]:
     """Extract table data from a table element."""
-    table_data = []
-    for row in table_elem.findall(".//table:table-row", NS):
-        row_data = []
-        for cell in row.findall(".//table:table-cell", NS):
-            # Get all text from paragraphs in the cell
-            cell_texts = []
-            for p in cell.findall(".//text:p", NS):
-                cell_texts.append(_get_text_recursive(p))
+    rows: list[ET.Element] = []
+    rows.extend(table_elem.findall("table:table-header-rows/table:table-row", NS))
+    rows.extend(table_elem.findall("table:table-row", NS))
+
+    table_data: list[list[str]] = []
+    for row in rows:
+        row_data: list[str] = []
+        for cell in row.findall("table:table-cell", NS):
+            cell_texts = [
+                _get_text_recursive(p) for p in cell.iterfind(".//text:p", NS)
+            ]
             row_data.append("\n".join(cell_texts))
         if row_data:
             table_data.append(row_data)
@@ -287,7 +363,7 @@ def _extract_table(table_elem: ET.Element) -> list[list[str]]:
 
 
 def _extract_image(
-    z: zipfile.ZipFile,
+    ctx: _OdpContext,
     frame: ET.Element,
     slide_number: int,
     image_index: int,
@@ -301,9 +377,9 @@ def _extract_image(
     - unit_index: The slide number where the image appears
     """
     # Get frame attributes
-    name = frame.get(f"{{{NS['draw']}}}name", "")
-    width = frame.get(f"{{{NS['svg']}}}width")
-    height = frame.get(f"{{{NS['svg']}}}height")
+    name = frame.get(_ATTR_DRAW_NAME, "")
+    width = frame.get(_ATTR_SVG_WIDTH)
+    height = frame.get(_ATTR_SVG_HEIGHT)
 
     # Extract title and description from frame
     # ODF uses svg:title and svg:desc elements for accessibility
@@ -328,7 +404,7 @@ def _extract_image(
     if image_elem is None:
         return None
 
-    href = image_elem.get(f"{{{NS['xlink']}}}href", "")
+    href = image_elem.get(_ATTR_XLINK_HREF, "")
     if not href:
         return None
 
@@ -347,34 +423,40 @@ def _extract_image(
 
     # Internal image reference
     try:
-        if href in z.namelist():
-            with z.open(href) as img_file:
-                img_data = img_file.read()
-                content_type = (
-                    mimetypes.guess_type(href)[0] or "application/octet-stream"
-                )
-                return OpenDocumentImage(
-                    href=href,
-                    name=name or href.split("/")[-1],
-                    content_type=content_type,
-                    data=io.BytesIO(img_data),
-                    size_bytes=len(img_data),
-                    width=width,
-                    height=height,
-                    image_index=image_index,
-                    caption=caption,
-                    description=description,
-                    unit_index=slide_number,
-                )
+        if ctx.exists(href):
+            img_data = ctx.read_bytes(href)
+            return OpenDocumentImage(
+                href=href,
+                name=name or href.split("/")[-1],
+                content_type=_guess_content_type(href),
+                data=io.BytesIO(img_data),
+                size_bytes=len(img_data),
+                width=width,
+                height=height,
+                image_index=image_index,
+                caption=caption,
+                description=description,
+                unit_index=slide_number,
+            )
     except Exception as e:
-        logger.debug(f"Failed to extract image {href}: {e}")
-        return OpenDocumentImage(href=href, name=name, error=str(e))
+        logger.debug("Failed to extract image %s: %s", href, e)
+        return OpenDocumentImage(
+            href=href,
+            name=name or href,
+            error=str(e),
+            width=width,
+            height=height,
+            image_index=image_index,
+            caption=caption,
+            description=description,
+            unit_index=slide_number,
+        )
 
     return None
 
 
 def _extract_slide(
-    z: zipfile.ZipFile,
+    ctx: _OdpContext,
     page: ET.Element,
     slide_number: int,
     image_counter: int = 0,
@@ -393,30 +475,17 @@ def _extract_slide(
     slide = OdpSlide(slide_number=slide_number)
 
     # Get slide name
-    slide.name = page.get(f"{{{NS['draw']}}}name", "")
+    slide.name = page.get(_ATTR_DRAW_NAME, "")
 
     # Collect all frames with their positions for sorting
-    frames_with_positions = []
-
+    frames_with_positions: list[tuple[float, float, ET.Element]] = []
     for frame in page.findall("draw:frame", NS):
-        # Get position for ordering (top to bottom, left to right)
-        y_pos = frame.get(f"{{{NS['svg']}}}y", "0cm")
-        x_pos = frame.get(f"{{{NS['svg']}}}x", "0cm")
-
-        # Parse position (simple parsing, handle cm/in units)
-        try:
-            y_val = float(y_pos.replace("cm", "").replace("in", "").replace("pt", ""))
-        except ValueError:
-            y_val = 0.0
-        try:
-            x_val = float(x_pos.replace("cm", "").replace("in", "").replace("pt", ""))
-        except ValueError:
-            x_val = 0.0
-
+        y_val = _parse_odf_length_to_px(frame.get(_ATTR_SVG_Y))
+        x_val = _parse_odf_length_to_px(frame.get(_ATTR_SVG_X))
         frames_with_positions.append((y_val, x_val, frame))
 
     # Sort frames by position (top to bottom, then left to right)
-    frames_with_positions.sort(key=lambda f: (f[0], f[1]))
+    frames_with_positions.sort(key=lambda item: (item[0], item[1]))
 
     # Track if we've found a title (first text at top of slide)
     found_title = False
@@ -429,7 +498,7 @@ def _extract_slide(
                 text = _get_text_recursive(p).strip()
                 if text:
                     # Check style to determine if it's a title
-                    style_name = p.get(f"{{{NS['text']}}}style-name", "")
+                    style_name = p.get(_ATTR_TEXT_STYLE_NAME, "")
                     if not found_title and (
                         "Title" in style_name or style_name == "TitleText"
                     ):
@@ -452,7 +521,7 @@ def _extract_slide(
                 slide.tables.append(table_data)
 
         # Check for image
-        image = _extract_image(z, frame, slide_number, image_counter + 1)
+        image = _extract_image(ctx, frame, slide_number, image_counter + 1)
         if image is not None:
             image_counter += 1
             slide.images.append(image)
@@ -513,29 +582,29 @@ def read_odp(
         if is_odf_encrypted(file_like):
             raise ExtractionFileEncryptedError("ODP is encrypted or password-protected")
 
-        with open_zipfile(file_like, source="read_odp") as z:
-            # Extract metadata
-            metadata = _extract_metadata(z)
+        ctx = _OdpContext(file_like)
+        try:
+            metadata = _extract_metadata(ctx.meta_root)
 
-            # Parse content.xml
-            if "content.xml" not in z.namelist():
+            content_root = ctx.content_root
+            if content_root is None:
                 raise ExtractionFailedError("Invalid ODP file: content.xml not found")
 
-            content_root = read_zip_xml_root(z, "content.xml")
-
-            # Find the presentation body
             body = content_root.find(".//office:body/office:presentation", NS)
             if body is None:
                 raise ExtractionFailedError(
                     "Invalid ODP file: presentation body not found"
                 )
 
-            # Extract slides
-            slides = []
+            slides: list[OdpSlide] = []
             image_counter = 0
             for slide_num, page in enumerate(body.findall("draw:page", NS), start=1):
-                slide, image_counter = _extract_slide(z, page, slide_num, image_counter)
+                slide, image_counter = _extract_slide(
+                    ctx, page, slide_num, image_counter
+                )
                 slides.append(slide)
+        finally:
+            ctx.close()
 
         # Populate file metadata from path
         metadata.populate_from_path(path)
