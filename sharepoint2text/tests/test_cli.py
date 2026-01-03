@@ -31,6 +31,22 @@ def test_cli_outputs_json_with_flag(capsys) -> None:
     assert payload == expected
 
 
+def test_cli_outputs_json_unit_with_flag(capsys) -> None:
+    path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
+    result = next(sharepoint2text.read_file(path))
+    expected = [
+        serialize_extraction(unit, include_binary=False)
+        for unit in result.iterate_units()
+    ]
+
+    exit_code = main(["--json-unit", str(path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out.strip())
+    assert payload == expected
+
+
 def _contains_binary_markers(value: object) -> bool:
     if isinstance(value, dict):
         if "_bytes" in value or "_bytesio" in value:
@@ -57,6 +73,24 @@ def test_cli_outputs_json_without_binary_payloads(capsys) -> None:
     assert images[0]["data"] is None
 
 
+def test_cli_outputs_json_unit_without_binary_payloads(capsys) -> None:
+    path = Path("sharepoint2text/tests/resources/pdf/multi_image.pdf").resolve()
+
+    exit_code = main(["--json-unit", str(path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out.strip())
+    assert isinstance(payload, list)
+    assert len(payload) > 0
+    assert payload[0]["_type"] == "PdfUnit"
+    assert _contains_binary_markers(payload) is False
+
+    images = payload[0]["images"]
+    assert len(images) > 0
+    assert images[0]["data"] is None
+
+
 def test_cli_outputs_json_with_binary_payloads_when_requested(capsys) -> None:
     path = Path("sharepoint2text/tests/resources/pdf/multi_image.pdf").resolve()
 
@@ -69,6 +103,25 @@ def test_cli_outputs_json_with_binary_payloads_when_requested(capsys) -> None:
     assert _contains_binary_markers(payload) is True
 
     images = payload["pages"][0]["images"]
+    assert len(images) > 0
+    assert isinstance(images[0]["data"], dict)
+    assert "_bytesio" in images[0]["data"] or "_bytes" in images[0]["data"]
+
+
+def test_cli_outputs_json_unit_with_binary_payloads_when_requested(capsys) -> None:
+    path = Path("sharepoint2text/tests/resources/pdf/multi_image.pdf").resolve()
+
+    exit_code = main(["--json-unit", "--binary", str(path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out.strip())
+    assert isinstance(payload, list)
+    assert len(payload) > 0
+    assert payload[0]["_type"] == "PdfUnit"
+    assert _contains_binary_markers(payload) is True
+
+    images = payload[0]["images"]
     assert len(images) > 0
     assert isinstance(images[0]["data"], dict)
     assert "_bytesio" in images[0]["data"] or "_bytes" in images[0]["data"]
@@ -89,7 +142,7 @@ def test_cli_rejects_binary_without_json(capsys) -> None:
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "requires --json" in captured.err
+    assert "requires --json or --json-unit" in captured.err
 
 
 def test_cli_warns_on_unsupported_argument(capsys) -> None:

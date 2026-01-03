@@ -14,22 +14,29 @@ from sharepoint2text.extractors.serialization import serialize_extraction
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="sharepoint2text",
-        description="Extract file content and emit full text to stdout (or JSON with --json).",
+        description="Extract file content and emit full text to stdout (or JSON with --json/--json-unit).",
     )
     parser.add_argument(
         "path",
         type=Path,
         help="Path to the file to extract.",
     )
-    parser.add_argument(
+    output_group = parser.add_mutually_exclusive_group()
+    output_group.add_argument(
         "--json",
         action="store_true",
         help="Emit structured JSON instead of plain full text (omits binary payloads by default).",
     )
+    output_group.add_argument(
+        "--json-unit",
+        dest="json_unit",
+        action="store_true",
+        help="Emit JSON for extracted text units instead of full extraction objects (omits binary payloads by default).",
+    )
     parser.add_argument(
         "--binary",
         action="store_true",
-        help="With --json, include binary payloads (images/attachments) as base64 blobs.",
+        help="With --json/--json-unit, include binary payloads (images/attachments) as base64 blobs.",
     )
     return parser
 
@@ -41,6 +48,23 @@ def _serialize_results(
         return serialize_extraction(results[0], include_binary=include_binary)
     return [
         serialize_extraction(result, include_binary=include_binary)
+        for result in results
+    ]
+
+
+def _serialize_unit_results(
+    results: list[ExtractionInterface], *, include_binary: bool
+) -> list[dict] | list[list[dict]]:
+    if len(results) == 1:
+        return [
+            serialize_extraction(unit, include_binary=include_binary)
+            for unit in results[0].iterate_units()
+        ]
+    return [
+        [
+            serialize_extraction(unit, include_binary=include_binary)
+            for unit in result.iterate_units()
+        ]
         for result in results
     ]
 
@@ -66,13 +90,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     try:
-        if args.binary and not args.json:
-            raise ValueError("--binary requires --json")
+        if args.binary and not (args.json or args.json_unit):
+            raise ValueError("--binary requires --json or --json-unit")
         results = list(sharepoint2text.read_file(args.path))
         if not results:
             raise RuntimeError(f"No extraction results for {args.path}")
-        if args.json:
-            payload = _serialize_results(results, include_binary=bool(args.binary))
+        if args.json or args.json_unit:
+            include_binary = bool(args.binary)
+            payload = (
+                _serialize_unit_results(results, include_binary=include_binary)
+                if args.json_unit
+                else _serialize_results(results, include_binary=include_binary)
+            )
             json.dump(payload, sys.stdout)
             sys.stdout.write("\n")
         else:
