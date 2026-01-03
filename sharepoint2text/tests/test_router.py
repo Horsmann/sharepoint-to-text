@@ -7,6 +7,7 @@ from sharepoint2text.extractors.html_extractor import read_html
 from sharepoint2text.extractors.mail.eml_email_extractor import read_eml_format_mail
 from sharepoint2text.extractors.mail.mbox_email_extractor import read_mbox_format_mail
 from sharepoint2text.extractors.mail.msg_email_extractor import read_msg_format_mail
+from sharepoint2text.extractors.mhtml_extractor import read_mhtml
 from sharepoint2text.extractors.ms_legacy.doc_extractor import read_doc
 from sharepoint2text.extractors.ms_legacy.ppt_extractor import read_ppt
 from sharepoint2text.extractors.ms_legacy.rtf_extractor import read_rtf
@@ -51,6 +52,8 @@ def test_is_supported():
     tc.assertTrue(is_supported_file("myfile.odp"))
     tc.assertTrue(is_supported_file("myfile.ods"))
     tc.assertTrue(is_supported_file("myfile.epub"))
+    tc.assertTrue(is_supported_file("myfile.mhtml"))
+    tc.assertTrue(is_supported_file("myfile.mht"))
     # Macro-enabled Office formats
     tc.assertTrue(is_supported_file("myfile.docm"))
     tc.assertTrue(is_supported_file("myfile.xlsm"))
@@ -151,6 +154,14 @@ def test_router():
     # epub
     func = get_extractor("myfile.epub")
     tc.assertEqual(read_epub, func)
+
+    # mhtml
+    func = get_extractor("myfile.mhtml")
+    tc.assertEqual(read_mhtml, func)
+
+    # mht (alias for mhtml)
+    func = get_extractor("myfile.mht")
+    tc.assertEqual(read_mhtml, func)
 
     # Macro-enabled Office formats (use same extractors as non-macro)
     # docm -> read_docx

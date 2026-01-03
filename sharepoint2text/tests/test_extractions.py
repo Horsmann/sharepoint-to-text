@@ -52,6 +52,7 @@ from sharepoint2text.extractors.html_extractor import read_html
 from sharepoint2text.extractors.mail.eml_email_extractor import read_eml_format_mail
 from sharepoint2text.extractors.mail.mbox_email_extractor import read_mbox_format_mail
 from sharepoint2text.extractors.mail.msg_email_extractor import read_msg_format_mail
+from sharepoint2text.extractors.mhtml_extractor import read_mhtml
 from sharepoint2text.extractors.ms_legacy.doc_extractor import read_doc
 from sharepoint2text.extractors.ms_legacy.ppt_extractor import read_ppt
 from sharepoint2text.extractors.ms_legacy.rtf_extractor import read_rtf
@@ -2576,3 +2577,34 @@ def test_read_macro_enabled_pptm() -> None:
     # Verify it extracts as PptxContent (same as .pptx)
     tc.assertIsInstance(result, PptxContent)
     tc.assertTrue(len(result.slides) > 0)
+
+
+def test_read_mhtml() -> None:
+    """Test MHTML (web archive) extraction."""
+    path = "sharepoint2text/tests/resources/sample.mhtml"
+    result: HtmlContent = next(
+        read_mhtml(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+
+    # Verify it returns HtmlContent
+    tc.assertIsInstance(result, HtmlContent)
+
+    # Check metadata
+    tc.assertEqual("Test MHTML Page", result.metadata.title)
+
+    # Check content extraction
+    tc.assertIn("Welcome to the Test Page", result.content)
+    tc.assertIn("test MHTML document", result.content)
+    tc.assertIn("More Content", result.content)
+
+    # Check table extraction
+    tc.assertEqual(1, len(result.tables))
+    tc.assertListEqual(
+        [["Product", "Price"], ["Widget", "$10.00"], ["Gadget", "$25.00"]],
+        result.tables[0],
+    )
+
+    # Check link extraction
+    tc.assertEqual(1, len(result.links))
+    tc.assertEqual("link to example.com", result.links[0]["text"])
+    tc.assertEqual("https://example.com", result.links[0]["href"])

@@ -53,10 +53,12 @@ _EXTRACTOR_REGISTRY: dict[str, tuple[str, str]] = {
     "pdf": ("sharepoint2text.extractors.pdf.pdf_extractor", "read_pdf"),
     "html": ("sharepoint2text.extractors.html_extractor", "read_html"),
     "epub": ("sharepoint2text.extractors.epub_extractor", "read_epub"),
+    "mhtml": ("sharepoint2text.extractors.mhtml_extractor", "read_mhtml"),
 }
 
 _EXTENSION_ALIASES: dict[str, str] = {
     "htm": "html",
+    "mht": "mhtml",
 }
 
 _SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(

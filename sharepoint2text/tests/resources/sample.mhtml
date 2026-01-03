@@ -1,0 +1,30 @@
+MIME-Version: 1.0
+Content-Type: multipart/related; boundary="----=_NextPart_000_0000_01D12345.6789ABCD"
+Subject: Test MHTML Document
+Date: Mon, 15 Jan 2024 10:00:00 +0000
+
+------=_NextPart_000_0000_01D12345.6789ABCD
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset=3D"utf-8">
+    <title>Test MHTML Page</title>
+</head>
+<body>
+    <h1>Welcome to the Test Page</h1>
+    <p>This is a test MHTML document for sharepoint-to-text.</p>
+    <h2>Sample Table</h2>
+    <table>
+        <tr><th>Product</th><th>Price</th></tr>
+        <tr><td>Widget</td><td>$10.00</td></tr>
+        <tr><td>Gadget</td><td>$25.00</td></tr>
+    </table>
+    <p>Here is a <a href=3D"https://example.com">link to example.com</a>.</p>
+    <h2>More Content</h2>
+    <p>This paragraph contains additional text for testing extraction.</p>
+</body>
+</html>
+------=_NextPart_000_0000_01D12345.6789ABCD--

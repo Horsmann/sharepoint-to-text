@@ -35,6 +35,7 @@ MIME_TYPE_MAPPING = {
     "application/xhtml+xml": "html",
     "application/pdf": "pdf",
     "application/epub+zip": "epub",
+    # MHTML detection is extension-based (.mhtml, .mht) since MIME overlaps with EML
 }
 
 

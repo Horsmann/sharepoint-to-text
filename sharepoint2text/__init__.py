@@ -251,6 +251,19 @@ def read_epub(
 
 
 #############
+# MHTML
+#############
+def read_mhtml(
+    file_like: io.BytesIO, path: str | None = None
+) -> Generator[HtmlContent, Any, None]:
+    """Extract content from an MHTML (web archive) file."""
+    from sharepoint2text.extractors.mhtml_extractor import read_mhtml as _read_mhtml
+
+    logger.debug("Reading MHTML file: %s", path)
+    return _read_mhtml(file_like, path)
+
+
+#############
 # Emails
 #############
 def read_email__msg_format(
@@ -321,6 +334,8 @@ def read_file(
         - .mbox -> EmailContent
         - .eml  -> EmailContent
         - .epub -> EpubContent
+        - .mhtml -> HtmlContent
+        - .mht  -> HtmlContent
 
     Raises:
         sharepoint2text.exceptions.ExtractionFileFormatNotSupportedError:
@@ -386,4 +401,5 @@ __all__ = [
     # other
     "read_pdf",
     "read_epub",
+    "read_mhtml",
 ]
