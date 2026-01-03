@@ -157,6 +157,8 @@ FILTER_TO_CONTENT_TYPE: dict[str, str] = {
     "/LZWDecode": "image/png",
 }
 
+_AES_FALLBACK_IMAGE_SKIP_THRESHOLD_BYTES = 10 * 1024 * 1024
+
 
 class PageLike(Protocol):
     def extract_text(self, *args: Any, **kwargs: Any) -> str: ...
@@ -180,6 +182,22 @@ def _open_pdf_reader(file_like: io.BytesIO) -> PdfReader:
             raise
         file_like.seek(0)
         return PdfReader(file_like)
+
+
+def _should_skip_images(reader: PdfReader, file_like: io.BytesIO) -> bool:
+    if not reader.is_encrypted:
+        return False
+    try:
+        import pypdf._crypt_providers as providers
+    except Exception:
+        return False
+    if providers.crypt_provider[0] != "local_crypt_fallback":
+        return False
+    try:
+        data_size = file_like.getbuffer().nbytes
+    except Exception:
+        return False
+    return data_size >= _AES_FALLBACK_IMAGE_SKIP_THRESHOLD_BYTES
 
 
 def read_pdf(
@@ -236,11 +254,17 @@ def read_pdf(
                 )
         logger.debug("Parsing PDF with %d pages", len(reader.pages))
 
+        skip_images = _should_skip_images(reader, file_like)
+        if skip_images:
+            logger.info(
+                "Skipping image extraction for large AES-encrypted PDF using fallback crypto"
+            )
+
         pages = []
         total_images = 0
         total_tables = 0
         for page_num, page in enumerate(reader.pages, start=1):
-            images = _extract_image_bytes(page, page_num)
+            images = [] if skip_images else _extract_image_bytes(page, page_num)
             total_images += len(images)
             page_text, spatial_lines = _extract_text_with_spacing(page)
             raw_lines = page_text.splitlines()

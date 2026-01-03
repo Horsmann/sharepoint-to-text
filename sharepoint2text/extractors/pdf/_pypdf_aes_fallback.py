@@ -33,9 +33,10 @@ def _pkcs7_unpad(data: bytes, block_size: int) -> bytes:
     return data[:-padding]
 
 
-def _chunks(data: bytes, size: int) -> Iterable[bytes]:
-    for i in range(0, len(data), size):
-        yield data[i : i + size]
+def _chunks(data: bytes | memoryview, size: int) -> Iterable[memoryview]:
+    data_view = memoryview(data)
+    for i in range(0, len(data_view), size):
+        yield data_view[i : i + size]
 
 
 # AES S-box and inverse S-box (FIPS-197)
@@ -575,6 +576,19 @@ def _gf_mul(a: int, b: int) -> int:
     return result & 0xFF
 
 
+def _build_mul_table(multiplier: int) -> tuple[int, ...]:
+    return tuple(_gf_mul(value, multiplier) for value in range(256))
+
+
+# Precompute Galois field multiplication tables for speed.
+_MUL2 = _build_mul_table(2)
+_MUL3 = _build_mul_table(3)
+_MUL9 = _build_mul_table(9)
+_MUL11 = _build_mul_table(11)
+_MUL13 = _build_mul_table(13)
+_MUL14 = _build_mul_table(14)
+
+
 def _add_round_key(state: list[int], round_key: bytes) -> None:
     for i in range(16):
         state[i] ^= round_key[i]
@@ -610,28 +624,20 @@ def _mix_columns(state: list[int]) -> None:
     for col in range(4):
         i = 4 * col
         a0, a1, a2, a3 = state[i : i + 4]
-        state[i + 0] = _gf_mul(a0, 2) ^ _gf_mul(a1, 3) ^ a2 ^ a3
-        state[i + 1] = a0 ^ _gf_mul(a1, 2) ^ _gf_mul(a2, 3) ^ a3
-        state[i + 2] = a0 ^ a1 ^ _gf_mul(a2, 2) ^ _gf_mul(a3, 3)
-        state[i + 3] = _gf_mul(a0, 3) ^ a1 ^ a2 ^ _gf_mul(a3, 2)
+        state[i + 0] = _MUL2[a0] ^ _MUL3[a1] ^ a2 ^ a3
+        state[i + 1] = a0 ^ _MUL2[a1] ^ _MUL3[a2] ^ a3
+        state[i + 2] = a0 ^ a1 ^ _MUL2[a2] ^ _MUL3[a3]
+        state[i + 3] = _MUL3[a0] ^ a1 ^ a2 ^ _MUL2[a3]
 
 
 def _inv_mix_columns(state: list[int]) -> None:
     for col in range(4):
         i = 4 * col
         a0, a1, a2, a3 = state[i : i + 4]
-        state[i + 0] = (
-            _gf_mul(a0, 14) ^ _gf_mul(a1, 11) ^ _gf_mul(a2, 13) ^ _gf_mul(a3, 9)
-        )
-        state[i + 1] = (
-            _gf_mul(a0, 9) ^ _gf_mul(a1, 14) ^ _gf_mul(a2, 11) ^ _gf_mul(a3, 13)
-        )
-        state[i + 2] = (
-            _gf_mul(a0, 13) ^ _gf_mul(a1, 9) ^ _gf_mul(a2, 14) ^ _gf_mul(a3, 11)
-        )
-        state[i + 3] = (
-            _gf_mul(a0, 11) ^ _gf_mul(a1, 13) ^ _gf_mul(a2, 9) ^ _gf_mul(a3, 14)
-        )
+        state[i + 0] = _MUL14[a0] ^ _MUL11[a1] ^ _MUL13[a2] ^ _MUL9[a3]
+        state[i + 1] = _MUL9[a0] ^ _MUL14[a1] ^ _MUL11[a2] ^ _MUL13[a3]
+        state[i + 2] = _MUL13[a0] ^ _MUL9[a1] ^ _MUL14[a2] ^ _MUL11[a3]
+        state[i + 3] = _MUL11[a0] ^ _MUL13[a1] ^ _MUL9[a2] ^ _MUL14[a3]
 
 
 def _rcon(n: int) -> list[int]:
@@ -742,18 +748,26 @@ def aes_ecb_encrypt(key: bytes, data: bytes) -> bytes:
     if len(data) % 16 != 0:
         raise ValueError("AES ECB requires data length multiple of 16")
     round_keys = _get_round_keys(key)
-    return b"".join(
-        _aes_encrypt_block(block, round_keys) for block in _chunks(data, 16)
-    )
+    data_view = memoryview(data)
+    out = bytearray(len(data_view))
+    offset = 0
+    for block in _chunks(data_view, 16):
+        out[offset : offset + 16] = _aes_encrypt_block(block, round_keys)
+        offset += 16
+    return bytes(out)
 
 
 def aes_ecb_decrypt(key: bytes, data: bytes) -> bytes:
     if len(data) % 16 != 0:
         raise ValueError("AES ECB requires data length multiple of 16")
     round_keys = _get_round_keys(key)
-    return b"".join(
-        _aes_decrypt_block(block, round_keys) for block in _chunks(data, 16)
-    )
+    data_view = memoryview(data)
+    out = bytearray(len(data_view))
+    offset = 0
+    for block in _chunks(data_view, 16):
+        out[offset : offset + 16] = _aes_decrypt_block(block, round_keys)
+        offset += 16
+    return bytes(out)
 
 
 def aes_cbc_encrypt(key: bytes, iv: bytes, data: bytes) -> bytes:
@@ -762,13 +776,16 @@ def aes_cbc_encrypt(key: bytes, iv: bytes, data: bytes) -> bytes:
     if len(data) % 16 != 0:
         raise ValueError("AES CBC requires data length multiple of 16")
     round_keys = _get_round_keys(key)
-    out = bytearray()
+    data_view = memoryview(data)
+    out = bytearray(len(data_view))
     prev = iv
-    for block in _chunks(data, 16):
+    offset = 0
+    for block in _chunks(data_view, 16):
         xored = bytes(b ^ p for b, p in zip(block, prev))
         enc = _aes_encrypt_block(xored, round_keys)
-        out.extend(enc)
+        out[offset : offset + 16] = enc
         prev = enc
+        offset += 16
     return bytes(out)
 
 
@@ -778,12 +795,16 @@ def aes_cbc_decrypt(key: bytes, iv: bytes, data: bytes) -> bytes:
     if len(data) % 16 != 0:
         raise ValueError("AES CBC requires data length multiple of 16")
     round_keys = _get_round_keys(key)
-    out = bytearray()
+    data_view = memoryview(data)
+    out = bytearray(len(data_view))
     prev = iv
-    for block in _chunks(data, 16):
+    offset = 0
+    for block in _chunks(data_view, 16):
         dec = _aes_decrypt_block(block, round_keys)
-        out.extend(bytes(b ^ p for b, p in zip(dec, prev)))
+        for idx in range(16):
+            out[offset + idx] = dec[idx] ^ prev[idx]
         prev = block
+        offset += 16
     return bytes(out)
 
 
