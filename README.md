@@ -2,7 +2,7 @@
 
 A **pure Python** library for extracting text, metadata, and structured elements from Microsoft Office files—both modern (`.docx`, `.xlsx`, `.pptx`) and legacy (`.doc`, `.xls`, `.ppt`) formats—plus PDF, email formats, and plain text.
 
-The library also includes an optional SharePoint client for reading files directly from Microsoft SharePoint sites via the Graph API, enabling end-to-end document processing pipelines.
+The library also includes an optional SharePoint client for reading files directly from Microsoft SharePoint sites via the Graph API. You still orchestrate the pipeline: pull files (via `sharepoint_io` or your own Graph client), then pass the bytes into the extractors.
 
 **Install:** `uv add sharepoint-to-text`
 **Python import:** `import sharepoint2text`
@@ -101,7 +101,7 @@ Enterprise SharePoints contain decades of accumulated documents. While modern `.
 
 ### SharePoint Connectivity
 
-For scenarios where documents live in Microsoft SharePoint, the library includes a built-in Graph API client. This enables direct file access without manual downloads:
+For scenarios where documents live in Microsoft SharePoint, the library includes a built-in Graph API client. This is an optional convenience layer, not required for local files or other storage backends. You are responsible for orchestrating the pull (list/download) and then calling the extractors:
 
 ```python
 from sharepoint2text.sharepoint_io import SharePointRestClient, EntraIDAppCredentials
@@ -798,6 +798,8 @@ def prepare_for_rag(file_path: str) -> list[dict]:
 ```
 
 ### SharePoint Integration
+
+This integration is optional; you can use `sharepoint2text` with any storage backend. When using `sharepoint_io`, you still orchestrate download and extraction (as shown below).
 
 ```python
 import io
