@@ -5,7 +5,8 @@ A **pure Python** library for extracting text, metadata, and structured elements
 **Install:** `pip install sharepoint-to-text`
 **Python import:** `import sharepoint2text`
 **CLI (text):** `sharepoint2text /path/to/file.docx > extraction.txt`
-**CLI (JSON):** `sharepoint2text --json /path/to/file.docx > extraction.json` (no binary by default; add `--binary` to include)
+**CLI (JSON, full extraction):** `sharepoint2text --json /path/to/file.docx > extraction.json` (no binary by default; add `--binary` to include)
+**CLI (JSON, units):** `sharepoint2text --json-unit /path/to/file.docx > units.json` (no binary by default; add `--binary` to include)
 
 ## What You Get
 
@@ -349,10 +350,29 @@ After installation, a `sharepoint2text` command is available. It accepts a singl
 sharepoint2text /path/to/file.pdf > extraction.txt
 ```
 
-To emit structured output, use `--json` (prints `result.to_json()` to stdout).
+### Command Line Options
+
+| Option | Output | Notes |
+|---|---|---|
+| *(default)* | Plain text | Prints `result.get_full_text()` (blank-line separated if multiple items). |
+| `--json` | JSON extraction object(s) | Prints `result.to_json()`; emits a single JSON object (one item) or a JSON array (multiple items). Binary fields are `null` by default; add `--binary` to include base64 blobs. |
+| `--json-unit` | JSON unit list(s) | Prints a JSON list of unit representations using `result.iterate_units()` (e.g., pages/slides/sheets). For multi-item inputs (e.g. `.mbox`), emits a JSON list where each item is that extraction’s unit list. Binary fields are `null` by default; add `--binary` to include base64 blobs. |
+| `--binary` | Include binary payloads | Only valid with `--json` or `--json-unit`. Encodes bytes/BytesIO as base64 in wrapper objects. |
+
+`--json` and `--json-unit` are mutually exclusive.
+
+### Examples
+
+To emit structured output for the full extraction object, use `--json`:
 
 ```bash
 sharepoint2text --json /path/to/file.pdf > extraction.json
+```
+
+To emit per-unit output (pages/slides/sheets depending on format), use `--json-unit`:
+
+```bash
+sharepoint2text --json-unit /path/to/file.pdf > units.json
 ```
 
 Some formats include binary payloads (e.g., embedded images in Office/PDF files, email attachments). The CLI omits binary payloads in JSON by default (emits `null` for binary fields). Use `--binary` to include base64 blobs:
@@ -363,9 +383,10 @@ sharepoint2text --json /path/to/file.pdf > extraction.json
 # include binary payloads
 sharepoint2text --json --binary /path/to/file.pdf > extraction.with-binary.json
 ```
-
-- Without `--json`, multiple items (e.g. `.mbox`) are separated by a blank line.
-- With `--json`, stdout is a single JSON object (one item) or a JSON array (multiple items).
+```bash
+# include binary payloads (units mode)
+sharepoint2text --json-unit --binary /path/to/file.pdf > units.with-binary.json
+```
 
 ## API Reference
 
