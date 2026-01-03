@@ -48,6 +48,7 @@ _EXTRACTOR_REGISTRY: dict[str, tuple[str, str]] = {
     # Other formats
     "pdf": ("sharepoint2text.extractors.pdf.pdf_extractor", "read_pdf"),
     "html": ("sharepoint2text.extractors.html_extractor", "read_html"),
+    "epub": ("sharepoint2text.extractors.epub_extractor", "read_epub"),
 }
 
 _EXTENSION_ALIASES: dict[str, str] = {

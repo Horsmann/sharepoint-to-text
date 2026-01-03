@@ -30,6 +30,7 @@ MIME_TYPE_MAPPING = {
     "text/html": "html",
     "application/xhtml+xml": "html",
     "application/pdf": "pdf",
+    "application/epub+zip": "epub",
 }
 
 

@@ -3042,3 +3042,144 @@ class RtfContent(ExtractionInterface):
 
     def to_json(self) -> dict:
         return serialize_extraction(self)
+
+
+########
+# EPUB #
+########
+
+
+@dataclass
+class EpubUnitMetadata(UnitMetadataInterface):
+    """EPUB Unit Metadata - represents a chapter/content document."""
+
+    unit_number: int = 1
+    href: str = ""  # Path within the EPUB
+    title: str = ""  # Chapter/section title if available
+
+
+@dataclass
+class EpubChapter(UnitInterface):
+    """A single chapter or content document from an EPUB."""
+
+    chapter_number: int = 1
+    href: str = ""  # Path within the EPUB (e.g., "OEBPS/chapter1.xhtml")
+    title: str = ""  # Title from spine/manifest or extracted from content
+    text: str = ""  # Extracted text content
+    images: List["EpubImage"] = field(default_factory=list)
+    tables: List[List[List[str]]] = field(default_factory=list)
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return list(self.images)
+
+    def get_tables(self) -> list[TableData]:
+        return [TableData(data=t) for t in self.tables]
+
+    def get_metadata(self) -> EpubUnitMetadata:
+        return EpubUnitMetadata(
+            unit_number=self.chapter_number,
+            href=self.href,
+            title=self.title,
+        )
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
+
+
+@dataclass
+class EpubImage(ImageInterface):
+    """Image embedded in an EPUB file."""
+
+    image_index: int = 0
+    href: str = ""  # Path within the EPUB (e.g., "OEBPS/images/cover.jpg")
+    content_type: str = ""
+    data: Optional[io.BytesIO] = None
+    size_bytes: int = 0
+    width: Optional[int] = None
+    height: Optional[int] = None
+    unit_index: Optional[int] = None  # Chapter number where image is referenced
+
+    def get_bytes(self) -> io.BytesIO:
+        if self.data is None:
+            return io.BytesIO()
+        self.data.seek(0)
+        return self.data
+
+    def get_content_type(self) -> str:
+        return self.content_type.strip()
+
+    def get_caption(self) -> str:
+        return ""
+
+    def get_description(self) -> str:
+        return ""
+
+    def get_metadata(self) -> ImageMetadata:
+        return ImageMetadata(
+            image_number=self.image_index,
+            content_type=self.content_type,
+            unit_number=self.unit_index,
+            width=self.width if self.width is not None and self.width > 0 else None,
+            height=self.height if self.height is not None and self.height > 0 else None,
+        )
+
+
+@dataclass
+class EpubMetadata(FileMetadataInterface):
+    """Metadata from an EPUB file (Dublin Core + EPUB-specific)."""
+
+    # Dublin Core metadata
+    title: str = ""
+    creator: str = ""  # Author
+    language: str = ""
+    identifier: str = ""  # ISBN, UUID, or other unique identifier
+    publisher: str = ""
+    date: str = ""  # Publication date
+    description: str = ""
+    subject: str = ""  # Keywords/categories
+    rights: str = ""  # Copyright info
+    contributor: str = ""
+
+    # EPUB-specific
+    epub_version: str = ""  # EPUB 2.0, 3.0, etc.
+
+
+@dataclass
+class EpubContent(ExtractionInterface):
+    """Complete extracted content from an EPUB file."""
+
+    metadata: EpubMetadata = field(default_factory=EpubMetadata)
+    chapters: List[EpubChapter] = field(default_factory=list)
+    images: List[EpubImage] = field(default_factory=list)
+    toc: List[Dict[str, str]] = field(
+        default_factory=list
+    )  # Table of contents: [{title, href}, ...]
+
+    def iterate_units(self) -> typing.Iterator[EpubChapter]:
+        """Iterate over chapters in reading order."""
+        for chapter in self.chapters:
+            yield chapter
+
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        """Iterate over all images in the EPUB."""
+        for img in self.images:
+            yield img
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        """Iterate over all tables across all chapters."""
+        for chapter in self.chapters:
+            for table in chapter.tables:
+                yield TableData(data=table)
+
+    def get_full_text(self) -> str:
+        """Full text of the EPUB as a single string."""
+        return _join_unit_text(self.iterate_units())
+
+    def get_metadata(self) -> EpubMetadata:
+        return self.metadata
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)

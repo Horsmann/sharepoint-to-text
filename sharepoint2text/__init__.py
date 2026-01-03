@@ -17,6 +17,7 @@ from sharepoint2text.extractors.data_types import (
     DocContent,
     DocxContent,
     EmailContent,
+    EpubContent,
     ExtractionInterface,
     HtmlContent,
     OdpContent,
@@ -237,6 +238,19 @@ def read_html(
 
 
 #############
+# EPUB
+#############
+def read_epub(
+    file_like: io.BytesIO, path: str | None = None
+) -> Generator[EpubContent, Any, None]:
+    """Extract content from an EPUB eBook file."""
+    from sharepoint2text.extractors.epub_extractor import read_epub as _read_epub
+
+    logger.debug("Reading EPUB file: %s", path)
+    return _read_epub(file_like, path)
+
+
+#############
 # Emails
 #############
 def read_email__msg_format(
@@ -306,6 +320,7 @@ def read_file(
         - .msg  -> EmailContent
         - .mbox -> EmailContent
         - .eml  -> EmailContent
+        - .epub -> EpubContent
 
     Raises:
         sharepoint2text.exceptions.ExtractionFileFormatNotSupportedError:
@@ -370,4 +385,5 @@ __all__ = [
     "read_email__mbox_format",
     # other
     "read_pdf",
+    "read_epub",
 ]

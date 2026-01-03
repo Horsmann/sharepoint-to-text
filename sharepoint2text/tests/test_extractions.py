@@ -13,6 +13,8 @@ from sharepoint2text.extractors.data_types import (
     DocxNote,
     EmailContent,
     EmailUnitMetadata,
+    EpubContent,
+    EpubUnitMetadata,
     FileMetadataInterface,
     HtmlContent,
     HtmlUnitMetadata,
@@ -45,6 +47,7 @@ from sharepoint2text.extractors.data_types import (
     XlsxContent,
     XlsxUnitMetadata,
 )
+from sharepoint2text.extractors.epub_extractor import read_epub
 from sharepoint2text.extractors.html_extractor import read_html
 from sharepoint2text.extractors.mail.eml_email_extractor import read_eml_format_mail
 from sharepoint2text.extractors.mail.mbox_email_extractor import read_mbox_format_mail
@@ -2471,3 +2474,72 @@ def test_read_html() -> None:
     tc.assertEqual(
         HtmlUnitMetadata(unit_number=1), list(html.iterate_units())[0].get_metadata()
     )
+
+
+def test_read_epub() -> None:
+    """Test EPUB extraction with a sample EPUB file."""
+    path = "sharepoint2text/tests/resources/epub/sample.epub"
+    epub: EpubContent = next(
+        read_epub(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+
+    # Check metadata
+    tc.assertEqual("Test EPUB Book", epub.metadata.title)
+    tc.assertEqual("Test Author", epub.metadata.creator)
+    tc.assertEqual("en", epub.metadata.language)
+    tc.assertEqual("Test Publisher", epub.metadata.publisher)
+    tc.assertEqual("2024-01-15", epub.metadata.date)
+    tc.assertEqual("A test EPUB file for sharepoint-to-text", epub.metadata.description)
+    tc.assertEqual("Testing", epub.metadata.subject)
+    tc.assertEqual("3.0", epub.metadata.epub_version)
+
+    # Check chapters
+    tc.assertEqual(2, len(epub.chapters))
+
+    # Chapter 1
+    chapter1 = epub.chapters[0]
+    tc.assertEqual(1, chapter1.chapter_number)
+    tc.assertIn("Chapter 1: Introduction", chapter1.title)
+    tc.assertIn("Welcome to the test EPUB book", chapter1.text)
+    tc.assertIn("sample text for extraction testing", chapter1.text)
+    tc.assertIn("Section 1.1", chapter1.text)
+
+    # Chapter 1 table
+    tc.assertEqual(1, len(chapter1.tables))
+    tc.assertListEqual(
+        [["Name", "Value"], ["Item A", "100"], ["Item B", "200"]],
+        chapter1.tables[0],
+    )
+
+    # Chapter 2
+    chapter2 = epub.chapters[1]
+    tc.assertEqual(2, chapter2.chapter_number)
+    tc.assertIn("Chapter 2: Getting Started", chapter2.title)
+    tc.assertIn("second chapter", chapter2.text)
+    tc.assertIn("First item in the list", chapter2.text)
+
+    # Test iterate_units
+    units = list(epub.iterate_units())
+    tc.assertEqual(2, len(units))
+    tc.assertEqual(
+        EpubUnitMetadata(
+            unit_number=1, href="OEBPS/chapter1.xhtml", title=chapter1.title
+        ),
+        units[0].get_metadata(),
+    )
+
+    # Test get_full_text
+    full_text = epub.get_full_text()
+    tc.assertIn("Chapter 1: Introduction", full_text)
+    tc.assertIn("Chapter 2: Getting Started", full_text)
+    tc.assertIn("Welcome to the test EPUB book", full_text)
+
+    # Test iterate_tables
+    tables = list(epub.iterate_tables())
+    tc.assertEqual(1, len(tables))
+    tc.assertEqual(TableDim(rows=3, columns=2), tables[0].get_dim())
+
+    # Test table of contents
+    tc.assertEqual(2, len(epub.toc))
+    tc.assertEqual("Chapter 1: Introduction", epub.toc[0]["title"])
+    tc.assertEqual("Chapter 2: Getting Started", epub.toc[1]["title"])
