@@ -66,7 +66,7 @@ with the correct permissions. Follow these steps:
 
 6. Run the Script
    ```bash
-   python -m sharepoint2text.sharepoint_rest.list_files_runner
+   python -m sharepoint2text.sharepoint_io.list_files_runner
    ```
 
 Troubleshooting
@@ -87,11 +87,11 @@ import os
 
 import dotenv
 
-from sharepoint2text.sharepoint_rest.client import (
+from sharepoint2text.sharepoint_io.client import (
     EntraIDAppCredentials,
     SharePointRestClient,
 )
-from sharepoint2text.sharepoint_rest.exceptions import SharePointRequestError
+from sharepoint2text.sharepoint_io.exceptions import SharePointRequestError
 
 
 def _get_required_env(key: str) -> str:

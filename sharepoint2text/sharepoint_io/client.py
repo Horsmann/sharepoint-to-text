@@ -12,7 +12,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlparse
 from urllib.request import Request, urlopen
 
-from sharepoint2text.sharepoint_rest.exceptions import (
+from sharepoint2text.sharepoint_io.exceptions import (
     SharePointAuthError,
     SharePointRequestError,
 )
