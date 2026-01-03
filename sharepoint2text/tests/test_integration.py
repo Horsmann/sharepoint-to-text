@@ -26,19 +26,33 @@ from sharepoint2text import (
 )
 from sharepoint2text.extractors.data_types import (
     DocContent,
+    DocUnit,
     DocxContent,
+    DocxUnit,
     EmailContent,
+    EmailUnit,
     HtmlContent,
+    HtmlUnit,
     OdpContent,
+    OdpUnit,
     OdsContent,
+    OdsUnit,
     OdtContent,
+    OdtUnit,
     PdfContent,
+    PdfUnit,
     PlainTextContent,
+    PlainTextUnit,
     PptContent,
+    PptUnit,
     PptxContent,
+    PptxUnit,
     RtfContent,
+    RtfUnit,
     XlsContent,
+    XlsUnit,
     XlsxContent,
+    XlsxUnit,
 )
 from sharepoint2text.extractors.serialization import deserialize_extraction
 
@@ -203,3 +217,54 @@ def test_extract_serialize_deserialize_file():
             # silent ignore - we have encrypted test files
             logger.debug(f"File is encrypted: [{path}]")
             pass
+
+
+def test_unit_serialize_deserialize_round_trip():
+    cases = [
+        ("sharepoint2text/tests/resources/mails/basic_email.eml", EmailUnit),
+        (
+            "sharepoint2text/tests/resources/legacy_ms/Speech_Prime_Minister_of_The_Netherlands_EN.doc",
+            DocUnit,
+        ),
+        (
+            "sharepoint2text/tests/resources/modern_ms/GKIM_Skills_Framework_-_static.docx",
+            DocxUnit,
+        ),
+        ("sharepoint2text/tests/resources/pdf/sample.pdf", PdfUnit),
+        ("sharepoint2text/tests/resources/plain_text/plain.txt", PlainTextUnit),
+        ("sharepoint2text/tests/resources/sample.html", HtmlUnit),
+        ("sharepoint2text/tests/resources/legacy_ms/eurouni2.ppt", PptUnit),
+        (
+            "sharepoint2text/tests/resources/modern_ms/pptx_formula_image.pptx",
+            PptxUnit,
+        ),
+        ("sharepoint2text/tests/resources/legacy_ms/mwe.xls", XlsUnit),
+        (
+            "sharepoint2text/tests/resources/modern_ms/Country_Codes_and_Names.xlsx",
+            XlsxUnit,
+        ),
+        (
+            "sharepoint2text/tests/resources/open_office/sample_presentation.odp",
+            OdpUnit,
+        ),
+        (
+            "sharepoint2text/tests/resources/open_office/sample_spreadsheet.ods",
+            OdsUnit,
+        ),
+        (
+            "sharepoint2text/tests/resources/open_office/sample_document.odt",
+            OdtUnit,
+        ),
+        ("sharepoint2text/tests/resources/legacy_ms/2025.144.un.rtf", RtfUnit),
+    ]
+
+    for path, unit_type in cases:
+        result = next(read_file(path))
+        unit = next(result.iterate_units())
+        tc.assertIsInstance(unit, unit_type)
+
+        payload = unit.to_json()
+        restored = deserialize_extraction(payload)
+        tc.assertEqual(type(restored), type(unit))
+        tc.assertEqual(restored.get_text(), unit.get_text())
+        tc.assertEqual(restored.get_metadata(), unit.get_metadata())

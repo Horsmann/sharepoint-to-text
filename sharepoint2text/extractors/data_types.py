@@ -217,6 +217,10 @@ class UnitInterface(Protocol):
         """Returns (additional) metadata of a unit."""
         ...
 
+    @abstractmethod
+    def to_json(self) -> dict:
+        """Returns a JSON-serializable dictionary representation."""
+
 
 @dataclass
 class TableDim:
@@ -335,6 +339,9 @@ class EmailUnit(UnitInterface):
 
     def get_metadata(self) -> UnitMetadataInterface:
         return EmailUnitMetadata(unit_number=1, body_type=self.body_type)
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
 
 
 @dataclass
@@ -484,6 +491,9 @@ class DocUnit(UnitInterface):
             heading_level=self.heading_level,
             heading_path=list(self.heading_path),
         )
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
 
 
 @dataclass
@@ -740,6 +750,9 @@ class DocxUnit(UnitInterface):
             heading_level=self.heading_level,
             heading_path=list(self.heading_path),
         )
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
 
 
 @dataclass
@@ -1121,6 +1134,9 @@ class PdfUnit(UnitInterface):
     def get_metadata(self) -> PdfUnitMetadata:
         return PdfUnitMetadata(unit_number=self.page_number)
 
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
+
 
 @dataclass
 class PdfImage(ImageInterface):
@@ -1248,6 +1264,9 @@ class PlainTextUnit(UnitInterface):
     def get_metadata(self) -> PlainUnitMetadata:
         return PlainUnitMetadata(unit_number=1)
 
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
+
 
 @dataclass
 class PlainTextContent(ExtractionInterface):
@@ -1305,6 +1324,9 @@ class HtmlUnit(UnitInterface):
 
     def get_metadata(self) -> HtmlUnitMetadata:
         return HtmlUnitMetadata(unit_number=1)
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
 
 
 @dataclass
@@ -1388,6 +1410,9 @@ class PptUnit(UnitInterface):
 
     def get_metadata(self) -> PptUnitMetadata:
         return PptUnitMetadata(unit_number=self.slide_number)
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
 
 
 @dataclass
@@ -1583,6 +1608,9 @@ class PptxUnit(UnitInterface):
     def get_metadata(self) -> PptxUnitMetadata:
         return PptxUnitMetadata(unit_number=self.slide_number)
 
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
+
 
 @dataclass
 class PptxMetadata(FileMetadataInterface):
@@ -1765,6 +1793,9 @@ class XlsUnit(UnitInterface):
             unit_number=self.sheet_number, sheet_name=self.sheet_name
         )
 
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
+
 
 @dataclass
 class XlsImage(ImageInterface):
@@ -1914,6 +1945,9 @@ class XlsxUnit(UnitInterface):
             sheet_name=self.sheet_name,
             sheet_number=self.sheet_index,
         )
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
 
 
 @dataclass
@@ -2152,6 +2186,9 @@ class OdpUnit(UnitInterface):
             slide_number=self.slide_number,
         )
 
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
+
 
 @dataclass
 class OdpUnitMetadata(UnitMetadataInterface):
@@ -2261,6 +2298,9 @@ class OdsUnit(UnitInterface):
             sheet_name=self.sheet_name,
         )
 
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
+
 
 @dataclass
 class OdsUnitMetadata(UnitMetadataInterface):
@@ -2368,6 +2408,9 @@ class OdtUnit(UnitInterface):
             annotation_creator=self.annotation_creator,
             annotation_date=self.annotation_date,
         )
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
 
 
 @dataclass
@@ -2692,6 +2735,9 @@ class RtfUnit(UnitInterface):
         return RtfUnitMetadata(
             unit_number=self.page_number, page_number=self.page_number
         )
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
 
 
 @dataclass
