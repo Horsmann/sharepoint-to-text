@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Install dependencies (using uv - recommended)
-uv venv && source .venv/bin/activate && uv pip install -e ".[dev]"
+uv venv && source .venv/bin/activate && uv sync --all-groups
 
 # Run all tests
 pytest

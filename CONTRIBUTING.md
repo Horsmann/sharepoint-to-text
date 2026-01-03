@@ -136,7 +136,7 @@ If you want to add support for a new file format:
   - `LegacyMicrosoftParsingError` for legacy Office parsing failures
   - `ExtractionFailedError` for unexpected extraction failures (usually wrapped by `read_file`)
 
-## Notes on pip
+## Notes on uv
 
 This repository uses `uv.lock` and dependency groups. For development (tests/linting), use `uv sync --all-groups`.
 
