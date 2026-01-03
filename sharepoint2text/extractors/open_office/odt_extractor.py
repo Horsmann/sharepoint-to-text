@@ -108,6 +108,7 @@ Maintenance Notes
 import io
 import logging
 import mimetypes
+from functools import lru_cache
 from typing import Any, Generator
 from xml.etree import ElementTree as ET
 
@@ -198,36 +199,68 @@ NS = {
     "svg": "urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0",
 }
 
+_TEXT_SPACE_TAG = f"{{{NS['text']}}}s"
+_TEXT_TAB_TAG = f"{{{NS['text']}}}tab"
+_TEXT_LINE_BREAK_TAG = f"{{{NS['text']}}}line-break"
+_TEXT_NOTE_TAG = f"{{{NS['text']}}}note"
+_OFFICE_ANNOTATION_TAG = f"{{{NS['office']}}}annotation"
+
+_TEXT_P_TAG = f"{{{NS['text']}}}p"
+_TEXT_H_TAG = f"{{{NS['text']}}}h"
+_TEXT_SEQUENCE_TAG = f"{{{NS['text']}}}sequence"
+_TABLE_TABLE_TAG = f"{{{NS['table']}}}table"
+_TEXT_LIST_TAG = f"{{{NS['text']}}}list"
+
+_DRAW_FRAME_TAG = f"{{{NS['draw']}}}frame"
+
+_ATTR_TEXT_C = f"{{{NS['text']}}}c"
+_ATTR_TEXT_STYLE_NAME = f"{{{NS['text']}}}style-name"
+_ATTR_TEXT_OUTLINE_LEVEL = f"{{{NS['text']}}}outline-level"
+_ATTR_TEXT_ID = f"{{{NS['text']}}}id"
+_ATTR_TEXT_NOTE_CLASS = f"{{{NS['text']}}}note-class"
+_ATTR_TEXT_NAME = f"{{{NS['text']}}}name"
+
+_ATTR_XLINK_HREF = f"{{{NS['xlink']}}}href"
+_ATTR_STYLE_NAME = f"{{{NS['style']}}}name"
+
+_ATTR_DRAW_NAME = f"{{{NS['draw']}}}name"
+_ATTR_SVG_WIDTH = f"{{{NS['svg']}}}width"
+_ATTR_SVG_HEIGHT = f"{{{NS['svg']}}}height"
+
+
+@lru_cache(maxsize=512)
+def _guess_content_type(path: str) -> str:
+    return mimetypes.guess_type(path)[0] or "application/octet-stream"
+
 
 def _get_text_recursive(element: ET.Element) -> str:
     """Recursively extract all text from an element and its children."""
-    parts = []
-    if element.text:
-        parts.append(element.text)
+    parts: list[str] = []
+    text = element.text
+    if text:
+        parts.append(text)
 
     for child in element:
-        # Handle special elements
-        tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
-
-        if tag == "s":
-            # Space element - get count attribute
-            count = int(child.get(f"{{{NS['text']}}}c", "1"))
+        tag = child.tag
+        if tag == _TEXT_SPACE_TAG:
+            count = int(child.get(_ATTR_TEXT_C, "1"))
             parts.append(" " * count)
-        elif tag == "tab":
+        elif tag == _TEXT_TAB_TAG:
             parts.append("\t")
-        elif tag == "line-break":
+        elif tag == _TEXT_LINE_BREAK_TAG:
             parts.append("\n")
-        elif tag == "note":
-            # Skip notes in main text extraction
+        elif tag == _TEXT_NOTE_TAG:
+            # Skip notes in main text extraction.
             pass
-        elif tag == "annotation":
-            # Skip annotations in main text extraction
+        elif tag == _OFFICE_ANNOTATION_TAG:
+            # Skip annotations in main text extraction.
             pass
         else:
             parts.append(_get_text_recursive(child))
 
-        if child.tail:
-            parts.append(child.tail)
+        tail = child.tail
+        if tail:
+            parts.append(tail)
 
     return "".join(parts)
 
@@ -309,15 +342,14 @@ def _extract_paragraphs(body: ET.Element) -> list[OdtParagraph]:
 
     # Find all paragraphs (text:p) and headings (text:h)
     for elem in body.iter():
-        tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
-
-        if tag in ("p", "h"):
+        tag = elem.tag
+        if tag in (_TEXT_P_TAG, _TEXT_H_TAG):
             text = _get_text_recursive(elem)
-            style_name = elem.get(f"{{{NS['text']}}}style-name")
+            style_name = elem.get(_ATTR_TEXT_STYLE_NAME)
             outline_level = None
 
-            if tag == "h":
-                level = elem.get(f"{{{NS['text']}}}outline-level")
+            if tag == _TEXT_H_TAG:
+                level = elem.get(_ATTR_TEXT_OUTLINE_LEVEL)
                 if level:
                     try:
                         outline_level = int(level)
@@ -326,9 +358,9 @@ def _extract_paragraphs(body: ET.Element) -> list[OdtParagraph]:
 
             # Extract runs (text:span elements)
             runs = []
-            for span in elem.findall(".//text:span", NS):
+            for span in elem.iterfind(".//text:span", NS):
                 span_text = _get_text_recursive(span)
-                span_style = span.get(f"{{{NS['text']}}}style-name")
+                span_style = span.get(_ATTR_TEXT_STYLE_NAME)
                 runs.append(OdtRun(text=span_text, style_name=span_style))
 
             paragraphs.append(
@@ -348,15 +380,14 @@ def _extract_tables(body: ET.Element) -> list[OdtTable]:
     logger.debug("Extracting ODT tables")
     tables = []
 
-    for table in body.findall(".//table:table", NS):
+    for table in body.iterfind(".//table:table", NS):
         table_data: list[list[str]] = []
-        for row in table.findall(".//table:table-row", NS):
+        for row in table.iterfind(".//table:table-row", NS):
             row_data = []
-            for cell in row.findall(".//table:table-cell", NS):
-                # Get all text from paragraphs in the cell
-                cell_texts = []
-                for p in cell.findall(".//text:p", NS):
-                    cell_texts.append(_get_text_recursive(p))
+            for cell in row.iterfind(".//table:table-cell", NS):
+                cell_texts = [
+                    _get_text_recursive(p) for p in cell.iterfind(".//text:p", NS)
+                ]
                 row_data.append("\n".join(cell_texts))
             if row_data:
                 table_data.append(row_data)
@@ -371,8 +402,8 @@ def _extract_hyperlinks(body: ET.Element) -> list[OdtHyperlink]:
     logger.debug("Extracting ODT hyperlinks")
     hyperlinks = []
 
-    for link in body.findall(".//text:a", NS):
-        href = link.get(f"{{{NS['xlink']}}}href", "")
+    for link in body.iterfind(".//text:a", NS):
+        href = link.get(_ATTR_XLINK_HREF, "")
         text = _get_text_recursive(link)
         if href:
             hyperlinks.append(OdtHyperlink(text=text, url=href))
@@ -386,16 +417,16 @@ def _extract_notes(body: ET.Element) -> tuple[list[OdtNote], list[OdtNote]]:
     footnotes = []
     endnotes = []
 
-    for note in body.findall(".//text:note", NS):
-        note_id = note.get(f"{{{NS['text']}}}id", "")
-        note_class = note.get(f"{{{NS['text']}}}note-class", "footnote")
+    for note in body.iterfind(".//text:note", NS):
+        note_id = note.get(_ATTR_TEXT_ID, "")
+        note_class = note.get(_ATTR_TEXT_NOTE_CLASS, "footnote")
 
         # Get note body text
         note_body = note.find("text:note-body", NS)
         text = ""
         if note_body is not None:
             text_parts = []
-            for p in note_body.findall(".//text:p", NS):
+            for p in note_body.iterfind(".//text:p", NS):
                 text_parts.append(_get_text_recursive(p))
             text = "\n".join(text_parts)
 
@@ -414,7 +445,7 @@ def _extract_annotations(body: ET.Element) -> list[OpenDocumentAnnotation]:
     logger.debug("Extracting ODT annotations")
     annotations = []
 
-    for annotation in body.findall(".//office:annotation", NS):
+    for annotation in body.iterfind(".//office:annotation", NS):
         creator_elem = annotation.find("dc:creator", NS)
         creator = creator_elem.text if creator_elem is not None else ""
 
@@ -423,7 +454,7 @@ def _extract_annotations(body: ET.Element) -> list[OpenDocumentAnnotation]:
 
         # Get annotation text
         text_parts = []
-        for p in annotation.findall(".//text:p", NS):
+        for p in annotation.iterfind(".//text:p", NS):
             text_parts.append(_get_text_recursive(p))
         text = "\n".join(text_parts)
 
@@ -440,13 +471,13 @@ def _extract_bookmarks(body: ET.Element) -> list[OdtBookmark]:
     bookmarks = []
 
     # Bookmark start elements
-    for bookmark in body.findall(".//text:bookmark", NS):
-        name = bookmark.get(f"{{{NS['text']}}}name", "")
+    for bookmark in body.iterfind(".//text:bookmark", NS):
+        name = bookmark.get(_ATTR_TEXT_NAME, "")
         if name:
             bookmarks.append(OdtBookmark(name=name))
 
-    for bookmark in body.findall(".//text:bookmark-start", NS):
-        name = bookmark.get(f"{{{NS['text']}}}name", "")
+    for bookmark in body.iterfind(".//text:bookmark-start", NS):
+        name = bookmark.get(_ATTR_TEXT_NAME, "")
         if name:
             bookmarks.append(OdtBookmark(name=name))
 
@@ -467,22 +498,22 @@ def _extract_caption_from_paragraph(para: ET.Element) -> str:
         parts.append(para.text)
 
     for child in para:
-        tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+        tag = child.tag
 
         # Skip image frames - we only want the caption text
-        if tag == "frame":
+        if tag == _DRAW_FRAME_TAG:
             pass
-        elif tag == "sequence":
+        elif tag == _TEXT_SEQUENCE_TAG:
             # text:sequence elements contain auto-numbers like "1", "2"
             if child.text:
                 parts.append(child.text)
-        elif tag == "s":
+        elif tag == _TEXT_SPACE_TAG:
             # Space element
-            count = int(child.get(f"{{{NS['text']}}}c", "1"))
+            count = int(child.get(_ATTR_TEXT_C, "1"))
             parts.append(" " * count)
-        elif tag == "tab":
+        elif tag == _TEXT_TAB_TAG:
             parts.append("\t")
-        elif tag == "line-break":
+        elif tag == _TEXT_LINE_BREAK_TAG:
             parts.append("\n")
         else:
             # Other elements - extract their text recursively
@@ -515,20 +546,20 @@ def _extract_images_from_context(
        (caption is the text content of the containing paragraph)
     """
     logger.debug("Extracting ODT images")
-    images = []
+    images: list[OpenDocumentImage] = []
     image_counter = 0
 
     # Track which image hrefs we've already processed (to avoid duplicates)
     processed_hrefs = set()
 
     # First, find images inside text-boxes (captioned images)
-    for outer_frame in body.findall(".//draw:frame", NS):
+    for outer_frame in body.iterfind(".//draw:frame", NS):
         text_box = outer_frame.find("draw:text-box", NS)
         if text_box is None:
             continue
 
         # Look for paragraphs in the text-box that contain images
-        for para in text_box.findall(".//text:p", NS):
+        for para in text_box.iterfind(".//text:p", NS):
             inner_frame = para.find("draw:frame", NS)
             if inner_frame is None:
                 continue
@@ -538,10 +569,10 @@ def _extract_images_from_context(
                 continue
 
             # Extract image properties from the inner frame
-            name = inner_frame.get(f"{{{NS['draw']}}}name", "")
-            width = inner_frame.get(f"{{{NS['svg']}}}width")
-            height = inner_frame.get(f"{{{NS['svg']}}}height")
-            href = image_elem.get(f"{{{NS['xlink']}}}href", "")
+            name = inner_frame.get(_ATTR_DRAW_NAME, "")
+            width = inner_frame.get(_ATTR_SVG_WIDTH)
+            height = inner_frame.get(_ATTR_SVG_HEIGHT)
+            href = image_elem.get(_ATTR_XLINK_HREF, "")
 
             if not href or href.startswith("http"):
                 continue
@@ -559,41 +590,39 @@ def _extract_images_from_context(
             )
 
             try:
-                if href in ctx.namelist:
+                if ctx.exists(href):
                     image_counter += 1
-                    with ctx.open_file(href) as img_file:
-                        img_data = img_file.read()
-                        content_type = (
-                            mimetypes.guess_type(href)[0] or "application/octet-stream"
+                    img_data = ctx.read_bytes(href)
+                    images.append(
+                        OpenDocumentImage(
+                            href=href,
+                            name=name or href.split("/")[-1],
+                            content_type=_guess_content_type(href),
+                            data=io.BytesIO(img_data),
+                            size_bytes=len(img_data),
+                            width=width,
+                            height=height,
+                            image_index=image_counter,
+                            caption=caption,
+                            description=description,
+                            unit_index=None,
                         )
-                        images.append(
-                            OpenDocumentImage(
-                                href=href,
-                                name=name or href.split("/")[-1],
-                                content_type=content_type,
-                                data=io.BytesIO(img_data),
-                                size_bytes=len(img_data),
-                                width=width,
-                                height=height,
-                                image_index=image_counter,
-                                caption=caption,
-                                description=description,
-                                unit_index=None,
-                            )
-                        )
+                    )
             except Exception as e:
-                logger.debug(f"Failed to extract image {href}: {e}")
-                images.append(OpenDocumentImage(href=href, name=name, error=str(e)))
+                logger.debug("Failed to extract image %s: %s", href, e)
+                images.append(
+                    OpenDocumentImage(href=href, name=name or href, error=str(e))
+                )
 
     # Then, find simple images (not in text-boxes)
-    for frame in body.findall(".//draw:frame", NS):
+    for frame in body.iterfind(".//draw:frame", NS):
         # Skip if this is a text-box frame
         if frame.find("draw:text-box", NS) is not None:
             continue
 
-        name = frame.get(f"{{{NS['draw']}}}name", "")
-        width = frame.get(f"{{{NS['svg']}}}width")
-        height = frame.get(f"{{{NS['svg']}}}height")
+        name = frame.get(_ATTR_DRAW_NAME, "")
+        width = frame.get(_ATTR_SVG_WIDTH)
+        height = frame.get(_ATTR_SVG_HEIGHT)
 
         # Extract title (caption) and description from frame
         title_elem = frame.find("svg:title", NS)
@@ -606,7 +635,7 @@ def _extract_images_from_context(
 
         image_elem = frame.find("draw:image", NS)
         if image_elem is not None:
-            href = image_elem.get(f"{{{NS['xlink']}}}href", "")
+            href = image_elem.get(_ATTR_XLINK_HREF, "")
 
             # Skip if already processed
             if href in processed_hrefs:
@@ -614,32 +643,29 @@ def _extract_images_from_context(
 
             if href and not href.startswith("http"):
                 try:
-                    if href in ctx.namelist:
+                    if ctx.exists(href):
                         image_counter += 1
-                        with ctx.open_file(href) as img_file:
-                            img_data = img_file.read()
-                            content_type = (
-                                mimetypes.guess_type(href)[0]
-                                or "application/octet-stream"
+                        img_data = ctx.read_bytes(href)
+                        images.append(
+                            OpenDocumentImage(
+                                href=href,
+                                name=name or href.split("/")[-1],
+                                content_type=_guess_content_type(href),
+                                data=io.BytesIO(img_data),
+                                size_bytes=len(img_data),
+                                width=width,
+                                height=height,
+                                image_index=image_counter,
+                                caption=caption,
+                                description=description,
+                                unit_index=None,
                             )
-                            images.append(
-                                OpenDocumentImage(
-                                    href=href,
-                                    name=name or href.split("/")[-1],
-                                    content_type=content_type,
-                                    data=io.BytesIO(img_data),
-                                    size_bytes=len(img_data),
-                                    width=width,
-                                    height=height,
-                                    image_index=image_counter,
-                                    caption=caption,
-                                    description=description,
-                                    unit_index=None,
-                                )
-                            )
+                        )
                 except Exception as e:
-                    logger.debug(f"Failed to extract image {href}: {e}")
-                    images.append(OpenDocumentImage(href=href, name=name, error=str(e)))
+                    logger.debug("Failed to extract image %s: %s", href, e)
+                    images.append(
+                        OpenDocumentImage(href=href, name=name or href, error=str(e))
+                    )
             elif href:
                 image_counter += 1
                 images.append(
@@ -714,15 +740,15 @@ def _extract_styles_from_context(ctx: _OdtContext) -> list[str]:
 
     # Extract from cached content.xml
     if ctx.content_root is not None:
-        for style in ctx.content_root.findall(".//style:style", NS):
-            name = style.get(f"{{{NS['style']}}}name")
+        for style in ctx.content_root.iterfind(".//style:style", NS):
+            name = style.get(_ATTR_STYLE_NAME)
             if name:
                 styles.add(name)
 
     # Extract from cached styles.xml
     if ctx.styles_root is not None:
-        for style in ctx.styles_root.findall(".//style:style", NS):
-            name = style.get(f"{{{NS['style']}}}name")
+        for style in ctx.styles_root.iterfind(".//style:style", NS):
+            name = style.get(_ATTR_STYLE_NAME)
             if name:
                 styles.add(name)
 
@@ -731,26 +757,26 @@ def _extract_styles_from_context(ctx: _OdtContext) -> list[str]:
 
 def _append_full_text_from_element(elem: ET.Element, output: list[str]) -> None:
     """Append text from an element to output in document order."""
-    tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+    tag = elem.tag
 
-    if tag in ("p", "h"):
+    if tag in (_TEXT_P_TAG, _TEXT_H_TAG):
         text = _get_text_recursive(elem)
         if text.strip():
             output.append(text)
         return
 
-    if tag == "table":
-        for row in elem.findall(".//table:table-row", NS):
-            for cell in row.findall(".//table:table-cell", NS):
-                for p in cell.findall(".//text:p", NS):
+    if tag == _TABLE_TABLE_TAG:
+        for row in elem.iterfind(".//table:table-row", NS):
+            for cell in row.iterfind(".//table:table-cell", NS):
+                for p in cell.iterfind(".//text:p", NS):
                     text = _get_text_recursive(p)
                     if text.strip():
                         output.append(text)
         return
 
-    if tag == "list":
-        for item in elem.findall(".//text:list-item", NS):
-            for p in item.findall(".//text:p", NS):
+    if tag == _TEXT_LIST_TAG:
+        for item in elem.iterfind(".//text:list-item", NS):
+            for p in item.iterfind(".//text:p", NS):
                 text = _get_text_recursive(p)
                 if text.strip():
                     output.append(text)
