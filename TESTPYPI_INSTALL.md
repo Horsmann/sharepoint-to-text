@@ -51,6 +51,13 @@ uv add \
   --index https://pypi.org/simple/ \
   sharepoint-to-text
 ```
+or
+```bash
+uv pip \
+   install -i https://test.pypi.org/simple/ \
+   --index-strategy unsafe-best-match \
+   sharepoint-to-text==<version>
+```
 
 **Note:** TestPyPI normalizes version strings. A version like `0.2.0.rc01` in `pyproject.toml` becomes `0.2.0rc1` on TestPyPI.
 
