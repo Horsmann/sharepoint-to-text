@@ -242,9 +242,8 @@ def read_pdf(
         for page_num, page in enumerate(reader.pages, start=1):
             images = _extract_image_bytes(page, page_num)
             total_images += len(images)
-            page_text = page.extract_text() or ""
+            page_text, spatial_lines = _extract_text_with_spacing(page)
             raw_lines = page_text.splitlines()
-            spatial_lines = _extract_lines_with_spacing(page)
             raw_tables = _TableExtractor.extract(raw_lines)
             spatial_tables = _TableExtractor.extract(spatial_lines)
             tables = _TableExtractor.choose_tables(raw_tables, spatial_tables)
@@ -353,7 +352,7 @@ def _extract_image_bytes(page: PageLike, page_num: int) -> list[PdfImage]:
     return found_images
 
 
-def _extract_lines_with_spacing(page: PageLike) -> list[str]:
+def _extract_text_with_spacing(page: PageLike) -> tuple[str, list[str]]:
     """
     Extract text lines from a PDF page with spatial awareness.
 
@@ -367,7 +366,9 @@ def _extract_lines_with_spacing(page: PageLike) -> list[str]:
         - Separating table data from prose
 
     Returns:
-        List of text lines with appropriate spacing.
+        Tuple of:
+            - raw page text (string)
+            - List of text lines with appropriate spacing.
     """
     # Collect text segments with position information
     segments: list[TextSegment] = []
@@ -393,14 +394,13 @@ def _extract_lines_with_spacing(page: PageLike) -> list[str]:
 
     # Try spatial extraction, fall back to simple extraction on failure
     try:
-        page.extract_text(visitor_text=visitor)
+        page_text = page.extract_text(visitor_text=visitor) or ""
     except Exception:
-        raw_text = page.extract_text() or ""
-        return raw_text.splitlines()
+        page_text = page.extract_text() or ""
+        return page_text, page_text.splitlines()
 
     if not segments:
-        raw_text = page.extract_text() or ""
-        return raw_text.splitlines()
+        return page_text, page_text.splitlines()
 
     # Calculate dynamic tolerances based on median font size
     font_sizes = [size for _, _, _, size in segments if size > 0]
@@ -414,8 +414,7 @@ def _extract_lines_with_spacing(page: PageLike) -> list[str]:
     # Check if all segments are on approximately the same line (degenerate case)
     y_values = [item[0] for item in segments]
     if max(y_values) - min(y_values) < line_tolerance:
-        raw_text = page.extract_text() or ""
-        return raw_text.splitlines()
+        return page_text, page_text.splitlines()
 
     # Group segments into lines based on vertical proximity
     lines: list[dict[str, Any]] = []
@@ -503,7 +502,7 @@ def _extract_lines_with_spacing(page: PageLike) -> list[str]:
         spaced_lines.append(text)
         if idx in extra_after:
             spaced_lines.extend([""] * extra_after[idx])
-    return spaced_lines
+    return page_text, spaced_lines
 
 
 class _TableExtractor:

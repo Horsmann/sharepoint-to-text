@@ -13,6 +13,7 @@ implementation using a small pure-Python AES implementation.
 from __future__ import annotations
 
 import secrets
+from collections import OrderedDict
 from typing import Iterable
 
 
@@ -641,6 +642,19 @@ def _rcon(n: int) -> list[int]:
     return rcon
 
 
+def _build_rcon(max_rounds: int = 14) -> tuple[int, ...]:
+    rcon = [0] * (max_rounds + 1)
+    rcon[1] = 0x01
+    for i in range(2, max_rounds + 1):
+        rcon[i] = _xtime(rcon[i - 1])
+    return tuple(rcon)
+
+
+_RCON: tuple[int, ...] = _build_rcon()
+_ROUND_KEY_CACHE_MAX = 4
+_ROUND_KEY_CACHE: OrderedDict[bytes, list[bytes]] = OrderedDict()
+
+
 def _rot_word(word: list[int]) -> list[int]:
     return word[1:] + word[:1]
 
@@ -656,7 +670,7 @@ def _expand_key(key: bytes) -> list[bytes]:
     nk = len(key) // 4
     nr = nk + 6
     w: list[list[int]] = [list(key[4 * i : 4 * i + 4]) for i in range(nk)]
-    rcon = _rcon(nr)
+    rcon = _RCON if nr < len(_RCON) else _build_rcon(nr)
 
     for i in range(nk, 4 * (nr + 1)):
         temp = w[i - 1][:]
@@ -673,6 +687,18 @@ def _expand_key(key: bytes) -> list[bytes]:
         for word in w[4 * r : 4 * r + 4]:
             key_bytes.extend(word)
         round_keys.append(bytes(key_bytes))
+    return round_keys
+
+
+def _get_round_keys(key: bytes) -> list[bytes]:
+    cached = _ROUND_KEY_CACHE.get(key)
+    if cached is not None:
+        _ROUND_KEY_CACHE.move_to_end(key)
+        return cached
+    round_keys = _expand_key(key)
+    _ROUND_KEY_CACHE[key] = round_keys
+    if len(_ROUND_KEY_CACHE) > _ROUND_KEY_CACHE_MAX:
+        _ROUND_KEY_CACHE.popitem(last=False)
     return round_keys
 
 
@@ -715,7 +741,7 @@ def _aes_decrypt_block(block: bytes, round_keys: list[bytes]) -> bytes:
 def aes_ecb_encrypt(key: bytes, data: bytes) -> bytes:
     if len(data) % 16 != 0:
         raise ValueError("AES ECB requires data length multiple of 16")
-    round_keys = _expand_key(key)
+    round_keys = _get_round_keys(key)
     return b"".join(
         _aes_encrypt_block(block, round_keys) for block in _chunks(data, 16)
     )
@@ -724,7 +750,7 @@ def aes_ecb_encrypt(key: bytes, data: bytes) -> bytes:
 def aes_ecb_decrypt(key: bytes, data: bytes) -> bytes:
     if len(data) % 16 != 0:
         raise ValueError("AES ECB requires data length multiple of 16")
-    round_keys = _expand_key(key)
+    round_keys = _get_round_keys(key)
     return b"".join(
         _aes_decrypt_block(block, round_keys) for block in _chunks(data, 16)
     )
@@ -735,7 +761,7 @@ def aes_cbc_encrypt(key: bytes, iv: bytes, data: bytes) -> bytes:
         raise ValueError("AES CBC requires 16-byte IV")
     if len(data) % 16 != 0:
         raise ValueError("AES CBC requires data length multiple of 16")
-    round_keys = _expand_key(key)
+    round_keys = _get_round_keys(key)
     out = bytearray()
     prev = iv
     for block in _chunks(data, 16):
@@ -751,7 +777,7 @@ def aes_cbc_decrypt(key: bytes, iv: bytes, data: bytes) -> bytes:
         raise ValueError("AES CBC requires 16-byte IV")
     if len(data) % 16 != 0:
         raise ValueError("AES CBC requires data length multiple of 16")
-    round_keys = _expand_key(key)
+    round_keys = _get_round_keys(key)
     out = bytearray()
     prev = iv
     for block in _chunks(data, 16):
