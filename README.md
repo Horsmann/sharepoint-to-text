@@ -2,7 +2,7 @@
 
 A **pure Python** library for extracting text, metadata, and structured elements from Microsoft Office files—both modern (`.docx`, `.xlsx`, `.pptx`) and legacy (`.doc`, `.xls`, `.ppt`) formats—plus PDF, email formats, and plain text.
 
-**Install:** `pip install sharepoint-to-text`
+**Install:** `uv add sharepoint-to-text`
 **Python import:** `import sharepoint2text`
 **CLI (text):** `sharepoint2text /path/to/file.docx > extraction.txt`
 **CLI (JSON, full extraction):** `sharepoint2text --json /path/to/file.docx > extraction.json` (no binary by default; add `--binary` to include)
@@ -80,7 +80,7 @@ Unlike popular alternatives that shell out to **LibreOffice** or **Apache Tika**
 
 | Approach | Requirements | Cross-platform | Container-friendly |
 |----------|-------------|----------------|-------------------|
-| **sharepoint-to-text** | `pip install` only | Yes | Yes (minimal image) |
+| **sharepoint-to-text** | `uv add` only | Yes | Yes (minimal image) |
 | LibreOffice-based | LibreOffice install, X11/headless setup | Complex | Large images (~1GB+) |
 | Apache Tika | Java runtime, Tika server | Complex | Heavy (~500MB+) |
 | subprocess-based | Shell access, security concerns | No | Risky |
@@ -158,7 +158,13 @@ Enterprise SharePoints contain decades of accumulated documents. While modern `.
 ## Installation
 
 ```bash
-pip install sharepoint-to-text
+uv add sharepoint-to-text
+```
+
+Optional: faster AES handling for encrypted PDFs (avoids the slow fallback crypto and large-PDF image skips):
+
+```bash
+uv add "sharepoint-to-text[pdf-crypto]"
 ```
 
 Or install from source:
@@ -166,7 +172,7 @@ Or install from source:
 ```bash
 git clone https://github.com/Horsmann/sharepoint-to-text.git
 cd sharepoint-to-text
-pip install -e .
+uv sync --all-groups
 ```
 
 ## Libraries
@@ -190,6 +196,12 @@ These are only needed for development workflows:
 - `pytest`: test runner
 - `pre-commit`: linting/format hooks
 - `black`: code formatter
+
+### Optional Libraries
+
+These are opt-in extras for specific use cases:
+
+- `pycryptodome`: Faster AES crypto for encrypted PDFs (`pdf-crypto` extra)
 
 ## Quick Start
 
@@ -397,6 +409,12 @@ for result in results:
     print(result.get_full_text())
 ```
 
+## Limitations / Caveats
+
+- **PDF image extraction on large encrypted files:** When a PDF is AES-encrypted and pypdf is running in its fallback crypto provider (i.e., neither `cryptography` nor `pycryptodome` is installed), image extraction is skipped for large files (>= 10MB). Text and tables still extract, but image lists are empty. Install `cryptography` or `pycryptodome` to enable full PDF image extraction without this skip.
+- **Scanned PDFs:** Image-only PDFs return empty text because OCR is not performed.
+- **Password-protected PDFs:** PDFs requiring a non-empty password are rejected with an `ExtractionFileEncryptedError`.
+
 ## CLI
 
 After installation, a `sharepoint2text` command is available. It accepts a single file path and prints the extracted full text to stdout by default.
@@ -442,6 +460,8 @@ sharepoint2text --json --binary /path/to/file.pdf > extraction.with-binary.json
 # include binary payloads (units mode)
 sharepoint2text --json-unit --binary /path/to/file.pdf > units.with-binary.json
 ```
+
+Note: the PDF image skip described in the limitations section also applies to CLI output. In that scenario, `--json`/`--json-unit` will report empty image lists even with `--binary`, because the images are not extracted.
 
 ## API Reference
 

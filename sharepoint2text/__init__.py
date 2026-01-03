@@ -205,7 +205,7 @@ def read_pdf(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[PdfContent, Any, None]:
     """Extract content from a PDF file."""
-    from sharepoint2text.extractors.pdf_extractor import read_pdf as _read_pdf
+    from sharepoint2text.extractors.pdf.pdf_extractor import read_pdf as _read_pdf
 
     logger.debug("Reading PDF file: %s", path)
     return _read_pdf(file_like, path)
