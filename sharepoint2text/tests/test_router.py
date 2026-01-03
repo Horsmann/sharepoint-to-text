@@ -64,9 +64,18 @@ def test_is_supported():
     tc.assertTrue(is_supported_file("myfile.docm"))
     tc.assertTrue(is_supported_file("myfile.xlsm"))
     tc.assertTrue(is_supported_file("myfile.pptm"))
+    # Archive formats
+    tc.assertTrue(is_supported_file("myfile.zip"))
+    tc.assertTrue(is_supported_file("myfile.tar"))
+    tc.assertTrue(is_supported_file("myfile.tar.gz"))
+    tc.assertTrue(is_supported_file("myfile.tgz"))
+    tc.assertTrue(is_supported_file("myfile.tar.bz2"))
+    tc.assertTrue(is_supported_file("myfile.tbz2"))
+    tc.assertTrue(is_supported_file("myfile.tar.xz"))
+    tc.assertTrue(is_supported_file("myfile.txz"))
     # not supported
-    tc.assertFalse(is_supported_file("myfile.zip"))
     tc.assertFalse(is_supported_file("myfile.rar"))
+    tc.assertFalse(is_supported_file("myfile.7z"))
     tc.assertFalse(is_supported_file("myfile.exe"))
     tc.assertFalse(is_supported_file("myfile.bat"))
 

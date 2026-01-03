@@ -72,16 +72,33 @@ _EXTRACTOR_REGISTRY: dict[str, tuple[str, str]] = {
     "html": ("sharepoint2text.parsing.extractors.html_extractor", "read_html"),
     "epub": ("sharepoint2text.parsing.extractors.epub_extractor", "read_epub"),
     "mhtml": ("sharepoint2text.parsing.extractors.mhtml_extractor", "read_mhtml"),
+    # Archive formats
+    "zip": ("sharepoint2text.parsing.extractors.archive_extractor", "read_archive"),
+    "tar": ("sharepoint2text.parsing.extractors.archive_extractor", "read_archive"),
+    "tgz": ("sharepoint2text.parsing.extractors.archive_extractor", "read_archive"),
+    "tbz2": ("sharepoint2text.parsing.extractors.archive_extractor", "read_archive"),
+    "txz": ("sharepoint2text.parsing.extractors.archive_extractor", "read_archive"),
 }
 
 _EXTENSION_ALIASES: dict[str, str] = {
     "htm": "html",
     "mht": "mhtml",
+    "gz": "tgz",  # .gz alone treated as gzip-compressed tar
+    "bz2": "tbz2",  # .bz2 alone treated as bzip2-compressed tar
+    "xz": "txz",  # .xz alone treated as xz-compressed tar
+}
+
+# Compound extensions that need special handling (checked before single extension)
+_COMPOUND_EXTENSIONS: dict[str, str] = {
+    ".tar.gz": "tgz",
+    ".tar.bz2": "tbz2",
+    ".tar.xz": "txz",
 }
 
 _SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
     {f".{ext}" for ext in _EXTRACTOR_REGISTRY.keys()}
     | {f".{ext}" for ext in _EXTENSION_ALIASES.keys()}
+    | set(_COMPOUND_EXTENSIONS.keys())
 )
 
 
@@ -119,6 +136,11 @@ def _get_extractor(
 
 
 def _file_type_from_extension(path_lower: str) -> str | None:
+    # Check compound extensions first (e.g., .tar.gz)
+    for compound_ext, file_type in _COMPOUND_EXTENSIONS.items():
+        if path_lower.endswith(compound_ext):
+            return file_type
+
     extension = os.path.splitext(path_lower)[1]
     if not extension:
         return None
@@ -142,6 +164,11 @@ def is_supported_file(path: str) -> bool:
         True if the file format is supported, False otherwise.
     """
     path_lower = path.lower()
+
+    # Check compound extensions first (e.g., .tar.gz)
+    for compound_ext in _COMPOUND_EXTENSIONS:
+        if path_lower.endswith(compound_ext):
+            return True
 
     extension = os.path.splitext(path_lower)[1]
     if extension in _SUPPORTED_EXTENSIONS:

@@ -36,6 +36,14 @@ MIME_TYPE_MAPPING = {
     "application/pdf": "pdf",
     "application/epub+zip": "epub",
     # MHTML detection is extension-based (.mhtml, .mht) since MIME overlaps with EML
+    # Archive formats
+    "application/zip": "zip",
+    "application/x-zip-compressed": "zip",
+    "application/x-tar": "tar",
+    "application/x-gzip": "tgz",
+    "application/gzip": "tgz",
+    "application/x-bzip2": "tbz2",
+    "application/x-xz": "txz",
 }
 
 
