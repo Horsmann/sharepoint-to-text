@@ -102,10 +102,14 @@ Maintenance Notes
 - Format detection based on compression filter type
 """
 
+import calendar
+import contextlib
 import io
 import logging
 import re
 import statistics
+import string
+import struct
 import unicodedata
 from typing import Any, Generator, Iterable, Optional, Protocol
 
@@ -135,6 +139,22 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 TableRows = list[list[str]]
 TextSegment = tuple[float, float, str, float]  # (y, x, text, font_size)
+
+# Reference digit bounding boxes (width, height) for a common sans font.
+# Values are in font units (units-per-em = 2048).
+_REFERENCE_DIGIT_UNITS_PER_EM = 2048
+_REFERENCE_DIGIT_FEATURES: dict[int, tuple[int, int]] = {
+    0: (956, 1497),
+    1: (540, 1472),
+    2: (971, 1472),
+    3: (960, 1498),
+    4: (1014, 1466),
+    5: (972, 1471),
+    6: (968, 1497),
+    7: (949, 1447),
+    8: (966, 1497),
+    9: (964, 1497),
+}
 
 # =============================================================================
 # PDF Filter to Image Format Mapping
@@ -200,6 +220,206 @@ def _should_skip_images(reader: PdfReader, file_like: io.BytesIO) -> bool:
     except Exception:
         return False
     return data_size >= _AES_FALLBACK_IMAGE_SKIP_THRESHOLD_BYTES
+
+
+def _ttf_read_table_directory(
+    font_data: bytes,
+) -> dict[str, tuple[int, int]]:
+    if len(font_data) < 12:
+        return {}
+    num_tables = struct.unpack(">H", font_data[4:6])[0]
+    tables: dict[str, tuple[int, int]] = {}
+    for idx in range(num_tables):
+        entry = font_data[12 + idx * 16 : 12 + (idx + 1) * 16]
+        if len(entry) < 16:
+            break
+        tag, _check, offset, length = struct.unpack(">4sIII", entry)
+        tables[tag.decode("ascii", errors="ignore")] = (offset, length)
+    return tables
+
+
+def _ttf_read_head(
+    font_data: bytes, tables: dict[str, tuple[int, int]]
+) -> Optional[tuple[int, int]]:
+    if "head" not in tables:
+        return None
+    offset, length = tables["head"]
+    if offset + 52 > len(font_data):
+        return None
+    head = font_data[offset : offset + length]
+    units_per_em = struct.unpack(">H", head[18:20])[0]
+    index_to_loc_format = struct.unpack(">h", head[50:52])[0]
+    return units_per_em, index_to_loc_format
+
+
+def _ttf_read_maxp(
+    font_data: bytes, tables: dict[str, tuple[int, int]]
+) -> Optional[int]:
+    if "maxp" not in tables:
+        return None
+    offset, length = tables["maxp"]
+    if offset + 6 > len(font_data):
+        return None
+    maxp = font_data[offset : offset + length]
+    return struct.unpack(">H", maxp[4:6])[0]
+
+
+def _ttf_read_loca(
+    font_data: bytes,
+    tables: dict[str, tuple[int, int]],
+    index_to_loc_format: int,
+    num_glyphs: int,
+) -> Optional[list[int]]:
+    if "loca" not in tables:
+        return None
+    offset, length = tables["loca"]
+    if offset >= len(font_data):
+        return None
+    loca = font_data[offset : offset + length]
+    offsets: list[int] = []
+    if index_to_loc_format == 0:
+        for idx in range(num_glyphs + 1):
+            start = idx * 2
+            end = start + 2
+            if end > len(loca):
+                return None
+            val = struct.unpack(">H", loca[start:end])[0]
+            offsets.append(val * 2)
+    else:
+        for idx in range(num_glyphs + 1):
+            start = idx * 4
+            end = start + 4
+            if end > len(loca):
+                return None
+            val = struct.unpack(">I", loca[start:end])[0]
+            offsets.append(val)
+    return offsets
+
+
+def _ttf_read_glyph_dimensions(
+    font_data: bytes, tables: dict[str, tuple[int, int]], glyph_offset: int
+) -> Optional[tuple[int, int]]:
+    if "glyf" not in tables:
+        return None
+    offset, length = tables["glyf"]
+    start = offset + glyph_offset
+    if start + 10 > offset + length or start + 10 > len(font_data):
+        return None
+    header = font_data[start : start + 10]
+    if len(header) < 10:
+        return None
+    _contours, x_min, y_min, x_max, y_max = struct.unpack(">hhhhh", header)
+    return x_max - x_min, y_max - y_min
+
+
+def _ttf_get_glyph_features(
+    font_data: bytes, glyph_ids: list[int]
+) -> Optional[tuple[int, dict[int, tuple[int, int]]]]:
+    tables = _ttf_read_table_directory(font_data)
+    head = _ttf_read_head(font_data, tables)
+    num_glyphs = _ttf_read_maxp(font_data, tables)
+    if head is None or num_glyphs is None:
+        return None
+    units_per_em, index_to_loc_format = head
+    offsets = _ttf_read_loca(font_data, tables, index_to_loc_format, num_glyphs)
+    if offsets is None:
+        return None
+    features: dict[int, tuple[int, int]] = {}
+    for gid in glyph_ids:
+        if gid < 0 or gid >= len(offsets) - 1:
+            continue
+        dims = _ttf_read_glyph_dimensions(font_data, tables, offsets[gid])
+        if dims is None:
+            continue
+        features[gid] = dims
+    return units_per_em, features
+
+
+def _assign_digit_glyphs(
+    features: dict[int, tuple[int, int]], units_per_em: int
+) -> dict[int, int]:
+    if not features:
+        return {}
+    scale = units_per_em / _REFERENCE_DIGIT_UNITS_PER_EM
+    ref_scaled = {
+        digit: (width * scale, height * scale)
+        for digit, (width, height) in _REFERENCE_DIGIT_FEATURES.items()
+    }
+    candidates: list[tuple[float, int, int]] = []
+    for gid, (width, height) in features.items():
+        for digit, (ref_width, ref_height) in ref_scaled.items():
+            cost = abs(width - ref_width) + abs(height - ref_height)
+            candidates.append((cost, gid, digit))
+    candidates.sort()
+    assigned: dict[int, int] = {}
+    used_digits: set[int] = set()
+    for _cost, gid, digit in candidates:
+        if gid in assigned or digit in used_digits:
+            continue
+        assigned[gid] = digit
+        used_digits.add(digit)
+        if len(assigned) == len(features):
+            break
+    return assigned
+
+
+def _patch_font_digit_map(
+    font_map: dict[Any, Any], font_dict: Optional[dict[str, Any]]
+) -> None:
+    if not font_dict:
+        return
+    null_char = chr(0)
+    null_keys = [
+        ord(key)
+        for key, value in font_map.items()
+        if isinstance(key, str)
+        and isinstance(value, str)
+        and value == null_char
+        and len(key) == 1
+    ]
+    if not null_keys:
+        return
+    font_data: Optional[bytes] = None
+    try:
+        desc = font_dict["/DescendantFonts"][0].get_object()
+        font_desc = desc["/FontDescriptor"].get_object()
+        font_data = font_desc["/FontFile2"].get_object().get_data()
+    except Exception:
+        font_data = None
+    if not font_data:
+        return
+    glyph_info = _ttf_get_glyph_features(font_data, null_keys)
+    if glyph_info is None:
+        return
+    units_per_em, features = glyph_info
+    digit_map = _assign_digit_glyphs(features, units_per_em)
+    if not digit_map:
+        return
+    for gid, digit in digit_map.items():
+        try:
+            font_map[chr(gid)] = str(digit)
+        except ValueError:
+            continue
+
+
+@contextlib.contextmanager
+def _patched_build_char_map() -> Iterable[None]:
+    import pypdf._page as pypdf_page
+
+    original = pypdf_page.build_char_map
+
+    def patched(font_name: str, space_width: float, obj: Any) -> Any:
+        font_subtype, font_halfspace, font_encoding, font_map, font = original(
+            font_name, space_width, obj
+        )
+        _patch_font_digit_map(font_map, font)
+        return font_subtype, font_halfspace, font_encoding, font_map, font
+
+    pypdf_page.build_char_map = patched
+    try:
+        yield
+    finally:
+        pypdf_page.build_char_map = original
 
 
 def read_pdf(
@@ -419,11 +639,12 @@ def _extract_text_with_spacing(page: PageLike) -> tuple[str, list[str]]:
         segments.append((y, x, text, size))
 
     # Try spatial extraction, fall back to simple extraction on failure
-    try:
-        page_text = page.extract_text(visitor_text=visitor) or ""
-    except Exception:
-        page_text = page.extract_text() or ""
-        return page_text, page_text.splitlines()
+    with _patched_build_char_map():
+        try:
+            page_text = page.extract_text(visitor_text=visitor) or ""
+        except Exception:
+            page_text = page.extract_text() or ""
+            return page_text, page_text.splitlines()
 
     if not segments:
         return page_text, page_text.splitlines()
@@ -557,6 +778,11 @@ class _TableExtractor:
         r"September|October|November|December)\b",
         re.IGNORECASE,
     )
+    MONTH_TOKENS = {
+        name.lower()
+        for name in list(calendar.month_name) + list(calendar.month_abbr)
+        if name
+    }
 
     # Numeric detection patterns
     NUMERIC_RE = re.compile(r"\d")
@@ -580,6 +806,7 @@ class _TableExtractor:
     def __init__(self, lines: list[str]) -> None:
         self.lines = [line.strip() for line in lines]
         self.known_words = self._collect_known_words(self.lines)
+        self._spaced_value_columns = False
 
     # -------------------------------------------------------------------------
     # Public API
@@ -607,8 +834,12 @@ class _TableExtractor:
         column_count = 0
         gap_count = 0
         pending_header_label = ""
+        pending_header_unit = ""
+        self._spaced_value_columns = False
 
-        for idx, line in enumerate(self.lines):
+        idx = 0
+        while idx < len(self.lines):
+            line = self.lines[idx]
             if not line:
                 if current_rows:
                     gap_count += 1
@@ -617,10 +848,27 @@ class _TableExtractor:
                         current_rows = []
                         column_count = 0
                         gap_count = 0
+                        self._spaced_value_columns = False
+                idx += 1
                 continue
 
             has_digits = bool(self.NUMERIC_RE.search(line))
             next_line = self._next_non_empty_line(idx)
+
+            if not current_rows:
+                header_block = self._extract_word_date_header(
+                    idx, pending_header_label, pending_header_unit
+                )
+                if header_block:
+                    header_rows, next_idx = header_block
+                    if header_rows:
+                        current_rows.extend(header_rows)
+                        column_count = len(header_rows[0])
+                        gap_count = 0
+                    pending_header_label = ""
+                    pending_header_unit = ""
+                    idx = next_idx
+                    continue
             if current_rows and not has_digits and self._looks_like_section_break(line):
                 next_header = self._extract_date_header(next_line)
                 if next_header:
@@ -629,10 +877,15 @@ class _TableExtractor:
                     column_count = 0
                     gap_count = 0
                     pending_header_label = self._normalize_label(line)
+                    self._spaced_value_columns = False
+                    idx += 1
                     continue
 
             if not current_rows and not has_digits:
-                pending_header_label = self._normalize_label(line)
+                if self._is_unit_header(line):
+                    pending_header_unit = line
+                else:
+                    pending_header_label = self._normalize_label(line)
 
             date_header = self._extract_date_header(line)
             if date_header:
@@ -642,6 +895,7 @@ class _TableExtractor:
                     current_rows = []
                     column_count = 0
                     gap_count = 0
+                    self._spaced_value_columns = False
                 if not label and pending_header_label:
                     label = pending_header_label
                 pending_header_label = ""
@@ -652,6 +906,7 @@ class _TableExtractor:
                         [self._normalize_label(unit_text)]
                         + ["" for _ in range(column_count - 1)]
                     )
+                idx += 1
                 continue
 
             label, values = self._extract_row(line)
@@ -668,6 +923,8 @@ class _TableExtractor:
                     current_rows = []
                     column_count = 0
                     gap_count = 0
+                    self._spaced_value_columns = False
+                    idx += 1
                     continue
             if not has_values and current_rows:
                 if self.LINE_NUMBER_PREFIX_RE.match(line):
@@ -675,6 +932,8 @@ class _TableExtractor:
                     current_rows = []
                     column_count = 0
                     gap_count = 0
+                    self._spaced_value_columns = False
+                    idx += 1
                     continue
                 if (
                     len(line) >= 60
@@ -686,6 +945,8 @@ class _TableExtractor:
                     current_rows = []
                     column_count = 0
                     gap_count = 0
+                    self._spaced_value_columns = False
+                    idx += 1
                     continue
             values_from_trailing_blob = False
             if not values:
@@ -700,6 +961,7 @@ class _TableExtractor:
                     )
                     values_from_trailing_blob = True
                 if not values and not current_rows:
+                    idx += 1
                     continue
 
             if values and len(values) < self.MIN_VALUE_COLUMNS and line[:1].isdigit():
@@ -708,15 +970,18 @@ class _TableExtractor:
 
             if values and column_count == 0:
                 if len(values) < self.MIN_VALUE_COLUMNS:
+                    idx += 1
                     continue
                 column_count = len(values) + 1
 
             if values or current_rows:
                 if column_count == 0 and values:
                     if len(values) < self.MIN_VALUE_COLUMNS:
+                        idx += 1
                         continue
                     column_count = len(values) + 1
                 if column_count == 0:
+                    idx += 1
                     continue
                 expected_values = column_count - 1
                 values = self._normalize_values(values, expected_values)
@@ -727,6 +992,21 @@ class _TableExtractor:
                             label = f"{last_row[0]} {label}"
                             current_rows.pop()
                 if values:
+                    expected_values = column_count - 1
+                    if (
+                        self._spaced_value_columns
+                        and expected_values % 2 == 0
+                        and len(values) * 2 == expected_values
+                    ):
+                        align_right = self._has_double_space_gap(line, values[0])
+                        spaced = [""] * expected_values
+                        start = 1 if align_right else 0
+                        for value_idx, value in enumerate(values):
+                            position = start + value_idx * 2
+                            if position >= len(spaced):
+                                break
+                            spaced[position] = value
+                        values = spaced
                     row = [label] + values
                     if len(row) < column_count:
                         row.extend([""] * (column_count - len(row)))
@@ -736,6 +1016,8 @@ class _TableExtractor:
                     row = [label] + [""] * (column_count - 1)
                 current_rows.append(row)
                 gap_count = 0
+
+            idx += 1
 
         self._flush_current(tables, current_rows)
         if tables:
@@ -798,7 +1080,7 @@ class _TableExtractor:
             return values
         if len(values) == expected_count + 1 and cls._is_footnote_leader(values[0]):
             return values[1:]
-        merged = values[:]
+        merged = [cls._normalize_numeric_token(value) for value in values]
         while len(merged) > expected_count:
             merged_any = False
             for idx in range(len(merged) - 1):
@@ -812,6 +1094,33 @@ class _TableExtractor:
                 del merged[1]
         return merged
 
+    @staticmethod
+    def _normalize_numeric_token(token: str) -> str:
+        normalized = unicodedata.normalize("NFKC", token)
+        return "".join(
+            "-" if _TableExtractor._is_dash_like(char) else char for char in normalized
+        )
+
+    @staticmethod
+    def _is_dash_like(char: str) -> bool:
+        if char == "+":
+            return False
+        try:
+            name = unicodedata.name(char)
+        except ValueError:
+            return False
+        return "DASH" in name or "MINUS" in name
+
+    @classmethod
+    def _has_double_space_gap(cls, line: str, value: str) -> bool:
+        normalized_line = cls._normalize_numeric_token(line)
+        normalized_value = cls._normalize_numeric_token(value)
+        position = normalized_line.find(normalized_value)
+        if position <= 0:
+            return False
+        prefix = normalized_line[:position]
+        return bool(re.search(r"\s{2,}$", prefix))
+
     # -------------------------------------------------------------------------
     # Numeric Detection and Processing
     # -------------------------------------------------------------------------
@@ -820,8 +1129,11 @@ class _TableExtractor:
         cleaned = token.strip()
         if not cleaned:
             return False
-        if cleaned[0] in ("(", "-", "–") and cleaned[-1] == ")":
+        cleaned = _TableExtractor._normalize_numeric_token(cleaned)
+        if cleaned.startswith("(") and cleaned.endswith(")"):
             cleaned = cleaned[1:-1]
+        if cleaned[:1] in ("-",):
+            cleaned = cleaned[1:]
         if cleaned.endswith("%"):
             cleaned = cleaned[:-1]
         return all(ch.isdigit() or ch in {",", "."} for ch in cleaned) and any(
@@ -974,6 +1286,143 @@ class _TableExtractor:
         if cls.NON_UNIT_CHARS_RE.search(line):
             return True
         return False
+
+    @classmethod
+    def _find_word_dates(cls, tokens: list[str]) -> list[tuple[int, int, str]]:
+        dates: list[tuple[int, int, str]] = []
+        for idx in range(len(tokens) - 2):
+            day = tokens[idx].strip(string.punctuation)
+            month = tokens[idx + 1].strip(string.punctuation)
+            year = tokens[idx + 2].strip(string.punctuation)
+            if not day.isdigit():
+                continue
+            if month.lower() not in cls.MONTH_TOKENS:
+                continue
+            if not (year.isdigit() and len(year) == 4):
+                continue
+            date_str = " ".join([day, tokens[idx + 1].strip(string.punctuation), year])
+            dates.append((idx, idx + 2, date_str))
+        return dates
+
+    def _split_header_groups(self, tokens: list[str]) -> tuple[str, str, str]:
+        if not tokens:
+            return "", "", ""
+        if len(tokens) == 1:
+            return self._normalize_label(tokens[0]), "", ""
+        if len(tokens) == 2:
+            return (
+                self._normalize_label(tokens[0]),
+                "",
+                self._normalize_label(tokens[1]),
+            )
+        return (
+            self._normalize_label(tokens[0]),
+            self._normalize_label(" ".join(tokens[1:-1])),
+            self._normalize_label(tokens[-1]),
+        )
+
+    @classmethod
+    def _is_unit_header(cls, line: str) -> bool:
+        tokens = line.split()
+        return bool(tokens) and tokens[0].lower() == "in"
+
+    def _extract_word_date_header(
+        self, start_idx: int, pending_label: str, pending_unit: str
+    ) -> Optional[tuple[list[list[str]], int]]:
+        line = self.lines[start_idx]
+        if not line:
+            return None
+        tokens = line.split()
+        if not self._find_word_dates(tokens):
+            return None
+        current_dates = self._find_word_dates(tokens)
+        max_block = 1 if len(current_dates) >= 2 else 3
+        block_indices = [start_idx]
+        look_idx = start_idx + 1
+        while look_idx < len(self.lines) and len(block_indices) < max_block:
+            if self.lines[look_idx]:
+                block_indices.append(look_idx)
+            look_idx += 1
+        block = [
+            (idx, self.lines[idx], self.lines[idx].split()) for idx in block_indices
+        ]
+        date_lines = []
+        for idx, _line, tokens in block:
+            dates = self._find_word_dates(tokens)
+            if dates:
+                date_lines.append((idx, tokens, dates))
+        if not date_lines:
+            return None
+        if len(date_lines) == 1 and len(date_lines[0][2]) < 2:
+            return None
+        middle_label = ""
+        middle_idx: Optional[int] = None
+        for idx, line_text, tokens in block:
+            if self._find_word_dates(tokens):
+                continue
+            if any(char.isdigit() for char in line_text):
+                continue
+            if len(tokens) <= 2:
+                middle_label = self._normalize_label(line_text)
+                middle_idx = idx
+                break
+        combined_tokens: list[str] = []
+        for idx, _line, tokens in block:
+            if middle_idx is not None and idx == middle_idx:
+                continue
+            combined_tokens.extend(tokens)
+        dates = self._find_word_dates(combined_tokens)
+        if len(dates) < 2:
+            return None
+        first_date = dates[0]
+        last_date = dates[-1]
+        date1 = first_date[2]
+        date2 = last_date[2]
+        middle_tokens = combined_tokens[first_date[1] + 1 : last_date[0]]
+        unit_line = pending_unit
+        if not unit_line and first_date[0] > 0:
+            unit_line = " ".join(combined_tokens[: first_date[0]])
+
+        if not middle_tokens and not middle_label:
+            column_count = 1 + len(dates) * 2
+            row1 = [""] * column_count
+            if pending_label:
+                row1[0] = pending_label
+            row2 = [""] * column_count
+            if unit_line:
+                row2[0] = self._normalize_label(unit_line.strip())
+            date_positions = [2 * idx + 2 for idx in range(len(dates))]
+            for pos, date_text in zip(date_positions, [date1, date2]):
+                if pos < column_count:
+                    row2[pos] = date_text
+            header_rows = [row for row in (row1, row2) if any(row)]
+            self._spaced_value_columns = True
+            return header_rows, max(block_indices) + 1
+
+        group1, group2, group3 = self._split_header_groups(middle_tokens)
+        row4 = ["", date1, group1, group2, "", group3, date2]
+        column_count = len(row4)
+
+        row1 = [""] * column_count
+        if pending_label:
+            row1[0] = pending_label
+
+        row2 = [""] * column_count
+        if unit_line:
+            parts = re.split(r"\s{2,}", unit_line.strip())
+            if parts:
+                row2[0] = self._normalize_label(parts[0])
+            if len(parts) > 1:
+                row2[column_count - 3] = self._normalize_label(parts[1])
+
+        row3 = [""] * column_count
+        if middle_label:
+            row3[column_count - 3] = middle_label
+
+        header_rows = [row for row in (row1, row2, row3, row4) if any(row)]
+        self._spaced_value_columns = False
+        next_idx = max(block_indices) + 1
+        return header_rows, next_idx
 
     @classmethod
     def _looks_like_section_break(cls, line: str) -> bool:

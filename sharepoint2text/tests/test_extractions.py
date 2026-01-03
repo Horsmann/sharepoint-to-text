@@ -2455,6 +2455,162 @@ def test_read_pdf_6() -> None:
     tc.assertIn("Supplier Registration Form", full_text)
 
 
+def test_read_pdf_7() -> None:
+    path = "sharepoint2text/tests/resources/pdf/wirecard-annual-report-2018-page190.pdf"
+    pdf: PdfContent = next(
+        read_pdf(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+
+    units = list(pdf.iterate_units())
+    tc.assertEqual(
+        (
+            " \n"
+            " \n"
+            "Changes in liabilities from financing activities  \n"
+            "in EUR million   non cash-relevant  \n"
+            "  \n"
+            "1 Jan 2017 cash-relevant Additions\n"
+            "Changes in \n"
+            "measurement Other 31 Dec 2017\n"
+            "Purchase price liabilities 77.2 –65.2 36.7 11.2 –0.5 59.4\n"
+            "Lease liabilities 19.5 –11.7 18.3 0.0 0.0 26.1\n"
+            "interest-bearing liabilities 593.4 467.1 0.0 0.0 0.4 1,060.9\n"
+            "Total 690.1 390.2 55.0 11.2 –0.1 1,146.4\n"
+            " \n"
+            " \n"
+            "6.4 Cash and cash equivalents at end of period \n"
+            "After taking into account the total cash inflows and cash \n"
+            "outflows reported above of EUR 821.3 million (previous \n"
+            "year: EUR 563.3 million), exchange rate-related changes \n"
+            "of EUR –14.6 million (previous year: EUR 1.1 million) as \n"
+            "well as cash and cash equivalents at start of the reporting \n"
+            "period of EUR 1.895,9 million (31 December 2017: \n"
+            "EUR  1.331,5 million), cash and cash equivalents at the \n"
+            "end of reporting period amounted to EUR 2,702.5 million \n"
+            "(31 December 2017: EUR 1,895.9 million).  \n"
+            "Alongside cash and cash equivalents, there are other cur-\n"
+            "rent assets and liabilities that can have a significant effect \n"
+            "on the availability of funds. Therefore, Wirecard has cre-\n"
+            "ated an additional net cash calculation. The net cash cal-\n"
+            "culation is based on the current availability of cash for the \n"
+            "further development of the business and for investments.  \n"
+            " \n"
+            "6.5 Net cash items  \n"
+            " \n"
+            "Net Cash Position - Wirecard     \n"
+            "in EUR million 31 Dec 2018 31 Dec 2017\n"
+            "Cash and cash equivalents  2,719.8  1,901.3\n"
+            "Interest-bearing securities and fixed-term deposits  2.3  1.8\n"
+            "Receivables of the acquiring business and trade and \n"
+            "other receivables  1,042.4  716.7\n"
+            "Interest-bearing liabilities / other liabilities  –303.9  –463.1\n"
+            "Customer deposits from banking operations –1,263.0 –1,098.7 –973.2 –819.4\n"
+            "Non-current interest-bearing securities 24.7  44.6  \n"
+            "Interest-bearing securities and fixed-term deposits 139.6  109.1  \n"
+            "Liabilities of the acquiring business and trade payables  –715.3  –488.8\n"
+            "Net Cash Position - Wirecard  1,646.6  848.6\n"
+            " "
+        ),
+        units[0].get_text(),
+    )
+
+    tc.assertEqual(2, len(list(pdf.iterate_tables())))
+    table_1 = list(pdf.iterate_tables())[0].get_table()
+    tc.assertListEqual(
+        [
+            [
+                "Changes in liabilities from financing activities",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+            ],
+            ["in EUR million", "", "", "", "non cash-relevant", "", ""],
+            ["", "", "", "", "Changes in", "", ""],
+            [
+                "",
+                "1 Jan 2017",
+                "cash-relevant",
+                "Additions measurement",
+                "",
+                "Other",
+                "31 Dec 2017",
+            ],
+            [
+                "Purchase price liabilities",
+                "77.2",
+                "-65.2",
+                "36.7",
+                "11.2",
+                "-0.5",
+                "59.4",
+            ],
+            ["Lease liabilities", "19.5", "-11.7", "18.3", "0.0", "0.0", "26.1"],
+            [
+                "interest-bearing liabilities",
+                "593.4",
+                "467.1",
+                "0.0",
+                "0.0",
+                "0.4",
+                "1,060.9",
+            ],
+            ["Total", "690.1", "390.2", "55.0", "11.2", "-0.1", "1,146.4"],
+        ],
+        table_1,
+    )
+    table_2 = list(pdf.iterate_tables())[1].get_table()
+    tc.assertListEqual(
+        [
+            ["Net Cash Position - Wirecard", "", "", "", ""],
+            ["in EUR million", "", "31 Dec 2018", "", "31 Dec 2017"],
+            ["Cash and cash equivalents", "", "2,719.8", "", "1,901.3"],
+            [
+                "Interest-bearing securities and fixed-term deposits",
+                "",
+                "2.3",
+                "",
+                "1.8",
+            ],
+            ["Receivables of the acquiring business and trade and", "", "", "", ""],
+            ["other receivables", "", "1,042.4", "", "716.7"],
+            [
+                "Interest-bearing liabilities / other liabilities",
+                "",
+                "-303.9",
+                "",
+                "-463.1",
+            ],
+            [
+                "Customer deposits from banking operations",
+                "-1,263.0",
+                "-1,098.7",
+                "-973.2",
+                "-819.4",
+            ],
+            ["Non-current interest-bearing securities", "24.7", "", "44.6", ""],
+            [
+                "Interest-bearing securities and fixed-term deposits",
+                "139.6",
+                "",
+                "109.1",
+                "",
+            ],
+            [
+                "Liabilities of the acquiring business and trade payables",
+                "",
+                "-715.3",
+                "",
+                "-488.8",
+            ],
+            ["Net Cash Position - Wirecard", "", "1,646.6", "", "848.6"],
+        ],
+        table_2,
+    )
+
+
 def test_read_html() -> None:
     path = "sharepoint2text/tests/resources/sample.html"
     html: HtmlContent = next(
