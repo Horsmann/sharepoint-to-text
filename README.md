@@ -255,7 +255,7 @@ print(json.dumps(result.to_json()))
 To restore objects from JSON, use `ExtractionInterface.from_json(...)`.
 
 ```python
-from sharepoint2text.extractors.data_types import ExtractionInterface
+from sharepoint2text.parsing.extractors.data_types import ExtractionInterface
 
 restored = ExtractionInterface.from_json(result.to_json())
 ```
@@ -782,3 +782,6 @@ def prepare_for_rag(file_path: str) -> list[dict]:
 ## License
 
 Apache 2.0 - see [LICENSE](LICENSE) for details.
+
+## Disclaimer
+This project is not affiliated with, endorsed by, or sponsored by Microsoft.

@@ -3,8 +3,11 @@ import zipfile
 
 import pytest
 
-from sharepoint2text.exceptions import ExtractionZipBombError
-from sharepoint2text.extractors.util.zip_bomb import ZipBombLimits, validate_zip_bytesio
+from sharepoint2text.parsing.exceptions import ExtractionZipBombError
+from sharepoint2text.parsing.extractors.util.zip_bomb import (
+    ZipBombLimits,
+    validate_zip_bytesio,
+)
 
 
 def _make_zip_bytesio(files: dict[str, bytes]) -> io.BytesIO:

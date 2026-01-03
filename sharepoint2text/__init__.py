@@ -13,7 +13,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Generator
 
-from sharepoint2text.extractors.data_types import (
+from sharepoint2text.parsing.extractors.data_types import (
     DocContent,
     DocxContent,
     EmailContent,
@@ -31,7 +31,7 @@ from sharepoint2text.extractors.data_types import (
     XlsContent,
     XlsxContent,
 )
-from sharepoint2text.router import get_extractor, is_supported_file
+from sharepoint2text.parsing.router import get_extractor, is_supported_file
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ def read_docx(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[DocxContent, Any, None]:
     """Extract content from a DOCX file."""
-    from sharepoint2text.extractors.ms_modern.docx_extractor import (
+    from sharepoint2text.parsing.extractors.ms_modern.docx_extractor import (
         read_docx as _read_docx,
     )
 
@@ -88,7 +88,7 @@ def read_xlsx(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[XlsxContent, Any, None]:
     """Extract content from an XLSX file."""
-    from sharepoint2text.extractors.ms_modern.xlsx_extractor import (
+    from sharepoint2text.parsing.extractors.ms_modern.xlsx_extractor import (
         read_xlsx as _read_xlsx,
     )
 
@@ -100,7 +100,7 @@ def read_pptx(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[PptxContent, Any, None]:
     """Extract content from a PPTX file."""
-    from sharepoint2text.extractors.ms_modern.pptx_extractor import (
+    from sharepoint2text.parsing.extractors.ms_modern.pptx_extractor import (
         read_pptx as _read_pptx,
     )
 
@@ -117,7 +117,9 @@ def read_doc(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[DocContent, Any, None]:
     """Extract content from a DOC file."""
-    from sharepoint2text.extractors.ms_legacy.doc_extractor import read_doc as _read_doc
+    from sharepoint2text.parsing.extractors.ms_legacy.doc_extractor import (
+        read_doc as _read_doc,
+    )
 
     logger.debug("Reading legacy MS doc file: %s", path)
     return _read_doc(file_like, path)
@@ -127,7 +129,9 @@ def read_xls(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[XlsContent, Any, None]:
     """Extract content from an XLS file."""
-    from sharepoint2text.extractors.ms_legacy.xls_extractor import read_xls as _read_xls
+    from sharepoint2text.parsing.extractors.ms_legacy.xls_extractor import (
+        read_xls as _read_xls,
+    )
 
     logger.debug("Reading legacy MS xls file: %s", path)
     return _read_xls(file_like, path)
@@ -137,7 +141,9 @@ def read_ppt(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[PptContent, Any, None]:
     """Extract content from a PPT file."""
-    from sharepoint2text.extractors.ms_legacy.ppt_extractor import read_ppt as _read_ppt
+    from sharepoint2text.parsing.extractors.ms_legacy.ppt_extractor import (
+        read_ppt as _read_ppt,
+    )
 
     logger.debug("Reading legacy MS ppt file: %s", path)
     return _read_ppt(file_like, path)
@@ -147,7 +153,9 @@ def read_rtf(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[RtfContent, Any, None]:
     """Extract content from a RTF file."""
-    from sharepoint2text.extractors.ms_legacy.rtf_extractor import read_rtf as _read_rtf
+    from sharepoint2text.parsing.extractors.ms_legacy.rtf_extractor import (
+        read_rtf as _read_rtf,
+    )
 
     logger.debug("Reading legacy MS rtf file: %s", path)
     return _read_rtf(file_like, path)
@@ -162,7 +170,7 @@ def read_odt(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[OdtContent, Any, None]:
     """Extract content from an ODT (OpenDocument Text) file."""
-    from sharepoint2text.extractors.open_office.odt_extractor import (
+    from sharepoint2text.parsing.extractors.open_office.odt_extractor import (
         read_odt as _read_odt,
     )
 
@@ -174,7 +182,7 @@ def read_odp(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[OdpContent, Any, None]:
     """Extract content from an ODP (OpenDocument Presentation) file."""
-    from sharepoint2text.extractors.open_office.odp_extractor import (
+    from sharepoint2text.parsing.extractors.open_office.odp_extractor import (
         read_odp as _read_odp,
     )
 
@@ -186,7 +194,7 @@ def read_ods(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[OdsContent, Any, None]:
     """Extract content from an ODS (OpenDocument Spreadsheet) file."""
-    from sharepoint2text.extractors.open_office.ods_extractor import (
+    from sharepoint2text.parsing.extractors.open_office.ods_extractor import (
         read_ods as _read_ods,
     )
 
@@ -203,7 +211,7 @@ def read_plain_text(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[PlainTextContent, Any, None]:
     """Extract content from a plain text file."""
-    from sharepoint2text.extractors.plain_extractor import (
+    from sharepoint2text.parsing.extractors.plain_extractor import (
         read_plain_text as _read_plain_text,
     )
 
@@ -218,7 +226,9 @@ def read_pdf(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[PdfContent, Any, None]:
     """Extract content from a PDF file."""
-    from sharepoint2text.extractors.pdf.pdf_extractor import read_pdf as _read_pdf
+    from sharepoint2text.parsing.extractors.pdf.pdf_extractor import (
+        read_pdf as _read_pdf,
+    )
 
     logger.debug("Reading PDF file: %s", path)
     return _read_pdf(file_like, path)
@@ -231,7 +241,9 @@ def read_html(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[HtmlContent, Any, None]:
     """Extract content from an HTML file."""
-    from sharepoint2text.extractors.html_extractor import read_html as _read_html
+    from sharepoint2text.parsing.extractors.html_extractor import (
+        read_html as _read_html,
+    )
 
     logger.debug("Reading HTML file: %s", path)
     return _read_html(file_like, path)
@@ -244,7 +256,9 @@ def read_epub(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[EpubContent, Any, None]:
     """Extract content from an EPUB eBook file."""
-    from sharepoint2text.extractors.epub_extractor import read_epub as _read_epub
+    from sharepoint2text.parsing.extractors.epub_extractor import (
+        read_epub as _read_epub,
+    )
 
     logger.debug("Reading EPUB file: %s", path)
     return _read_epub(file_like, path)
@@ -257,7 +271,9 @@ def read_mhtml(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[HtmlContent, Any, None]:
     """Extract content from an MHTML (web archive) file."""
-    from sharepoint2text.extractors.mhtml_extractor import read_mhtml as _read_mhtml
+    from sharepoint2text.parsing.extractors.mhtml_extractor import (
+        read_mhtml as _read_mhtml,
+    )
 
     logger.debug("Reading MHTML file: %s", path)
     return _read_mhtml(file_like, path)
@@ -270,7 +286,7 @@ def read_email__msg_format(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[EmailContent, Any, None]:
     """Extract content from an email in msg format."""
-    from sharepoint2text.extractors.mail.msg_email_extractor import (
+    from sharepoint2text.parsing.extractors.mail.msg_email_extractor import (
         read_msg_format_mail as _read_msg_format_mail,
     )
 
@@ -282,7 +298,7 @@ def read_email__eml_format(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[EmailContent, Any, None]:
     """Extract content from an email in eml format."""
-    from sharepoint2text.extractors.mail.eml_email_extractor import (
+    from sharepoint2text.parsing.extractors.mail.eml_email_extractor import (
         read_eml_format_mail as _read_eml_format_mail,
     )
 
@@ -294,7 +310,7 @@ def read_email__mbox_format(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[EmailContent, Any, None]:
     """Extract content from an email in mbox format."""
-    from sharepoint2text.extractors.mail.mbox_email_extractor import (
+    from sharepoint2text.parsing.extractors.mail.mbox_email_extractor import (
         read_mbox_format_mail as _read_mbox_format_mail,
     )
 
@@ -338,13 +354,13 @@ def read_file(
         - .mht  -> HtmlContent
 
     Raises:
-        sharepoint2text.exceptions.ExtractionFileFormatNotSupportedError:
+        sharepoint2text.parsing.exceptions.ExtractionFileFormatNotSupportedError:
             If the file type is not supported.
-        sharepoint2text.exceptions.ExtractionFileEncryptedError:
+        sharepoint2text.parsing.exceptions.ExtractionFileEncryptedError:
             If the file is encrypted or password-protected.
-        sharepoint2text.exceptions.LegacyMicrosoftParsingError:
+        sharepoint2text.parsing.exceptions.LegacyMicrosoftParsingError:
             If parsing a legacy Office file fails.
-        sharepoint2text.exceptions.ExtractionFailedError:
+        sharepoint2text.parsing.exceptions.ExtractionFailedError:
             If extraction fails for an unexpected reason (with `__cause__` set).
         FileNotFoundError: If the file does not exist.
 
@@ -355,7 +371,10 @@ def read_file(
         >>> for result in sharepoint2text.read_file("document.docx"):
         ...     print(result.get_full_text())
     """
-    from sharepoint2text.exceptions import ExtractionError, ExtractionFailedError
+    from sharepoint2text.parsing.exceptions import (
+        ExtractionError,
+        ExtractionFailedError,
+    )
 
     path = Path(path)
     logger.info("Starting extraction: %s", path)

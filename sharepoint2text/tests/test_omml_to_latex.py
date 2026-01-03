@@ -23,7 +23,7 @@ Tests cover:
 from unittest import TestCase
 from xml.etree import ElementTree as ET
 
-from sharepoint2text.extractors.util.omml_to_latex import (
+from sharepoint2text.parsing.extractors.util.omml_to_latex import (
     GREEK_TO_LATEX,
     convert_greek_and_symbols,
     omml_to_latex,

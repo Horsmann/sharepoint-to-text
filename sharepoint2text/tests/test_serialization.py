@@ -6,7 +6,7 @@ import unittest
 import pytest
 
 from sharepoint2text import read_file
-from sharepoint2text.extractors.data_types import (
+from sharepoint2text.parsing.extractors.data_types import (
     DocContent,
     DocxContent,
     EmailContent,
@@ -24,7 +24,7 @@ from sharepoint2text.extractors.data_types import (
     XlsContent,
     XlsxContent,
 )
-from sharepoint2text.extractors.serialization import deserialize_extraction
+from sharepoint2text.parsing.extractors.serialization import deserialize_extraction
 
 logger = logging.getLogger(__name__)
 

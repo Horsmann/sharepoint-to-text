@@ -1,26 +1,32 @@
 import logging
 import unittest
 
-from sharepoint2text.exceptions import ExtractionFileFormatNotSupportedError
-from sharepoint2text.extractors.epub_extractor import read_epub
-from sharepoint2text.extractors.html_extractor import read_html
-from sharepoint2text.extractors.mail.eml_email_extractor import read_eml_format_mail
-from sharepoint2text.extractors.mail.mbox_email_extractor import read_mbox_format_mail
-from sharepoint2text.extractors.mail.msg_email_extractor import read_msg_format_mail
-from sharepoint2text.extractors.mhtml_extractor import read_mhtml
-from sharepoint2text.extractors.ms_legacy.doc_extractor import read_doc
-from sharepoint2text.extractors.ms_legacy.ppt_extractor import read_ppt
-from sharepoint2text.extractors.ms_legacy.rtf_extractor import read_rtf
-from sharepoint2text.extractors.ms_legacy.xls_extractor import read_xls
-from sharepoint2text.extractors.ms_modern.docx_extractor import read_docx
-from sharepoint2text.extractors.ms_modern.pptx_extractor import read_pptx
-from sharepoint2text.extractors.ms_modern.xlsx_extractor import read_xlsx
-from sharepoint2text.extractors.open_office.odp_extractor import read_odp
-from sharepoint2text.extractors.open_office.ods_extractor import read_ods
-from sharepoint2text.extractors.open_office.odt_extractor import read_odt
-from sharepoint2text.extractors.pdf.pdf_extractor import read_pdf
-from sharepoint2text.extractors.plain_extractor import read_plain_text
-from sharepoint2text.router import get_extractor, is_supported_file
+from sharepoint2text.parsing.exceptions import ExtractionFileFormatNotSupportedError
+from sharepoint2text.parsing.extractors.epub_extractor import read_epub
+from sharepoint2text.parsing.extractors.html_extractor import read_html
+from sharepoint2text.parsing.extractors.mail.eml_email_extractor import (
+    read_eml_format_mail,
+)
+from sharepoint2text.parsing.extractors.mail.mbox_email_extractor import (
+    read_mbox_format_mail,
+)
+from sharepoint2text.parsing.extractors.mail.msg_email_extractor import (
+    read_msg_format_mail,
+)
+from sharepoint2text.parsing.extractors.mhtml_extractor import read_mhtml
+from sharepoint2text.parsing.extractors.ms_legacy.doc_extractor import read_doc
+from sharepoint2text.parsing.extractors.ms_legacy.ppt_extractor import read_ppt
+from sharepoint2text.parsing.extractors.ms_legacy.rtf_extractor import read_rtf
+from sharepoint2text.parsing.extractors.ms_legacy.xls_extractor import read_xls
+from sharepoint2text.parsing.extractors.ms_modern.docx_extractor import read_docx
+from sharepoint2text.parsing.extractors.ms_modern.pptx_extractor import read_pptx
+from sharepoint2text.parsing.extractors.ms_modern.xlsx_extractor import read_xlsx
+from sharepoint2text.parsing.extractors.open_office.odp_extractor import read_odp
+from sharepoint2text.parsing.extractors.open_office.ods_extractor import read_ods
+from sharepoint2text.parsing.extractors.open_office.odt_extractor import read_odt
+from sharepoint2text.parsing.extractors.pdf.pdf_extractor import read_pdf
+from sharepoint2text.parsing.extractors.plain_extractor import read_plain_text
+from sharepoint2text.parsing.router import get_extractor, is_supported_file
 
 logger = logging.getLogger(__name__)
 
