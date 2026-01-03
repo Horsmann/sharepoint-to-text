@@ -397,6 +397,12 @@ for result in results:
     print(result.get_full_text())
 ```
 
+## Limitations / Caveats
+
+- **PDF image extraction on large encrypted files:** When a PDF is AES-encrypted and pypdf is running in its fallback crypto provider (i.e., neither `cryptography` nor `pycryptodome` is installed), image extraction is skipped for large files (>= 10MB). Text and tables still extract, but image lists are empty. Install `cryptography` or `pycryptodome` to enable full PDF image extraction without this skip.
+- **Scanned PDFs:** Image-only PDFs return empty text because OCR is not performed.
+- **Password-protected PDFs:** PDFs requiring a non-empty password are rejected with an `ExtractionFileEncryptedError`.
+
 ## CLI
 
 After installation, a `sharepoint2text` command is available. It accepts a single file path and prints the extracted full text to stdout by default.
@@ -442,6 +448,8 @@ sharepoint2text --json --binary /path/to/file.pdf > extraction.with-binary.json
 # include binary payloads (units mode)
 sharepoint2text --json-unit --binary /path/to/file.pdf > units.with-binary.json
 ```
+
+Note: the PDF image skip described in the limitations section also applies to CLI output. In that scenario, `--json`/`--json-unit` will report empty image lists even with `--binary`, because the images are not extracted.
 
 ## API Reference
 
