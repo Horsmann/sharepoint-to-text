@@ -1,9 +1,12 @@
 import io
+import io as std_io
 import logging
 import typing
+import zipfile
 from unittest import TestCase
 
 from sharepoint2text.parsing.exceptions import ExtractionFileEncryptedError
+from sharepoint2text.parsing.extractors.archive_extractor import read_archive
 from sharepoint2text.parsing.extractors.data_types import (
     DocContent,
     DocImage,
@@ -2866,10 +2869,8 @@ def test_read_mhtml() -> None:
 ############
 
 
-def test_read_zip_archive() -> None:
+def test_read_zip_archive_1() -> None:
     """Test ZIP archive extraction with multiple supported files."""
-    from sharepoint2text.parsing.extractors.archive_extractor import read_archive
-
     path = "sharepoint2text/tests/resources/archives/test_archive.zip"
     results = list(
         read_archive(file_like=_read_file_to_file_like(path=path), path=path)
@@ -2892,10 +2893,21 @@ def test_read_zip_archive() -> None:
         tc.assertIn("test_archive.zip!/", result.get_metadata().file_path)
 
 
+def test_read_zip_archive_2() -> None:
+    """Test ZIP archive extraction with multiple supported files."""
+
+    # three files - of which two are supported
+    path = "sharepoint2text/tests/resources/archives/sample.zip"
+    results = list(
+        read_archive(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+    tc.assertEqual(2, len(results))
+    tc.assertTrue(isinstance(results[0], PlainTextContent))
+    tc.assertTrue(isinstance(results[1], EpubContent))
+
+
 def test_read_tar_archive() -> None:
     """Test TAR archive extraction."""
-    from sharepoint2text.parsing.extractors.archive_extractor import read_archive
-
     path = "sharepoint2text/tests/resources/archives/test_archive.tar"
     results = list(
         read_archive(file_like=_read_file_to_file_like(path=path), path=path)
@@ -2916,8 +2928,6 @@ def test_read_tar_archive() -> None:
 
 def test_read_tar_gz_archive() -> None:
     """Test compressed TAR.GZ archive extraction."""
-    from sharepoint2text.parsing.extractors.archive_extractor import read_archive
-
     path = "sharepoint2text/tests/resources/archives/test_archive.tar.gz"
     results = list(
         read_archive(file_like=_read_file_to_file_like(path=path), path=path)
@@ -2931,35 +2941,8 @@ def test_read_tar_gz_archive() -> None:
     tc.assertIn("This is a test document", result.get_full_text())
 
 
-def test_archive_via_router() -> None:
-    """Test that archives are properly routed via the main API."""
-    from sharepoint2text.parsing.router import get_extractor, is_supported_file
-
-    # Check that archive extensions are supported
-    tc.assertTrue(is_supported_file("documents.zip"))
-    tc.assertTrue(is_supported_file("archive.tar"))
-    tc.assertTrue(is_supported_file("archive.tar.gz"))
-    tc.assertTrue(is_supported_file("archive.tgz"))
-    tc.assertTrue(is_supported_file("archive.tar.bz2"))
-    tc.assertTrue(is_supported_file("archive.tbz2"))
-    tc.assertTrue(is_supported_file("archive.tar.xz"))
-    tc.assertTrue(is_supported_file("archive.txz"))
-
-    # Check that extractors can be retrieved
-    extractor = get_extractor("test.zip")
-    tc.assertIsNotNone(extractor)
-
-    extractor = get_extractor("test.tar.gz")
-    tc.assertIsNotNone(extractor)
-
-
 def test_archive_skips_nested_archives() -> None:
     """Test that nested archives are skipped to prevent zip bombs."""
-    import io as std_io
-    import zipfile
-
-    from sharepoint2text.parsing.extractors.archive_extractor import read_archive
-
     # Create a ZIP with a nested ZIP inside
     nested_content = b"nested content"
     inner_zip = std_io.BytesIO()
@@ -2982,10 +2965,6 @@ def test_archive_skips_nested_archives() -> None:
 
 def test_archive_skips_hidden_files() -> None:
     """Test that hidden files (starting with .) are skipped."""
-    import io as std_io
-    import zipfile
-
-    from sharepoint2text.parsing.extractors.archive_extractor import read_archive
 
     zip_buffer = std_io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w") as zf:

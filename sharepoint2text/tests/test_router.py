@@ -2,6 +2,7 @@ import logging
 import unittest
 
 from sharepoint2text.parsing.exceptions import ExtractionFileFormatNotSupportedError
+from sharepoint2text.parsing.extractors.archive_extractor import read_archive
 from sharepoint2text.parsing.extractors.epub_extractor import read_epub
 from sharepoint2text.parsing.extractors.html_extractor import read_html
 from sharepoint2text.parsing.extractors.mail.eml_email_extractor import (
@@ -73,6 +74,15 @@ def test_is_supported():
     tc.assertTrue(is_supported_file("myfile.tbz2"))
     tc.assertTrue(is_supported_file("myfile.tar.xz"))
     tc.assertTrue(is_supported_file("myfile.txz"))
+    # Check that archive extensions are supported
+    tc.assertTrue(is_supported_file("documents.zip"))
+    tc.assertTrue(is_supported_file("archive.tar"))
+    tc.assertTrue(is_supported_file("archive.tar.gz"))
+    tc.assertTrue(is_supported_file("archive.tgz"))
+    tc.assertTrue(is_supported_file("archive.tar.bz2"))
+    tc.assertTrue(is_supported_file("archive.tbz2"))
+    tc.assertTrue(is_supported_file("archive.tar.xz"))
+    tc.assertTrue(is_supported_file("archive.txz"))
     # not supported
     tc.assertFalse(is_supported_file("myfile.rar"))
     tc.assertFalse(is_supported_file("myfile.7z"))
@@ -190,6 +200,18 @@ def test_router():
     # pptm -> read_pptx
     func = get_extractor("myfile.pptm")
     tc.assertEqual(read_pptx, func)
+
+    # zip -> read_archive
+    func = get_extractor("myfile.zip")
+    tc.assertEqual(read_archive, func)
+
+    # tar -> read_archive
+    func = get_extractor("myfile.tar")
+    tc.assertEqual(read_archive, func)
+
+    # tar.gz -> read_archive
+    func = get_extractor("myfile.tar.gz")
+    tc.assertEqual(read_archive, func)
 
     tc.assertRaises(
         ExtractionFileFormatNotSupportedError,
