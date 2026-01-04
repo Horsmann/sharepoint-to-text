@@ -125,19 +125,23 @@ The client supports filtering by modification date (for delta-sync patterns), fo
 
 ### Legacy Microsoft Office
 
-| Format             | Extension | Description                    |
-|--------------------|-----------|--------------------------------|
-| Word 97-2003       | `.doc`    | Word 97-2003 documents         |
-| Excel 97-2003      | `.xls`    | Excel 97-2003 spreadsheets     |
+| Format             | Extension | Description                      |
+|--------------------|-----------|----------------------------------|
+| Word 97-2003       | `.doc`    | Word 97-2003 documents           |
+| Excel 97-2003      | `.xls`    | Excel 97-2003 spreadsheets       |
 | PowerPoint 97-2003 | `.ppt`    | PowerPoint 97-2003 presentations |
+| Rich Text Format   | `.rtf`    | Rich Text Format documents       |
 
 ### Modern Microsoft Office
 
-| Format          | Extension | Description                    |
-|-----------------|-----------|--------------------------------|
-| Word 2007+      | `.docx`   | Word 2007+ documents           |
-| Excel 2007+     | `.xlsx`   | Excel 2007+ spreadsheets       |
-| PowerPoint 2007+| `.pptx`   | PowerPoint 2007+ presentations |
+| Format                    | Extension | Description                              |
+|---------------------------|-----------|------------------------------------------|
+| Word 2007+                | `.docx`   | Word 2007+ documents                     |
+| Word 2007+ (macro)        | `.docm`   | Word 2007+ macro-enabled documents       |
+| Excel 2007+               | `.xlsx`   | Excel 2007+ spreadsheets                 |
+| Excel 2007+ (macro)       | `.xlsm`   | Excel 2007+ macro-enabled spreadsheets   |
+| PowerPoint 2007+          | `.pptx`   | PowerPoint 2007+ presentations           |
+| PowerPoint 2007+ (macro)  | `.pptm`   | PowerPoint 2007+ macro-enabled presentations |
 
 ### OpenDocument
 
@@ -161,7 +165,6 @@ The client supports filtering by modification date (for delta-sync patterns), fo
 |------------|-----------|--------------------------|
 | Plain Text | `.txt`    | Plain text files         |
 | Markdown   | `.md`     | Markdown                 |
-| RTF        | `.rtf`    | Rich Text Format         |
 | CSV        | `.csv`    | Comma-separated values   |
 | TSV        | `.tsv`    | Tab-separated values     |
 | JSON       | `.json`   | JSON files               |
@@ -172,12 +175,25 @@ The client supports filtering by modification date (for delta-sync patterns), fo
 |--------|-----------|----------------|
 | PDF    | `.pdf`    | PDF documents  |
 
-### HTML
+### HTML / Web
 
-| Format | Extension | Description         |
-|--------|-----------|---------------------|
-| HTML   | `.html`   | HTML documents      |
-| HTML   | `.htm`    | HTML documents      |
+| Format | Extension      | Description                     |
+|--------|----------------|---------------------------------|
+| HTML   | `.html`, `.htm`| HTML documents                  |
+| MHTML  | `.mhtml`, `.mht`| MIME HTML (web archive) files  |
+| EPUB   | `.epub`        | EPUB e-book format              |
+
+### Archives
+
+| Format           | Extension                  | Description                     |
+|------------------|----------------------------|---------------------------------|
+| ZIP              | `.zip`                     | ZIP archives                    |
+| TAR              | `.tar`                     | TAR archives                    |
+| Gzip TAR         | `.tar.gz`, `.tgz`, `.gz`   | Gzip-compressed TAR archives    |
+| Bzip2 TAR        | `.tar.bz2`, `.tbz2`, `.bz2`| Bzip2-compressed TAR archives   |
+| XZ TAR           | `.tar.xz`, `.txz`, `.xz`   | XZ-compressed TAR archives      |
+
+Archive extraction recursively processes all supported files within the archive.
 
 ## Installation
 
