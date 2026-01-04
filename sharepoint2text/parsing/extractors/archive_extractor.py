@@ -83,6 +83,7 @@ Maintenance Notes
 - Archive type detection uses magic bytes, not extension
 - Memory-efficient: files extracted one at a time
 - Skips unsupported files silently (logged at debug level)
+
 """
 
 import io
@@ -92,7 +93,11 @@ import tarfile
 import zipfile
 from typing import Any, Generator
 
-from sharepoint2text.parsing.exceptions import ExtractionError, ExtractionFailedError
+from sharepoint2text.parsing.exceptions import (
+    ExtractionError,
+    ExtractionFailedError,
+    ExtractionFileEncryptedError,
+)
 from sharepoint2text.parsing.extractors.data_types import ExtractionInterface
 
 logger = logging.getLogger(__name__)
@@ -161,6 +166,37 @@ def _get_file_extractor(filename: str):
     return get_extractor(filename)
 
 
+def _raise_if_encrypted_archive(
+    file_like: io.BytesIO, archive_type: str, archive_path: str | None
+) -> None:
+    """
+    Raise ExtractionFileEncryptedError if the archive appears to be password-protected/encrypted.
+
+    Notes:
+        - ZIP supports encryption; we detect it via per-entry flag_bits (bit 0) and also
+          guard against RuntimeError during reads (password-required).
+        - TAR and compressed TAR variants have no native encryption; there is no reliable
+          "password-protected tar" signal to detect. For tar.*, this function is a no-op.
+    """
+    if archive_type != "zip":
+        return
+
+    file_like.seek(0)
+    try:
+        with zipfile.ZipFile(file_like, "r") as zf:
+            for info in zf.infolist():
+                # General purpose bit flag bit 0 => encrypted
+                if info.flag_bits & 0x1:
+                    raise ExtractionFileEncryptedError(
+                        "Encrypted/password-protected ZIP archives are not supported",
+                    )
+    except zipfile.BadZipFile:
+        # Let the normal ZIP parsing path raise the correct "invalid archive" error.
+        return
+    finally:
+        file_like.seek(0)
+
+
 def _extract_from_zip(
     file_like: io.BytesIO, archive_path: str | None
 ) -> Generator[ExtractionInterface, Any, None]:
@@ -176,6 +212,13 @@ def _extract_from_zip(
     """
     try:
         with zipfile.ZipFile(file_like, "r") as zf:
+            # Password/encryption detection (ZIP supports encryption)
+            for info in zf.infolist():
+                if info.flag_bits & 0x1:
+                    raise ExtractionFileEncryptedError(
+                        "Encrypted/password-protected ZIP archives are not supported"
+                    )
+
             for info in zf.infolist():
                 # Skip directories
                 if info.is_dir():
@@ -211,7 +254,17 @@ def _extract_from_zip(
 
                 try:
                     logger.debug("Extracting from ZIP: %s", filename)
-                    file_data = zf.read(info)
+
+                    # Guard: some encrypted entries may surface only at read time
+                    try:
+                        file_data = zf.read(info)
+                    except RuntimeError as e:
+                        # Common message: "File is encrypted, password required for extraction"
+                        raise ExtractionFileEncryptedError(
+                            "Encrypted/password-protected ZIP archives are not supported",
+                            cause=e,
+                        ) from e
+
                     file_bytes = io.BytesIO(file_data)
 
                     # Build path that includes archive context
@@ -224,10 +277,14 @@ def _extract_from_zip(
                     for content in extractor(file_bytes, path=full_path):
                         yield content
 
+                except ExtractionFileEncryptedError:
+                    raise
                 except Exception as e:
                     logger.warning("Failed to extract %s from archive: %s", filename, e)
                     continue
 
+    except ExtractionFileEncryptedError:
+        raise
     except zipfile.BadZipFile as e:
         raise ExtractionFailedError(f"Invalid ZIP archive: {e}", cause=e) from e
 
@@ -247,6 +304,7 @@ def _extract_from_tar(
         ExtractionInterface objects for each supported file in the archive.
     """
     try:
+        # TAR has no native encryption; open/iterate normally.
         with tarfile.open(fileobj=file_like, mode=mode) as tf:
             for member in tf.getmembers():
                 # Skip directories and non-regular files
@@ -361,6 +419,10 @@ def read_archive(
             raise ExtractionFailedError("Unable to detect archive type")
 
         logger.debug("Detected archive type: %s", archive_type)
+
+        # Detect encrypted/password-protected archives for all supported types.
+        # (ZIP is detectable; TAR has no native encryption and is a no-op here.)
+        _raise_if_encrypted_archive(file_like, archive_type, path)
 
         if archive_type == "zip":
             yield from _extract_from_zip(file_like, path)

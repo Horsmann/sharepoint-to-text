@@ -1569,6 +1569,12 @@ def test_password_protected__pptx() -> None:
         list(read_pptx(file_like=_read_file_to_file_like(path=path), path=path))
 
 
+def test_password_protected__zip() -> None:
+    path = "sharepoint2text/tests/resources/archives/password_protected/sample-password-protected-pw123.zip"
+    with tc.assertRaises(ExtractionFileEncryptedError):
+        list(read_archive(file_like=_read_file_to_file_like(path=path), path=path))
+
+
 def test_email__mbox_format() -> None:
     path = "sharepoint2text/tests/resources/mails/basic_email.mbox"
 
