@@ -451,8 +451,11 @@ for result in results:
 
 ## Limitations / Caveats
 
-- **PDF image extraction on large encrypted files:** When a PDF is AES-encrypted and pypdf is running in its fallback crypto provider (i.e., neither `cryptography` nor `pycryptodome` is installed), image extraction is skipped for large files (>= 10MB). Text and tables still extract, but image lists are empty. Install `cryptography` or `pycryptodome` to enable full PDF image extraction without this skip.
-- **Scanned PDFs:** Image-only PDFs return empty text because OCR is not performed.
+### PDF Extraction
+
+- **No OCR support:** This library does not perform optical character recognition. PDFs that consist of scanned images or photos of documents will return empty text. The images themselves are still extracted and available via `iterate_images()`, but no text is derived from them.
+- **Table detection is best-effort:** PDF table extraction relies on parseable text content and heuristics to identify table structures. Complex layouts, merged cells, or tables spanning multiple pages may not be detected accurately. Results should be validated for critical use cases.
+- **Image extraction on large encrypted files:** When a PDF is AES-encrypted and pypdf is running in its fallback crypto provider (i.e., neither `cryptography` nor `pycryptodome` is installed), image extraction is skipped for large files (>= 10MB). Text and tables still extract, but image lists are empty. Install `cryptography` or `pycryptodome` to enable full PDF image extraction without this skip.
 - **Password-protected PDFs:** PDFs requiring a non-empty password are rejected with an `ExtractionFileEncryptedError`.
 
 ## CLI
