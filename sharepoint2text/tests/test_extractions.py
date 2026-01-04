@@ -108,6 +108,7 @@ def test_file_metadata_extraction() -> None:
             "file_extension": ".txt",
             "file_path": "my/dummy/path.txt",
             "folder_path": "my/dummy",
+            "detected_encoding": None,
         },
         meta.to_dict(),
     )
@@ -121,7 +122,7 @@ def test_file_metadata_extraction() -> None:
 def test_read_text() -> None:
     path = "sharepoint2text/tests/resources/plain_text/plain.txt"
     plain: PlainTextContent = next(
-        read_plain_text(file_like=_read_file_to_file_like(path))
+        read_plain_text(file_like=_read_file_to_file_like(path), path=path)
     )
 
     tc.assertEqual("Hello World", plain.content)
@@ -133,6 +134,11 @@ def test_read_text() -> None:
     units = list(plain.iterate_units())
     tc.assertTrue(isinstance(units[0].get_metadata(), PlainUnitMetadata))
     tc.assertEqual(PlainUnitMetadata(unit_number=1), units[0].get_metadata())
+
+    meta = plain.get_metadata()
+    tc.assertEqual("ascii", meta.detected_encoding)
+    tc.assertEqual("plain.txt", meta.filename)
+    tc.assertEqual(".txt", meta.file_extension)
 
 
 def test_read_plain_csv() -> None:
@@ -222,6 +228,7 @@ def test_read_xlsx_1() -> None:
             "file_extension": None,
             "file_path": None,
             "folder_path": None,
+            "detected_encoding": None,
             "title": "",
             "description": "",
             "creator": "",
@@ -1179,7 +1186,7 @@ def test_read_rtf() -> None:
 def test_read_rtf_tables_1() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/CULT-OJ-2024-10-03-1_DE.rtf"
     rtf_gen: typing.Generator[RtfContent] = read_rtf(
-        file_like=_read_file_to_file_like(path=path)
+        file_like=_read_file_to_file_like(path=path), path=path
     )
 
     rtfs = list(rtf_gen)

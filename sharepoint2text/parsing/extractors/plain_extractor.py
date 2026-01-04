@@ -2,8 +2,8 @@
 Plain Text Content Extractor
 =============================
 
-Extracts content from plain text files with encoding detection and
-normalization.
+Extracts content from plain text files with automatic encoding detection
+and normalization.
 
 File Format Background
 ----------------------
@@ -18,26 +18,21 @@ or binary content. This extractor handles common text file extensions:
 
 Encoding Handling
 -----------------
-The extractor currently assumes UTF-8 encoding with error replacement:
-    - UTF-8 is the most common encoding for modern text files
-    - Invalid byte sequences are replaced with the Unicode replacement
-      character (U+FFFD) rather than raising an exception
-    - This provides best-effort extraction for mixed-encoding files
-
-Future enhancement could add encoding detection using chardet or
-charset_normalizer libraries.
+The extractor uses charset_normalizer for automatic encoding detection:
+    - Detects encoding from file content (UTF-8, Latin-1, Windows-1252, etc.)
+    - Falls back to UTF-8 with error replacement if detection fails
+    - Handles legacy files with non-UTF-8 encodings common in enterprise environments
+    - The detected encoding is available in metadata.detected_encoding
 
 Dependencies
 ------------
-Python Standard Library only:
-    - io: BytesIO handling
-    - No external dependencies required
+    - charset_normalizer: Encoding detection library
 
 Extracted Content
 -----------------
 The extractor produces:
-    - content: Full text content as a single string
-    - metadata: FileMetadataInterface with file information
+    - content: Full text content as a single string (decoded using detected encoding)
+    - metadata: FileMetadataInterface with file information including detected_encoding
 
 The content is returned as-is without modification, preserving:
     - Line endings (\\n, \\r\\n, \\r)
@@ -46,9 +41,8 @@ The content is returned as-is without modification, preserving:
 
 Known Limitations
 -----------------
-- Only UTF-8 encoding is supported (with error replacement)
-- No automatic encoding detection (e.g., chardet)
-- Binary files may produce garbled output or replacement characters
+- Very short files may have unreliable encoding detection
+- Binary files may produce garbled output
 - Very large files are loaded entirely into memory
 - No line ending normalization
 
@@ -59,17 +53,20 @@ Usage
     >>>
     >>> with open("notes.txt", "rb") as f:
     ...     for doc in read_plain_text(io.BytesIO(f.read()), path="notes.txt"):
+    ...         print(f"Encoding: {doc.metadata.detected_encoding}")
     ...         print(f"Characters: {len(doc.content)}")
     ...         print(doc.content[:200])
 
 See Also
 --------
+- charset_normalizer: https://github.com/Ousret/charset_normalizer
 - Python codecs module: https://docs.python.org/3/library/codecs.html
 - Unicode HOWTO: https://docs.python.org/3/howto/unicode.html
 
 Maintenance Notes
 -----------------
-- Uses errors="ignore" for decoding (could change to "replace" for visibility)
+- Uses charset_normalizer for encoding detection
+- Falls back to UTF-8 with errors="replace" if detection fails
 - FileMetadataInterface provides basic file info population
 - Generator pattern for API consistency with other extractors
 - Content returned unmodified (no stripping or normalization)
@@ -78,6 +75,8 @@ Maintenance Notes
 import io
 import logging
 from typing import Any, Generator
+
+from charset_normalizer import from_bytes
 
 from sharepoint2text.parsing.exceptions import ExtractionError, ExtractionFailedError
 from sharepoint2text.parsing.extractors.data_types import (
@@ -88,14 +87,58 @@ from sharepoint2text.parsing.extractors.data_types import (
 logger = logging.getLogger(__name__)
 
 
+def _detect_and_decode(content: bytes) -> tuple[str, str]:
+    """
+    Detect encoding and decode bytes to string.
+
+    Uses charset_normalizer to detect the most likely encoding,
+    then decodes the content. Falls back to UTF-8 with replacement
+    if detection fails or returns no results.
+
+    Args:
+        content: Raw bytes to decode.
+
+    Returns:
+        Tuple of (decoded_text, detected_encoding).
+        If detection fails, encoding will be "utf-8" (fallback).
+    """
+    if not content:
+        return "", "utf-8"
+
+    # Use charset_normalizer to detect encoding
+    results = from_bytes(content)
+    best_match = results.best()
+
+    if best_match is not None:
+        encoding = best_match.encoding
+        logger.debug(
+            "Detected encoding: %s (confidence: %.2f)",
+            encoding,
+            best_match.encoding_aliases,
+        )
+        try:
+            # Use the detected encoding
+            text = str(best_match)
+            return text, encoding
+        except Exception as e:
+            logger.warning(
+                "Failed to decode with detected encoding %s: %s", encoding, e
+            )
+
+    # Fallback to UTF-8 with replacement characters
+    logger.debug("Encoding detection failed, falling back to UTF-8")
+    return content.decode("utf-8", errors="replace"), "utf-8"
+
+
 def read_plain_text(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[PlainTextContent, Any, None]:
     """
-    Extract content from a plain text file.
+    Extract content from a plain text file with automatic encoding detection.
 
     Primary entry point for plain text extraction. Reads the entire file
-    content and decodes it as UTF-8 with invalid byte replacement.
+    content, detects the encoding using charset_normalizer, and decodes
+    it appropriately.
 
     This function uses a generator pattern for API consistency with other
     extractors, even though text files contain exactly one document.
@@ -111,19 +154,20 @@ def read_plain_text(
     Yields:
         PlainTextContent: Single PlainTextContent object containing:
             - content: Full text content as a string
-            - metadata: FileMetadataInterface with file information
+            - metadata: FileMetadataInterface with file information and
+              detected_encoding field
 
     Note:
-        Non-UTF-8 bytes are silently ignored. For files with mixed
-        or unknown encodings, some characters may be lost. Consider
-        using a dedicated encoding detection library for critical
-        applications.
+        Encoding is automatically detected from file content. For very
+        short files (< 32 bytes), detection may be unreliable and UTF-8
+        is used as the default.
 
     Example:
         >>> import io
         >>> with open("readme.txt", "rb") as f:
         ...     data = io.BytesIO(f.read())
         ...     for doc in read_plain_text(data, path="readme.txt"):
+        ...         print(f"Encoding: {doc.metadata.detected_encoding}")
         ...         lines = doc.content.splitlines()
         ...         print(f"Lines: {len(lines)}")
         ...         print(f"First line: {lines[0] if lines else '(empty)'}")
@@ -135,12 +179,14 @@ def read_plain_text(
         content = file_like.read()
 
         if isinstance(content, bytes):
-            text = content.decode("utf-8", errors="ignore")
+            text, detected_encoding = _detect_and_decode(content)
         else:
             text = content
+            detected_encoding = "utf-8"  # Already a string, assume UTF-8
 
         metadata = FileMetadataInterface()
         metadata.populate_from_path(path)
+        metadata.detected_encoding = detected_encoding
 
         yield PlainTextContent(content=text, metadata=metadata)
     except ExtractionError:

@@ -221,6 +221,7 @@ uv sync --all-groups
 
 These are required for normal use of the library:
 
+- `charset-normalizer`: Automatic encoding detection for plain text files
 - `defusedxml`: Hardened XML parsing for OOXML/ODF formats
 - `mail-parser`: RFC 822 email parsing (`.eml`)
 - `msg-parser`: Outlook `.msg` extraction

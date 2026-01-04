@@ -68,6 +68,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
+    "charset-normalizer>=3.3.0",
     "defusedxml>=0.7.1",
     "mail-parser>=4.1.4",
     "msg-parser>=1.2.0",

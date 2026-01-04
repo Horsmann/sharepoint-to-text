@@ -128,6 +128,7 @@ class FileMetadataInterface:
     file_extension: str | None = None
     file_path: str | None = None
     folder_path: str | None = None
+    detected_encoding: str | None = None
 
     def populate_from_path(self, path: str | Path | None) -> None:
         """Populate file metadata fields from a path."""
