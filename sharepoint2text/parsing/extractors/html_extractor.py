@@ -251,7 +251,7 @@ class _HtmlTreeBuilder(HTMLParser):
 
 
 class _HtmlTextExtractor:
-    """Helper class to extract text from the parsed HTML tree."""
+    """Helper class to extract text from the parsed HTML tree with performance optimizations."""
 
     def __init__(self, root: Dict):
         self.root = root
@@ -259,6 +259,9 @@ class _HtmlTextExtractor:
         self.headings: List[Dict[str, str]] = []
         self.links: List[Dict[str, str]] = []
         self.metadata = HtmlMetadata()
+        # Performance optimization: cache frequently accessed nodes
+        self._node_cache: Dict[Tuple[int, str], List[Dict]] = {}
+        self._single_node_cache: Dict[Tuple[int, str], Optional[Dict]] = {}
 
     def _get_node_text(
         self, node: Dict, include_children: bool = True, include_tail: bool = False
@@ -279,22 +282,39 @@ class _HtmlTextExtractor:
         return "".join(parts)
 
     def _find_nodes(self, node: Dict, tag: str) -> List[Dict]:
-        """Find all descendant nodes with the given tag."""
+        """Find all descendant nodes with the given tag, with caching."""
+        # Use tuple of node id and tag as cache key
+        cache_key = (id(node), tag)
+        if cache_key in self._node_cache:
+            return self._node_cache[cache_key]
+
         result = []
         if node.get("tag") == tag:
             result.append(node)
         for child in node.get("children", []):
             result.extend(self._find_nodes(child, tag))
+
+        # Cache result for future calls
+        self._node_cache[cache_key] = result
         return result
 
     def _find_node(self, node: Dict, tag: str) -> Optional[Dict]:
-        """Find first descendant node with the given tag."""
+        """Find first descendant node with the given tag, with caching."""
+        # Use tuple of node id and tag as cache key
+        cache_key = (id(node), tag)
+        if cache_key in self._single_node_cache:
+            return self._single_node_cache[cache_key]
+
         if node.get("tag") == tag:
+            self._single_node_cache[cache_key] = node
             return node
         for child in node.get("children", []):
             found = self._find_node(child, tag)
             if found:
+                self._single_node_cache[cache_key] = found
                 return found
+
+        self._single_node_cache[cache_key] = None
         return None
 
     def _extract_table(self, table_node: Dict) -> List[List[str]]:
@@ -338,25 +358,53 @@ class _HtmlTextExtractor:
         return "\n".join(lines)
 
     def _extract_headings(self) -> None:
-        """Extract all headings with their level."""
-        for level in range(1, 7):
-            for h in self._find_nodes(self.root, f"h{level}"):
-                text = self._get_node_text(h).strip()
-                text = re.sub(r"\s+", " ", text)
-                if text:
-                    self.headings.append({"level": f"h{level}", "text": text})
+        """Extract all headings with their level, optimized to avoid repeated tree walks."""
+        # Collect all headings in a single tree traversal
+        all_headings = []
+        self._collect_headings_recursive(self.root, all_headings)
+
+        # Process collected headings
+        for node, level in all_headings:
+            text = self._get_node_text(node).strip()
+            text = re.sub(r"\s+", " ", text)
+            if text:
+                self.headings.append({"level": f"h{level}", "text": text})
+
+    def _collect_headings_recursive(self, node: Dict, result: List) -> None:
+        """Recursively collect all heading nodes."""
+        tag = node.get("tag", "")
+        if tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+            level = int(tag[1])
+            result.append((node, level))
+
+        for child in node.get("children", []):
+            self._collect_headings_recursive(child, result)
 
     def _extract_links(self) -> None:
-        """Extract all links with their text and href."""
-        for a in self._find_nodes(self.root, "a"):
-            href = a.get("attrs", {}).get("href", "")
-            text = self._get_node_text(a).strip()
-            text = re.sub(r"\s+", " ", text)
-            if href and text:
-                self.links.append({"text": text, "href": href})
+        """Extract all links with their text and href, optimized to avoid repeated tree walks."""
+        # Collect all links in a single tree traversal
+        all_links = []
+        self._collect_links_recursive(self.root, all_links)
+
+        # Process collected links
+        for node in all_links:
+            href = node.get("attrs", {}).get("href", "")
+            if href:  # Only process if href exists
+                text = self._get_node_text(node).strip()
+                text = re.sub(r"\s+", " ", text)
+                if text:  # Only include if text exists
+                    self.links.append({"text": text, "href": href})
+
+    def _collect_links_recursive(self, node: Dict, result: List) -> None:
+        """Recursively collect all link nodes."""
+        if node.get("tag") == "a":
+            result.append(node)
+
+        for child in node.get("children", []):
+            self._collect_links_recursive(child, result)
 
     def _extract_metadata(self, path: Optional[str]) -> None:
-        """Extract metadata from HTML document."""
+        """Extract metadata from HTML document, optimized to avoid repeated tree walks."""
         self.metadata.populate_from_path(path)
 
         # Extract title
@@ -371,8 +419,11 @@ class _HtmlTextExtractor:
             if lang:
                 self.metadata.language = lang
 
-        # Extract from meta tags
-        for meta in self._find_nodes(self.root, "meta"):
+        # Extract from meta tags using optimized collection
+        meta_nodes = []
+        self._collect_nodes_by_tag(self.root, "meta", meta_nodes)
+
+        for meta in meta_nodes:
             attrs = meta.get("attrs", {})
 
             # charset
@@ -395,6 +446,14 @@ class _HtmlTextExtractor:
                 self.metadata.keywords = content
             elif name == "author" and content:
                 self.metadata.author = content
+
+    def _collect_nodes_by_tag(self, node: Dict, tag: str, result: List) -> None:
+        """Recursively collect all nodes with the given tag."""
+        if node.get("tag") == tag:
+            result.append(node)
+
+        for child in node.get("children", []):
+            self._collect_nodes_by_tag(child, tag, result)
 
     def _process_node(
         self, node: Dict, depth: int = 0, include_tail: bool = False

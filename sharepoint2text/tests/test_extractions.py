@@ -2632,8 +2632,8 @@ def test_read_pdf_7() -> None:
     )
 
 
-def test_read_html() -> None:
-    path = "sharepoint2text/tests/resources/sample.html"
+def test_read_html__1() -> None:
+    path = "sharepoint2text/tests/resources/html/sample.html"
     html: HtmlContent = next(
         read_html(file_like=_read_file_to_file_like(path=path), path=path)
     )
@@ -2657,6 +2657,129 @@ def test_read_html() -> None:
 
     tc.assertEqual(
         HtmlUnitMetadata(unit_number=1), list(html.iterate_units())[0].get_metadata()
+    )
+
+
+def test_read_html__2() -> None:
+    path = "sharepoint2text/tests/resources/html/large_complex.html"
+    html: HtmlContent = next(
+        read_html(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+
+    tc.assertEqual(12, len(list(html.iterate_tables())))
+    tables = list(html.iterate_tables())
+    tc.assertListEqual(
+        [
+            ["ID", "Name", "Email", "Department"],
+            ["001", "Alice Johnson", "alice@company.com", "Engineering"],
+            ["002", "Bob Smith", "bob@company.com", "Marketing"],
+            ["003", "Carol Davis", "carol@company.com", "Sales"],
+        ],
+        tables[0].get_table(),
+    )
+
+    tc.assertListEqual(
+        [
+            ["Property", "Value", "Type"],
+            ["Size", "Large", "String"],
+            ["Count", "150", "Integer"],
+        ],
+        tables[1].get_table(),
+    )
+
+    tc.assertListEqual(
+        [
+            ["Component", "Throughput", "Latency", "Error Rate"],
+            ["Parser", "1000 docs/sec", "5ms", "0.1%"],
+            ["Extractor", "800 docs/sec", "8ms", "0.2%"],
+        ],
+        tables[2].get_table(),
+    )
+
+    tc.assertListEqual(
+        [
+            ["Category", "Q1", "Q2", "Q3", "Q4", "Total"],
+            ["Revenue", "$1.2M", "$1.5M", "$1.8M", "$2.1M", "$6.6M"],
+            ["Expenses", "$0.8M", "$0.9M", "$1.0M", "$1.1M", "$3.8M"],
+            ["Profit", "$0.4M", "$0.6M", "$0.8M", "$1.0M", "$2.8M"],
+        ],
+        tables[3].get_table(),
+    )
+
+    tc.assertListEqual(
+        [
+            ["Deep Property", "Value"],
+            ["Nesting Level", "6"],
+            ["Extraction Complexity", "High"],
+        ],
+        tables[4].get_table(),
+    )
+
+    tc.assertListEqual(
+        [
+            ["User Type", "Count", "Percentage"],
+            ["Active", "15,000", "75%"],
+            ["Inactive", "3,000", "15%"],
+            ["New", "2,000", "10%"],
+        ],
+        tables[5].get_table(),
+    )
+
+    tc.assertListEqual(
+        [
+            ["Metric", "Value", "Target", "Status"],
+            ["Response Time", "2.1s", "<3.0s", "✓ Good"],
+            ["Throughput", "850 req/s", ">800 req/s", "✓ Good"],
+            ["Error Rate", "0.15%", "<0.5%", "✓ Excellent"],
+        ],
+        tables[6].get_table(),
+    )
+
+    tc.assertListEqual(
+        [
+            ["Feature", "Daily Users", "Weekly Users", "Monthly Users"],
+            ["Search", "12,000", "45,000", "120,000"],
+            ["Export", "3,500", "12,000", "35,000"],
+            ["Sharing", "8,000", "28,000", "85,000"],
+        ],
+        tables[7].get_table(),
+    )
+
+    tc.assertListEqual(
+        [
+            ["Tool", "Link", "Description"],
+            ["Parser", "Parser Tool", "HTML parsing utility"],
+            ["Extractor", "Extractor Tool", "Content extraction utility"],
+        ],
+        tables[8].get_table(),
+    )
+
+    tc.assertListEqual(
+        [
+            ["Test ID", "Iterations", "Time (ms)"],
+            ["PERF-001", "1000", "2.5"],
+            ["PERF-002", "5000", "12.3"],
+        ],
+        tables[9].get_table(),
+    )
+
+    tc.assertListEqual(
+        [
+            ["Test ID", "Iterations", "Time (ms)"],
+            ["PERF-003", "10000", "24.7"],
+            ["PERF-004", "50000", "125.1"],
+        ],
+        tables[10].get_table(),
+    )
+
+    tc.assertListEqual(
+        [
+            ["Parameter", "Value", "Unit"],
+            ["Cache Hit Rate", "95.2", "%"],
+            ["Traversal Reduction", "94.8", "%"],
+            ["Speed Improvement", "12.0", "%"],
+        ],
+        tables[11].get_table(),
     )
 
 
@@ -2853,7 +2976,7 @@ def test_read_macro_enabled_pptm() -> None:
 
 def test_read_mhtml() -> None:
     """Test MHTML (web archive) extraction."""
-    path = "sharepoint2text/tests/resources/sample.mhtml"
+    path = "sharepoint2text/tests/resources/html/sample.mhtml"
     result: HtmlContent = next(
         read_mhtml(file_like=_read_file_to_file_like(path=path), path=path)
     )

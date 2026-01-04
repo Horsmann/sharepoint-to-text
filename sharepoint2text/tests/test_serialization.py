@@ -142,7 +142,7 @@ def test_deserialize_pdf() -> None:
 
 def test_deserialize_html() -> None:
     """Test round-trip serialization/deserialization for HTML."""
-    path = "sharepoint2text/tests/resources/sample.html"
+    path = "sharepoint2text/tests/resources/html/sample.html"
     original = next(read_file(path))
     tc.assertIsInstance(original, HtmlContent)
 

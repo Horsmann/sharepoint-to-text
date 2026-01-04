@@ -192,7 +192,7 @@ def test_read_redirects_from_top_level():
     tc.assertTrue(isinstance(result, PdfContent))
 
     # html
-    fl = _load_as_bytes(path="sharepoint2text/tests/resources/sample.html")
+    fl = _load_as_bytes(path="sharepoint2text/tests/resources/html/sample.html")
     result = next(read_html(fl))
     tc.assertTrue(isinstance(result, HtmlContent))
 
@@ -232,7 +232,7 @@ def test_unit_serialize_deserialize_round_trip():
         ),
         ("sharepoint2text/tests/resources/pdf/sample.pdf", PdfUnit),
         ("sharepoint2text/tests/resources/plain_text/plain.txt", PlainTextUnit),
-        ("sharepoint2text/tests/resources/sample.html", HtmlUnit),
+        ("sharepoint2text/tests/resources/html/sample.html", HtmlUnit),
         ("sharepoint2text/tests/resources/legacy_ms/eurouni2.ppt", PptUnit),
         (
             "sharepoint2text/tests/resources/modern_ms/pptx_formula_image.pptx",
