@@ -1515,16 +1515,27 @@ def test_email__eml_format_with_attachment() -> None:
     tc.assertEqual(0, len(list(mail.iterate_tables())))
 
 
-def test_password_protected__doc() -> None:
-    path = "sharepoint2text/tests/resources/legacy_ms/password_protected/doc-password-protected-pw123.doc"
-    with tc.assertRaises(ExtractionFileEncryptedError):
-        list(read_doc(file_like=_read_file_to_file_like(path=path), path=path))
+######################
+# Password protected #
+######################
 
 
 def test_password_protected__odt() -> None:
-    path = "sharepoint2text/tests/resources/legacy_ms/password_protected/odt-password-protected-pw123.odt"
+    path = "sharepoint2text/tests/resources/open_office/password_protected/odt-password-protected-pw123.odt"
     with tc.assertRaises(ExtractionFileEncryptedError):
         list(read_odt(file_like=_read_file_to_file_like(path=path), path=path))
+
+
+def test_password_protected__ods() -> None:
+    path = "sharepoint2text/tests/resources/open_office/password_protected/ods-password-protected-pw123.ods"
+    with tc.assertRaises(ExtractionFileEncryptedError):
+        list(read_ods(file_like=_read_file_to_file_like(path=path), path=path))
+
+
+def test_password_protected__odp() -> None:
+    path = "sharepoint2text/tests/resources/open_office/password_protected/odp-password-protected-pw123.odp"
+    with tc.assertRaises(ExtractionFileEncryptedError):
+        list(read_odp(file_like=_read_file_to_file_like(path=path), path=path))
 
 
 def test_password_protected__pdf() -> None:
@@ -1533,22 +1544,16 @@ def test_password_protected__pdf() -> None:
         list(read_pdf(file_like=_read_file_to_file_like(path=path), path=path))
 
 
-def test_password_protected__ods() -> None:
-    path = "sharepoint2text/tests/resources/legacy_ms/password_protected/ods-password-protected-pw123.ods"
-    with tc.assertRaises(ExtractionFileEncryptedError):
-        list(read_ods(file_like=_read_file_to_file_like(path=path), path=path))
-
-
 def test_password_protected__xls() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/password_protected/xls-password-protected-pw123.xls"
     with tc.assertRaises(ExtractionFileEncryptedError):
         list(read_xls(file_like=_read_file_to_file_like(path=path), path=path))
 
 
-def test_password_protected__odp() -> None:
-    path = "sharepoint2text/tests/resources/legacy_ms/password_protected/odp-password-protected-pw123.odp"
+def test_password_protected__doc() -> None:
+    path = "sharepoint2text/tests/resources/legacy_ms/password_protected/doc-password-protected-pw123.doc"
     with tc.assertRaises(ExtractionFileEncryptedError):
-        list(read_odp(file_like=_read_file_to_file_like(path=path), path=path))
+        list(read_doc(file_like=_read_file_to_file_like(path=path), path=path))
 
 
 def test_password_protected__docx() -> None:
