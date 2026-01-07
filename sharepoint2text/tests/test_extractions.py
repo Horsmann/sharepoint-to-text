@@ -3067,6 +3067,26 @@ def test_read_tar_archive() -> None:
     tc.assertTrue(any("Another file in the tar archive" in t for t in texts))
 
 
+def test_read_7zip_archive() -> None:
+    """Test TAR archive extraction."""
+    path = "sharepoint2text/tests/resources/archives/test_archive.7z"
+    results = list(
+        read_archive(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+
+    # Should extract 2 text files from the archive
+    tc.assertEqual(2, len(results))
+
+    # All results should be PlainTextContent
+    for result in results:
+        tc.assertIsInstance(result, PlainTextContent)
+
+    # Check that we got the expected content
+    texts = [r.get_full_text() for r in results]
+    tc.assertTrue(any("This is a test document" in t for t in texts))
+    tc.assertTrue(any("Another file in the tar archive" in t for t in texts))
+
+
 def test_read_tar_gz_archive() -> None:
     """Test compressed TAR.GZ archive extraction."""
     path = "sharepoint2text/tests/resources/archives/test_archive.tar.gz"
