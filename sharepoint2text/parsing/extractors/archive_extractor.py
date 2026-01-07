@@ -507,7 +507,7 @@ def _process_7z_files_parallel(
                 yield from result
 
 
-def read_archive_optimized(
+def read_archive(
     file_like: io.BytesIO, path: Optional[str] = None
 ) -> Generator[ExtractionInterface, Any, None]:
     """
@@ -526,7 +526,7 @@ def read_archive_optimized(
     Example:
         >>> import io
         >>> with open("archive.zip", "rb") as f:
-        ...     for content in read_archive_optimized(io.BytesIO(f.read())):
+        ...     for content in read_archive(io.BytesIO(f.read())):
         ...         print(f"Extracted: {content.get_metadata().filename}")
     """
     start_time = time.perf_counter()
@@ -563,7 +563,3 @@ def read_archive_optimized(
     finally:
         total_time = time.perf_counter() - start_time
         logger.debug(f"Archive extraction completed in {total_time:.3f}s")
-
-
-# Backward compatibility alias
-read_archive = read_archive_optimized
