@@ -2,7 +2,7 @@
 Archive Content Extractor
 ==========================
 
-Extracts content from archive files (ZIP and TAR formats) by recursively
+Extracts content from archive files (ZIP, TAR, and 7z formats) by recursively
 processing supported files within the archive.
 
 File Format Background
@@ -20,6 +20,11 @@ TAR (.tar, .tar.gz, .tgz, .tar.bz2, .tbz2, .tar.xz, .txz):
     - Sequential access (optimized for streaming)
     - Often combined with compression (gzip, bzip2, xz)
     - No native encryption
+
+7z (.7z):
+    - High compression ratio format
+    - Supports multiple compression algorithms (LZMA, LZMA2, BZip2, PPMd)
+    - Strong AES-256 encryption (not supported by this extractor)
 
 Common archive sources include:
     - Document bundles and backups
@@ -50,11 +55,12 @@ and excessive memory usage.
 
 Known Limitations
 -----------------
-- Encrypted ZIP files are not supported
+- Encrypted ZIP and 7z files are not supported
 - Nested archives are not recursively processed
 - Very large files within archives may cause memory issues
 - Symbolic links in TAR archives are skipped
 - Archive comments and extended attributes are not preserved
+- 7z archives require temporary file extraction (unlike ZIP/TAR which can work in-memory)
 
 Encoding Handling
 -----------------
@@ -90,8 +96,14 @@ import io
 import logging
 import os
 import tarfile
+import tempfile
 import zipfile
 from typing import Any, Generator
+
+try:
+    import py7zr
+except ImportError:
+    py7zr = None
 
 from sharepoint2text.parsing.exceptions import (
     ExtractionError,
@@ -108,6 +120,7 @@ ZIP_EMPTY_MAGIC = b"PK\x05\x06"
 GZIP_MAGIC = b"\x1f\x8b"
 BZIP2_MAGIC = b"BZ"
 XZ_MAGIC = b"\xfd7zXZ\x00"
+SEVENZIP_MAGIC = b"7z\xbc\xaf\x27\x1c"
 TAR_MAGIC_OFFSET = 257
 TAR_MAGIC = b"ustar"
 
@@ -133,6 +146,10 @@ def _detect_archive_type(file_like: io.BytesIO) -> str | None:
     # Check for ZIP
     if header[:4] == ZIP_MAGIC or header[:4] == ZIP_EMPTY_MAGIC:
         return "zip"
+
+    # Check for 7z
+    if header[:6] == SEVENZIP_MAGIC:
+        return "7z"
 
     # Check for compressed TAR variants
     if header[:2] == GZIP_MAGIC:
@@ -366,11 +383,115 @@ def _extract_from_tar(
         raise ExtractionFailedError(f"Invalid TAR archive: {e}", cause=e) from e
 
 
+def _extract_from_7z(
+    file_like: io.BytesIO, archive_path: str | None
+) -> Generator[ExtractionInterface, Any, None]:
+    """
+    Extract supported files from a 7z archive.
+
+    Args:
+        file_like: BytesIO containing the 7z archive.
+        archive_path: Optional path to the archive file for metadata.
+
+    Yields:
+        ExtractionInterface objects for each supported file in the archive.
+    """
+    if py7zr is None:
+        raise ExtractionFailedError(
+            "py7zr library is not installed. Install with: pip install py7zr"
+        )
+
+    try:
+        with py7zr.SevenZipFile(file_like, mode="r") as szf:
+            # Get list of files in the archive
+            file_list = szf.list()
+
+            # Extract all files at once to temporary directory
+            with tempfile.TemporaryDirectory() as temp_dir:
+                try:
+                    szf.extractall(path=temp_dir)
+                except Exception as extract_error:
+                    raise ExtractionFailedError(
+                        f"Failed to extract 7z archive: {extract_error}",
+                        cause=extract_error,
+                    ) from extract_error
+
+                for file_info in file_list:
+                    # Skip directories
+                    if file_info.is_directory:
+                        continue
+
+                    filename = file_info.filename
+                    basename = os.path.basename(filename)
+
+                    # Skip hidden files, macOS resource forks, and unsupported types
+                    if basename.startswith(".") or filename.startswith("__MACOSX/"):
+                        logger.debug("Skipping hidden/system file: %s", filename)
+                        continue
+
+                    if not _is_supported_file(basename):
+                        logger.debug("Skipping unsupported file: %s", filename)
+                        continue
+
+                    # Skip nested archives to prevent zip bombs
+                    if basename.lower().endswith(
+                        (
+                            ".zip",
+                            ".tar",
+                            ".tar.gz",
+                            ".tgz",
+                            ".tar.bz2",
+                            ".tbz2",
+                            ".tar.xz",
+                            ".txz",
+                            ".7z",
+                        )
+                    ):
+                        logger.debug("Skipping nested archive: %s", filename)
+                        continue
+
+                    try:
+                        logger.debug("Processing extracted file from 7z: %s", filename)
+
+                        # Read the extracted file
+                        extracted_path = os.path.join(temp_dir, filename)
+                        if not os.path.exists(extracted_path):
+                            logger.warning("Extracted file not found: %s", filename)
+                            continue
+
+                        with open(extracted_path, "rb") as extracted_file:
+                            file_data = extracted_file.read()
+                            file_bytes = io.BytesIO(file_data)
+
+                        # Build path that includes archive context
+                        if archive_path:
+                            full_path = f"{archive_path}!/{filename}"
+                        else:
+                            full_path = filename
+
+                        extractor = _get_file_extractor(basename)
+                        for content in extractor(file_bytes, path=full_path):
+                            yield content
+
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to process %s from 7z archive: %s", filename, e
+                        )
+                        continue
+
+    except py7zr.Bad7zFile as e:
+        raise ExtractionFailedError(f"Invalid 7z archive: {e}", cause=e) from e
+    except Exception as e:
+        raise ExtractionFailedError(
+            f"Failed to process 7z archive: {e}", cause=e
+        ) from e
+
+
 def read_archive(
     file_like: io.BytesIO, path: str | None = None
 ) -> Generator[ExtractionInterface, Any, None]:
     """
-    Extract content from supported files within a ZIP or TAR archive.
+    Extract content from supported files within a ZIP, TAR, or 7z archive.
 
     Primary entry point for archive extraction. Automatically detects the
     archive format and iterates through contents, yielding extraction results
@@ -426,6 +547,8 @@ def read_archive(
 
         if archive_type == "zip":
             yield from _extract_from_zip(file_like, path)
+        elif archive_type == "7z":
+            yield from _extract_from_7z(file_like, path)
         elif archive_type in ("tar", "tar.gz", "tar.bz2", "tar.xz"):
             yield from _extract_from_tar(file_like, path)
         else:

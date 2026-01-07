@@ -83,9 +83,9 @@ def test_is_supported():
     tc.assertTrue(is_supported_file("archive.tbz2"))
     tc.assertTrue(is_supported_file("archive.tar.xz"))
     tc.assertTrue(is_supported_file("archive.txz"))
+    tc.assertTrue(is_supported_file("myfile.7z"))
     # not supported
     tc.assertFalse(is_supported_file("myfile.rar"))
-    tc.assertFalse(is_supported_file("myfile.7z"))
     tc.assertFalse(is_supported_file("myfile.exe"))
     tc.assertFalse(is_supported_file("myfile.bat"))
 
@@ -211,6 +211,10 @@ def test_router():
 
     # tar.gz -> read_archive
     func = get_extractor("myfile.tar.gz")
+    tc.assertEqual(read_archive, func)
+
+    # 7z -> read_archive
+    func = get_extractor("myfile.7z")
     tc.assertEqual(read_archive, func)
 
     tc.assertRaises(

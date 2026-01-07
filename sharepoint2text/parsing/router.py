@@ -78,6 +78,7 @@ _EXTRACTOR_REGISTRY: dict[str, tuple[str, str]] = {
     "tgz": ("sharepoint2text.parsing.extractors.archive_extractor", "read_archive"),
     "tbz2": ("sharepoint2text.parsing.extractors.archive_extractor", "read_archive"),
     "txz": ("sharepoint2text.parsing.extractors.archive_extractor", "read_archive"),
+    "7z": ("sharepoint2text.parsing.extractors.archive_extractor", "read_archive"),
 }
 
 _EXTENSION_ALIASES: dict[str, str] = {
