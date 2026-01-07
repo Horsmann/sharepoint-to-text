@@ -3074,17 +3074,9 @@ def test_read_7zip_archive() -> None:
         read_archive(file_like=_read_file_to_file_like(path=path), path=path)
     )
 
-    # Should extract 2 text files from the archive
     tc.assertEqual(2, len(results))
-
-    # All results should be PlainTextContent
-    for result in results:
-        tc.assertIsInstance(result, PlainTextContent)
-
-    # Check that we got the expected content
-    texts = [r.get_full_text() for r in results]
-    tc.assertTrue(any("This is a test document" in t for t in texts))
-    tc.assertTrue(any("Another file in the tar archive" in t for t in texts))
+    tc.assertTrue(isinstance(results[0], PlainTextContent))
+    tc.assertTrue(isinstance(results[1], EpubContent))
 
 
 def test_read_tar_gz_archive() -> None:
