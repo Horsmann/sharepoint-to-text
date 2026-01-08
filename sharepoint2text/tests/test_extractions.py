@@ -5,7 +5,10 @@ import typing
 import zipfile
 from unittest import TestCase
 
-from sharepoint2text.parsing.exceptions import ExtractionFileEncryptedError
+from sharepoint2text.parsing.exceptions import (
+    ExtractionFileEncryptedError,
+    ExtractionFileTooLargeError,
+)
 from sharepoint2text.parsing.extractors.archive_extractor import read_archive
 from sharepoint2text.parsing.extractors.data_types import (
     DocContent,
@@ -3077,6 +3080,33 @@ def test_read_7zip_archive() -> None:
     tc.assertEqual(2, len(results))
     tc.assertTrue(isinstance(results[0], PlainTextContent))
     tc.assertTrue(isinstance(results[1], EpubContent))
+
+
+def test_7zip_file_size_limit() -> None:
+    """Test that 7z archives exceeding size limit raise appropriate exception."""
+    test_max_size = 1024  # 1KB for testing
+
+    # Monkey patch the max size constant
+    import sharepoint2text.parsing.extractors.archive_extractor as archive_module
+
+    original_max_7z_file_size = archive_module.MAX_7Z_FILE_SIZE
+    archive_module.MAX_7Z_FILE_SIZE = test_max_size
+
+    try:
+        path = "sharepoint2text/tests/resources/archives/test_archive.7z"
+        # This should raise ExtractionFileTooLargeError
+        with tc.assertRaises(ExtractionFileTooLargeError) as cm:
+            list(read_archive(file_like=_read_file_to_file_like(path=path), path=path))
+
+        # Verify the exception details
+        error = cm.exception
+        tc.assertEqual(test_max_size, error.max_size)
+        tc.assertGreater(error.actual_size, test_max_size)
+        tc.assertIn("exceeds maximum allowed size", str(error))
+
+    finally:
+        # Restore original size limit
+        archive_module.MAX_7Z_FILE_SIZE = original_max_7z_file_size
 
 
 def test_read_tar_gz_archive() -> None:

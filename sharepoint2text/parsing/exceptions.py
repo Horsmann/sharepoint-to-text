@@ -114,3 +114,31 @@ class ExtractionFailedError(ExtractionError):
         super().__init__(message)
         if cause is not None:
             self.__cause__ = cause
+
+
+class ExtractionFileTooLargeError(ExtractionError):
+    """
+    Raised when a file exceeds the maximum allowed size for extraction.
+
+    This exception is used when an extractor detects that a file is too large
+    to process safely given memory constraints.
+
+    Attributes:
+        message: Human-readable description of the error.
+        max_size: Maximum allowed file size in bytes.
+        actual_size: Actual file size in bytes.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        max_size: int,
+        actual_size: int,
+        cause: Optional[Exception] = None,
+    ):
+        super().__init__(message)
+        self.max_size = max_size
+        self.actual_size = actual_size
+        if cause is not None:
+            self.__cause__ = cause

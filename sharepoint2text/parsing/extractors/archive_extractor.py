@@ -35,20 +35,17 @@ import tarfile
 import tempfile
 import time
 import zipfile
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Callable, Generator, Optional, Set, Tuple
 
-try:
-    import py7zr
-except ImportError:
-    py7zr = None
+import py7zr
 
 from sharepoint2text.parsing.exceptions import (
     ExtractionError,
     ExtractionFailedError,
     ExtractionFileEncryptedError,
+    ExtractionFileTooLargeError,
 )
 from sharepoint2text.parsing.extractors.data_types import ExtractionInterface
 
@@ -59,6 +56,10 @@ BUFFER_SIZE = 64 * 1024  # 64KB buffer for streaming
 MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB max for in-memory processing
 MAX_WORKERS = min(4, os.cpu_count() or 1)  # Thread pool size
 CACHE_SIZE = 256  # LRU cache size for file type detection
+
+# 7zip specific constants
+MAX_7Z_FILE_SIZE = 100 * 1024 * 1024  # 100MB maximum file size for 7z archives
+MAX_7Z_MEMORY_USAGE = 1024 * 1024 * 1024  # 1GB maximum memory usage (10x file size)
 
 # Magic bytes for archive detection (optimized order by frequency)
 MAGIC_SIGNATURES: Tuple[Tuple[bytes, str, int], ...] = (
@@ -379,7 +380,7 @@ def _extract_from_7z_optimized(
     file_like: io.BytesIO, archive_path: Optional[str]
 ) -> Generator[ExtractionInterface, Any, None]:
     """
-    Optimized 7z extraction with parallel processing support.
+    Optimized 7z extraction with file size limits.
 
     Args:
         file_like: BytesIO containing the 7z archive.
@@ -387,10 +388,21 @@ def _extract_from_7z_optimized(
 
     Yields:
         ExtractionInterface objects for each supported file in the archive.
+
+    Raises:
+        ExtractionFileTooLargeError: If the archive exceeds MAX_7Z_FILE_SIZE.
+        ExtractionFailedError: If extraction fails for other reasons.
     """
-    if py7zr is None:
-        raise ExtractionFailedError(
-            "py7zr library is not installed. Install with: pip install py7zr"
+    # Check archive size before processing
+    file_like.seek(0, os.SEEK_END)
+    archive_size = file_like.tell()
+    file_like.seek(0)
+
+    if archive_size > MAX_7Z_FILE_SIZE:
+        raise ExtractionFileTooLargeError(
+            f"7z archive size ({archive_size} bytes) exceeds maximum allowed size ({MAX_7Z_FILE_SIZE} bytes)",
+            max_size=MAX_7Z_FILE_SIZE,
+            actual_size=archive_size,
         )
 
     try:
@@ -430,15 +442,10 @@ def _extract_from_7z_optimized(
                         cause=extract_error,
                     ) from extract_error
 
-                # Process files with optional parallel processing
-                if _config.enable_parallel and len(files_to_process) > 1:
-                    yield from _process_7z_files_parallel(
-                        files_to_process, temp_dir, archive_path
-                    )
-                else:
-                    yield from _process_7z_files_sequential(
-                        files_to_process, temp_dir, archive_path
-                    )
+                # Process files sequentially (no parallel processing)
+                yield from _process_7z_files_sequential(
+                    files_to_process, temp_dir, archive_path
+                )
 
     except py7zr.Bad7zFile as e:
         raise ExtractionFailedError(f"Invalid 7z archive: {e}", cause=e) from e
@@ -465,46 +472,6 @@ def _process_7z_files_sequential(
         except Exception as e:
             logger.warning("Failed to process %s from 7z: %s", filename, e)
             continue
-
-
-def _process_7z_files_parallel(
-    files_to_process: list, temp_dir: str, archive_path: Optional[str]
-) -> Generator[ExtractionInterface, Any, None]:
-    """Parallel processing of 7z files using ThreadPoolExecutor."""
-
-    def process_single_file(args):
-        file_info, filename, basename = args
-        try:
-            extracted_path = os.path.join(temp_dir, filename)
-            if not os.path.exists(extracted_path):
-                return None
-
-            with open(extracted_path, "rb") as extracted_file:
-                file_data = extracted_file.read()
-
-            # Process and collect results
-            results = []
-            for content in _process_archive_entry(
-                filename, file_data, archive_path, basename
-            ):
-                results.append(content)
-            return results
-
-        except Exception as e:
-            logger.warning("Failed to process %s from 7z: %s", filename, e)
-            return None
-
-    with ThreadPoolExecutor(max_workers=_config.max_workers) as executor:
-        # Submit all tasks
-        futures = [
-            executor.submit(process_single_file, args) for args in files_to_process
-        ]
-
-        # Collect results as they complete
-        for future in as_completed(futures):
-            result = future.result()
-            if result:
-                yield from result
 
 
 def read_archive(
