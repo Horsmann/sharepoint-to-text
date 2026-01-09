@@ -39,8 +39,6 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Callable, Generator, Optional, Set, Tuple
 
-import py7zr
-
 from sharepoint2text.parsing.exceptions import (
     ExtractionError,
     ExtractionFailedError,
@@ -48,6 +46,10 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFileTooLargeError,
 )
 from sharepoint2text.parsing.extractors.data_types import ExtractionInterface
+from sharepoint2text.parsing.extractors.util.sevenzip import (
+    Bad7zFile,
+    SevenZipFile,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -406,7 +408,13 @@ def _extract_from_7z_optimized(
         )
 
     try:
-        with py7zr.SevenZipFile(file_like, "r") as szf:
+        with SevenZipFile(file_like, "r") as szf:
+            # Check for encrypted archives
+            if szf.needs_password():
+                raise ExtractionFileEncryptedError(
+                    "Encrypted/password-protected 7z archives are not supported"
+                )
+
             file_list = szf.list()
 
             # Pre-filter files for better performance
@@ -447,7 +455,7 @@ def _extract_from_7z_optimized(
                     files_to_process, temp_dir, archive_path
                 )
 
-    except py7zr.Bad7zFile as e:
+    except Bad7zFile as e:
         raise ExtractionFailedError(f"Invalid 7z archive: {e}", cause=e) from e
 
 
