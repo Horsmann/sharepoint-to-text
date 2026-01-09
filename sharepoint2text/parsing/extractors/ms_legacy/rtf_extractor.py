@@ -136,6 +136,25 @@ _DEST_PATTERNS = [
     ),
 ]
 
+# Header/footer patterns compiled once (avoids per-parse re.compile calls).
+_HEADER_FOOTER_TYPES = (
+    "header",
+    "headerl",
+    "headerr",
+    "headerf",
+    "footer",
+    "footerl",
+    "footerr",
+    "footerf",
+)
+_HEADER_FOOTER_PATTERNS: dict[str, re.Pattern[str]] = {
+    hf_type: re.compile(
+        r"\{\\" + hf_type + r"\s+(.*?)\}(?=\s*\{|\s*\\)",
+        re.DOTALL | re.IGNORECASE,
+    )
+    for hf_type in _HEADER_FOOTER_TYPES
+}
+
 
 # =============================================================================
 # Helper functions
@@ -256,6 +275,15 @@ class _RtfParser:
         self.annotations: list[RtfAnnotation] = []
         self.pages: list[str] = []
         self.raw_text_blocks: list[str] = []
+        self._special_char_patterns: list[tuple[re.Pattern[str], str]] = [
+            (
+                re.compile(
+                    r"\\" + re.escape(keyword) + r"(?:(?:\s+)|(?=\\)|(?=\{)|(?=\})|$)"
+                ),
+                char,
+            )
+            for keyword, char in self.SPECIAL_CHARS.items()
+        ]
 
     def parse(self) -> RtfContent:
         """Parse the RTF document and return extracted content."""
@@ -429,22 +457,7 @@ class _RtfParser:
 
     def _extract_headers_footers(self, text: str) -> None:
         """Extract headers and footers from RTF."""
-        hf_types = [
-            "header",
-            "headerl",
-            "headerr",
-            "headerf",
-            "footer",
-            "footerl",
-            "footerr",
-            "footerf",
-        ]
-
-        for hf_type in hf_types:
-            pattern = re.compile(
-                r"\{\\" + hf_type + r"\s+(.*?)\}(?=\s*\{|\s*\\)",
-                re.DOTALL | re.IGNORECASE,
-            )
+        for hf_type, pattern in _HEADER_FOOTER_PATTERNS.items():
             for match in pattern.finditer(text):
                 extracted = self._strip_rtf_simple(match.group(1)).strip()
                 if extracted:
@@ -686,9 +699,8 @@ class _RtfParser:
         result = _RE_HEX_ESCAPE.sub(lambda m: chr(int(m.group(1), 16)), result)
 
         # Special characters
-        for keyword, char in self.SPECIAL_CHARS.items():
-            pattern = r"\\" + re.escape(keyword) + r"(?:(?:\s+)|(?=\\)|(?=\{)|(?=\})|$)"
-            result = re.sub(pattern, char, result)
+        for pattern, char in self._special_char_patterns:
+            result = pattern.sub(char, result)
 
         # Control words
         result = _RE_CONTROL_WORD.sub("", result)
@@ -793,7 +805,13 @@ class _RtfParser:
                         j += 1
 
                     control_word = text[i + 1 : j].rstrip()
-                    word_only = re.sub(r"-?\d+$", "", control_word)
+                    # Strip any trailing numeric parameter (e.g., "fs24", "cf1").
+                    k = len(control_word)
+                    while k and (
+                        control_word[k - 1].isdigit() or control_word[k - 1] == "-"
+                    ):
+                        k -= 1
+                    word_only = control_word[:k]
 
                     if word_only in ("page", "sbkpage"):
                         flush_page()

@@ -30,6 +30,10 @@ from sharepoint2text.parsing.extractors.data_types import (
     OdfContent,
     OpenDocumentMetadata,
 )
+from sharepoint2text.parsing.extractors.open_office._shared import (
+    element_text,
+    extract_odf_metadata,
+)
 from sharepoint2text.parsing.extractors.util.encryption import is_odf_encrypted
 from sharepoint2text.parsing.extractors.util.zip_context import ZipContext
 
@@ -54,103 +58,27 @@ _OFFICE_ANNOTATION_TAG = f"{{{NS['office']}}}annotation"
 _TEXT_P_TAG = f"{{{NS['text']}}}p"
 _TEXT_H_TAG = f"{{{NS['text']}}}h"
 _MATH_ANNOTATION_TAG = f"{{{NS['math']}}}annotation"
+_MATH_MATH_TAG = f"{{{NS['math']}}}math"
 
 _ATTR_TEXT_C = f"{{{NS['text']}}}c"
 
+_TEXT_SKIP_TAGS: set[str] = {_OFFICE_ANNOTATION_TAG}
+
 
 def _get_text_recursive(element: ET.Element) -> str:
-    """Recursively extract all text from an element and its children."""
-    parts: list[str] = []
-
-    text = element.text
-    if text:
-        parts.append(text)
-
-    for child in element:
-        tag = child.tag
-        if tag == _TEXT_SPACE_TAG:
-            count = int(child.get(_ATTR_TEXT_C, "1"))
-            parts.append(" " * count)
-        elif tag == _TEXT_TAB_TAG:
-            parts.append("\t")
-        elif tag == _TEXT_LINE_BREAK_TAG:
-            parts.append("\n")
-        elif tag == _OFFICE_ANNOTATION_TAG:
-            # Skip annotations in main text extraction.
-            pass
-        else:
-            parts.append(_get_text_recursive(child))
-
-        tail = child.tail
-        if tail:
-            parts.append(tail)
-
-    return "".join(parts)
+    return element_text(
+        element,
+        text_space_tag=_TEXT_SPACE_TAG,
+        text_tab_tag=_TEXT_TAB_TAG,
+        text_line_break_tag=_TEXT_LINE_BREAK_TAG,
+        attr_text_c=_ATTR_TEXT_C,
+        skip_tags=_TEXT_SKIP_TAGS,
+    )
 
 
 def _extract_metadata(meta_root: ET.Element | None) -> OpenDocumentMetadata:
     """Extract metadata from meta.xml."""
-    metadata = OpenDocumentMetadata()
-
-    if meta_root is None:
-        return metadata
-
-    meta_elem = meta_root.find(".//office:meta", NS)
-    if meta_elem is None:
-        return metadata
-
-    title = meta_elem.find("dc:title", NS)
-    if title is not None and title.text:
-        metadata.title = title.text
-
-    description = meta_elem.find("dc:description", NS)
-    if description is not None and description.text:
-        metadata.description = description.text
-
-    subject = meta_elem.find("dc:subject", NS)
-    if subject is not None and subject.text:
-        metadata.subject = subject.text
-
-    creator = meta_elem.find("dc:creator", NS)
-    if creator is not None and creator.text:
-        metadata.creator = creator.text
-
-    date = meta_elem.find("dc:date", NS)
-    if date is not None and date.text:
-        metadata.date = date.text
-
-    language = meta_elem.find("dc:language", NS)
-    if language is not None and language.text:
-        metadata.language = language.text
-
-    keywords = meta_elem.find("meta:keyword", NS)
-    if keywords is not None and keywords.text:
-        metadata.keywords = keywords.text
-
-    initial_creator = meta_elem.find("meta:initial-creator", NS)
-    if initial_creator is not None and initial_creator.text:
-        metadata.initial_creator = initial_creator.text
-
-    creation_date = meta_elem.find("meta:creation-date", NS)
-    if creation_date is not None and creation_date.text:
-        metadata.creation_date = creation_date.text
-
-    editing_cycles = meta_elem.find("meta:editing-cycles", NS)
-    if editing_cycles is not None and editing_cycles.text:
-        try:
-            metadata.editing_cycles = int(editing_cycles.text)
-        except ValueError:
-            pass
-
-    editing_duration = meta_elem.find("meta:editing-duration", NS)
-    if editing_duration is not None and editing_duration.text:
-        metadata.editing_duration = editing_duration.text
-
-    generator = meta_elem.find("meta:generator", NS)
-    if generator is not None and generator.text:
-        metadata.generator = generator.text
-
-    return metadata
+    return extract_odf_metadata(meta_root, NS)
 
 
 def _normalize_whitespace(value: str) -> str:
@@ -246,7 +174,7 @@ def _mathml_to_text(elem: ET.Element) -> str:
 
 
 def _extract_formula_text_from_mathml(root: ET.Element) -> str:
-    if root.tag == _mathml_tag("math"):
+    if root.tag == _MATH_MATH_TAG:
         return _mathml_to_text(root).strip()
 
     math_elem = root.find(".//math:math", NS)
@@ -266,7 +194,7 @@ def _extract_full_text(content_root: ET.Element) -> str:
     """
     # 1) Prefer StarMath annotations when present (often closest to author intent)
     annotations: list[str] = []
-    for ann in content_root.findall(".//math:annotation", NS):
+    for ann in content_root.iter(_MATH_ANNOTATION_TAG):
         raw = (ann.text or "").strip()
         if not raw:
             continue

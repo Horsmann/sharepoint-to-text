@@ -110,6 +110,34 @@ logger = logging.getLogger(__name__)
 # Tags to remove entirely (including their content)
 REMOVE_TAGS = {"script", "style", "noscript", "iframe", "object", "embed", "applet"}
 
+# Void/self-closing tags (HTML parser still reports start tags for these).
+_VOID_TAGS = frozenset(
+    {
+        "br",
+        "hr",
+        "img",
+        "input",
+        "meta",
+        "link",
+        "area",
+        "base",
+        "col",
+        "embed",
+        "param",
+        "source",
+        "track",
+        "wbr",
+    }
+)
+
+# Precompiled regexes (hot paths).
+_RE_WS = re.compile(r"\s+")
+_RE_MULTI_NL = re.compile(r"\n{3,}")
+_RE_CHARSET_ATTR_BYTES = re.compile(
+    rb'<meta[^>]+charset=["\']?([^"\'\s>]+)', re.IGNORECASE
+)
+_RE_CHARSET_IN_CONTENT = re.compile(r"charset=([^\s;]+)", re.IGNORECASE)
+
 # Block-level tags that should have newlines around them
 BLOCK_TAGS = {
     "p",
@@ -199,22 +227,7 @@ class _HtmlTreeBuilder(HTMLParser):
         # Add to parent's children
         self.stack[-1]["children"].append(node)
         # Push onto stack (for non-void elements)
-        if tag not in {
-            "br",
-            "hr",
-            "img",
-            "input",
-            "meta",
-            "link",
-            "area",
-            "base",
-            "col",
-            "embed",
-            "param",
-            "source",
-            "track",
-            "wbr",
-        }:
+        if tag not in _VOID_TAGS:
             self.stack.append(node)
         else:
             # For void elements, they become the "last closed" element
@@ -325,7 +338,7 @@ class _HtmlTextExtractor:
             for child in tr.get("children", []):
                 if child.get("tag") in ("th", "td"):
                     cell_text = self._get_node_text(child).strip()
-                    cell_text = re.sub(r"\s+", " ", cell_text)
+                    cell_text = _RE_WS.sub(" ", cell_text)
                     row.append(cell_text)
             if row:
                 rows.append(row)
@@ -366,7 +379,7 @@ class _HtmlTextExtractor:
         # Process collected headings
         for node, level in all_headings:
             text = self._get_node_text(node).strip()
-            text = re.sub(r"\s+", " ", text)
+            text = _RE_WS.sub(" ", text)
             if text:
                 self.headings.append({"level": f"h{level}", "text": text})
 
@@ -391,7 +404,7 @@ class _HtmlTextExtractor:
             href = node.get("attrs", {}).get("href", "")
             if href:  # Only process if href exists
                 text = self._get_node_text(node).strip()
-                text = re.sub(r"\s+", " ", text)
+                text = _RE_WS.sub(" ", text)
                 if text:  # Only include if text exists
                     self.links.append({"text": text, "href": href})
 
@@ -433,7 +446,7 @@ class _HtmlTextExtractor:
             # http-equiv content-type
             if attrs.get("http-equiv", "").lower() == "content-type":
                 content = attrs.get("content", "")
-                match = re.search(r"charset=([^\s;]+)", content)
+                match = _RE_CHARSET_IN_CONTENT.search(content)
                 if match:
                     self.metadata.charset = match.group(1)
 
@@ -479,10 +492,14 @@ class _HtmlTextExtractor:
 
         # Handle list items
         if tag == "li":
-            text = node.get("text", "")
+            text_parts: list[str] = []
+            if node.get("text"):
+                text_parts.append(node["text"])
             for child in node.get("children", []):
-                text += self._process_node(child, depth + 1, include_tail=True)
-            text = re.sub(r"\s+", " ", text.strip())
+                text_parts.append(
+                    self._process_node(child, depth + 1, include_tail=True)
+                )
+            text = _RE_WS.sub(" ", "".join(text_parts).strip())
             result = "  " * depth + "- " + text + "\n"
             # Add tail text
             if include_tail and node.get("tail"):
@@ -492,7 +509,7 @@ class _HtmlTextExtractor:
         # Handle headings
         if tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
             text = self._get_node_text(node).strip()
-            text = re.sub(r"\s+", " ", text)
+            text = _RE_WS.sub(" ", text)
             result = "\n" + text + "\n"
             # Add tail text
             if include_tail and node.get("tail"):
@@ -549,7 +566,7 @@ class _HtmlTextExtractor:
 
         # Clean up the text
         # Collapse multiple newlines to maximum of 2
-        text = re.sub(r"\n{3,}", "\n\n", text)
+        text = _RE_MULTI_NL.sub("\n\n", text)
         # Remove leading/trailing whitespace from lines
         lines = [line.strip() for line in text.split("\n")]
         text = "\n".join(lines)
@@ -619,9 +636,8 @@ def read_html(
             encoding = "utf-16-be"
         else:
             # Try to find charset in meta tag
-            charset_match = re.search(
-                rb'<meta[^>]+charset=["\']?([^"\'\s>]+)', content, re.IGNORECASE
-            )
+            # Only scan the head of the document for meta charset.
+            charset_match = _RE_CHARSET_ATTR_BYTES.search(content[:8192])
             if charset_match:
                 encoding = charset_match.group(1).decode("ascii", errors="ignore")
 

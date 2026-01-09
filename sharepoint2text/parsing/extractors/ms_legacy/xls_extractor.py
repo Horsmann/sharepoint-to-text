@@ -117,6 +117,44 @@ def _get_cell_value(
     return str(value) if as_string else value
 
 
+def _get_cell_values(cell: xlrd.sheet.Cell, workbook: xlrd.Book) -> tuple[Any, str]:
+    """Compute both native and string values for a cell in one pass."""
+    ctype = cell.ctype
+    value = cell.value
+
+    if ctype == _CELL_EMPTY:
+        return None, ""
+
+    if ctype == _CELL_TEXT:
+        text = str(value)
+        return value, text
+
+    if ctype == _CELL_NUMBER:
+        int_val = int(value)
+        if value == int_val:
+            return int_val, str(int_val)
+        return value, str(value)
+
+    if ctype == _CELL_DATE:
+        try:
+            dt = xlrd.xldate_as_tuple(value, workbook.datemode)
+            text = _format_date_tuple(dt)
+            return text, text
+        except Exception:
+            text = str(value)
+            return value, text
+
+    if ctype == _CELL_BOOLEAN:
+        text = "True" if value else "False"
+        return bool(value), text
+
+    if ctype == _CELL_ERROR:
+        return None, "#ERROR"
+
+    text = str(value)
+    return value, text
+
+
 # =============================================================================
 # Sheet formatting
 # =============================================================================
@@ -161,7 +199,12 @@ def _format_sheet_as_text(headers: list[str], rows: list[list[str]]) -> str:
 def _read_content(file_like: io.BytesIO) -> list[XlsSheet]:
     """Read all sheets from XLS file and extract content."""
     logger.debug("Reading content")
-    workbook = xlrd.open_workbook(file_contents=file_like.read())
+    workbook = xlrd.open_workbook(
+        file_contents=file_like.read(),
+        # xlrd's OLE parser may emit warnings via `print(...)` for slightly
+        # malformed containers; keep extraction quiet by redirecting its logfile.
+        logfile=io.StringIO(),
+    )
 
     sheets = []
     for sheet in workbook.sheets():
@@ -193,9 +236,9 @@ def _read_content(file_like: io.BytesIO) -> list[XlsSheet]:
                 header = (
                     headers[col_idx] if col_idx < len(headers) else f"col_{col_idx}"
                 )
-
-                row_dict[header] = _get_cell_value(cell, workbook, as_string=False)
-                row_text.append(_get_cell_value(cell, workbook, as_string=True))
+                native, text = _get_cell_values(cell, workbook)
+                row_dict[header] = native
+                row_text.append(text)
 
             data.append(row_dict)
             text_rows.append(row_text)
@@ -254,14 +297,13 @@ def read_xls(
         if is_xls_encrypted(file_like):
             raise ExtractionFileEncryptedError("XLS is encrypted or password-protected")
 
-        sheets = _read_content(file_like)
-
         file_like.seek(0)
-        metadata = _read_metadata(file_like)
+        raw = file_like.read()
+
+        sheets = _read_content(io.BytesIO(raw))
+        metadata = _read_metadata(io.BytesIO(raw))
         metadata.populate_from_path(path)
-
-        file_like.seek(0)
-        images = _extract_images_from_workbook(file_like)
+        images = _extract_images_from_workbook(io.BytesIO(raw))
 
         yield XlsContent(
             metadata=metadata,

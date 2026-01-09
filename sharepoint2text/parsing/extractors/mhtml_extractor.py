@@ -94,6 +94,17 @@ from sharepoint2text.parsing.extractors.html_extractor import read_html
 
 logger = logging.getLogger(__name__)
 
+_RE_BASE64_WS = re.compile(rb"\s+")
+_RE_HTML_START_1 = re.compile(
+    rb"Content-Type:\s*text/html[^\r\n]*\r?\n\r?\n", re.IGNORECASE
+)
+_RE_HTML_START_2 = re.compile(
+    rb"Content-Type:\s*text/html[^\r\n]*\r?\n[^\r\n]*\r?\n\r?\n", re.IGNORECASE
+)
+_RE_BOUNDARY = re.compile(rb"\r?\n--")
+_RE_CT_ENCODING = re.compile(rb"Content-Transfer-Encoding:\s*(\S+)", re.IGNORECASE)
+_RE_RAW_HTML = re.compile(rb"(<html[^>]*>.*</html>)", re.IGNORECASE | re.DOTALL)
+
 
 def _decode_content(part: Message) -> bytes:
     """Decode MIME part content based on Content-Transfer-Encoding."""
@@ -117,7 +128,7 @@ def _decode_content(part: Message) -> bytes:
     elif encoding == "base64":
         try:
             # Remove whitespace that may be present in base64 content
-            clean = re.sub(rb"\s+", b"", payload_bytes)
+            clean = _RE_BASE64_WS.sub(b"", payload_bytes)
             return base64.b64decode(clean)
         except Exception:
             return payload_bytes
@@ -150,7 +161,8 @@ def _find_html_part(msg: Message) -> Optional[bytes]:
     if not msg.is_multipart():
         content = _decode_content(msg)
         # Simple heuristic: check if it looks like HTML
-        if b"<html" in content.lower() or b"<!doctype html" in content.lower():
+        head = content[:4096].lower()
+        if b"<html" in head or b"<!doctype html" in head:
             return content
 
     return None
@@ -175,29 +187,22 @@ def _extract_from_mhtml(content: bytes) -> Optional[bytes]:
     # Some MHTML files have non-standard structure
     try:
         # Look for Content-Type: text/html boundary
-        html_start_patterns = [
-            rb"Content-Type:\s*text/html[^\r\n]*\r?\n\r?\n",
-            rb"Content-Type:\s*text/html[^\r\n]*\r?\n[^\r\n]*\r?\n\r?\n",
-        ]
-
-        for pattern in html_start_patterns:
-            match = re.search(pattern, content, re.IGNORECASE)
+        for pattern in (_RE_HTML_START_1, _RE_HTML_START_2):
+            match = pattern.search(content)
             if match:
                 start = match.end()
                 # Find the next boundary or end of file
-                boundary_match = re.search(rb"\r?\n--", content[start:])
+                boundary_match = _RE_BOUNDARY.search(content, start)
                 if boundary_match:
-                    end = start + boundary_match.start()
+                    end = boundary_match.start()
                 else:
                     end = len(content)
 
                 html_bytes = content[start:end]
 
                 # Check for Content-Transfer-Encoding before the HTML
-                encoding_match = re.search(
-                    rb"Content-Transfer-Encoding:\s*(\S+)",
-                    content[max(0, match.start() - 200) : match.start()],
-                    re.IGNORECASE,
+                encoding_match = _RE_CT_ENCODING.search(
+                    content[max(0, match.start() - 200) : match.start()]
                 )
                 if encoding_match:
                     encoding = encoding_match.group(1).lower()
@@ -206,7 +211,7 @@ def _extract_from_mhtml(content: bytes) -> Optional[bytes]:
                     elif encoding == b"base64":
                         try:
                             html_bytes = base64.b64decode(
-                                re.sub(rb"\s+", b"", html_bytes)
+                                _RE_BASE64_WS.sub(b"", html_bytes)
                             )
                         except Exception:
                             pass
@@ -214,9 +219,7 @@ def _extract_from_mhtml(content: bytes) -> Optional[bytes]:
                 return html_bytes
 
         # Last resort: look for raw HTML in the content
-        html_match = re.search(
-            rb"(<html[^>]*>.*</html>)", content, re.IGNORECASE | re.DOTALL
-        )
+        html_match = _RE_RAW_HTML.search(content)
         if html_match:
             return html_match.group(1)
 

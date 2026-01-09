@@ -154,6 +154,34 @@ TEXT_SCAN_START = 0x200
 TEXT_SCAN_END = 0x2000
 TEXT_SCAN_STEP = 0x40
 
+_FIB_MAGIC = struct.Struct("<H")
+_UINT16 = struct.Struct("<H")
+_UINT32 = struct.Struct("<I")
+
+# BITMAPINFOHEADER (first 24 bytes) for DIB images inside WordDocument stream.
+_DIB24 = struct.Struct("<IiiHHII")  # size, w, h, planes, bpp, compression, size_image
+
+# Translation table for fast text cleaning.
+_DOC_TEXT_TRANS = str.maketrans(
+    {
+        "\x07": "\t",  # cell marker
+        "\x0b": "\n",  # vertical tab
+        "\x0c": "\n\n",  # page break
+        "\x0d": "\n",  # carriage return
+        "\x13": None,  # field begin
+        "\x14": " ",  # field separator
+        "\x15": None,  # field end
+        "\x01": None,
+        "\x08": None,
+        "\x19": None,
+        "\x1e": None,
+        "\x1f": None,
+        "\xa0": " ",  # nbsp
+        "\x00": None,
+        "\x7f": None,
+    }
+)
+
 
 def read_doc(
     file_like: io.BytesIO, path: str | None = None
@@ -328,24 +356,32 @@ class _DocReader:
         seen_hashes: set[str] = set()
         image_counter = 0
 
+        signature = b"\x28\x00\x00\x00"
         i = 0
         data_len = len(word_doc)
         while i + 40 <= data_len:
-            if word_doc[i : i + 4] != b"\x28\x00\x00\x00":
+            start = word_doc.find(signature, i)
+            if start < 0 or start + 40 > data_len:
+                break
+            i = start
+
+            try:
+                (
+                    header_size,
+                    width,
+                    height,
+                    planes,
+                    bits_per_pixel,
+                    compression,
+                    size_image,
+                ) = _DIB24.unpack_from(word_doc, i)
+            except struct.error:
                 i += 1
                 continue
 
-            header_size = struct.unpack_from("<I", word_doc, i)[0]
             if header_size != 40:
                 i += 1
                 continue
-
-            width = struct.unpack_from("<i", word_doc, i + 4)[0]
-            height = struct.unpack_from("<i", word_doc, i + 8)[0]
-            planes = struct.unpack_from("<H", word_doc, i + 12)[0]
-            bits_per_pixel = struct.unpack_from("<H", word_doc, i + 14)[0]
-            compression = struct.unpack_from("<I", word_doc, i + 16)[0]
-            size_image = struct.unpack_from("<I", word_doc, i + 20)[0]
 
             if (
                 planes != 1
@@ -606,22 +642,22 @@ class _DocReader:
             raise LegacyMicrosoftParsingError("File too small")
 
         # Validate magic number
-        magic = struct.unpack_from("<H", word_doc, 0)[0]
+        magic = _FIB_MAGIC.unpack_from(word_doc, 0)[0]
         if magic not in (FIB_MAGIC_WORD97, FIB_MAGIC_WORD95):
             raise LegacyMicrosoftParsingError(
                 f"Not a valid .doc file (Magic: {hex(magic)})"
             )
 
         # Check encryption flag
-        flags = struct.unpack_from("<H", word_doc, FIB_FLAGS_OFFSET)[0]
+        flags = _UINT16.unpack_from(word_doc, FIB_FLAGS_OFFSET)[0]
         if flags & FIB_ENCRYPTED_FLAG:
             raise ExtractionFileEncryptedError("DOC is encrypted or password-protected")
 
         # Extract character counts from FIB
-        ccp_text = struct.unpack_from("<I", word_doc, FIB_CCP_TEXT_OFFSET)[0]
-        ccp_ftn = struct.unpack_from("<I", word_doc, FIB_CCP_FTN_OFFSET)[0]
-        ccp_hdd = struct.unpack_from("<I", word_doc, FIB_CCP_HDD_OFFSET)[0]
-        ccp_atn = struct.unpack_from("<I", word_doc, FIB_CCP_ATN_OFFSET)[0]
+        ccp_text = _UINT32.unpack_from(word_doc, FIB_CCP_TEXT_OFFSET)[0]
+        ccp_ftn = _UINT32.unpack_from(word_doc, FIB_CCP_FTN_OFFSET)[0]
+        ccp_hdd = _UINT32.unpack_from(word_doc, FIB_CCP_HDD_OFFSET)[0]
+        ccp_atn = _UINT32.unpack_from(word_doc, FIB_CCP_ATN_OFFSET)[0]
 
         self._text_start, self._is_unicode = self._find_text_start_and_enc(word_doc)
 
@@ -827,24 +863,7 @@ class _DocReader:
         if not text:
             return ""
 
-        replacements = {
-            "\x07": "\t",
-            "\x0b": "\n",
-            "\x0c": "\n\n",
-            "\x0d": "\n",
-            "\x13": "",
-            "\x14": " ",
-            "\x15": "",
-            "\x01": "",
-            "\x08": "",
-            "\x19": "",
-            "\x1e": "",
-            "\x1f": "",
-            "\xa0": " ",
-        }
-        for old, new in replacements.items():
-            text = text.replace(old, new)
-
+        text = text.translate(_DOC_TEXT_TRANS)
         text = re.sub(r"[\x00-\x08\x0e-\x1f\x7f]", "", text)
         text = re.sub(r"[ \t]+", " ", text)
         text = re.sub(r"\n{3,}", "\n\n", text)
@@ -873,12 +892,18 @@ class _DocReader:
             return DocMetadata()
         try:
             m = self.ole.get_metadata()
+
+            def decode(val: object) -> str:
+                if isinstance(val, bytes):
+                    return val.decode("utf-8", errors="replace")
+                return str(val) if val else ""
+
             return DocMetadata(
-                title=m.title.decode("utf-8"),
-                author=m.author.decode("utf-8"),
-                subject=m.subject.decode("utf-8"),
-                keywords=m.keywords.decode("utf-8"),
-                last_saved_by=m.last_saved_by.decode("utf-8"),
+                title=decode(m.title),
+                author=decode(m.author),
+                subject=decode(m.subject),
+                keywords=decode(m.keywords),
+                last_saved_by=decode(m.last_saved_by),
                 create_time=(
                     m.create_time.isoformat()
                     if isinstance(m.create_time, datetime.datetime)

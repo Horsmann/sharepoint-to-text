@@ -364,7 +364,7 @@ class _PptxContext(OOXMLZipContext):
 
         # Get slide order from presentation.xml
         slide_paths: list[str] = []
-        sld_id_lst = self._presentation_root.find(f".//{P_SLDIDLST}")
+        sld_id_lst = next(self._presentation_root.iter(P_SLDIDLST), None)
         if sld_id_lst is not None:
             for sld_id in sld_id_lst.findall(P_SLDID):
                 if (r_id := sld_id.get(R_ID)) and r_id in rels_map:
@@ -489,7 +489,7 @@ def _extract_slide_comments_from_context(
 
     comments: list[PptxComment] = []
     try:
-        for cm in root.findall(f".//{P_CM}"):
+        for cm in root.iter(P_CM):
             text_elem = cm.find(P_TEXT)
             comments.append(
                 PptxComment(
@@ -529,9 +529,9 @@ def _get_shape_position(shape_elem: ET.Element) -> tuple[int, int]:
     """
     try:
         # First, try to get explicit position from xfrm
-        sp_pr = shape_elem.find(f".//{P_SPPR}")
+        sp_pr = next(shape_elem.iter(P_SPPR), None)
         if sp_pr is None:
-            sp_pr = shape_elem.find(f".//{A_XFRM}")
+            sp_pr = next(shape_elem.iter(A_XFRM), None)
         if sp_pr is None:
             sp_pr = shape_elem
 
@@ -539,9 +539,9 @@ def _get_shape_position(shape_elem: ET.Element) -> tuple[int, int]:
         if xfrm is None:
             xfrm = sp_pr.find(P_XFRM)
         if xfrm is None:
-            xfrm = shape_elem.find(f".//{A_XFRM}")
+            xfrm = next(shape_elem.iter(A_XFRM), None)
             if xfrm is None:
-                xfrm = shape_elem.find(f".//{P_XFRM}")
+                xfrm = next(shape_elem.iter(P_XFRM), None)
 
         if xfrm is not None:
             off = xfrm.find(A_OFF)
@@ -592,7 +592,7 @@ def _extract_text_from_paragraphs(elem: ET.Element) -> str:
         Combined text from all paragraphs, with newlines between paragraphs.
     """
     paragraphs: list[str] = []
-    for p in elem.findall(f".//{A_P}"):
+    for p in elem.iter(A_P):
         texts: list[str] = []
         for child in p:
             tag = child.tag
@@ -617,7 +617,7 @@ def _extract_table_from_graphic_frame(elem: ET.Element) -> list[list[str]] | Non
 
     Returns a list of rows (list of cell strings), or None if not a table.
     """
-    graphic_data = elem.find(f".//{A_GRAPHICDATA}")
+    graphic_data = next(elem.iter(A_GRAPHICDATA), None)
     if graphic_data is None or graphic_data.get("uri") != TABLE_URI:
         return None
 
@@ -723,17 +723,17 @@ def _process_slide_from_context(
     if root is None:
         return PptxSlide(slide_number=slide_number)
 
-    sp_tree = root.find(f".//{P_SPTREE}")
+    sp_tree = next(root.iter(P_SPTREE), None)
     if sp_tree is None:
         return PptxSlide(slide_number=slide_number)
 
     # Collect all shapes with their positions
     shape_elements: list[tuple[str, ET.Element, tuple[int, int]]] = []
-    for sp in sp_tree.findall(f".//{P_SP}"):
+    for sp in sp_tree.iter(P_SP):
         shape_elements.append(("sp", sp, _get_shape_position(sp)))
-    for pic in sp_tree.findall(f".//{P_PIC}"):
+    for pic in sp_tree.iter(P_PIC):
         shape_elements.append(("pic", pic, _get_shape_position(pic)))
-    for frame in sp_tree.findall(f".//{P_GRAPHICFRAME}"):
+    for frame in sp_tree.iter(P_GRAPHICFRAME):
         shape_elements.append(("graphicFrame", frame, _get_shape_position(frame)))
 
     shape_elements.sort(key=lambda x: x[2])
@@ -745,7 +745,7 @@ def _process_slide_from_context(
         # Picture extraction
         if shape_type == "pic":
             try:
-                blip = elem.find(f".//{A_BLIP}")
+                blip = next(elem.iter(A_BLIP), None)
                 if blip is None:
                     continue
 
@@ -759,7 +759,7 @@ def _process_slide_from_context(
                 # Extract caption and description from cNvPr
                 caption = ""
                 description = ""
-                if (cNvPr := elem.find(f".//{P_CNVPR}")) is not None:
+                if (cNvPr := next(elem.iter(P_CNVPR), None)) is not None:
                     caption = cNvPr.get("name", "")
                     description = cNvPr.get("descr", "")
 

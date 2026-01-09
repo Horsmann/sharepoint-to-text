@@ -104,9 +104,7 @@ Maintenance Notes
 
 import io
 import logging
-import mimetypes
 import re
-from functools import lru_cache
 from typing import Any, Generator
 from xml.etree import ElementTree as ET
 
@@ -121,6 +119,11 @@ from sharepoint2text.parsing.extractors.data_types import (
     OpenDocumentAnnotation,
     OpenDocumentImage,
     OpenDocumentMetadata,
+)
+from sharepoint2text.parsing.extractors.open_office._shared import (
+    element_text,
+    extract_odf_metadata,
+    guess_content_type,
 )
 from sharepoint2text.parsing.extractors.util.encryption import is_odf_encrypted
 from sharepoint2text.parsing.extractors.util.zip_context import ZipContext
@@ -149,6 +152,12 @@ _TEXT_SPACE_TAG = f"{{{NS['text']}}}s"
 _TEXT_TAB_TAG = f"{{{NS['text']}}}tab"
 _TEXT_LINE_BREAK_TAG = f"{{{NS['text']}}}line-break"
 _OFFICE_ANNOTATION_TAG = f"{{{NS['office']}}}annotation"
+_TEXT_P_TAG = f"{{{NS['text']}}}p"
+_DRAW_FRAME_TAG = f"{{{NS['draw']}}}frame"
+_DRAW_TEXT_BOX_TAG = f"{{{NS['draw']}}}text-box"
+_DRAW_IMAGE_TAG = f"{{{NS['draw']}}}image"
+_SVG_TITLE_TAG = f"{{{NS['svg']}}}title"
+_SVG_DESC_TAG = f"{{{NS['svg']}}}desc"
 
 _ATTR_TEXT_C = f"{{{NS['text']}}}c"
 _ATTR_TEXT_STYLE_NAME = f"{{{NS['text']}}}style-name"
@@ -159,10 +168,7 @@ _ATTR_SVG_WIDTH = f"{{{NS['svg']}}}width"
 _ATTR_SVG_HEIGHT = f"{{{NS['svg']}}}height"
 _ATTR_XLINK_HREF = f"{{{NS['xlink']}}}href"
 
-
-@lru_cache(maxsize=512)
-def _guess_content_type(path: str) -> str:
-    return mimetypes.guess_type(path)[0] or "application/octet-stream"
+_TEXT_SKIP_TAGS: set[str] = {_OFFICE_ANNOTATION_TAG}
 
 
 def _parse_odf_length_to_px(value: str | None) -> float:
@@ -218,110 +224,27 @@ class _OdpContext(ZipContext):
 
 
 def _get_text_recursive(element: ET.Element) -> str:
-    """Recursively extract all text from an element and its children."""
-    parts: list[str] = []
-
-    text = element.text
-    if text:
-        parts.append(text)
-
-    for child in element:
-        tag = child.tag
-
-        if tag == _TEXT_SPACE_TAG:
-            count = int(child.get(_ATTR_TEXT_C, "1"))
-            parts.append(" " * count)
-        elif tag == _TEXT_TAB_TAG:
-            parts.append("\t")
-        elif tag == _TEXT_LINE_BREAK_TAG:
-            parts.append("\n")
-        elif tag == _OFFICE_ANNOTATION_TAG:
-            # Skip annotations in main text extraction.
-            pass
-        else:
-            parts.append(_get_text_recursive(child))
-
-        tail = child.tail
-        if tail:
-            parts.append(tail)
-
-    return "".join(parts)
+    return element_text(
+        element,
+        text_space_tag=_TEXT_SPACE_TAG,
+        text_tab_tag=_TEXT_TAB_TAG,
+        text_line_break_tag=_TEXT_LINE_BREAK_TAG,
+        attr_text_c=_ATTR_TEXT_C,
+        skip_tags=_TEXT_SKIP_TAGS,
+    )
 
 
 def _extract_metadata(meta_root: ET.Element | None) -> OpenDocumentMetadata:
     """Extract metadata from meta.xml."""
     logger.debug("Extracting ODP metadata")
-    metadata = OpenDocumentMetadata()
-
-    # Find the office:meta element
-    if meta_root is None:
-        return metadata
-
-    meta_elem = meta_root.find(".//office:meta", NS)
-    if meta_elem is None:
-        return metadata
-
-    # Extract Dublin Core elements
-    title = meta_elem.find("dc:title", NS)
-    if title is not None and title.text:
-        metadata.title = title.text
-
-    description = meta_elem.find("dc:description", NS)
-    if description is not None and description.text:
-        metadata.description = description.text
-
-    subject = meta_elem.find("dc:subject", NS)
-    if subject is not None and subject.text:
-        metadata.subject = subject.text
-
-    creator = meta_elem.find("dc:creator", NS)
-    if creator is not None and creator.text:
-        metadata.creator = creator.text
-
-    date = meta_elem.find("dc:date", NS)
-    if date is not None and date.text:
-        metadata.date = date.text
-
-    language = meta_elem.find("dc:language", NS)
-    if language is not None and language.text:
-        metadata.language = language.text
-
-    # Extract meta elements
-    keywords = meta_elem.find("meta:keyword", NS)
-    if keywords is not None and keywords.text:
-        metadata.keywords = keywords.text
-
-    initial_creator = meta_elem.find("meta:initial-creator", NS)
-    if initial_creator is not None and initial_creator.text:
-        metadata.initial_creator = initial_creator.text
-
-    creation_date = meta_elem.find("meta:creation-date", NS)
-    if creation_date is not None and creation_date.text:
-        metadata.creation_date = creation_date.text
-
-    editing_cycles = meta_elem.find("meta:editing-cycles", NS)
-    if editing_cycles is not None and editing_cycles.text:
-        try:
-            metadata.editing_cycles = int(editing_cycles.text)
-        except ValueError:
-            pass
-
-    editing_duration = meta_elem.find("meta:editing-duration", NS)
-    if editing_duration is not None and editing_duration.text:
-        metadata.editing_duration = editing_duration.text
-
-    generator = meta_elem.find("meta:generator", NS)
-    if generator is not None and generator.text:
-        metadata.generator = generator.text
-
-    return metadata
+    return extract_odf_metadata(meta_root, NS)
 
 
 def _extract_annotations(element: ET.Element) -> list[OpenDocumentAnnotation]:
     """Extract annotations/comments from an element."""
     annotations = []
 
-    for annotation in element.findall(".//office:annotation", NS):
+    for annotation in element.iter(_OFFICE_ANNOTATION_TAG):
         creator_elem = annotation.find("dc:creator", NS)
         creator = (
             creator_elem.text if creator_elem is not None and creator_elem.text else ""
@@ -332,7 +255,7 @@ def _extract_annotations(element: ET.Element) -> list[OpenDocumentAnnotation]:
 
         # Get annotation text
         text_parts = []
-        for p in annotation.findall(".//text:p", NS):
+        for p in annotation.iter(_TEXT_P_TAG):
             text_parts.append(_get_text_recursive(p))
         text = "\n".join(text_parts)
 
@@ -353,9 +276,7 @@ def _extract_table(table_elem: ET.Element) -> list[list[str]]:
     for row in rows:
         row_data: list[str] = []
         for cell in row.findall("table:table-cell", NS):
-            cell_texts = [
-                _get_text_recursive(p) for p in cell.iterfind(".//text:p", NS)
-            ]
+            cell_texts = [_get_text_recursive(p) for p in cell.iter(_TEXT_P_TAG)]
             row_data.append("\n".join(cell_texts))
         if row_data:
             table_data.append(row_data)
@@ -384,10 +305,10 @@ def _extract_image(
     # Extract title and description from frame
     # ODF uses svg:title and svg:desc elements for accessibility
     # In ODP, we combine title and desc into description (no caption support)
-    title_elem = frame.find("svg:title", NS)
+    title_elem = frame.find(_SVG_TITLE_TAG)
     title = title_elem.text if title_elem is not None and title_elem.text else ""
 
-    desc_elem = frame.find("svg:desc", NS)
+    desc_elem = frame.find(_SVG_DESC_TAG)
     desc = desc_elem.text if desc_elem is not None and desc_elem.text else ""
 
     # Combine title and description with newline separator
@@ -400,7 +321,7 @@ def _extract_image(
     caption = ""
 
     # Find image element
-    image_elem = frame.find("draw:image", NS)
+    image_elem = frame.find(_DRAW_IMAGE_TAG)
     if image_elem is None:
         return None
 
@@ -428,7 +349,7 @@ def _extract_image(
             return OpenDocumentImage(
                 href=href,
                 name=name or href.split("/")[-1],
-                content_type=_guess_content_type(href),
+                content_type=guess_content_type(href),
                 data=io.BytesIO(img_data),
                 size_bytes=len(img_data),
                 width=width,
@@ -492,9 +413,9 @@ def _extract_slide(
 
     for _, _, frame in frames_with_positions:
         # Check for text box
-        text_box = frame.find("draw:text-box", NS)
+        text_box = frame.find(_DRAW_TEXT_BOX_TAG)
         if text_box is not None:
-            for p in text_box.findall(".//text:p", NS):
+            for p in text_box.iter(_TEXT_P_TAG):
                 text = _get_text_recursive(p).strip()
                 if text:
                     # Check style to determine if it's a title
@@ -529,10 +450,10 @@ def _extract_slide(
     # Extract speaker notes
     notes_elem = page.find("presentation:notes", NS)
     if notes_elem is not None:
-        for frame in notes_elem.findall(".//draw:frame", NS):
-            text_box = frame.find("draw:text-box", NS)
+        for frame in notes_elem.iter(_DRAW_FRAME_TAG):
+            text_box = frame.find(_DRAW_TEXT_BOX_TAG)
             if text_box is not None:
-                for p in text_box.findall(".//text:p", NS):
+                for p in text_box.iter(_TEXT_P_TAG):
                     note_text = _get_text_recursive(p).strip()
                     if note_text:
                         slide.notes.append(note_text)
