@@ -150,6 +150,8 @@ The client supports filtering by modification date (for delta-sync patterns), fo
 | Text         | `.odt`    | OpenDocument Text         |
 | Presentation | `.odp`    | OpenDocument Presentation |
 | Spreadsheet  | `.ods`    | OpenDocument Spreadsheet  |
+| Drawing      | `.odg`    | OpenDocument Drawing      |
+| Formula      | `.odf`    | OpenDocument Formula      |
 
 ### Email
 

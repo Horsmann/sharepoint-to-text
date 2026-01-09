@@ -22,6 +22,14 @@ Supported Formats
     Spreadsheet documents. Similar to Microsoft Excel's .xlsx format.
     Extracts sheets with cell data, annotations, and images.
 
+.odg (OpenDocument Drawing):
+    Drawing documents. Similar to LibreOffice Draw files.
+    Extracts text found in text boxes and basic embedded images.
+
+.odf (OpenDocument Formula):
+    Formula documents. Similar to LibreOffice Math files.
+    Extracts formula annotations and surrounding captions/text.
+
 File Format Background
 ----------------------
 ODF files are ZIP archives containing XML files. The structure is defined
@@ -124,6 +132,8 @@ See Also
 - sharepoint2text.parsing.extractors.ms_modern: For Microsoft OOXML formats
 """
 
+from sharepoint2text.parsing.extractors.open_office.odf_extractor import read_odf
+from sharepoint2text.parsing.extractors.open_office.odg_extractor import read_odg
 from sharepoint2text.parsing.extractors.open_office.odp_extractor import read_odp
 from sharepoint2text.parsing.extractors.open_office.ods_extractor import read_ods
 from sharepoint2text.parsing.extractors.open_office.odt_extractor import read_odt
@@ -132,4 +142,6 @@ __all__ = [
     "read_odt",
     "read_odp",
     "read_ods",
+    "read_odg",
+    "read_odf",
 ]
