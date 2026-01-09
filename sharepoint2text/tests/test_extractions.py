@@ -1814,7 +1814,7 @@ def test_read_open_office__formula_odf() -> None:
         read_odf(file_like=_read_file_to_file_like(path=path), path=path)
     )
 
-    tc.assertEqual("", odf.get_full_text())
+    tc.assertEqual("4/7", odf.get_full_text())
 
 
 def test_read_open_office__heading_units() -> None:

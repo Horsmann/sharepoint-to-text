@@ -153,25 +153,143 @@ def _extract_metadata(meta_root: ET.Element | None) -> OpenDocumentMetadata:
     return metadata
 
 
-def _extract_full_text(formula_root: ET.Element) -> str:
-    lines: list[str] = []
+def _normalize_whitespace(value: str) -> str:
+    return " ".join(value.split()).strip()
 
-    for elem in formula_root.iter():
+
+def _parse_starmath_annotation(value: str) -> str | None:
+    """
+    Best-effort StarMath parsing for common patterns.
+
+    LibreOffice Math often stores StarMath source like: `frac {4} {7}`
+    """
+    value = _normalize_whitespace(value)
+    if not value:
+        return None
+
+    import re
+
+    m = re.match(r"^frac\s*\{\s*(.*?)\s*\}\s*\{\s*(.*?)\s*\}\s*$", value)
+    if m:
+        num, den = m.group(1), m.group(2)
+        num = _normalize_whitespace(num)
+        den = _normalize_whitespace(den)
+        if num and den:
+            return f"{num}/{den}"
+
+    return None
+
+
+def _mathml_tag(local: str) -> str:
+    return f"{{{NS['math']}}}{local}"
+
+
+def _mathml_to_text(elem: ET.Element) -> str:
+    """Convert a subset of MathML to a readable plain-text expression."""
+    tag = elem.tag
+
+    if (
+        tag == _mathml_tag("math")
+        or tag == _mathml_tag("semantics")
+        or tag == _mathml_tag("mrow")
+    ):
+        parts = [_mathml_to_text(child) for child in elem]
+        return "".join(p for p in parts if p)
+
+    if tag == _mathml_tag("mfrac"):
+        children = list(elem)
+        if len(children) >= 2:
+            num = _mathml_to_text(children[0]).strip()
+            den = _mathml_to_text(children[1]).strip()
+            if num and den:
+                return f"{num}/{den}"
+        return ""
+
+    if tag == _mathml_tag("msup"):
+        children = list(elem)
+        if len(children) >= 2:
+            base = _mathml_to_text(children[0]).strip()
+            exp = _mathml_to_text(children[1]).strip()
+            if base and exp:
+                return f"{base}^{exp}"
+        return ""
+
+    if tag == _mathml_tag("msub"):
+        children = list(elem)
+        if len(children) >= 2:
+            base = _mathml_to_text(children[0]).strip()
+            sub = _mathml_to_text(children[1]).strip()
+            if base and sub:
+                return f"{base}_{sub}"
+        return ""
+
+    if tag in (
+        _mathml_tag("mi"),
+        _mathml_tag("mn"),
+        _mathml_tag("mo"),
+        _mathml_tag("mtext"),
+    ):
+        return (elem.text or "").strip()
+
+    # Many MathML elements are wrappers; recurse through children.
+    if list(elem):
+        parts = [_mathml_to_text(child) for child in elem]
+        return "".join(p for p in parts if p)
+
+    return (elem.text or "").strip()
+
+
+def _extract_formula_text_from_mathml(root: ET.Element) -> str:
+    if root.tag == _mathml_tag("math"):
+        return _mathml_to_text(root).strip()
+
+    math_elem = root.find(".//math:math", NS)
+    if math_elem is not None:
+        return _mathml_to_text(math_elem).strip()
+
+    return ""
+
+
+def _extract_full_text(content_root: ET.Element) -> str:
+    """
+    Extract formula text from an ODF file.
+
+    Real-world .odf files may use:
+      - an ODF document root with `office:body/office:formula`
+      - a plain MathML `math` root in content.xml
+    """
+    # 1) Prefer StarMath annotations when present (often closest to author intent)
+    annotations: list[str] = []
+    for ann in content_root.findall(".//math:annotation", NS):
+        raw = (ann.text or "").strip()
+        if not raw:
+            continue
+        parsed = _parse_starmath_annotation(raw)
+        annotations.append(parsed if parsed is not None else _normalize_whitespace(raw))
+    annotations = [a for a in annotations if a]
+
+    # If we can parse a concise form (e.g., fractions), return those.
+    parsed_annotations = [a for a in annotations if "/" in a or "^" in a or "_" in a]
+    if parsed_annotations:
+        return "\n".join(dict.fromkeys(parsed_annotations)).strip()
+
+    # 2) Try to render MathML directly (e.g., mfrac -> a/b)
+    math_text = _extract_formula_text_from_mathml(content_root)
+    if math_text:
+        return math_text
+
+    # 3) Fall back to any surrounding text:p/text:h (if formula is embedded in an ODF doc)
+    lines: list[str] = []
+    for elem in content_root.iter():
         if elem.tag in (_TEXT_H_TAG, _TEXT_P_TAG):
             value = _get_text_recursive(elem).strip()
             if value:
                 lines.append(value)
-        elif elem.tag == _MATH_ANNOTATION_TAG:
-            value = (elem.text or "").strip()
-            if value:
-                lines.append(value)
-
     if lines:
         return "\n".join(lines).strip()
 
-    # Best-effort fallback for purely MathML documents.
-    text = " ".join(token.strip() for token in formula_root.itertext() if token.strip())
-    return text.strip()
+    # 4) Last resort: itertext
+    return _normalize_whitespace(" ".join(content_root.itertext()))
 
 
 def read_odf(
@@ -194,12 +312,8 @@ def read_odf(
             if content_root is None:
                 raise ExtractionFailedError("Invalid ODF file: content.xml not found")
 
-            formula = content_root.find(".//office:body/office:formula", NS)
-            if formula is None:
-                raise ExtractionFailedError("Invalid ODF file: formula body not found")
-
             metadata = _extract_metadata(meta_root)
-            full_text = _extract_full_text(formula)
+            full_text = _extract_full_text(content_root)
         finally:
             ctx.close()
 
