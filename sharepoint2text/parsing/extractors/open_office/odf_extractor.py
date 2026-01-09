@@ -188,6 +188,12 @@ def _mathml_to_text(elem: ET.Element) -> str:
     """Convert a subset of MathML to a readable plain-text expression."""
     tag = elem.tag
 
+    if tag == _MATH_ANNOTATION_TAG:
+        # Prefer extracting math:annotation via the dedicated annotation pass in
+        # _extract_full_text(). Exclude it from MathML rendering to avoid
+        # concatenating the annotation source with the rendered formula.
+        return ""
+
     if (
         tag == _mathml_tag("math")
         or tag == _mathml_tag("semantics")
@@ -268,10 +274,17 @@ def _extract_full_text(content_root: ET.Element) -> str:
         annotations.append(parsed if parsed is not None else _normalize_whitespace(raw))
     annotations = [a for a in annotations if a]
 
-    # If we can parse a concise form (e.g., fractions), return those.
-    parsed_annotations = [a for a in annotations if "/" in a or "^" in a or "_" in a]
-    if parsed_annotations:
-        return "\n".join(dict.fromkeys(parsed_annotations)).strip()
+    if annotations:
+        # If we can parse a concise form (e.g., fractions), return those.
+        parsed_annotations = [
+            a for a in annotations if "/" in a or "^" in a or "_" in a
+        ]
+        if parsed_annotations:
+            return "\n".join(dict.fromkeys(parsed_annotations)).strip()
+
+        # Otherwise return the normalized StarMath source (Apache OpenOffice
+        # commonly stores the most readable form here).
+        return "\n".join(dict.fromkeys(annotations)).strip()
 
     # 2) Try to render MathML directly (e.g., mfrac -> a/b)
     math_text = _extract_formula_text_from_mathml(content_root)
