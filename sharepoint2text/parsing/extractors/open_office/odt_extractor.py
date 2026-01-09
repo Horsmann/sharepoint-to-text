@@ -107,8 +107,6 @@ Maintenance Notes
 
 import io
 import logging
-import mimetypes
-from functools import lru_cache
 from typing import Any, Generator
 from xml.etree import ElementTree as ET
 
@@ -129,6 +127,11 @@ from sharepoint2text.parsing.extractors.data_types import (
     OpenDocumentAnnotation,
     OpenDocumentImage,
     OpenDocumentMetadata,
+)
+from sharepoint2text.parsing.extractors.open_office._shared import (
+    element_text,
+    extract_odf_metadata,
+    guess_content_type,
 )
 from sharepoint2text.parsing.extractors.util.encryption import is_odf_encrypted
 from sharepoint2text.parsing.extractors.util.zip_context import ZipContext
@@ -227,112 +230,24 @@ _ATTR_DRAW_NAME = f"{{{NS['draw']}}}name"
 _ATTR_SVG_WIDTH = f"{{{NS['svg']}}}width"
 _ATTR_SVG_HEIGHT = f"{{{NS['svg']}}}height"
 
-
-@lru_cache(maxsize=512)
-def _guess_content_type(path: str) -> str:
-    return mimetypes.guess_type(path)[0] or "application/octet-stream"
+_TEXT_SKIP_TAGS: set[str] = {_TEXT_NOTE_TAG, _OFFICE_ANNOTATION_TAG}
 
 
 def _get_text_recursive(element: ET.Element) -> str:
-    """Recursively extract all text from an element and its children."""
-    parts: list[str] = []
-    text = element.text
-    if text:
-        parts.append(text)
-
-    for child in element:
-        tag = child.tag
-        if tag == _TEXT_SPACE_TAG:
-            count = int(child.get(_ATTR_TEXT_C, "1"))
-            parts.append(" " * count)
-        elif tag == _TEXT_TAB_TAG:
-            parts.append("\t")
-        elif tag == _TEXT_LINE_BREAK_TAG:
-            parts.append("\n")
-        elif tag == _TEXT_NOTE_TAG:
-            # Skip notes in main text extraction.
-            pass
-        elif tag == _OFFICE_ANNOTATION_TAG:
-            # Skip annotations in main text extraction.
-            pass
-        else:
-            parts.append(_get_text_recursive(child))
-
-        tail = child.tail
-        if tail:
-            parts.append(tail)
-
-    return "".join(parts)
+    return element_text(
+        element,
+        text_space_tag=_TEXT_SPACE_TAG,
+        text_tab_tag=_TEXT_TAB_TAG,
+        text_line_break_tag=_TEXT_LINE_BREAK_TAG,
+        attr_text_c=_ATTR_TEXT_C,
+        skip_tags=_TEXT_SKIP_TAGS,
+    )
 
 
 def _extract_metadata_from_context(ctx: _OdtContext) -> OpenDocumentMetadata:
     """Extract metadata from cached meta.xml root."""
     logger.debug("Extracting ODT metadata")
-    metadata = OpenDocumentMetadata()
-
-    root = ctx.meta_root
-    if root is None:
-        return metadata
-
-    # Find the office:meta element
-    meta_elem = root.find(".//office:meta", NS)
-    if meta_elem is None:
-        return metadata
-
-    # Extract Dublin Core elements
-    title = meta_elem.find("dc:title", NS)
-    if title is not None and title.text:
-        metadata.title = title.text
-
-    description = meta_elem.find("dc:description", NS)
-    if description is not None and description.text:
-        metadata.description = description.text
-
-    subject = meta_elem.find("dc:subject", NS)
-    if subject is not None and subject.text:
-        metadata.subject = subject.text
-
-    creator = meta_elem.find("dc:creator", NS)
-    if creator is not None and creator.text:
-        metadata.creator = creator.text
-
-    date = meta_elem.find("dc:date", NS)
-    if date is not None and date.text:
-        metadata.date = date.text
-
-    language = meta_elem.find("dc:language", NS)
-    if language is not None and language.text:
-        metadata.language = language.text
-
-    # Extract meta elements
-    keywords = meta_elem.find("meta:keyword", NS)
-    if keywords is not None and keywords.text:
-        metadata.keywords = keywords.text
-
-    initial_creator = meta_elem.find("meta:initial-creator", NS)
-    if initial_creator is not None and initial_creator.text:
-        metadata.initial_creator = initial_creator.text
-
-    creation_date = meta_elem.find("meta:creation-date", NS)
-    if creation_date is not None and creation_date.text:
-        metadata.creation_date = creation_date.text
-
-    editing_cycles = meta_elem.find("meta:editing-cycles", NS)
-    if editing_cycles is not None and editing_cycles.text:
-        try:
-            metadata.editing_cycles = int(editing_cycles.text)
-        except ValueError:
-            pass
-
-    editing_duration = meta_elem.find("meta:editing-duration", NS)
-    if editing_duration is not None and editing_duration.text:
-        metadata.editing_duration = editing_duration.text
-
-    generator = meta_elem.find("meta:generator", NS)
-    if generator is not None and generator.text:
-        metadata.generator = generator.text
-
-    return metadata
+    return extract_odf_metadata(ctx.meta_root, NS)
 
 
 def _extract_paragraphs(body: ET.Element) -> list[OdtParagraph]:
@@ -384,7 +299,7 @@ def _extract_tables(body: ET.Element) -> list[OdtTable]:
         table_data: list[list[str]] = []
         for row in table.iterfind(".//table:table-row", NS):
             row_data = []
-            for cell in row.iterfind(".//table:table-cell", NS):
+            for cell in row.iterfind("table:table-cell", NS):
                 cell_texts = [
                     _get_text_recursive(p) for p in cell.iterfind(".//text:p", NS)
                 ]
@@ -597,7 +512,7 @@ def _extract_images_from_context(
                         OpenDocumentImage(
                             href=href,
                             name=name or href.split("/")[-1],
-                            content_type=_guess_content_type(href),
+                            content_type=guess_content_type(href),
                             data=io.BytesIO(img_data),
                             size_bytes=len(img_data),
                             width=width,
@@ -646,21 +561,21 @@ def _extract_images_from_context(
                     if ctx.exists(href):
                         image_counter += 1
                         img_data = ctx.read_bytes(href)
-                        images.append(
-                            OpenDocumentImage(
-                                href=href,
-                                name=name or href.split("/")[-1],
-                                content_type=_guess_content_type(href),
-                                data=io.BytesIO(img_data),
-                                size_bytes=len(img_data),
-                                width=width,
-                                height=height,
-                                image_index=image_counter,
-                                caption=caption,
-                                description=description,
-                                unit_name=None,
-                            )
+                    images.append(
+                        OpenDocumentImage(
+                            href=href,
+                            name=name or href.split("/")[-1],
+                            content_type=guess_content_type(href),
+                            data=io.BytesIO(img_data),
+                            size_bytes=len(img_data),
+                            width=width,
+                            height=height,
+                            image_index=image_counter,
+                            caption=caption,
+                            description=description,
+                            unit_name=None,
                         )
+                    )
                 except Exception as e:
                     logger.debug("Failed to extract image %s: %s", href, e)
                     images.append(
@@ -767,7 +682,7 @@ def _append_full_text_from_element(elem: ET.Element, output: list[str]) -> None:
 
     if tag == _TABLE_TABLE_TAG:
         for row in elem.iterfind(".//table:table-row", NS):
-            for cell in row.iterfind(".//table:table-cell", NS):
+            for cell in row.iterfind("table:table-cell", NS):
                 for p in cell.iterfind(".//text:p", NS):
                     text = _get_text_recursive(p)
                     if text.strip():
@@ -775,7 +690,7 @@ def _append_full_text_from_element(elem: ET.Element, output: list[str]) -> None:
         return
 
     if tag == _TEXT_LIST_TAG:
-        for item in elem.iterfind(".//text:list-item", NS):
+        for item in elem.iterfind("text:list-item", NS):
             for p in item.iterfind(".//text:p", NS):
                 text = _get_text_recursive(p)
                 if text.strip():
