@@ -230,7 +230,7 @@ These are required for normal use of the library:
 - `msg-parser`: Outlook `.msg` extraction
 - `olefile`: OLE2 container parsing for legacy Office formats
 - `openpyxl`: `.xlsx` parsing
-- `py7zr`: `.7z` archive extraction
+- `.7z` archive extraction is handled via a built-in pure-Python reader (stdlib `lzma`)
 - `pypdf`: `.pdf` parsing
 - `xlrd`: `.xls` parsing
 
