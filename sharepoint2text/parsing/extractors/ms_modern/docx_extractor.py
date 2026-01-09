@@ -455,7 +455,7 @@ class _DocxContext(OOXMLZipContext):
         if self._styles is None:
             self._styles = {}
             if self._styles_root is not None:
-                for style in self._styles_root.findall(f".//{W_STYLE}"):
+                for style in self._styles_root.iter(W_STYLE):
                     style_id = style.get(W_STYLEID) or ""
                     name_elem = style.find(W_NAME)
                     style_name = name_elem.get(W_VAL) if name_elem is not None else ""
@@ -526,7 +526,7 @@ def _extract_notes_from_root(root: ET.Element | None, note_tag: str) -> list[Doc
 
     return [
         DocxNote(id=note.get(W_ID) or "", text=_collect_text_from_element(note))
-        for note in root.findall(f".//{note_tag}")
+        for note in root.iter(note_tag)
         if (note.get(W_ID) or "") not in _SKIP_NOTE_IDS
     ]
 
@@ -554,7 +554,7 @@ def _extract_comments_from_context(ctx: _DocxContext) -> list[DocxComment]:
             date=comment.get(W_DATE) or "",
             text=_collect_text_from_element(comment),
         )
-        for comment in root.findall(f".//{W_COMMENT}")
+        for comment in root.iter(W_COMMENT)
     ]
 
 
@@ -577,7 +577,7 @@ def _extract_sections_from_context(ctx: _DocxContext) -> list[DocxSection]:
     sect_pr_elements: list[ET.Element] = []
 
     # Sections in paragraphs
-    for p in body.findall(f".//{W_P}"):
+    for p in body.iter(W_P):
         ppr = p.find(W_PPR)
         if ppr is not None:
             sect_pr = ppr.find(W_SECTPR)
@@ -744,16 +744,18 @@ def _extract_paragraphs_from_context(ctx: _DocxContext) -> list[DocxParagraph]:
 
         style_name = style_map.get(style_id, style_id) if style_id else None
 
-        has_page_break = any(
-            br.get(W_TYPE) == "page" for br in p.iter(W_BR) if br is not None
-        ) or (p.find(f".//{W_LAST_RENDERED_PAGE_BREAK}") is not None)
+        has_page_break = any(br.get(W_TYPE) == "page" for br in p.iter(W_BR)) or (
+            next(p.iter(W_LAST_RENDERED_PAGE_BREAK), None) is not None
+        )
 
         # Extract runs
         runs: list[DocxRun] = []
-        for r in p.findall(f".//{W_R}"):
+        paragraph_text_parts: list[str] = []
+        for r in p.iter(W_R):
             run_text = _collect_text_from_element(r)
             if not run_text:
                 continue
+            paragraph_text_parts.append(run_text)
 
             bold, italic, underline, font_name, font_size, font_color = (
                 _parse_run_properties(r.find(W_RPR))
@@ -773,7 +775,7 @@ def _extract_paragraphs_from_context(ctx: _DocxContext) -> list[DocxParagraph]:
 
         paragraphs.append(
             DocxParagraph(
-                text="".join(run.text for run in runs),
+                text="".join(paragraph_text_parts),
                 style=style_name,
                 alignment=alignment,
                 runs=runs,
@@ -808,12 +810,12 @@ def _extract_tables_from_context(
         for tbl in child.iter(W_TBL):
             table_data: list[list[str]] = []
             for tr in tbl.findall(W_TR):
-                row_data = [
-                    "\n".join(
-                        _collect_text_from_element(p) for p in tc.findall(f".//{W_P}")
-                    )
-                    for tc in tr.findall(W_TC)
-                ]
+                row_data: list[str] = []
+                for tc in tr.findall(W_TC):
+                    cell_paragraphs = [
+                        _collect_text_from_element(p) for p in tc.iter(W_P)
+                    ]
+                    row_data.append("\n".join(cell_paragraphs))
                 table_data.append(row_data)
             tables.append(table_data)
             table_anchor_paragraph_indices.append(anchor)
@@ -837,7 +839,7 @@ def _extract_images_from_context(ctx: _DocxContext) -> list[DocxImage]:
                 caption = ""
                 description = ""
 
-                pic_cNvPr = drawing.find(f".//{PIC_CNVPR}")
+                pic_cNvPr = next(drawing.iter(PIC_CNVPR), None)
                 if pic_cNvPr is not None:
                     if descr := pic_cNvPr.get("descr", ""):
                         description = descr
@@ -872,7 +874,7 @@ def _extract_images_from_context(ctx: _DocxContext) -> list[DocxImage]:
                 elif following_caption:
                     caption = following_caption
 
-                blip = drawing.find(f".//{A_BLIP}")
+                blip = next(drawing.iter(A_BLIP), None)
                 if blip is not None:
                     if r_embed := blip.get(R_EMBED):
                         image_metadata[r_embed] = (caption, description)
@@ -935,7 +937,7 @@ def _extract_hyperlinks_from_context(ctx: _DocxContext) -> list[DocxHyperlink]:
     rels = ctx.relationships
     hyperlinks: list[DocxHyperlink] = []
 
-    for hyperlink in body.findall(f".//{W_HYPERLINK}"):
+    for hyperlink in body.iter(W_HYPERLINK):
         r_id = hyperlink.get(R_ID)
         if r_id and r_id in rels:
             rel_info = rels[r_id]

@@ -245,10 +245,8 @@ def _format_sheet_as_text(all_rows: list[list[Any]]) -> str:
 # =============================================================================
 
 
-def _read_metadata(file_like: io.BytesIO) -> XlsxMetadata:
-    """Extract document metadata from XLSX core properties."""
-    file_like.seek(0)
-    wb = load_workbook(file_like, read_only=True, data_only=True)
+def _extract_metadata_from_workbook(wb) -> XlsxMetadata:
+    """Extract document metadata from an openpyxl workbook properties object."""
     props = wb.properties
 
     metadata = XlsxMetadata(
@@ -270,8 +268,17 @@ def _read_metadata(file_like: io.BytesIO) -> XlsxMetadata:
         language=props.language or "",
         revision=props.revision,
     )
-    wb.close()
     return metadata
+
+
+def _read_metadata(file_like: io.BytesIO) -> XlsxMetadata:
+    """Extract document metadata from XLSX core properties."""
+    file_like.seek(0)
+    wb = load_workbook(file_like, read_only=True, data_only=True)
+    try:
+        return _extract_metadata_from_workbook(wb)
+    finally:
+        wb.close()
 
 
 # =============================================================================
@@ -479,9 +486,25 @@ def _extract_images_from_zip(
 def _read_content(file_like: io.BytesIO) -> list[XlsxSheet]:
     """Read all sheets from XLSX file and extract content."""
     file_like.seek(0)
-    wb = load_workbook(file_like, read_only=True, data_only=True)
+    raw = file_like.read()
 
-    sheet_names = list(wb.sheetnames)
+    wb = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    try:
+        sheet_names = list(wb.sheetnames)
+        sheets = _read_content_from_workbook(wb, sheet_names)
+    finally:
+        wb.close()
+
+    images_by_sheet = _extract_images_from_zip(io.BytesIO(raw), sheet_names)
+    for sheet_idx, sheet_images in images_by_sheet.items():
+        if sheet_idx < len(sheets):
+            sheets[sheet_idx].images = sheet_images
+
+    return sheets
+
+
+def _read_content_from_workbook(wb, sheet_names: list[str]) -> list[XlsxSheet]:
+    """Read all sheets from an openpyxl workbook and extract content."""
     sheets: list[XlsxSheet] = []
 
     for sheet_name in sheet_names:
@@ -502,15 +525,6 @@ def _read_content(file_like: io.BytesIO) -> list[XlsxSheet]:
                 images=[],
             )
         )
-
-    wb.close()
-
-    # Extract images by parsing the ZIP archive directly
-    images_by_sheet = _extract_images_from_zip(file_like, sheet_names)
-    for sheet_idx, sheet_images in images_by_sheet.items():
-        if sheet_idx < len(sheets):
-            sheets[sheet_idx].images = sheet_images
-
     return sheets
 
 
@@ -535,10 +549,22 @@ def read_xlsx(
                 "XLSX is encrypted or password-protected"
             )
 
-        validate_zip_bytesio(file_like, source="read_xlsx")
+        raw = file_like.read()
+        validate_zip_bytesio(io.BytesIO(raw), source="read_xlsx")
 
-        sheets = _read_content(file_like)
-        metadata = _read_metadata(file_like)
+        wb = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+        try:
+            metadata = _extract_metadata_from_workbook(wb)
+            sheet_names = list(wb.sheetnames)
+            sheets = _read_content_from_workbook(wb, sheet_names)
+        finally:
+            wb.close()
+
+        images_by_sheet = _extract_images_from_zip(io.BytesIO(raw), sheet_names)
+        for sheet_idx, sheet_images in images_by_sheet.items():
+            if sheet_idx < len(sheets):
+                sheets[sheet_idx].images = sheet_images
+
         metadata.populate_from_path(path)
 
         total_rows = sum(len(sheet.data) for sheet in sheets)
