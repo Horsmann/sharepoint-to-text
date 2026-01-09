@@ -188,6 +188,7 @@ The client supports filtering by modification date (for delta-sync patterns), fo
 | Format           | Extension                  | Description                     |
 |------------------|----------------------------|---------------------------------|
 | ZIP              | `.zip`                     | ZIP archives                    |
+| 7-Zip            | `.7z`                      | 7-Zip archives                  |
 | TAR              | `.tar`                     | TAR archives                    |
 | Gzip TAR         | `.tar.gz`, `.tgz`, `.gz`   | Gzip-compressed TAR archives    |
 | Bzip2 TAR        | `.tar.bz2`, `.tbz2`, `.bz2`| Bzip2-compressed TAR archives   |
@@ -227,6 +228,7 @@ These are required for normal use of the library:
 - `msg-parser`: Outlook `.msg` extraction
 - `olefile`: OLE2 container parsing for legacy Office formats
 - `openpyxl`: `.xlsx` parsing
+- `py7zr`: `.7z` archive extraction
 - `pypdf`: `.pdf` parsing
 - `xlrd`: `.xls` parsing
 
@@ -444,6 +446,28 @@ def extract_from_api(filename: str, content: bytes):
     extractor = sharepoint2text.get_extractor(filename)
     # Returns a generator - iterate or use next()
     return list(extractor(io.BytesIO(content), path=filename))
+
+
+import sharepoint2text
+import io
+
+# Process archives using the main API (auto-detects format by extension)
+for result in sharepoint2text.read_file("archive.zip"):
+    print(f"Extracted: {result.get_metadata().filename}")
+    print(f"Content: {result.get_full_text()[:200]}...")
+
+# 7-Zip archives are supported with size limits (100MB max)
+for result in sharepoint2text.read_file("documents.7z"):
+    print(f"Extracted: {result.get_metadata().filename}")
+    print(f"Content: {result.get_full_text()[:200]}...")
+
+# Or use the direct extractor for BytesIO data
+from sharepoint2text.parsing.extractors.archive_extractor import read_archive
+
+with open("archive.zip", "rb") as f:
+    for result in read_archive(io.BytesIO(f.read()), path="archive.zip"):
+        print(f"Extracted: {result.get_metadata().filename}")
+        print(f"Content: {result.get_full_text()[:200]}...")
 
 results = extract_from_api("report.pdf", pdf_bytes)
 for result in results:
@@ -864,6 +888,7 @@ for file_meta in client.list_files_filtered(file_filter):
 
 - `ExtractionFileFormatNotSupportedError`: Raised when no extractor exists for a given file type (e.g., unsupported extension/MIME mapping in the router).
 - `ExtractionFileEncryptedError`: Raised when an extractor detects encryption or password protection (e.g., encrypted PDF, OOXML/ODF password-protected files, legacy Office with FILEPASS/encryption flags).
+- `ExtractionFileTooLargeError`: Raised when a file exceeds the maximum allowed size for extraction (e.g., 7z archives larger than 100MB).
 - `LegacyMicrosoftParsingError`: Raised when legacy Office parsing fails for non-encryption reasons (corrupt OLE streams, invalid headers, or unsupported legacy variations).
 
 ## License
