@@ -152,6 +152,12 @@ _TEXT_SPACE_TAG = f"{{{NS['text']}}}s"
 _TEXT_TAB_TAG = f"{{{NS['text']}}}tab"
 _TEXT_LINE_BREAK_TAG = f"{{{NS['text']}}}line-break"
 _OFFICE_ANNOTATION_TAG = f"{{{NS['office']}}}annotation"
+_TEXT_P_TAG = f"{{{NS['text']}}}p"
+_DRAW_FRAME_TAG = f"{{{NS['draw']}}}frame"
+_DRAW_TEXT_BOX_TAG = f"{{{NS['draw']}}}text-box"
+_DRAW_IMAGE_TAG = f"{{{NS['draw']}}}image"
+_SVG_TITLE_TAG = f"{{{NS['svg']}}}title"
+_SVG_DESC_TAG = f"{{{NS['svg']}}}desc"
 
 _ATTR_TEXT_C = f"{{{NS['text']}}}c"
 _ATTR_TEXT_STYLE_NAME = f"{{{NS['text']}}}style-name"
@@ -238,7 +244,7 @@ def _extract_annotations(element: ET.Element) -> list[OpenDocumentAnnotation]:
     """Extract annotations/comments from an element."""
     annotations = []
 
-    for annotation in element.findall(".//office:annotation", NS):
+    for annotation in element.iter(_OFFICE_ANNOTATION_TAG):
         creator_elem = annotation.find("dc:creator", NS)
         creator = (
             creator_elem.text if creator_elem is not None and creator_elem.text else ""
@@ -249,7 +255,7 @@ def _extract_annotations(element: ET.Element) -> list[OpenDocumentAnnotation]:
 
         # Get annotation text
         text_parts = []
-        for p in annotation.findall(".//text:p", NS):
+        for p in annotation.iter(_TEXT_P_TAG):
             text_parts.append(_get_text_recursive(p))
         text = "\n".join(text_parts)
 
@@ -270,9 +276,7 @@ def _extract_table(table_elem: ET.Element) -> list[list[str]]:
     for row in rows:
         row_data: list[str] = []
         for cell in row.findall("table:table-cell", NS):
-            cell_texts = [
-                _get_text_recursive(p) for p in cell.iterfind(".//text:p", NS)
-            ]
+            cell_texts = [_get_text_recursive(p) for p in cell.iter(_TEXT_P_TAG)]
             row_data.append("\n".join(cell_texts))
         if row_data:
             table_data.append(row_data)
@@ -301,10 +305,10 @@ def _extract_image(
     # Extract title and description from frame
     # ODF uses svg:title and svg:desc elements for accessibility
     # In ODP, we combine title and desc into description (no caption support)
-    title_elem = frame.find("svg:title", NS)
+    title_elem = frame.find(_SVG_TITLE_TAG)
     title = title_elem.text if title_elem is not None and title_elem.text else ""
 
-    desc_elem = frame.find("svg:desc", NS)
+    desc_elem = frame.find(_SVG_DESC_TAG)
     desc = desc_elem.text if desc_elem is not None and desc_elem.text else ""
 
     # Combine title and description with newline separator
@@ -317,7 +321,7 @@ def _extract_image(
     caption = ""
 
     # Find image element
-    image_elem = frame.find("draw:image", NS)
+    image_elem = frame.find(_DRAW_IMAGE_TAG)
     if image_elem is None:
         return None
 
@@ -409,9 +413,9 @@ def _extract_slide(
 
     for _, _, frame in frames_with_positions:
         # Check for text box
-        text_box = frame.find("draw:text-box", NS)
+        text_box = frame.find(_DRAW_TEXT_BOX_TAG)
         if text_box is not None:
-            for p in text_box.findall(".//text:p", NS):
+            for p in text_box.iter(_TEXT_P_TAG):
                 text = _get_text_recursive(p).strip()
                 if text:
                     # Check style to determine if it's a title
@@ -446,10 +450,10 @@ def _extract_slide(
     # Extract speaker notes
     notes_elem = page.find("presentation:notes", NS)
     if notes_elem is not None:
-        for frame in notes_elem.findall(".//draw:frame", NS):
-            text_box = frame.find("draw:text-box", NS)
+        for frame in notes_elem.iter(_DRAW_FRAME_TAG):
+            text_box = frame.find(_DRAW_TEXT_BOX_TAG)
             if text_box is not None:
-                for p in text_box.findall(".//text:p", NS):
+                for p in text_box.iter(_TEXT_P_TAG):
                     note_text = _get_text_recursive(p).strip()
                     if note_text:
                         slide.notes.append(note_text)

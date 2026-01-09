@@ -154,6 +154,11 @@ _TEXT_SPACE_TAG = f"{{{NS['text']}}}s"
 _TEXT_TAB_TAG = f"{{{NS['text']}}}tab"
 _TEXT_LINE_BREAK_TAG = f"{{{NS['text']}}}line-break"
 _OFFICE_ANNOTATION_TAG = f"{{{NS['office']}}}annotation"
+_TEXT_P_TAG = f"{{{NS['text']}}}p"
+_DRAW_FRAME_TAG = f"{{{NS['draw']}}}frame"
+_DRAW_IMAGE_TAG = f"{{{NS['draw']}}}image"
+_SVG_TITLE_TAG = f"{{{NS['svg']}}}title"
+_SVG_DESC_TAG = f"{{{NS['svg']}}}desc"
 
 _ATTR_TEXT_C = f"{{{NS['text']}}}c"
 _ATTR_TABLE_NAME = f"{{{NS['table']}}}name"
@@ -255,7 +260,7 @@ def _extract_cell_value(cell: ET.Element) -> tuple[Any, str]:
 
     # For string values or fallback, get text from paragraphs
     text_parts: list[str] = []
-    for p in cell.iterfind(".//text:p", NS):
+    for p in cell.iter(_TEXT_P_TAG):
         text_parts.append(_get_text_recursive(p))
 
     text = "\n".join(text_parts)
@@ -268,7 +273,7 @@ def _extract_annotations(cell: ET.Element) -> list[OpenDocumentAnnotation]:
     """Extract annotations/comments from a cell."""
     annotations = []
 
-    for annotation in cell.findall(".//office:annotation", NS):
+    for annotation in cell.iter(_OFFICE_ANNOTATION_TAG):
         creator_elem = annotation.find("dc:creator", NS)
         creator = (
             creator_elem.text if creator_elem is not None and creator_elem.text else ""
@@ -278,7 +283,7 @@ def _extract_annotations(cell: ET.Element) -> list[OpenDocumentAnnotation]:
         date = date_elem.text if date_elem is not None and date_elem.text else ""
 
         text_parts = []
-        for p in annotation.findall(".//text:p", NS):
+        for p in annotation.iter(_TEXT_P_TAG):
             text_parts.append(_get_text_recursive(p))
         text = "\n".join(text_parts)
 
@@ -312,7 +317,7 @@ def _extract_images(
     """
     images: list[OpenDocumentImage] = []
 
-    for frame in table.findall(".//draw:frame", NS):
+    for frame in table.iter(_DRAW_FRAME_TAG):
         name = frame.get(_ATTR_DRAW_NAME, "")
         width = frame.get(_ATTR_SVG_WIDTH)
         height = frame.get(_ATTR_SVG_HEIGHT)
@@ -320,10 +325,10 @@ def _extract_images(
         # Extract title and description from frame
         # ODF uses svg:title and svg:desc elements for accessibility
         # In ODS, we combine title and desc into description (no caption support)
-        title_elem = frame.find("svg:title", NS)
+        title_elem = frame.find(_SVG_TITLE_TAG)
         title = title_elem.text if title_elem is not None and title_elem.text else ""
 
-        desc_elem = frame.find("svg:desc", NS)
+        desc_elem = frame.find(_SVG_DESC_TAG)
         desc = desc_elem.text if desc_elem is not None and desc_elem.text else ""
 
         # Combine title and description with newline separator
@@ -335,7 +340,7 @@ def _extract_images(
         # ODS sheets don't have captions like ODT documents
         caption = ""
 
-        image_elem = frame.find("draw:image", NS)
+        image_elem = frame.find(_DRAW_IMAGE_TAG)
         if image_elem is None:
             continue
 

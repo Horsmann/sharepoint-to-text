@@ -58,6 +58,11 @@ _OFFICE_ANNOTATION_TAG = f"{{{NS['office']}}}annotation"
 
 _TEXT_P_TAG = f"{{{NS['text']}}}p"
 _TEXT_H_TAG = f"{{{NS['text']}}}h"
+_DRAW_FRAME_TAG = f"{{{NS['draw']}}}frame"
+_DRAW_TEXT_BOX_TAG = f"{{{NS['draw']}}}text-box"
+_DRAW_IMAGE_TAG = f"{{{NS['draw']}}}image"
+_SVG_TITLE_TAG = f"{{{NS['svg']}}}title"
+_SVG_DESC_TAG = f"{{{NS['svg']}}}desc"
 
 _ATTR_TEXT_C = f"{{{NS['text']}}}c"
 _ATTR_XLINK_HREF = f"{{{NS['xlink']}}}href"
@@ -101,12 +106,12 @@ def _extract_images(
     processed_hrefs: set[str] = set()
     image_counter = 0
 
-    for frame in drawing_root.findall(".//draw:frame", NS):
+    for frame in drawing_root.iter(_DRAW_FRAME_TAG):
         # Skip frames that are primarily text containers
-        if frame.find("draw:text-box", NS) is not None:
+        if frame.find(_DRAW_TEXT_BOX_TAG) is not None:
             continue
 
-        image_elem = frame.find("draw:image", NS)
+        image_elem = frame.find(_DRAW_IMAGE_TAG)
         if image_elem is None:
             continue
 
@@ -119,12 +124,12 @@ def _extract_images(
         width = frame.get(_ATTR_SVG_WIDTH)
         height = frame.get(_ATTR_SVG_HEIGHT)
 
-        title_elem = frame.find("svg:title", NS)
+        title_elem = frame.find(_SVG_TITLE_TAG)
         caption = title_elem.text if title_elem is not None and title_elem.text else ""
         if not caption and name:
             caption = name
 
-        desc_elem = frame.find("svg:desc", NS)
+        desc_elem = frame.find(_SVG_DESC_TAG)
         description = desc_elem.text if desc_elem is not None and desc_elem.text else ""
 
         image_counter += 1

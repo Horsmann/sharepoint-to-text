@@ -58,6 +58,7 @@ _OFFICE_ANNOTATION_TAG = f"{{{NS['office']}}}annotation"
 _TEXT_P_TAG = f"{{{NS['text']}}}p"
 _TEXT_H_TAG = f"{{{NS['text']}}}h"
 _MATH_ANNOTATION_TAG = f"{{{NS['math']}}}annotation"
+_MATH_MATH_TAG = f"{{{NS['math']}}}math"
 
 _ATTR_TEXT_C = f"{{{NS['text']}}}c"
 
@@ -173,7 +174,7 @@ def _mathml_to_text(elem: ET.Element) -> str:
 
 
 def _extract_formula_text_from_mathml(root: ET.Element) -> str:
-    if root.tag == _mathml_tag("math"):
+    if root.tag == _MATH_MATH_TAG:
         return _mathml_to_text(root).strip()
 
     math_elem = root.find(".//math:math", NS)
@@ -193,7 +194,7 @@ def _extract_full_text(content_root: ET.Element) -> str:
     """
     # 1) Prefer StarMath annotations when present (often closest to author intent)
     annotations: list[str] = []
-    for ann in content_root.findall(".//math:annotation", NS):
+    for ann in content_root.iter(_MATH_ANNOTATION_TAG):
         raw = (ann.text or "").strip()
         if not raw:
             continue
