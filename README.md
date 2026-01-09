@@ -128,8 +128,12 @@ The client supports filtering by modification date (for delta-sync patterns), fo
 | Format             | Extension | Description                      |
 |--------------------|-----------|----------------------------------|
 | Word 97-2003       | `.doc`    | Word 97-2003 documents           |
+| Word 97-2003 (template) | `.dot` | Word 97-2003 templates           |
 | Excel 97-2003      | `.xls`    | Excel 97-2003 spreadsheets       |
+| Excel 97-2003 (template) | `.xlt` | Excel 97-2003 templates          |
 | PowerPoint 97-2003 | `.ppt`    | PowerPoint 97-2003 presentations |
+| PowerPoint 97-2003 (template) | `.pot` | PowerPoint 97-2003 templates     |
+| PowerPoint 97-2003 (show) | `.pps` | PowerPoint 97-2003 slide shows    |
 | Rich Text Format   | `.rtf`    | Rich Text Format documents       |
 
 ### Modern Microsoft Office
@@ -138,18 +142,29 @@ The client supports filtering by modification date (for delta-sync patterns), fo
 |---------------------------|-----------|------------------------------------------|
 | Word 2007+                | `.docx`   | Word 2007+ documents                     |
 | Word 2007+ (macro)        | `.docm`   | Word 2007+ macro-enabled documents       |
+| Word 2007+ (template)     | `.dotx`   | Word 2007+ templates                     |
+| Word 2007+ (template, macro) | `.dotm` | Word 2007+ macro-enabled templates       |
 | Excel 2007+               | `.xlsx`   | Excel 2007+ spreadsheets                 |
 | Excel 2007+ (macro)       | `.xlsm`   | Excel 2007+ macro-enabled spreadsheets   |
+| Excel 2007+ (template)    | `.xltx`   | Excel 2007+ templates                    |
+| Excel 2007+ (template, macro) | `.xltm` | Excel 2007+ macro-enabled templates      |
 | PowerPoint 2007+          | `.pptx`   | PowerPoint 2007+ presentations           |
 | PowerPoint 2007+ (macro)  | `.pptm`   | PowerPoint 2007+ macro-enabled presentations |
+| PowerPoint 2007+ (template) | `.potx` | PowerPoint 2007+ templates               |
+| PowerPoint 2007+ (template, macro) | `.potm` | PowerPoint 2007+ macro-enabled templates |
+| PowerPoint 2007+ (show)   | `.ppsx`   | PowerPoint 2007+ slide shows             |
+| PowerPoint 2007+ (show, macro) | `.ppsm` | PowerPoint 2007+ macro-enabled slide shows |
 
 ### OpenDocument
 
 | Format       | Extension | Description               |
 |--------------|-----------|---------------------------|
 | Text         | `.odt`    | OpenDocument Text         |
+| Text (template) | `.ott` | OpenDocument Text templates |
 | Presentation | `.odp`    | OpenDocument Presentation |
+| Presentation (template) | `.otp` | OpenDocument Presentation templates |
 | Spreadsheet  | `.ods`    | OpenDocument Spreadsheet  |
+| Spreadsheet (template) | `.ots` | OpenDocument Spreadsheet templates |
 | Drawing      | `.odg`    | OpenDocument Drawing      |
 | Formula      | `.odf`    | OpenDocument Formula      |
 

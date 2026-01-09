@@ -44,6 +44,19 @@ def test_is_supported():
     tc.assertTrue(is_supported_file("myfile.xlsx"))
     tc.assertTrue(is_supported_file("myfile.doc"))
     tc.assertTrue(is_supported_file("myfile.docx"))
+    # Office templates / slide shows (aliases)
+    tc.assertTrue(is_supported_file("myfile.dot"))
+    tc.assertTrue(is_supported_file("myfile.dotx"))
+    tc.assertTrue(is_supported_file("myfile.dotm"))
+    tc.assertTrue(is_supported_file("myfile.xlt"))
+    tc.assertTrue(is_supported_file("myfile.xltx"))
+    tc.assertTrue(is_supported_file("myfile.xltm"))
+    tc.assertTrue(is_supported_file("myfile.pot"))
+    tc.assertTrue(is_supported_file("myfile.potx"))
+    tc.assertTrue(is_supported_file("myfile.potm"))
+    tc.assertTrue(is_supported_file("myfile.pps"))
+    tc.assertTrue(is_supported_file("myfile.ppsx"))
+    tc.assertTrue(is_supported_file("myfile.ppsm"))
     tc.assertTrue(is_supported_file("myfile.pdf"))
     tc.assertTrue(is_supported_file("myfile.eml"))
     tc.assertTrue(is_supported_file("myfile.msg"))
@@ -62,6 +75,10 @@ def test_is_supported():
     tc.assertTrue(is_supported_file("myfile.ods"))
     tc.assertTrue(is_supported_file("myfile.odg"))
     tc.assertTrue(is_supported_file("myfile.odf"))
+    # OpenDocument templates (aliases)
+    tc.assertTrue(is_supported_file("myfile.ott"))
+    tc.assertTrue(is_supported_file("myfile.otp"))
+    tc.assertTrue(is_supported_file("myfile.ots"))
     tc.assertTrue(is_supported_file("myfile.epub"))
     tc.assertTrue(is_supported_file("myfile.mhtml"))
     tc.assertTrue(is_supported_file("myfile.mht"))
@@ -99,9 +116,13 @@ def test_router():
     # xls
     func = get_extractor("myfile.xls")
     tc.assertEqual(read_xls, func)
+    func = get_extractor("myfile.xlt")
+    tc.assertEqual(read_xls, func)
 
     # xlsx
     func = get_extractor("myfile.xlsx")
+    tc.assertEqual(read_xlsx, func)
+    func = get_extractor("myfile.xltx")
     tc.assertEqual(read_xlsx, func)
 
     # pdf
@@ -111,17 +132,29 @@ def test_router():
     # ppt
     func = get_extractor("myfile.ppt")
     tc.assertEqual(read_ppt, func)
+    func = get_extractor("myfile.pot")
+    tc.assertEqual(read_ppt, func)
+    func = get_extractor("myfile.pps")
+    tc.assertEqual(read_ppt, func)
 
     # pptx
     func = get_extractor("myfile.pptx")
+    tc.assertEqual(read_pptx, func)
+    func = get_extractor("myfile.potx")
+    tc.assertEqual(read_pptx, func)
+    func = get_extractor("myfile.ppsx")
     tc.assertEqual(read_pptx, func)
 
     # doc
     func = get_extractor("myfile.doc")
     tc.assertEqual(read_doc, func)
+    func = get_extractor("myfile.dot")
+    tc.assertEqual(read_doc, func)
 
     # docx
     func = get_extractor("myfile.docx")
+    tc.assertEqual(read_docx, func)
+    func = get_extractor("myfile.dotx")
     tc.assertEqual(read_docx, func)
 
     # json
@@ -151,13 +184,19 @@ def test_router():
     # open office - document - odt
     func = get_extractor("myfile.odt")
     tc.assertEqual(read_odt, func)
+    func = get_extractor("myfile.ott")
+    tc.assertEqual(read_odt, func)
 
     # open office - presentation - odp
     func = get_extractor("myfile.odp")
     tc.assertEqual(read_odp, func)
+    func = get_extractor("myfile.otp")
+    tc.assertEqual(read_odp, func)
 
     # open office - spreadsheet - ods
     func = get_extractor("myfile.ods")
+    tc.assertEqual(read_ods, func)
+    func = get_extractor("myfile.ots")
     tc.assertEqual(read_ods, func)
 
     # open office - drawing - odg
@@ -204,13 +243,21 @@ def test_router():
     # docm -> read_docx
     func = get_extractor("myfile.docm")
     tc.assertEqual(read_docx, func)
+    func = get_extractor("myfile.dotm")
+    tc.assertEqual(read_docx, func)
 
     # xlsm -> read_xlsx
     func = get_extractor("myfile.xlsm")
     tc.assertEqual(read_xlsx, func)
+    func = get_extractor("myfile.xltm")
+    tc.assertEqual(read_xlsx, func)
 
     # pptm -> read_pptx
     func = get_extractor("myfile.pptm")
+    tc.assertEqual(read_pptx, func)
+    func = get_extractor("myfile.potm")
+    tc.assertEqual(read_pptx, func)
+    func = get_extractor("myfile.ppsm")
     tc.assertEqual(read_pptx, func)
 
     # zip -> read_archive

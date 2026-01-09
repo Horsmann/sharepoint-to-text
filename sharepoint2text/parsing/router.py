@@ -86,6 +86,23 @@ _EXTRACTOR_REGISTRY: dict[str, tuple[str, str]] = {
 _EXTENSION_ALIASES: dict[str, str] = {
     "htm": "html",
     "mht": "mhtml",
+    # Office templates / slide shows (map to existing extractors)
+    "dot": "doc",
+    "dotx": "docx",
+    "dotm": "docm",
+    "xlt": "xls",
+    "xltx": "xlsx",
+    "xltm": "xlsm",
+    "pot": "ppt",
+    "potx": "pptx",
+    "potm": "pptm",
+    "pps": "ppt",
+    "ppsx": "pptx",
+    "ppsm": "pptm",
+    # OpenDocument templates (map to existing extractors)
+    "ott": "odt",
+    "ots": "ods",
+    "otp": "odp",
     "gz": "tgz",  # .gz alone treated as gzip-compressed tar
     "bz2": "tbz2",  # .bz2 alone treated as bzip2-compressed tar
     "xz": "txz",  # .xz alone treated as xz-compressed tar
