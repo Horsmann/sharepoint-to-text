@@ -1761,6 +1761,56 @@ def test_read_open_office__document() -> None:
     )
 
 
+def test_read_open_office__document_aoo() -> None:
+    # the dialects are not fully compatible
+    path = "sharepoint2text/tests/resources/open_office/apache_oo/aoo_document.odt"
+    odt: OdtContent = next(
+        read_odt(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+
+    tc.assertEqual("Apache OO document\nA\nB\n1\n2", odt.get_full_text())
+    tc.assertListEqual(
+        [["A", "B"], ["1", "2"]], list(odt.iterate_tables())[0].get_table()
+    )
+    tc.assertEqual(1, len(list(odt.iterate_images())))
+
+
+def test_read_open_office__presentation_aoo() -> None:
+    path = "sharepoint2text/tests/resources/open_office/apache_oo/aoo_presentation.odp"
+    odp: OdpContent = next(
+        read_odp(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+
+    tc.assertEqual("Test text", odp.get_full_text())
+
+
+def test_read_open_office__spreadsheet_aoo() -> None:
+    path = "sharepoint2text/tests/resources/open_office/apache_oo/aoo_spreadsheet.ods"
+    ods: OdsContent = next(
+        read_ods(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+
+    tc.assertEqual("Sheet1\nHey!\nSheet2\nSheet3", ods.get_full_text())
+
+
+def test_read_open_office__drawing_aoo() -> None:
+    path = "sharepoint2text/tests/resources/open_office/apache_oo/aoo_drawing.odg"
+    odg: OdgContent = next(
+        read_odg(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+
+    tc.assertEqual("A text shape\nOne more...", odg.get_full_text())
+
+
+def test_read_open_office__formular_aoo() -> None:
+    path = "sharepoint2text/tests/resources/open_office/apache_oo/aoo_formular.odf"
+    odf: OdfContent = next(
+        read_odf(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+
+    tc.assertEqual("4 + 5 * 8 div 7", odf.get_full_text())
+
+
 def test_read_open_office__presentation_with_notes() -> None:
     path = "sharepoint2text/tests/resources/open_office/slide_with_notes.odp"
     odp: OdpContent = next(
