@@ -48,6 +48,8 @@ _EXTRACTOR_REGISTRY: dict[str, tuple[str, str]] = {
     "odt": ("sharepoint2text.parsing.extractors.open_office.odt_extractor", "read_odt"),
     "odp": ("sharepoint2text.parsing.extractors.open_office.odp_extractor", "read_odp"),
     "ods": ("sharepoint2text.parsing.extractors.open_office.ods_extractor", "read_ods"),
+    "odg": ("sharepoint2text.parsing.extractors.open_office.odg_extractor", "read_odg"),
+    "odf": ("sharepoint2text.parsing.extractors.open_office.odf_extractor", "read_odf"),
     # Email formats
     "msg": (
         "sharepoint2text.parsing.extractors.mail.msg_email_extractor",

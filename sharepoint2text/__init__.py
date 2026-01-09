@@ -20,6 +20,8 @@ from sharepoint2text.parsing.extractors.data_types import (
     EpubContent,
     ExtractionInterface,
     HtmlContent,
+    OdfContent,
+    OdgContent,
     OdpContent,
     OdsContent,
     OdtContent,
@@ -202,6 +204,30 @@ def read_ods(
     return _read_ods(file_like, path)
 
 
+def read_odg(
+    file_like: io.BytesIO, path: str | None = None
+) -> Generator[OdgContent, Any, None]:
+    """Extract content from an ODG (OpenDocument Drawing) file."""
+    from sharepoint2text.parsing.extractors.open_office.odg_extractor import (
+        read_odg as _read_odg,
+    )
+
+    logger.debug("Reading open office odg file: %s", path)
+    return _read_odg(file_like, path)
+
+
+def read_odf(
+    file_like: io.BytesIO, path: str | None = None
+) -> Generator[OdfContent, Any, None]:
+    """Extract content from an ODF (OpenDocument Formula) file."""
+    from sharepoint2text.parsing.extractors.open_office.odf_extractor import (
+        read_odf as _read_odf,
+    )
+
+    logger.debug("Reading open office odf file: %s", path)
+    return _read_odf(file_like, path)
+
+
 #############
 # Plain Text
 #############
@@ -346,6 +372,8 @@ def read_file(
         - .odt  -> OdtContent
         - .odp  -> OdpContent
         - .ods  -> OdsContent
+        - .odg  -> OdgContent
+        - .odf  -> OdfContent
         - .msg  -> EmailContent
         - .mbox -> EmailContent
         - .eml  -> EmailContent
@@ -414,6 +442,8 @@ __all__ = [
     "read_odt",
     "read_odp",
     "read_ods",
+    "read_odg",
+    "read_odf",
     "read_email__msg_format",
     "read_email__eml_format",
     "read_email__mbox_format",

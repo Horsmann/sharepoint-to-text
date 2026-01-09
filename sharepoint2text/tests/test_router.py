@@ -22,6 +22,8 @@ from sharepoint2text.parsing.extractors.ms_legacy.xls_extractor import read_xls
 from sharepoint2text.parsing.extractors.ms_modern.docx_extractor import read_docx
 from sharepoint2text.parsing.extractors.ms_modern.pptx_extractor import read_pptx
 from sharepoint2text.parsing.extractors.ms_modern.xlsx_extractor import read_xlsx
+from sharepoint2text.parsing.extractors.open_office.odf_extractor import read_odf
+from sharepoint2text.parsing.extractors.open_office.odg_extractor import read_odg
 from sharepoint2text.parsing.extractors.open_office.odp_extractor import read_odp
 from sharepoint2text.parsing.extractors.open_office.ods_extractor import read_ods
 from sharepoint2text.parsing.extractors.open_office.odt_extractor import read_odt
@@ -58,6 +60,8 @@ def test_is_supported():
     tc.assertTrue(is_supported_file("myfile.odt"))
     tc.assertTrue(is_supported_file("myfile.odp"))
     tc.assertTrue(is_supported_file("myfile.ods"))
+    tc.assertTrue(is_supported_file("myfile.odg"))
+    tc.assertTrue(is_supported_file("myfile.odf"))
     tc.assertTrue(is_supported_file("myfile.epub"))
     tc.assertTrue(is_supported_file("myfile.mhtml"))
     tc.assertTrue(is_supported_file("myfile.mht"))
@@ -155,6 +159,14 @@ def test_router():
     # open office - spreadsheet - ods
     func = get_extractor("myfile.ods")
     tc.assertEqual(read_ods, func)
+
+    # open office - drawing - odg
+    func = get_extractor("myfile.odg")
+    tc.assertEqual(read_odg, func)
+
+    # open office - formula - odf
+    func = get_extractor("myfile.odf")
+    tc.assertEqual(read_odf, func)
 
     # html
     func = get_extractor("myfile.html")

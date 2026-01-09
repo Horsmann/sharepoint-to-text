@@ -17,6 +17,8 @@ MIME_TYPE_MAPPING = {
     "application/vnd.oasis.opendocument.text": "odt",
     "application/vnd.oasis.opendocument.presentation": "odp",
     "application/vnd.oasis.opendocument.spreadsheet": "ods",
+    "application/vnd.oasis.opendocument.graphics": "odg",
+    "application/vnd.oasis.opendocument.formula": "odf",
     # Plain text variants
     "text/csv": "csv",
     "application/csv": "csv",

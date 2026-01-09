@@ -2159,6 +2159,124 @@ class OpenDocumentImage(ImageInterface):
 
 
 ###############
+# OpenDocument ODG (Drawing) #
+###############
+
+
+@dataclass
+class OdgUnitMetadata(UnitMetadataInterface):
+    unit_number: int
+
+
+@dataclass
+class OdgUnit(UnitInterface):
+    text: str
+    images: list[OpenDocumentImage] = field(default_factory=list)
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return list(self.images)
+
+    def get_tables(self) -> list[TableData]:
+        return []
+
+    def get_metadata(self) -> OdgUnitMetadata:
+        return OdgUnitMetadata(unit_number=1)
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
+
+
+@dataclass
+class OdgContent(ExtractionInterface):
+    """Complete extracted content from an ODG file."""
+
+    metadata: OpenDocumentMetadata = field(default_factory=OpenDocumentMetadata)
+    full_text: str = ""
+    images: list[OpenDocumentImage] = field(default_factory=list)
+
+    def iterate_units(self) -> typing.Iterator[OdgUnit]:
+        yield OdgUnit(text=self.full_text.strip(), images=list(self.images))
+
+    def get_full_text(self) -> str:
+        return _join_unit_text(self.iterate_units())
+
+    def get_metadata(self) -> OpenDocumentMetadata:
+        return self.metadata
+
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        for img in self.images:
+            yield img
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        yield from ()
+        return
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
+
+
+###############
+# OpenDocument ODF (Formula) #
+###############
+
+
+@dataclass
+class OdfUnitMetadata(UnitMetadataInterface):
+    unit_number: int
+
+
+@dataclass
+class OdfUnit(UnitInterface):
+    text: str
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return []
+
+    def get_tables(self) -> list[TableData]:
+        return []
+
+    def get_metadata(self) -> OdfUnitMetadata:
+        return OdfUnitMetadata(unit_number=1)
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
+
+
+@dataclass
+class OdfContent(ExtractionInterface):
+    """Complete extracted content from an ODF file."""
+
+    metadata: OpenDocumentMetadata = field(default_factory=OpenDocumentMetadata)
+    full_text: str = ""
+
+    def iterate_units(self) -> typing.Iterator[OdfUnit]:
+        yield OdfUnit(text=self.full_text.strip())
+
+    def get_full_text(self) -> str:
+        return _join_unit_text(self.iterate_units())
+
+    def get_metadata(self) -> OpenDocumentMetadata:
+        return self.metadata
+
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        yield from ()
+        return
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        yield from ()
+        return
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
+
+
+###############
 # OpenDocument ODP (Presentation)
 ###############
 

@@ -26,6 +26,8 @@ from sharepoint2text.parsing.extractors.data_types import (
     HtmlUnitMetadata,
     ImageInterface,
     ImageMetadata,
+    OdfContent,
+    OdgContent,
     OdpContent,
     OdpUnitMetadata,
     OdsContent,
@@ -72,6 +74,8 @@ from sharepoint2text.parsing.extractors.ms_legacy.xls_extractor import read_xls
 from sharepoint2text.parsing.extractors.ms_modern.docx_extractor import read_docx
 from sharepoint2text.parsing.extractors.ms_modern.pptx_extractor import read_pptx
 from sharepoint2text.parsing.extractors.ms_modern.xlsx_extractor import read_xlsx
+from sharepoint2text.parsing.extractors.open_office.odf_extractor import read_odf
+from sharepoint2text.parsing.extractors.open_office.odg_extractor import read_odg
 from sharepoint2text.parsing.extractors.open_office.odp_extractor import read_odp
 from sharepoint2text.parsing.extractors.open_office.ods_extractor import read_ods
 from sharepoint2text.parsing.extractors.open_office.odt_extractor import read_odt
@@ -89,6 +93,15 @@ def _read_file_to_file_like(path: str) -> io.BytesIO:
         file_like = io.BytesIO(file.read())
         file_like.seek(0)
         return file_like
+
+
+def _zip_bytes_to_file_like(files: dict[str, str]) -> io.BytesIO:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for name, text in files.items():
+            zf.writestr(name, text)
+    buffer.seek(0)
+    return buffer
 
 
 #############
@@ -1782,6 +1795,26 @@ def test_read_open_office__presentation_with_table() -> None:
         OdpUnitMetadata(unit_number=1, location=[], slide_number=1),
         units[0].get_metadata(),
     )
+
+
+def test_read_open_office__drawing_odg() -> None:
+    path = "sharepoint2text/tests/resources/open_office/drawing.odg"
+    odg: OdgContent = next(
+        read_odg(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+
+    tc.assertEqual("Hello there!", odg.get_full_text())
+    tc.assertEqual(1, len(list(odg.iterate_images())))
+    tc.assertEqual(1, len(list(odg.iterate_units())))
+
+
+def test_read_open_office__formula_odf() -> None:
+    path = "sharepoint2text/tests/resources/open_office/formular.odf"
+    odf: OdfContent = next(
+        read_odf(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+
+    tc.assertEqual("", odf.get_full_text())
 
 
 def test_read_open_office__heading_units() -> None:
