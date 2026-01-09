@@ -152,6 +152,10 @@ BLOCK_TAGS = {
     "br",
 }
 
+_RE_MULTI_NL = re.compile(r"\n{3,}")
+_RE_MULTI_SPACE = re.compile(r"[ \t]+")
+_RE_NAV_LINK = re.compile(r'<a[^>]+href="([^"]+)"[^>]*>([^<]+)</a>', re.IGNORECASE)
+
 
 @lru_cache(maxsize=256)
 def _guess_content_type(path: str) -> str:
@@ -181,6 +185,10 @@ class _XhtmlTextExtractor(HTMLParser):
         self._in_cell = False
         self._title: str = ""
         self._in_title = False
+
+    @staticmethod
+    def _normalize_ws(value: str) -> str:
+        return " ".join(value.split()).strip()
 
     def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]):
         tag = tag.lower()
@@ -241,7 +249,7 @@ class _XhtmlTextExtractor(HTMLParser):
                 self._current_row = []
             elif tag in ("td", "th"):
                 cell_text = " ".join(self._current_cell).strip()
-                cell_text = re.sub(r"\s+", " ", cell_text)
+                cell_text = self._normalize_ws(cell_text)
                 self._current_row.append(cell_text)
                 self._current_cell = []
                 self._in_cell = False
@@ -268,9 +276,9 @@ class _XhtmlTextExtractor(HTMLParser):
         """Get the extracted text, cleaned up."""
         text = "".join(self.text_parts)
         # Collapse multiple newlines to maximum of 2
-        text = re.sub(r"\n{3,}", "\n\n", text)
+        text = _RE_MULTI_NL.sub("\n\n", text)
         # Collapse multiple spaces
-        text = re.sub(r"[ \t]+", " ", text)
+        text = _RE_MULTI_SPACE.sub(" ", text)
         # Remove leading/trailing whitespace from lines
         lines = [line.strip() for line in text.split("\n")]
         text = "\n".join(lines)
@@ -514,12 +522,11 @@ def _extract_chapter(
 
     # If no title from <title> tag, try to extract from first heading
     if not title:
-        # Look for first h1 or h2 in text
-        heading_match = re.search(r"^([^\n]+)", text)
-        if heading_match:
-            first_line = heading_match.group(1).strip()
-            if len(first_line) < 100:  # Reasonable title length
-                title = first_line
+        first_line = next(
+            (line.strip() for line in text.splitlines() if line.strip()), ""
+        )
+        if first_line and len(first_line) < 100:
+            title = first_line
 
     # Extract image references from this chapter
     # (We'll collect the actual image data separately from manifest)
@@ -610,8 +617,7 @@ def _parse_nav_document(ctx: _EpubContext, href: str) -> List[Dict[str, str]]:
         # Simple extraction of nav items using regex
         # Look for <a href="...">title</a> patterns
         toc: List[Dict[str, str]] = []
-        pattern = re.compile(r'<a[^>]+href="([^"]+)"[^>]*>([^<]+)</a>', re.IGNORECASE)
-        for match in pattern.finditer(content):
+        for match in _RE_NAV_LINK.finditer(content):
             link_href = match.group(1)
             title = match.group(2).strip()
             if title:
@@ -632,40 +638,12 @@ def _parse_ncx(ctx: _EpubContext, href: str) -> List[Dict[str, str]]:
         toc: List[Dict[str, str]] = []
 
         # Find navMap and navPoints
-        nav_map = root.find("ncx:navMap", NS)
-        if nav_map is None:
-            nav_map = root.find("{*}navMap")
+        nav_map = root.find("{*}navMap")
         if nav_map is None:
             return []
 
         def extract_nav_points(parent: ET.Element) -> None:
-            for nav_point in parent.findall("ncx:navPoint", NS):
-                label_elem = nav_point.find("ncx:navLabel/ncx:text", NS)
-                content_elem = nav_point.find("ncx:content", NS)
-
-                if label_elem is None:
-                    label_elem = nav_point.find("{*}navLabel/{*}text")
-                if content_elem is None:
-                    content_elem = nav_point.find("{*}content")
-
-                title = (
-                    (label_elem.text or "").strip() if label_elem is not None else ""
-                )
-                link_href = (
-                    content_elem.get("src", "") if content_elem is not None else ""
-                )
-
-                if title:
-                    toc.append({"title": title, "href": link_href})
-
-                # Recurse for nested nav points
-                extract_nav_points(nav_point)
-
-            # Also try without namespace
             for nav_point in parent.findall("{*}navPoint"):
-                if nav_point in parent.findall("ncx:navPoint", NS):
-                    continue  # Already processed
-
                 label_elem = nav_point.find("{*}navLabel/{*}text")
                 content_elem = nav_point.find("{*}content")
 
