@@ -5,6 +5,20 @@ Pure Python implementation of 7z archive reading without external dependencies.
 Uses Python's built-in lzma module for LZMA/LZMA2 decompression.
 
 Based on the official 7-Zip SDK documentation.
+
+This module provides a clean, Pythonic interface for reading 7z archives
+without requiring external dependencies like py7zr or pylzma.
+
+Supported features:
+- LZMA compression
+- LZMA2 compression
+- Copy (uncompressed) method
+- Multi-file archives
+
+Not supported:
+- Encrypted archives (AES)
+- Split archives
+- Some advanced compression methods
 """
 
 import io
@@ -55,7 +69,16 @@ class Bad7zFile(Exception):
 
 @dataclass
 class FileInfo:
-    """Metadata for a file entry in the archive."""
+    """Metadata for a file entry in the archive.
+
+    Attributes:
+        filename: Name of the file within the archive
+        uncompressed: Uncompressed size in bytes
+        is_directory: Whether this entry is a directory
+        crc: Optional CRC32 checksum of the file data
+        attributes: Windows file attributes (if present)
+        folder_index: Index of the compression folder containing this file
+    """
 
     filename: str
     uncompressed: int
@@ -67,7 +90,17 @@ class FileInfo:
 
 @dataclass
 class Folder:
-    """A compression unit containing one or more files."""
+    """A compression unit containing one or more files.
+
+    A folder represents a compression unit that may contain one or more
+    files compressed together using the same compression settings.
+
+    Attributes:
+        coders: List of (coder_id, properties) tuples defining compression methods
+        unpack_sizes: Uncompressed sizes for each coder output stream
+        crc: Optional CRC32 checksum of the decompressed data
+        num_streams: Number of files within this folder
+    """
 
     coders: List[Tuple[bytes, Optional[bytes]]]  # (coder_id, properties)
     unpack_sizes: List[int]
@@ -90,6 +123,17 @@ class SevenZipReader:
     """
 
     def __init__(self, file: BinaryIO):
+        """Initialize the SevenZipReader with a binary file.
+
+        Args:
+            file: Binary file-like object containing the 7z archive
+
+        Raises:
+            Bad7zFile: If the file is not readable or archive format is invalid
+        """
+        if not hasattr(file, "read"):
+            raise Bad7zFile("File object must support read() method")
+
         self.file = file
         self._original_file = file
         self._files: List[FileInfo] = []
@@ -107,7 +151,17 @@ class SevenZipReader:
     # -------------------------------------------------------------------------
 
     def _read_bytes(self, n: int) -> bytes:
-        """Read exactly n bytes, raising on EOF."""
+        """Read exactly n bytes, raising Bad7zFile on EOF.
+
+        Args:
+            n: Number of bytes to read
+
+        Returns:
+            bytes: The read data
+
+        Raises:
+            Bad7zFile: If EOF is encountered before reading n bytes
+        """
         data = self.file.read(n)
         if len(data) != n:
             raise Bad7zFile(
@@ -116,16 +170,26 @@ class SevenZipReader:
         return data
 
     def _read_uint8(self) -> int:
+        """Read an unsigned 8-bit integer in little-endian format."""
         return struct.unpack("<B", self._read_bytes(1))[0]
 
     def _read_uint32(self) -> int:
+        """Read an unsigned 32-bit integer in little-endian format."""
         return struct.unpack("<I", self._read_bytes(4))[0]
 
     def _read_uint64(self) -> int:
+        """Read an unsigned 64-bit integer in little-endian format."""
         return struct.unpack("<Q", self._read_bytes(8))[0]
 
     def _read_number(self) -> int:
-        """Read a 7z variable-length encoded number."""
+        """Read a 7z variable-length encoded number.
+
+        7z uses a variable-length encoding where the first byte indicates
+        how many additional bytes are needed.
+
+        Returns:
+            int: The decoded number
+        """
         first_byte = self._read_uint8()
         mask = 0x80
         value = 0
@@ -142,7 +206,17 @@ class SevenZipReader:
     def _read_boolean_vector(
         self, count: int, check_defined: bool = False
     ) -> List[bool]:
-        """Read a packed boolean vector."""
+        """Read a packed boolean vector.
+
+        Booleans are packed as individual bits in bytes.
+
+        Args:
+            count: Number of boolean values to read
+            check_defined: If True, check if all values are defined
+
+        Returns:
+            List[bool]: The boolean values
+        """
         if check_defined:
             all_defined = self._read_uint8()
             if all_defined != 0:
@@ -170,10 +244,17 @@ class SevenZipReader:
     # -------------------------------------------------------------------------
 
     def _parse_header(self) -> None:
-        """Parse the 7z archive signature and locate the end header."""
+        """Parse the 7z archive signature and locate the end header.
+
+        This method validates the archive format and reads the main header
+        information needed for extracting files.
+
+        Raises:
+            Bad7zFile: If the archive format is invalid or unsupported
+        """
         self.file.seek(0)
 
-        # Verify magic signature
+        # Verify magic signature (6 bytes)
         if self._read_bytes(6) != MAGIC:
             raise Bad7zFile("Invalid 7z signature")
 
@@ -182,7 +263,7 @@ class SevenZipReader:
         if major != 0 or minor > 4:
             raise Bad7zFile(f"Unsupported 7z version: {major}.{minor}")
 
-        # Read start header fields
+        # Read start header fields (20 bytes total)
         start_header_crc = self._read_uint32()
         next_header_offset = self._read_uint64()
         next_header_size = self._read_uint64()
@@ -595,7 +676,20 @@ class SevenZipReader:
         pack_sizes: List[int],
         source_file: Optional[BinaryIO] = None,
     ) -> bytes:
-        """Decompress all data in a folder."""
+        """Decompress all data in a folder.
+
+        Args:
+            folder: The compression folder containing file data
+            pack_pos: Position in the archive where compressed data starts
+            pack_sizes: Sizes of compressed data blocks
+            source_file: Optional file to read from (defaults to self.file)
+
+        Returns:
+            bytes: The decompressed folder data
+
+        Raises:
+            Bad7zFile: If no coders are defined or decompression fails
+        """
         if not folder.coders:
             raise Bad7zFile("No coders in folder")
 
@@ -610,7 +704,7 @@ class SevenZipReader:
         file_to_read.seek(pack_pos)
         data = file_to_read.read(total_size)
 
-        # Apply decoders in reverse order
+        # Apply decoders in reverse order (last decoder applied first)
         for coder_id, properties in reversed(folder.coders):
             data = self._apply_decoder(coder_id, properties, data, folder.unpack_sizes)
 
@@ -644,7 +738,19 @@ class SevenZipReader:
     def _decompress_lzma(
         self, data: bytes, properties: Optional[bytes], unpack_sizes: List[int]
     ) -> bytes:
-        """Decompress LZMA data."""
+        """Decompress LZMA data.
+
+        Args:
+            data: Compressed LZMA data
+            properties: LZMA properties (first 5 bytes should be present)
+            unpack_sizes: Expected uncompressed sizes
+
+        Returns:
+            bytes: Decompressed data
+
+        Raises:
+            Bad7zFile: If properties are invalid or decompression fails
+        """
         if properties is None or len(properties) < 5:
             raise Bad7zFile("Invalid LZMA properties")
 
@@ -662,7 +768,18 @@ class SevenZipReader:
             raise Bad7zFile(f"LZMA decompression failed: {e}") from e
 
     def _decompress_lzma2(self, data: bytes, properties: Optional[bytes]) -> bytes:
-        """Decompress LZMA2 data."""
+        """Decompress LZMA2 data.
+
+        Args:
+            data: Compressed LZMA2 data
+            properties: LZMA2 properties (at least 1 byte required)
+
+        Returns:
+            bytes: Decompressed data
+
+        Raises:
+            Bad7zFile: If properties are invalid or decompression fails
+        """
         if properties is None or len(properties) < 1:
             raise Bad7zFile("LZMA2 requires properties")
 
@@ -690,11 +807,19 @@ class SevenZipReader:
     # -------------------------------------------------------------------------
 
     def list(self) -> List[FileInfo]:
-        """Return a copy of the file list."""
+        """Return a copy of the file list.
+
+        Returns:
+            List[FileInfo]: List of all files in the archive
+        """
         return self._files.copy()
 
     def needs_password(self) -> bool:
-        """Check if the archive uses AES encryption."""
+        """Check if the archive uses AES encryption.
+
+        Returns:
+            bool: True if the archive is encrypted and requires a password
+        """
         return any(
             coder_id.startswith(CODER_AES_PREFIX)
             for folder in self._folders
@@ -708,14 +833,27 @@ class SevenZipFile:
 
     Provides a py7zr-compatible interface for drop-in replacement.
 
+    This class provides a high-level interface for working with 7z archives,
+    supporting extraction of all files in the archive.
+
     Example:
         with SevenZipFile(file_like, "r") as szf:
             for info in szf.list():
-                print(info.filename)
+                print(f"File: {info.filename}, Size: {info.uncompressed} bytes")
             szf.extractall(path=temp_dir)
     """
 
     def __init__(self, file: BinaryIO, mode: str = "r", password: Optional[str] = None):
+        """Initialize the SevenZipFile context manager.
+
+        Args:
+            file: Binary file-like object containing the 7z archive
+            mode: File mode (only "r" for read is supported)
+            password: Optional password for encrypted archives (not supported)
+
+        Raises:
+            Bad7zFile: If an unsupported mode is specified
+        """
         if mode != "r":
             raise Bad7zFile(f"Mode '{mode}' not supported, only 'r' is available")
 
@@ -723,25 +861,52 @@ class SevenZipFile:
         self._reader: Optional[SevenZipReader] = None
 
     def __enter__(self) -> "SevenZipFile":
+        """Enter the context manager and initialize the reader."""
         self._reader = SevenZipReader(self._file)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Exit the context manager and cleanup resources."""
         self._reader = None
 
     def list(self) -> List[FileInfo]:
-        """List all files in the archive."""
+        """List all files in the archive.
+
+        Returns:
+            List[FileInfo]: List of all files and directories in the archive
+
+        Raises:
+            Bad7zFile: If the archive is not opened
+        """
         if self._reader is None:
             raise Bad7zFile("Archive not opened")
         return self._reader.list()
 
     def extractall(self, path: str) -> None:
-        """Extract all files to the specified directory."""
+        """Extract all files to the specified directory.
+
+        Args:
+            path: Directory path where files will be extracted
+
+        Raises:
+            Bad7zFile: If the archive is not opened or extraction fails
+            ValueError: If the path is invalid
+        """
         if self._reader is None:
             raise Bad7zFile("Archive not opened")
 
-        os.makedirs(path, exist_ok=True)
+        if not path or not isinstance(path, str):
+            raise ValueError("Path must be a non-empty string")
 
+        # Create extraction directory
+        try:
+            os.makedirs(path, exist_ok=True)
+        except OSError as e:
+            raise Bad7zFile(
+                f"Failed to create extraction directory '{path}': {e}"
+            ) from e
+
+        # Process each compression folder
         for folder_idx, folder in enumerate(self._reader._folders):
             if folder_idx not in self._reader._folder_to_files:
                 continue
@@ -767,30 +932,73 @@ class SevenZipFile:
     def _extract_files_from_folder(
         self, base_path: str, folder_idx: int, decompressed: bytes
     ) -> None:
-        """Extract individual files from decompressed folder data."""
+        """Extract individual files from decompressed folder data.
+
+        Args:
+            base_path: Base directory for extraction
+            folder_idx: Index of the folder being processed
+            decompressed: Decompressed folder data
+
+        Raises:
+            Bad7zFile: If file extraction fails
+        """
         offset = 0
 
         for file_idx in self._reader._folder_to_files[folder_idx]:
             file_info = self._reader._files[file_idx]
 
             if file_info.is_directory:
-                os.makedirs(os.path.join(base_path, file_info.filename), exist_ok=True)
+                dir_path = os.path.join(base_path, file_info.filename)
+                try:
+                    os.makedirs(dir_path, exist_ok=True)
+                except OSError as e:
+                    raise Bad7zFile(
+                        f"Failed to create directory '{dir_path}': {e}"
+                    ) from e
                 continue
+
+            # Validate file size to prevent buffer overruns
+            if file_info.uncompressed < 0:
+                raise Bad7zFile(
+                    f"Invalid file size for '{file_info.filename}': {file_info.uncompressed}"
+                )
+
+            if offset + file_info.uncompressed > len(decompressed):
+                raise Bad7zFile(
+                    f"File '{file_info.filename}' exceeds decompressed data bounds"
+                )
 
             file_path = os.path.join(base_path, file_info.filename)
 
+            # Create parent directory
             parent_dir = os.path.dirname(file_path)
             if parent_dir:
-                os.makedirs(parent_dir, exist_ok=True)
+                try:
+                    os.makedirs(parent_dir, exist_ok=True)
+                except OSError as e:
+                    raise Bad7zFile(
+                        f"Failed to create parent directory '{parent_dir}': {e}"
+                    ) from e
 
+            # Extract file data
             file_data = decompressed[offset : offset + file_info.uncompressed]
             offset += file_info.uncompressed
 
-            with open(file_path, "wb") as f:
-                f.write(file_data)
+            try:
+                with open(file_path, "wb") as f:
+                    f.write(file_data)
+            except OSError as e:
+                raise Bad7zFile(f"Failed to write file '{file_path}': {e}") from e
 
     def needs_password(self) -> bool:
-        """Check if the archive requires a password."""
+        """Check if the archive requires a password.
+
+        Returns:
+            bool: True if the archive is encrypted and requires a password
+
+        Raises:
+            Bad7zFile: If the archive is not opened
+        """
         if self._reader is None:
             raise Bad7zFile("Archive not opened")
         return self._reader.needs_password()
