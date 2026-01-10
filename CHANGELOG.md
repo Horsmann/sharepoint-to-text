@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ## [Released]
+## [0.8.1] - 2026-01-10
+- Pinned PDF extraction library to >=6.5 <6.6
+- Added support for the Open Office file formats .odg (drawings) and .odf (formulas)
+- Added support for 7zip archives
+
 ## [0.8.0] - 2026-01-04
 - Added sharepoint connector to read files from a Sharepoint via MS Graph API
 - Added instructions how to configure/add needed permissions for this to work
