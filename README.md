@@ -123,6 +123,23 @@ The client supports filtering by modification date (for delta-sync patterns), fo
 
 ## Supported Formats
 
+### Format Detection and Processing
+
+The library uses a sophisticated multi-layered approach to detect and process file formats:
+
+1. **Extension-based detection** (primary): File extensions are mapped to appropriate extractors
+2. **Extension aliases**: Template formats and variants automatically map to their base extractors
+3. **MIME type fallback**: When extensions are unclear, MIME types are used for detection
+4. **Archive processing**: Archives recursively extract and process all supported files within them
+
+**Extension Aliases**: The library automatically handles format variants:
+- Office templates (`.dotx`, `.xltx`, `.potx`) → processed as their base formats
+- Office shows (`.ppsx`) → processed as presentations
+- OpenDocument templates (`.ott`, `.ots`, `.otp`) → processed as their base formats
+- Compression variants (`.tar.gz` → `.tgz`, `.tar.bz2` → `.tbz2`, `.tar.xz` → `.txz`)
+
+**Security Features**: Archive processing includes protection against zip bombs and has size limits (7z archives max 100MB).
+
 ### Legacy Microsoft Office
 
 | Format             | Extension | Description                      |
@@ -205,13 +222,13 @@ The client supports filtering by modification date (for delta-sync patterns), fo
 | Format           | Extension                  | Description                     |
 |------------------|----------------------------|---------------------------------|
 | ZIP              | `.zip`                     | ZIP archives                    |
-| 7-Zip            | `.7z`                      | 7-Zip archives                  |
+| 7-Zip            | `.7z`                      | 7-Zip archives (max 100MB)      |
 | TAR              | `.tar`                     | TAR archives                    |
 | Gzip TAR         | `.tar.gz`, `.tgz`, `.gz`   | Gzip-compressed TAR archives    |
 | Bzip2 TAR        | `.tar.bz2`, `.tbz2`, `.bz2`| Bzip2-compressed TAR archives   |
 | XZ TAR           | `.tar.xz`, `.txz`, `.xz`   | XZ-compressed TAR archives      |
 
-Archive extraction recursively processes all supported files within the archive.
+Archive extraction recursively processes all supported files within the archive. Each file inside the archive is extracted and processed individually, yielding separate results for each supported document found. Archives include security measures to prevent zip bomb attacks.
 
 ## Installation
 
@@ -239,7 +256,7 @@ uv sync --all-groups
 
 These are required for normal use of the library:
 
-- `charset-normalizer`: Automatic encoding detection for plain text files
+- `charset-normalizer`: Automatic encoding detection for plain text files and MIME type detection fallback
 - `defusedxml`: Hardened XML parsing for OOXML/ODF formats
 - `mail-parser`: RFC 822 email parsing (`.eml`)
 - `msg-parser`: Outlook `.msg` extraction
@@ -248,6 +265,8 @@ These are required for normal use of the library:
 - `.7z` archive extraction is handled via a built-in pure-Python reader (stdlib `lzma`)
 - `pypdf`: `.pdf` parsing
 - `xlrd`: `.xls` parsing
+
+**Format Detection**: The library primarily uses file extensions for format detection, with MIME type fallback for ambiguous cases. Template formats and variants are automatically mapped to their appropriate extractors.
 
 ### Development Libraries
 
@@ -268,6 +287,8 @@ These are opt-in extras for specific use cases:
 ### The Unified Interface
 
 `sharepoint2text.read_file(...)` returns a **generator** of extraction results implementing a common interface. Most formats yield a single item, but some (notably `.mbox`) can yield multiple items.
+
+**Format Detection**: Automatically detects file formats using extensions (primary) and MIME types (fallback). Template formats and variants are automatically mapped to appropriate extractors.
 
 ```python
 import sharepoint2text
@@ -370,7 +391,9 @@ for page_num, unit in enumerate(result.iterate_units(), start=1):
 
 ### Format-Specific Notes on `get_full_text()`
 
-`get_full_text()` is intended as a convenient “best default” for each format. In a few formats it intentionally differs from a plain `"\n".join(unit.get_text() for unit in iterate_units())`, or it omits optional content unless you opt in:
+**Template Format Support**: Office template formats (`.dotx`, `.xltx`, `.potx`, etc.) and OpenDocument templates (`.ott`, `.ots`, `.otp`) are automatically processed using their respective base format extractors. Template files behave identically to regular documents during extraction.
+
+`get_full_text()` is intended as a convenient "best default" for each format. In a few formats it intentionally differs from a plain `"\n".join(unit.get_text() for unit in iterate_units())`, or it omits optional content unless you opt in:
 
 | Format | `get_full_text()` default behavior | Not included by default / where to find it |
 |--------|------------------------------------|--------------------------------------------|
@@ -463,12 +486,18 @@ def extract_from_api(filename: str, content: bytes):
     extractor = sharepoint2text.get_extractor(filename)
     # Returns a generator - iterate or use next()
     return list(extractor(io.BytesIO(content), path=filename))
+```
 
+### Archive Processing
 
+The library automatically extracts and processes all supported files within archives:
+
+```python
 import sharepoint2text
 import io
 
 # Process archives using the main API (auto-detects format by extension)
+# Each file in the archive yields a separate result
 for result in sharepoint2text.read_file("archive.zip"):
     print(f"Extracted: {result.get_metadata().filename}")
     print(f"Content: {result.get_full_text()[:200]}...")
@@ -478,6 +507,11 @@ for result in sharepoint2text.read_file("documents.7z"):
     print(f"Extracted: {result.get_metadata().filename}")
     print(f"Content: {result.get_full_text()[:200]}...")
 
+# Process mixed-content archives (documents, images, etc.)
+archive_results = list(sharepoint2text.read_file("mixed_files.zip"))
+documents = [r for r in archive_results if hasattr(r, 'get_full_text')]
+print(f"Found {len(documents)} extractable documents in archive")
+
 # Or use the direct extractor for BytesIO data
 from sharepoint2text.parsing.extractors.archive_extractor import read_archive
 
@@ -485,10 +519,6 @@ with open("archive.zip", "rb") as f:
     for result in read_archive(io.BytesIO(f.read()), path="archive.zip"):
         print(f"Extracted: {result.get_metadata().filename}")
         print(f"Content: {result.get_full_text()[:200]}...")
-
-results = extract_from_api("report.pdf", pdf_bytes)
-for result in results:
-    print(result.get_full_text())
 ```
 
 ## Limitations / Caveats
@@ -557,13 +587,16 @@ import sharepoint2text
 
 # Read any supported file (recommended entry point)
 # Returns a generator - use next() for single-item formats or iterate for all
+# Automatically detects format via extension (primary) or MIME type (fallback)
 for result in sharepoint2text.read_file(path: str | Path):
     ...
 
 # Check if a file extension is supported
+# Uses same detection logic as read_file(): extension-first, MIME fallback
 supported = sharepoint2text.is_supported_file(path: str) -> bool
 
 # Get extractor function for a file type
+# Returns appropriate extractor based on file extension/MIME type
 extractor = sharepoint2text.get_extractor(path: str) -> Callable[[io.BytesIO, str | None], Generator[ContentType, Any, None]]
 ```
 
