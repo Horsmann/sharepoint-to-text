@@ -79,7 +79,10 @@ from sharepoint2text.parsing.extractors.open_office.odg_extractor import read_od
 from sharepoint2text.parsing.extractors.open_office.odp_extractor import read_odp
 from sharepoint2text.parsing.extractors.open_office.ods_extractor import read_ods
 from sharepoint2text.parsing.extractors.open_office.odt_extractor import read_odt
-from sharepoint2text.parsing.extractors.pdf.pdf_extractor import read_pdf
+from sharepoint2text.parsing.extractors.pdf.pdf_extractor import (
+    _get_pypdf_char_map_patcher,
+    read_pdf,
+)
 from sharepoint2text.parsing.extractors.plain_extractor import read_plain_text
 
 logger = logging.getLogger(__name__)
@@ -2716,6 +2719,54 @@ def test_read_pdf_7() -> None:
         ],
         table_2,
     )
+
+
+def test_pypdf_char_map_patcher_detection() -> None:
+    """Test that the pypdf API detection works across pypdf versions."""
+
+    # Should not raise an exception for supported pypdf versions
+    patch_targets, make_wrapper = _get_pypdf_char_map_patcher()
+
+    # Should return at least one patch target
+    tc.assertGreater(len(patch_targets), 0)
+
+    # Each patch target should be a (module, function_name) tuple
+    for module, func_name in patch_targets:
+        tc.assertTrue(hasattr(module, func_name))
+        tc.assertTrue(callable(getattr(module, func_name)))
+
+    # The wrapper factory should be callable
+    tc.assertTrue(callable(make_wrapper))
+
+
+def test_pypdf_patched_build_char_map_context_manager() -> None:
+    """Test that the patched_build_char_map context manager works correctly."""
+    from sharepoint2text.parsing.extractors.pdf.pdf_extractor import (
+        _get_pypdf_char_map_patcher,
+        _patched_build_char_map,
+    )
+
+    patch_targets, _ = _get_pypdf_char_map_patcher()
+
+    # Store original functions
+    originals = {
+        (module.__name__, func_name): getattr(module, func_name)
+        for module, func_name in patch_targets
+    }
+
+    # Apply patch and verify functions are modified
+    with _patched_build_char_map():
+        for module, func_name in patch_targets:
+            current = getattr(module, func_name)
+            original = originals[(module.__name__, func_name)]
+            # The function should be wrapped (different object)
+            tc.assertIsNot(current, original)
+
+    # After context manager, functions should be restored
+    for module, func_name in patch_targets:
+        current = getattr(module, func_name)
+        original = originals[(module.__name__, func_name)]
+        tc.assertIs(current, original)
 
 
 def test_read_html__1() -> None:

@@ -111,7 +111,7 @@ import statistics
 import string
 import struct
 import unicodedata
-from typing import Any, Generator, Iterable, Optional, Protocol
+from typing import Any, Callable, Generator, Iterable, Optional, Protocol
 
 from pypdf import PdfReader
 from pypdf.errors import DependencyError
@@ -430,24 +430,100 @@ def _patch_font_digit_map(
             continue
 
 
-@contextlib.contextmanager
-def _patched_build_char_map() -> Iterable[None]:
+def _get_pypdf_char_map_patcher() -> (
+    tuple[list[tuple[Any, str]], "Callable[[Any], Callable[..., Any]]"]
+):
+    """
+    Get the appropriate pypdf module(s) and patcher for character map building.
+
+    pypdf 6.6.0+ removed build_char_map from _page and uses get_encoding from _cmap.
+    This function detects the API version and returns the appropriate patching targets.
+
+    Note: In pypdf 6.6.0+, get_encoding is imported into _font module, so we need
+    to patch both _cmap and _font to ensure the patch takes effect.
+
+    Returns:
+        Tuple of ([(module, function_name), ...], wrapper_factory) for patching.
+    """
+    # Try pypdf 6.6.0+ API first (get_encoding in _cmap and _font)
+    try:
+        import pypdf._cmap as pypdf_cmap
+        import pypdf._font as pypdf_font
+
+        if hasattr(pypdf_cmap, "get_encoding") and hasattr(pypdf_font, "get_encoding"):
+
+            def make_wrapper(
+                original: Callable[..., Any],
+            ) -> Callable[..., Any]:
+                def patched(ft: Any) -> Any:
+                    encoding, char_map = original(ft)
+                    # In the new API, we get the font dict directly
+                    _patch_font_digit_map(
+                        char_map, ft if isinstance(ft, dict) else None
+                    )
+                    return encoding, char_map
+
+                return patched
+
+            # Need to patch both modules since _font imports get_encoding
+            return [
+                (pypdf_cmap, "get_encoding"),
+                (pypdf_font, "get_encoding"),
+            ], make_wrapper
+    except (ImportError, AttributeError):
+        pass
+
+    # Fall back to pypdf < 6.6.0 API (build_char_map in _page)
     import pypdf._page as pypdf_page
 
-    original = pypdf_page.build_char_map
-
-    def patched(font_name: str, space_width: float, obj: Any) -> Any:
-        font_subtype, font_halfspace, font_encoding, font_map, font = original(
-            font_name, space_width, obj
+    if not hasattr(pypdf_page, "build_char_map"):
+        raise AttributeError(
+            "pypdf version not supported: neither get_encoding nor build_char_map found"
         )
-        _patch_font_digit_map(font_map, font)
-        return font_subtype, font_halfspace, font_encoding, font_map, font
 
-    pypdf_page.build_char_map = patched
+    def make_wrapper(original: Callable[..., Any]) -> Callable[..., Any]:
+        def patched(font_name: str, space_width: float, obj: Any) -> Any:
+            font_subtype, font_halfspace, font_encoding, font_map, font = original(
+                font_name, space_width, obj
+            )
+            _patch_font_digit_map(font_map, font)
+            return font_subtype, font_halfspace, font_encoding, font_map, font
+
+        return patched
+
+    return [(pypdf_page, "build_char_map")], make_wrapper
+
+
+@contextlib.contextmanager
+def _patched_build_char_map() -> Iterable[None]:
+    """
+    Context manager that patches pypdf's character map building function.
+
+    This patches the font character map building to fix digit mappings in
+    fonts that use null characters for digits. Supports both pypdf < 6.6.0
+    (build_char_map) and pypdf >= 6.6.0 (get_encoding).
+    """
+    try:
+        patch_targets, make_wrapper = _get_pypdf_char_map_patcher()
+    except AttributeError as e:
+        logger.warning("Cannot patch pypdf char map: %s", e)
+        yield
+        return
+
+    # Store originals and apply patches
+    originals: list[tuple[Any, str, Any]] = []
+    for module, func_name in patch_targets:
+        original = getattr(module, func_name)
+        originals.append((module, func_name, original))
+        patched = make_wrapper(original)
+        setattr(module, func_name, patched)
+
     try:
         yield
     finally:
-        pypdf_page.build_char_map = original
+        # Restore all originals
+        for module, func_name, original in originals:
+            setattr(module, func_name, original)
 
 
 def read_pdf(
