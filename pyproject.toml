@@ -74,7 +74,7 @@ dependencies = [
     "msg-parser>=1.2.0",
     "olefile>=0.47",
     "openpyxl>=3.1.5",
-    "pypdf>=6.5.0",
+    "pypdf>=6.5.0,<6.6.0",
     "xlrd>=2.0.2",
 ]
 
