@@ -523,7 +523,7 @@ def _patched_build_char_map() -> Iterable[None]:
 
 
 def read_pdf(
-    file_like: io.BytesIO, path: Optional[str] = None
+    file_like: io.BytesIO, path: Optional[str] = None, *, ignore_images: bool = False
 ) -> Generator[PdfContent, Any, None]:
     """
     Extract all relevant content from a PDF file.
@@ -541,6 +541,7 @@ def read_pdf(
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
             returned PdfContent.metadata.
+        ignore_images: If True, skip image extraction.
 
     Yields:
         PdfContent: Single PdfContent object containing:
@@ -576,8 +577,8 @@ def read_pdf(
                 )
         logger.debug("Parsing PDF with %d pages", len(reader.pages))
 
-        skip_images = _should_skip_images(reader, file_like)
-        if skip_images:
+        skip_images = ignore_images or _should_skip_images(reader, file_like)
+        if skip_images and not ignore_images:
             logger.info(
                 "Skipping image extraction for large AES-encrypted PDF using fallback crypto"
             )
@@ -818,7 +819,7 @@ def _extract_image(
     resolved_caption = caption or _extract_image_alt_text(image_obj)
 
     return PdfImage(
-        index=index,
+        image_index=index,
         name=str(name),
         caption=resolved_caption,
         width=int(width),

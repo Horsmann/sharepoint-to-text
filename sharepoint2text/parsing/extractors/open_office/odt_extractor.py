@@ -723,7 +723,7 @@ def _extract_full_text(body: ET.Element) -> str:
 
 
 def read_odt(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[OdtContent, Any, None]:
     """
     Extract all relevant content from an OpenDocument Text (.odt) file.
@@ -741,6 +741,7 @@ def read_odt(
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
             returned OdtContent.metadata.
+        ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
         OdtContent: Single OdtContent object containing:
@@ -799,7 +800,7 @@ def read_odt(
             footnotes, endnotes = _extract_notes(body)
             annotations = _extract_annotations(body)
             bookmarks = _extract_bookmarks(body)
-            images = _extract_images_from_context(ctx, body)
+            images = [] if ignore_images else _extract_images_from_context(ctx, body)
             headers, footers = _extract_headers_footers_from_context(ctx)
             styles = _extract_styles_from_context(ctx)
             full_text = _extract_full_text(body)

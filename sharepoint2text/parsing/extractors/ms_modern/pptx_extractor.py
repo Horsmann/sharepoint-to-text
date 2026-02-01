@@ -712,7 +712,7 @@ def _normalize_relative_path(base_dir: str, target: str) -> str:
 
 
 def _process_slide_from_context(
-    ctx: _PptxContext, slide_path: str, slide_number: int
+    ctx: _PptxContext, slide_path: str, slide_number: int, ignore_images: bool = False
 ) -> PptxSlide:
     """
     Process a single slide and extract all its content using cached XML.
@@ -761,7 +761,7 @@ def _process_slide_from_context(
 
     for shape_type, elem, position in shape_elements:
         # Picture extraction
-        if shape_type == "pic":
+        if shape_type == "pic" and not ignore_images:
             try:
                 blip = next(elem.iter(A_BLIP), None)
                 if blip is None:
@@ -906,7 +906,7 @@ def _process_slide_from_context(
 
 
 def read_pptx(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[PptxContent, Any, None]:
     """
     Extract all relevant content from a PowerPoint .pptx file.
@@ -924,6 +924,7 @@ def read_pptx(
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
             returned PptxContent.metadata.
+        ignore_images: If True, skip image extraction.
 
     Yields:
         PptxContent: Single PptxContent object containing:
@@ -987,7 +988,9 @@ def read_pptx(
             # Process each slide using cached XML
             slides_result: List[PptxSlide] = []
             for slide_index, slide_path in enumerate(slide_paths, start=1):
-                slide = _process_slide_from_context(ctx, slide_path, slide_index)
+                slide = _process_slide_from_context(
+                    ctx, slide_path, slide_index, ignore_images=ignore_images
+                )
                 slides_result.append(slide)
 
             metadata.populate_from_path(path)

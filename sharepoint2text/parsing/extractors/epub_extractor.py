@@ -689,7 +689,7 @@ def _is_epub_encrypted(ctx: _EpubContext) -> bool:
 
 
 def read_epub(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[EpubContent, Any, None]:
     """
     Extract all relevant content from an EPUB eBook file.
@@ -707,6 +707,7 @@ def read_epub(
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
             returned EpubContent.metadata.
+        ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
         EpubContent: Single EpubContent object containing:

@@ -284,13 +284,16 @@ def _read_metadata(file_like: io.BytesIO) -> XlsMetadata:
 
 
 def read_xls(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[XlsContent, Any, None]:
     """
     Extract content from a legacy Excel .xls file.
 
     Uses a generator pattern for API consistency. XLS files yield exactly one
     XlsContent object containing sheets, metadata, and images.
+
+    Args:
+        ignore_images: If True, skip image extraction (not applicable for this format).
     """
     try:
         file_like.seek(0)

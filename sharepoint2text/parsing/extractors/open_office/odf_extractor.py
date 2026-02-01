@@ -234,9 +234,14 @@ def _extract_full_text(content_root: ET.Element) -> str:
 
 
 def read_odf(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[OdfContent, Any, None]:
-    """Extract text and metadata from an ODF formula file."""
+    """
+    Extract text and metadata from an ODF formula file.
+
+    Args:
+        ignore_images: If True, skip image extraction (not applicable for this format).
+    """
     try:
         file_like.seek(0)
         if is_odf_encrypted(file_like):
@@ -255,6 +260,7 @@ def read_odf(
 
             metadata = _extract_metadata(meta_root)
             full_text = _extract_full_text(content_root)
+            # ODF formulas don't have images, ignore_images is a no-op
         finally:
             ctx.close()
 

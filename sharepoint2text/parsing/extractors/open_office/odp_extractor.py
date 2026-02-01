@@ -381,14 +381,16 @@ def _extract_slide(
     page: ET.Element,
     slide_number: int,
     image_counter: int = 0,
+    ignore_images: bool = False,
 ) -> tuple[OdpSlide, int]:
     """Extract content from a single slide (draw:page element).
 
     Args:
-        z: The open zipfile containing the presentation.
+        ctx: The cached ODP context.
         page: The draw:page XML element for this slide.
         slide_number: The 1-based slide number.
         image_counter: The current global image counter across all slides.
+        ignore_images: If True, skip image extraction.
 
     Returns:
         A tuple of (OdpSlide, updated_image_counter).
@@ -442,10 +444,11 @@ def _extract_slide(
                 slide.tables.append(table_data)
 
         # Check for image
-        image = _extract_image(ctx, frame, slide_number, image_counter + 1)
-        if image is not None:
-            image_counter += 1
-            slide.images.append(image)
+        if not ignore_images:
+            image = _extract_image(ctx, frame, slide_number, image_counter + 1)
+            if image is not None:
+                image_counter += 1
+                slide.images.append(image)
 
     # Extract speaker notes
     notes_elem = page.find("presentation:notes", NS)
@@ -462,7 +465,7 @@ def _extract_slide(
 
 
 def read_odp(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[OdpContent, Any, None]:
     """
     Extract all relevant content from an OpenDocument Presentation (.odp) file.
@@ -480,6 +483,7 @@ def read_odp(
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
             returned OdpContent.metadata.
+        ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
         OdpContent: Single OdpContent object containing:
@@ -521,7 +525,7 @@ def read_odp(
             image_counter = 0
             for slide_num, page in enumerate(body.findall("draw:page", NS), start=1):
                 slide, image_counter = _extract_slide(
-                    ctx, page, slide_num, image_counter
+                    ctx, page, slide_num, image_counter, ignore_images
                 )
                 slides.append(slide)
         finally:

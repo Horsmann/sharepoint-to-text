@@ -223,20 +223,27 @@ def _clean_text(text: str) -> str:
 
 
 def read_ppt(
-    file_like: BinaryIO, path: str | None = None
+    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[PptContent, Any, None]:
     """
     Extract text content and metadata from a legacy PowerPoint .ppt file.
 
     Uses a generator pattern for API consistency. PPT files yield exactly one
     PptContent object containing slides, metadata, and extracted text.
+
+    Args:
+        file_like: BytesIO object containing the PPT file data.
+        path: Optional path to the source file for metadata.
+        ignore_images: If True, skip image extraction.
     """
     try:
         file_like.seek(0)
         if is_ppt_encrypted(file_like):
             raise ExtractionFileEncryptedError("PPT is encrypted or password-protected")
 
-        content = _extract_ppt_content_structured(file_like)
+        content = _extract_ppt_content_structured(
+            file_like, ignore_images=ignore_images
+        )
         content.metadata.populate_from_path(path)
         yield content
     except ExtractionError:
@@ -247,7 +254,9 @@ def read_ppt(
         ) from exc
 
 
-def _extract_ppt_content_structured(file_like: BinaryIO) -> PptContent:
+def _extract_ppt_content_structured(
+    file_like: BinaryIO, ignore_images: bool = False
+) -> PptContent:
     """Extract content from PPT file into structured PptContent object."""
     file_like.seek(0)
 
@@ -271,9 +280,10 @@ def _extract_ppt_content_structured(file_like: BinaryIO) -> PptContent:
         stream_data = ole.openstream("PowerPoint Document").read()
         _parse_ppt_document(stream_data, content)
 
-        images = _extract_images_from_pictures_stream(ole)
-        if images:
-            _distribute_images_to_slides(content, images)
+        if not ignore_images:
+            images = _extract_images_from_pictures_stream(ole)
+            if images:
+                _distribute_images_to_slides(content, images)
 
     return content
 

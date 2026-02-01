@@ -437,7 +437,7 @@ def parse_email_message(message: email.message.Message) -> EmailContent:
 
 
 def read_mbox_format_mail(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[EmailContent, Any, None]:
     """
     Read all emails from an mbox format file.
@@ -451,6 +451,7 @@ def read_mbox_format_mail(
         path: Optional filesystem path to source file. If provided, populates
             file metadata (filename, extension, folder) in each returned
             EmailContent.metadata. Useful for batch processing and auditing.
+        ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
         EmailContent: One object per message in the mbox. Order matches

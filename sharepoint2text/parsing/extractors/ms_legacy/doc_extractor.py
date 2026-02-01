@@ -184,7 +184,7 @@ _DOC_TEXT_TRANS = str.maketrans(
 
 
 def read_doc(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[DocContent, Any, None]:
     """
     Extract all relevant content from a legacy Word .doc file.
@@ -202,6 +202,7 @@ def read_doc(
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
             returned DocContent.metadata. Useful for batch processing.
+        ignore_images: If True, skip image extraction.
 
     Yields:
         DocContent: Single DocContent object containing:
@@ -235,7 +236,7 @@ def read_doc(
     """
     try:
         file_like.seek(0)
-        with _DocReader(file_like) as doc:
+        with _DocReader(file_like, ignore_images=ignore_images) as doc:
             document = doc.read()
             document.metadata = doc.get_metadata()
             document.metadata.populate_from_path(path)
@@ -285,18 +286,20 @@ class _DocReader:
         - Text follows the FIB, but exact start offset varies by file
     """
 
-    def __init__(self, file_like: io.BytesIO):
+    def __init__(self, file_like: io.BytesIO, ignore_images: bool = False):
         """
         Initialize the DOC reader with file data.
 
         Args:
             file_like: BytesIO containing the complete DOC file.
+            ignore_images: If True, skip image extraction.
         """
         self.file_like = file_like
         self.ole = None
         self._content: Optional[DocContent] = None
         self._is_unicode: Optional[bool] = None
         self._text_start: Optional[int] = None
+        self._ignore_images = ignore_images
 
     def __enter__(self):
         """Open the OLE container for reading."""
@@ -428,7 +431,7 @@ class _DocReader:
             image_counter += 1
             images.append(
                 DocImage(
-                    image_number=image_counter,
+                    image_index=image_counter,
                     content_type="image/bmp",
                     data=bmp_data,
                     size_bytes=len(bmp_data),
@@ -440,7 +443,7 @@ class _DocReader:
 
         images = _DocReader._filter_low_entropy_images(images)
         for idx, image in enumerate(images, start=1):
-            image.image_number = idx
+            image.image_index = idx
         return images
 
     @staticmethod
@@ -487,7 +490,7 @@ class _DocReader:
                             image_counter += 1
                             images.append(
                                 DocImage(
-                                    image_number=image_counter,
+                                    image_index=image_counter,
                                     content_type="image/png",
                                     data=png_bytes,
                                     size_bytes=len(png_bytes),
@@ -682,25 +685,28 @@ class _DocReader:
         # Annotations
         atn_data = word_doc[pos : pos + ccp_atn * mult] if ccp_atn > 0 else b""
 
-        images = self._extract_images_from_word_document(word_doc)
-        table_stream = self._get_stream("1Table") or self._get_stream("0Table")
-        images.extend(self._extract_png_images_from_bytes(word_doc))
-        if table_stream:
-            images.extend(self._extract_png_images_from_bytes(table_stream))
+        if self._ignore_images:
+            images: List[DocImage] = []
+        else:
+            images = self._extract_images_from_word_document(word_doc)
+            table_stream = self._get_stream("1Table") or self._get_stream("0Table")
+            images.extend(self._extract_png_images_from_bytes(word_doc))
+            if table_stream:
+                images.extend(self._extract_png_images_from_bytes(table_stream))
 
-        # De-duplicate across sources and normalize indices.
-        dedup: List[DocImage] = []
-        seen_hashes: set[str] = set()
-        for image in images:
-            digest = hashlib.sha1(image.data).hexdigest() if image.data else ""
-            if digest and digest in seen_hashes:
-                continue
-            if digest:
-                seen_hashes.add(digest)
-            dedup.append(image)
-        images = dedup
-        for idx, image in enumerate(images, start=1):
-            image.image_number = idx
+            # De-duplicate across sources and normalize indices.
+            dedup: List[DocImage] = []
+            seen_hashes: set[str] = set()
+            for image in images:
+                digest = hashlib.sha1(image.data).hexdigest() if image.data else ""
+                if digest and digest in seen_hashes:
+                    continue
+                if digest:
+                    seen_hashes.add(digest)
+                dedup.append(image)
+            images = dedup
+            for idx, image in enumerate(images, start=1):
+                image.image_number = idx
 
         main_text = self._clean_text(main_data.decode(encoding, errors="replace"))
         footnotes_text = (
