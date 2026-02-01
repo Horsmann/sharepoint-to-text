@@ -359,6 +359,31 @@ Different file formats have different natural structural units:
 
 **Note on generators:** All extractors return generators. Most formats yield a single content object, but `.mbox` files can yield multiple `EmailContent` objects (one per email in the mailbox). Use `next()` for single-item formats or iterate with `for` to handle all cases.
 
+#### Skipping Images in Unit Iteration
+
+When you don't need image data in your units, pass `ignore_images=True` to `iterate_units()` to improve performance and reduce memory usage:
+
+```python
+result = next(sharepoint2text.read_file("document.docx"))
+
+# Default behavior: includes images in units
+for unit in result.iterate_units():
+    print(f"Text: {unit.get_text()}")
+    print(f"Images: {len(unit.get_images())}")  # May contain images
+
+# Skip images: units will have empty image lists
+for unit in result.iterate_units(ignore_images=True):
+    print(f"Text: {unit.get_text()}")
+    print(f"Images: {len(unit.get_images())}")  # Always 0
+```
+
+This is useful when:
+- You only need text content and don't want the overhead of image processing
+- You're processing documents in a text-only pipeline (e.g., full-text search indexing)
+- You want to reduce memory usage for large documents with many embedded images
+
+**Note:** This only affects unit iteration. `result.iterate_images()` still yields all images regardless of this flag.
+
 ### Choosing Between `get_full_text()` and `iterate_units()`
 
 The interface provides two methods for accessing text content, and **you must decide which is appropriate for your use case**:
@@ -526,7 +551,7 @@ with open("archive.zip", "rb") as f:
 ### PDF Extraction
 
 - **No OCR support:** This library does not perform optical character recognition. PDFs that consist of scanned images or photos of documents will return empty text. The images themselves are still extracted and available via `iterate_images()`, but no text is derived from them.
-- **Table detection is best-effort:** PDF table extraction relies on parseable text content and heuristics to identify table structures. Complex layouts, merged cells, or tables spanning multiple pages may not be detected accurately. Results should be validated for critical use cases.
+- **Table extraction not implemented:** PDF table extraction is not currently implemented. `iterate_tables()` will always yield empty results for PDF files. Tables may appear as part of the page text in `get_full_text()` or `iterate_units()`, but structured table data is not available.
 - **Image extraction on large encrypted files:** When a PDF is AES-encrypted and pypdf is running in its fallback crypto provider (i.e., neither `cryptography` nor `pycryptodome` is installed), image extraction is skipped for large files (>= 10MB). Text and tables still extract, but image lists are empty. Install `cryptography` or `pycryptodome` to enable full PDF image extraction without this skip.
 - **Password-protected PDFs:** PDFs requiring a non-empty password are rejected with an `ExtractionFileEncryptedError`.
 
