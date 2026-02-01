@@ -580,6 +580,21 @@ def test_read_pptx_3() -> None:
     )
 
 
+def test_read_pptx__image_flag():
+    path = "sharepoint2text/tests/resources/modern_ms/pptx_images.pptx"
+    pptx: PptxContent = next(
+        read_pptx(_read_file_to_file_like(path=path), ignore_images=False)
+    )
+    tc.assertEqual(1, len(pptx.slides[0].images))
+    tc.assertEqual("PPTX text", pptx.get_full_text())
+
+    pptx: PptxContent = next(
+        read_pptx(_read_file_to_file_like(path=path), ignore_images=True)
+    )
+    tc.assertEqual(0, len(pptx.slides[0].images))
+    tc.assertEqual("PPTX text", pptx.get_full_text())
+
+
 def test_read_docx_1() -> None:
     # An actual document from the web - this is likely created on a Windows client
     path = (
@@ -698,6 +713,23 @@ def test_read_docx_2() -> None:
         ),
         img_meta,
     )
+
+
+def test_read_docx__image_flag() -> None:
+    # A converted docx from OSX pages - may not populate like a true MS client .docx
+    # dedicated test for comment, table and footnote extraction
+    path = "sharepoint2text/tests/resources/modern_ms/document_with_image.docx"
+    docx: DocxContent = next(
+        read_docx(_read_file_to_file_like(path=path), ignore_images=False)
+    )
+    tc.assertEqual(1, len(docx.images))
+    tc.assertEqual("Docx with image", docx.get_full_text())
+
+    docx: DocxContent = next(
+        read_docx(_read_file_to_file_like(path=path), ignore_images=True)
+    )
+    tc.assertEqual(0, len(docx.images))
+    tc.assertEqual("Docx with image", docx.get_full_text())
 
 
 def test_read_docx__image_extraction_1() -> None:
@@ -2807,6 +2839,24 @@ def test_read_macro_enabled_xlsm() -> None:
     # Verify it extracts as XlsxContent (same as .xlsx)
     tc.assertIsInstance(result, XlsxContent)
     tc.assertTrue(len(result.sheets) > 0)
+
+
+def test_read_xlsx__image_flag() -> None:
+    """Test .xlsm (macro-enabled Excel) extraction - same structure as .xlsx."""
+    path = "sharepoint2text/tests/resources/modern_ms/excel_images.xlsx"
+    result: XlsxContent = next(
+        read_xlsx(
+            file_like=_read_file_to_file_like(path=path), path=path, ignore_images=False
+        ),
+    )
+    tc.assertEqual(1, len(result.sheets[0].images))
+
+    result: XlsxContent = next(
+        read_xlsx(
+            file_like=_read_file_to_file_like(path=path), path=path, ignore_images=True
+        ),
+    )
+    tc.assertEqual(0, len(result.sheets[0].images))
 
 
 def test_read_macro_enabled_pptm() -> None:
