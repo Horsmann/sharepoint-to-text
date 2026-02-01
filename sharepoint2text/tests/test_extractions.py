@@ -2204,6 +2204,17 @@ def test_open_office__document_image_interface() -> None:
     tc.assertEqual(82881, len(odt.images[1].get_bytes().getvalue()))
 
 
+def test_open_office__document_image_interface__no_images() -> None:
+    """Test that OpenDocumentImage correctly implements ImageInterface."""
+    # Create an OpenDocumentImage with test data
+    path = "sharepoint2text/tests/resources/open_office/image_extraction.odt"
+    odt: OdtContent = next(
+        read_odt(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+
+    tc.assertEqual(0, len(odt.images))
+
+
 def test_open_office__presentation_image_interface() -> None:
     """Test that OpenDocumentImage correctly implements ImageInterface."""
     # Create an OpenDocumentImage with test data
@@ -2252,6 +2263,18 @@ def test_open_office__presentation_image_interface() -> None:
     tc.assertEqual(35712, len(units[0].get_images()[0].get_bytes().getvalue()))
 
 
+def test_open_office__presentation_image_interface__no_image_flag() -> None:
+    """Test that OpenDocumentImage correctly implements ImageInterface."""
+    # Create an OpenDocumentImage with test data
+    path = "sharepoint2text/tests/resources/open_office/image_extraction.odp"
+    odp: OdpContent = next(
+        read_odp(
+            file_like=_read_file_to_file_like(path=path), path=path, ignore_images=True
+        )
+    )
+    tc.assertEqual(0, len(odp.slides[0].images))
+
+
 def test_open_office__spreadsheet_image_interface() -> None:
     """Test that OpenDocumentImage correctly implements ImageInterface."""
     # Create an OpenDocumentImage with test data
@@ -2272,6 +2295,18 @@ def test_open_office__spreadsheet_image_interface() -> None:
         "A description title\nThe description text of the image",
         ods.sheets[0].images[0].get_description(),
     )
+
+
+def test_open_office__spreadsheet_image_interface__no_images() -> None:
+    """Test that OpenDocumentImage correctly implements ImageInterface."""
+    # Create an OpenDocumentImage with test data
+    path = "sharepoint2text/tests/resources/open_office/image_extraction.ods"
+    ods: OdsContent = next(
+        read_ods(
+            file_like=_read_file_to_file_like(path=path), path=path, ignore_images=True
+        )
+    )
+    tc.assertEqual(0, len(ods.sheets[0].images))
 
 
 #########
