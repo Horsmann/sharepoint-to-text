@@ -893,7 +893,11 @@ def _extract_images_from_context(ctx: _DocxContext) -> list[DocxImage]:
         if "image" not in rel_type.lower():
             continue
 
-        image_path = "word/" + target
+        # Handle both absolute paths (starting with /) and relative paths
+        if target.startswith("/"):
+            image_path = target[1:]  # Remove leading /
+        else:
+            image_path = "word/" + target
         try:
             img_data = ctx.get_image_data(image_path)
             if img_data is None:
