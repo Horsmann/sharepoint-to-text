@@ -819,7 +819,7 @@ def _extract_image(
     resolved_caption = caption or _extract_image_alt_text(image_obj)
 
     return PdfImage(
-        index=index,
+        image_index=index,
         name=str(name),
         caption=resolved_caption,
         width=int(width),

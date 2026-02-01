@@ -527,7 +527,7 @@ class DocMetadata(FileMetadataInterface):
 
 @dataclass
 class DocImage(ImageInterface):
-    image_number: int
+    image_index: int
     content_type: str
     data: bytes = b""
     size_bytes: int = 0
@@ -552,7 +552,7 @@ class DocImage(ImageInterface):
 
     def get_metadata(self) -> ImageMetadata:
         return ImageMetadata(
-            image_number=self.image_number,
+            image_number=self.image_index,
             content_type=self.content_type,
             unit_number=self.unit_number,
             width=self.width if self.width is not None and self.width > 0 else None,
@@ -692,7 +692,7 @@ class DocContent(ExtractionInterface):
                     )
                 matched_unit.images.append(
                     DocImage(
-                        image_number=image.image_number,
+                        image_index=image.image_index,
                         content_type=image.content_type,
                         data=image.data,
                         size_bytes=image.size_bytes,
@@ -1151,7 +1151,7 @@ class PdfUnit(UnitInterface):
 
 @dataclass
 class PdfImage(ImageInterface):
-    index: int = 0
+    image_index: int = 0
     name: str = ""
     caption: str = ""
     width: int = 0
@@ -1184,7 +1184,7 @@ class PdfImage(ImageInterface):
 
     def get_metadata(self) -> ImageMetadata:
         return ImageMetadata(
-            image_number=self.index,
+            image_number=self.image_index,
             content_type=self.get_content_type(),
             unit_number=self.unit_name,
             width=self.width if self.width > 0 else None,

@@ -431,7 +431,7 @@ class _DocReader:
             image_counter += 1
             images.append(
                 DocImage(
-                    image_number=image_counter,
+                    image_index=image_counter,
                     content_type="image/bmp",
                     data=bmp_data,
                     size_bytes=len(bmp_data),
@@ -443,7 +443,7 @@ class _DocReader:
 
         images = _DocReader._filter_low_entropy_images(images)
         for idx, image in enumerate(images, start=1):
-            image.image_number = idx
+            image.image_index = idx
         return images
 
     @staticmethod
@@ -490,7 +490,7 @@ class _DocReader:
                             image_counter += 1
                             images.append(
                                 DocImage(
-                                    image_number=image_counter,
+                                    image_index=image_counter,
                                     content_type="image/png",
                                     data=png_bytes,
                                     size_bytes=len(png_bytes),
