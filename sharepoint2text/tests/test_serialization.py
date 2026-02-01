@@ -62,8 +62,14 @@ def test_image_metadata_json_serializable() -> None:
         height=80,
     )
 
+    # ImageMetadata should be serializable via to_dict() or to_json()
     try:
-        json.dumps(meta)
+        json.dumps(meta.to_dict())
+    except Exception as e:
+        tc.fail(f"JSON dump failed on object {e}")
+
+    try:
+        json.dumps(meta.to_json())
     except Exception as e:
         tc.fail(f"JSON dump failed on object {e}")
 

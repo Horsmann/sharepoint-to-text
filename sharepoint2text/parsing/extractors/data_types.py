@@ -256,7 +256,13 @@ class TableData(TableInterface):
 
 
 @dataclass
-class ImageMetadata(dict):
+class ImageMetadata:
+    """Metadata for an extracted image.
+
+    Provides consistent metadata across all image formats with dict-like
+    access for backward compatibility.
+    """
+
     # the number of the unit where this image occurs (1-based for pages/slides)
     # None for formats without pages/slides (e.g. docx, odt, ods, xlsx)
     unit_number: Optional[int] = None
@@ -267,34 +273,17 @@ class ImageMetadata(dict):
     width: Optional[int] = None
     height: Optional[int] = None
 
-    def __post_init__(self) -> None:
-        dict.__init__(
-            self,
-            unit_number=self.unit_number,
-            image_number=self.image_number,
-            content_type=self.content_type,
-            width=self.width,
-            height=self.height,
-        )
-
-    def __setattr__(self, name: str, value: typing.Any) -> None:
-        super().__setattr__(name, value)
-        if name in getattr(self, "__dataclass_fields__", {}):
-            dict.__setitem__(self, name, value)
-
-    def __setitem__(self, key: str, value: typing.Any) -> None:
-        dict.__setitem__(self, key, value)
-        if key in getattr(self, "__dataclass_fields__", {}):
-            super().__setattr__(key, value)
-
     def to_dict(self) -> dict:
+        """Return a dictionary representation of the metadata."""
         return asdict(self)
 
     def to_json(self) -> dict:
+        """Return a JSON-serializable dictionary representation."""
         return serialize_extraction(self)
 
     @property
     def unit_index(self) -> Optional[int]:
+        """Alias for unit_number for backward compatibility."""
         return self.unit_number
 
     @unit_index.setter
@@ -303,11 +292,27 @@ class ImageMetadata(dict):
 
     @property
     def image_index(self) -> int:
+        """Alias for image_number for backward compatibility."""
         return self.image_number
 
     @image_index.setter
     def image_index(self, value: int) -> None:
         self.image_number = value
+
+    # Dict-like access for backward compatibility
+    def __getitem__(self, key: str) -> typing.Any:
+        """Allow dict-style access for backward compatibility."""
+        if hasattr(self, key):
+            return getattr(self, key)
+        raise KeyError(key)
+
+    def __contains__(self, key: str) -> bool:
+        """Allow 'in' operator for backward compatibility."""
+        return hasattr(self, key)
+
+    def get(self, key: str, default: typing.Any = None) -> typing.Any:
+        """Dict-style get method for backward compatibility."""
+        return getattr(self, key, default)
 
 
 def _join_unit_text(units: typing.Iterable[UnitInterface]) -> str:
