@@ -2384,7 +2384,7 @@ def test_pdf__2() -> None:
     tc.assertEqual(PdfUnitMetadata(unit_number=1), units[0].get_metadata())
 
 
-def test_pdf__6() -> None:
+def test_pdf__3() -> None:
     path = (
         "sharepoint2text/tests/resources/pdf/vendor-creation-form-english-version.pdf"
     )

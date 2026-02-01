@@ -512,7 +512,7 @@ def _process_7z_files_sequential(
 
 
 def read_archive(
-    file_like: io.BytesIO, path: Optional[str] = None
+    file_like: io.BytesIO, path: Optional[str] = None, *, ignore_images: bool = False
 ) -> Generator[ExtractionInterface, Any, None]:
     """
     Optimized entry point for archive extraction.
@@ -523,6 +523,7 @@ def read_archive(
     Args:
         file_like: BytesIO object containing the complete archive data.
         path: Optional filesystem path to the source archive.
+        ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
         ExtractionInterface: Extraction results for each supported file.

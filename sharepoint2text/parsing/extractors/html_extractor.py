@@ -577,7 +577,7 @@ class _HtmlTextExtractor:
 
 
 def read_html(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[HtmlContent, Any, None]:
     """
     Extract all relevant content from an HTML document.
@@ -595,6 +595,7 @@ def read_html(
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
             returned HtmlContent.metadata.
+        ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
         HtmlContent: Single HtmlContent object containing:

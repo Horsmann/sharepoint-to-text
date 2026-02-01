@@ -75,7 +75,7 @@ except PackageNotFoundError:  # pragma: no cover
 # Modern MS
 #############
 def read_docx(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[DocxContent, Any, None]:
     """Extract content from a DOCX file."""
     from sharepoint2text.parsing.extractors.ms_modern.docx_extractor import (
@@ -83,11 +83,11 @@ def read_docx(
     )
 
     logger.debug("Reading MS docx file: %s", path)
-    return _read_docx(file_like, path)
+    return _read_docx(file_like, path, ignore_images=ignore_images)
 
 
 def read_xlsx(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[XlsxContent, Any, None]:
     """Extract content from an XLSX file."""
     from sharepoint2text.parsing.extractors.ms_modern.xlsx_extractor import (
@@ -95,11 +95,11 @@ def read_xlsx(
     )
 
     logger.debug("Reading MS xlsx file: %s", path)
-    return _read_xlsx(file_like, path)
+    return _read_xlsx(file_like, path, ignore_images=ignore_images)
 
 
 def read_pptx(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[PptxContent, Any, None]:
     """Extract content from a PPTX file."""
     from sharepoint2text.parsing.extractors.ms_modern.pptx_extractor import (
@@ -107,7 +107,7 @@ def read_pptx(
     )
 
     logger.debug("Reading MS pptx file: %s", path)
-    return _read_pptx(file_like, path)
+    return _read_pptx(file_like, path, ignore_images=ignore_images)
 
 
 #############
@@ -116,7 +116,7 @@ def read_pptx(
 
 
 def read_doc(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[DocContent, Any, None]:
     """Extract content from a DOC file."""
     from sharepoint2text.parsing.extractors.ms_legacy.doc_extractor import (
@@ -124,11 +124,11 @@ def read_doc(
     )
 
     logger.debug("Reading legacy MS doc file: %s", path)
-    return _read_doc(file_like, path)
+    return _read_doc(file_like, path, ignore_images=ignore_images)
 
 
 def read_xls(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[XlsContent, Any, None]:
     """Extract content from an XLS file."""
     from sharepoint2text.parsing.extractors.ms_legacy.xls_extractor import (
@@ -136,11 +136,11 @@ def read_xls(
     )
 
     logger.debug("Reading legacy MS xls file: %s", path)
-    return _read_xls(file_like, path)
+    return _read_xls(file_like, path, ignore_images=ignore_images)
 
 
 def read_ppt(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[PptContent, Any, None]:
     """Extract content from a PPT file."""
     from sharepoint2text.parsing.extractors.ms_legacy.ppt_extractor import (
@@ -148,11 +148,11 @@ def read_ppt(
     )
 
     logger.debug("Reading legacy MS ppt file: %s", path)
-    return _read_ppt(file_like, path)
+    return _read_ppt(file_like, path, ignore_images=ignore_images)
 
 
 def read_rtf(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[RtfContent, Any, None]:
     """Extract content from a RTF file."""
     from sharepoint2text.parsing.extractors.ms_legacy.rtf_extractor import (
@@ -160,7 +160,7 @@ def read_rtf(
     )
 
     logger.debug("Reading legacy MS rtf file: %s", path)
-    return _read_rtf(file_like, path)
+    return _read_rtf(file_like, path, ignore_images=ignore_images)
 
 
 #############
@@ -169,7 +169,7 @@ def read_rtf(
 
 
 def read_odt(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[OdtContent, Any, None]:
     """Extract content from an ODT (OpenDocument Text) file."""
     from sharepoint2text.parsing.extractors.open_office.odt_extractor import (
@@ -177,11 +177,11 @@ def read_odt(
     )
 
     logger.debug("Reading open office odt file: %s", path)
-    return _read_odt(file_like, path)
+    return _read_odt(file_like, path, ignore_images=ignore_images)
 
 
 def read_odp(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[OdpContent, Any, None]:
     """Extract content from an ODP (OpenDocument Presentation) file."""
     from sharepoint2text.parsing.extractors.open_office.odp_extractor import (
@@ -189,11 +189,11 @@ def read_odp(
     )
 
     logger.debug("Reading open office odp file: %s", path)
-    return _read_odp(file_like, path)
+    return _read_odp(file_like, path, ignore_images=ignore_images)
 
 
 def read_ods(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[OdsContent, Any, None]:
     """Extract content from an ODS (OpenDocument Spreadsheet) file."""
     from sharepoint2text.parsing.extractors.open_office.ods_extractor import (
@@ -201,11 +201,11 @@ def read_ods(
     )
 
     logger.debug("Reading open office ods file: %s", path)
-    return _read_ods(file_like, path)
+    return _read_ods(file_like, path, ignore_images=ignore_images)
 
 
 def read_odg(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[OdgContent, Any, None]:
     """Extract content from an ODG (OpenDocument Drawing) file."""
     from sharepoint2text.parsing.extractors.open_office.odg_extractor import (
@@ -213,11 +213,11 @@ def read_odg(
     )
 
     logger.debug("Reading open office odg file: %s", path)
-    return _read_odg(file_like, path)
+    return _read_odg(file_like, path, ignore_images=ignore_images)
 
 
 def read_odf(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[OdfContent, Any, None]:
     """Extract content from an ODF (OpenDocument Formula) file."""
     from sharepoint2text.parsing.extractors.open_office.odf_extractor import (
@@ -225,7 +225,7 @@ def read_odf(
     )
 
     logger.debug("Reading open office odf file: %s", path)
-    return _read_odf(file_like, path)
+    return _read_odf(file_like, path, ignore_images=ignore_images)
 
 
 #############
@@ -234,7 +234,7 @@ def read_odf(
 
 
 def read_plain_text(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[PlainTextContent, Any, None]:
     """Extract content from a plain text file."""
     from sharepoint2text.parsing.extractors.plain_extractor import (
@@ -242,14 +242,14 @@ def read_plain_text(
     )
 
     logger.debug("Reading plain text file: %s", path)
-    return _read_plain_text(file_like, path)
+    return _read_plain_text(file_like, path, ignore_images=ignore_images)
 
 
 #############
 # PDF
 #############
 def read_pdf(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[PdfContent, Any, None]:
     """Extract content from a PDF file."""
     from sharepoint2text.parsing.extractors.pdf.pdf_extractor import (
@@ -257,14 +257,14 @@ def read_pdf(
     )
 
     logger.debug("Reading PDF file: %s", path)
-    return _read_pdf(file_like, path)
+    return _read_pdf(file_like, path, ignore_images=ignore_images)
 
 
 #############
 # HTML
 #############
 def read_html(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[HtmlContent, Any, None]:
     """Extract content from an HTML file."""
     from sharepoint2text.parsing.extractors.html_extractor import (
@@ -272,14 +272,14 @@ def read_html(
     )
 
     logger.debug("Reading HTML file: %s", path)
-    return _read_html(file_like, path)
+    return _read_html(file_like, path, ignore_images=ignore_images)
 
 
 #############
 # EPUB
 #############
 def read_epub(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[EpubContent, Any, None]:
     """Extract content from an EPUB eBook file."""
     from sharepoint2text.parsing.extractors.epub_extractor import (
@@ -287,14 +287,14 @@ def read_epub(
     )
 
     logger.debug("Reading EPUB file: %s", path)
-    return _read_epub(file_like, path)
+    return _read_epub(file_like, path, ignore_images=ignore_images)
 
 
 #############
 # MHTML
 #############
 def read_mhtml(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[HtmlContent, Any, None]:
     """Extract content from an MHTML (web archive) file."""
     from sharepoint2text.parsing.extractors.mhtml_extractor import (
@@ -302,14 +302,14 @@ def read_mhtml(
     )
 
     logger.debug("Reading MHTML file: %s", path)
-    return _read_mhtml(file_like, path)
+    return _read_mhtml(file_like, path, ignore_images=ignore_images)
 
 
 #############
 # Emails
 #############
 def read_email__msg_format(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[EmailContent, Any, None]:
     """Extract content from an email in msg format."""
     from sharepoint2text.parsing.extractors.mail.msg_email_extractor import (
@@ -317,11 +317,11 @@ def read_email__msg_format(
     )
 
     logger.debug("Reading mail .msg file: %s", path)
-    return _read_msg_format_mail(file_like, path)
+    return _read_msg_format_mail(file_like, path, ignore_images=ignore_images)
 
 
 def read_email__eml_format(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[EmailContent, Any, None]:
     """Extract content from an email in eml format."""
     from sharepoint2text.parsing.extractors.mail.eml_email_extractor import (
@@ -329,11 +329,11 @@ def read_email__eml_format(
     )
 
     logger.debug("Reading mail .eml file: %s", path)
-    return _read_eml_format_mail(file_like, path)
+    return _read_eml_format_mail(file_like, path, ignore_images=ignore_images)
 
 
 def read_email__mbox_format(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[EmailContent, Any, None]:
     """Extract content from an email in mbox format."""
     from sharepoint2text.parsing.extractors.mail.mbox_email_extractor import (
@@ -341,12 +341,14 @@ def read_email__mbox_format(
     )
 
     logger.debug("Reading mail .mbox file: %s", path)
-    return _read_mbox_format_mail(file_like, path)
+    return _read_mbox_format_mail(file_like, path, ignore_images=ignore_images)
 
 
 def read_file(
     path: str | Path,
     max_file_size: int = 100 * 1024 * 1024,  # 100MB default
+    *,
+    ignore_images: bool = False,
 ) -> Generator[ExtractionInterface, Any, None]:
     """
     Read and extract content from a file.
@@ -358,6 +360,9 @@ def read_file(
         path: Path to the file to read.
         max_file_size: Maximum file size in bytes (default: 100MB).
                       Set to 0 to disable size checking.
+        ignore_images: If True, skip image extraction. This can significantly
+                      improve performance for files with many images.
+                      Default is False.
 
     Yields:
         A dataclass containing extracted content and metadata.
@@ -403,6 +408,9 @@ def read_file(
         >>> import sharepoint2text
         >>> for result in sharepoint2text.read_file("document.docx"):
         ...     print(result.get_full_text())
+        >>> # Skip image extraction for faster processing
+        >>> for result in sharepoint2text.read_file("document.docx", ignore_images=True):
+        ...     print(result.get_full_text())
     """
     from sharepoint2text.parsing.exceptions import (
         ExtractionError,
@@ -423,7 +431,7 @@ def read_file(
             )
 
     logger.info("Starting extraction: %s", path)
-    extractor = get_extractor(str(path))
+    extractor = get_extractor(str(path), ignore_images=ignore_images)
     with open(path, "rb") as f:
         try:
             # For files within reasonable size, read entirely into memory

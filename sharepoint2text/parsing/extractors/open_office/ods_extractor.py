@@ -508,7 +508,7 @@ def _extract_sheet(
 
 
 def read_ods(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[OdsContent, Any, None]:
     """
     Extract all relevant content from an OpenDocument Spreadsheet (.ods) file.
@@ -526,6 +526,7 @@ def read_ods(
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
             returned OdsContent.metadata.
+        ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
         OdsContent: Single OdsContent object containing:

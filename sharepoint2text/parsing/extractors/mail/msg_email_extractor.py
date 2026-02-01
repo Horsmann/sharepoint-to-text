@@ -314,7 +314,7 @@ def _parse_multi_recipients(raw: str | list[str]) -> list[EmailAddress]:
 
 
 def read_msg_format_mail(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[EmailContent, Any, None]:
     """
     Read a Microsoft Outlook MSG file and extract its content.
@@ -333,6 +333,7 @@ def read_msg_format_mail(
         path: Optional filesystem path to source file. If provided, populates
             file metadata (filename, extension, folder) in the returned
             EmailContent.metadata. Useful for batch processing scenarios.
+        ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
         EmailContent: Single EmailContent object containing all extracted

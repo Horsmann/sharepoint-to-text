@@ -534,13 +534,18 @@ def _read_content_from_workbook(wb, sheet_names: list[str]) -> list[XlsxSheet]:
 
 
 def read_xlsx(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[XlsxContent, Any, None]:
     """
     Extract all relevant content from an Excel .xlsx file.
 
     Uses a generator pattern for API consistency. XLSX files yield exactly one
     XlsxContent object containing sheets, metadata, and images.
+
+    Args:
+        file_like: BytesIO object containing the XLSX file data.
+        path: Optional path to the source file for metadata.
+        ignore_images: If True, skip image extraction.
     """
     try:
         file_like.seek(0)
@@ -560,10 +565,11 @@ def read_xlsx(
         finally:
             wb.close()
 
-        images_by_sheet = _extract_images_from_zip(io.BytesIO(raw), sheet_names)
-        for sheet_idx, sheet_images in images_by_sheet.items():
-            if sheet_idx < len(sheets):
-                sheets[sheet_idx].images = sheet_images
+        if not ignore_images:
+            images_by_sheet = _extract_images_from_zip(io.BytesIO(raw), sheet_names)
+            for sheet_idx, sheet_images in images_by_sheet.items():
+                if sheet_idx < len(sheets):
+                    sheets[sheet_idx].images = sheet_images
 
         metadata.populate_from_path(path)
 

@@ -230,7 +230,7 @@ def _extract_from_mhtml(content: bytes) -> Optional[bytes]:
 
 
 def read_mhtml(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[HtmlContent, Any, None]:
     """
     Extract content from an MHTML (MIME HTML) web archive file.
@@ -244,6 +244,7 @@ def read_mhtml(
             The stream position is reset to the beginning before reading.
         path: Optional filesystem path to the source file. If provided,
             populates file metadata in the returned HtmlContent.
+        ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
         HtmlContent: Single HtmlContent object containing:

@@ -1,3 +1,4 @@
+import functools
 import io
 import logging
 import mimetypes
@@ -124,6 +125,7 @@ _SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
 
 def _get_extractor(
     file_type: str,
+    ignore_images: bool = False,
 ) -> Callable[[io.BytesIO, str | None], Generator[ExtractionInterface, Any, None]]:
     """
     Return the extractor function for a file type using lazy import.
@@ -134,6 +136,7 @@ def _get_extractor(
 
     Args:
         file_type: File type identifier (e.g., "docx", "pdf", "xlsx").
+        ignore_images: If True, skip image extraction for supported formats.
 
     Returns:
         Callable extractor function that accepts (BytesIO, path) arguments.
@@ -152,7 +155,12 @@ def _get_extractor(
     import importlib
 
     module = importlib.import_module(module_path)
-    return getattr(module, function_name)
+    extractor = getattr(module, function_name)
+
+    # If ignore_images is True, wrap the extractor with the flag
+    if ignore_images:
+        return functools.partial(extractor, ignore_images=True)
+    return extractor
 
 
 def _file_type_from_extension(path_lower: str) -> str | None:
@@ -200,6 +208,7 @@ def is_supported_file(path: str) -> bool:
 
 def get_extractor(
     path: str,
+    ignore_images: bool = False,
 ) -> Callable[[io.BytesIO, str | None], Generator[ExtractionInterface, Any, None]]:
     """
     Analyze a file path and return the appropriate extractor function.
@@ -209,6 +218,7 @@ def get_extractor(
 
     Args:
         path: File path or filename to analyze.
+        ignore_images: If True, skip image extraction for supported formats.
 
     Returns:
         Extractor function that accepts (BytesIO, path) arguments.
@@ -225,7 +235,7 @@ def get_extractor(
     if file_type:
         logger.debug("Detected file type: %s (extension) for file: %s", file_type, path)
         logger.info("Using extractor for file type: %s", file_type)
-        return _get_extractor(file_type)
+        return _get_extractor(file_type, ignore_images=ignore_images)
 
     # Secondary detection: MIME type lookup (may vary by OS configuration)
     if mime_type is not None and mime_type in MIME_TYPE_MAPPING:
@@ -234,7 +244,7 @@ def get_extractor(
             "Detected file type: %s (MIME: %s) for file: %s", file_type, mime_type, path
         )
         logger.info("Using extractor for file type: %s", file_type)
-        return _get_extractor(file_type)
+        return _get_extractor(file_type, ignore_images=ignore_images)
 
     logger.warning("Unsupported file type: %s (MIME: %s)", path, mime_type)
     raise ExtractionFileFormatNotSupportedError(f"File type not supported: {mime_type}")

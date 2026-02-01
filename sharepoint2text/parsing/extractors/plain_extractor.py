@@ -131,7 +131,7 @@ def _detect_and_decode(content: bytes) -> tuple[str, str]:
 
 
 def read_plain_text(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[PlainTextContent, Any, None]:
     """
     Extract content from a plain text file with automatic encoding detection.
@@ -150,6 +150,7 @@ def read_plain_text(
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
             returned PlainTextContent.metadata.
+        ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
         PlainTextContent: Single PlainTextContent object containing:

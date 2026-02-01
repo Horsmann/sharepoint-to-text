@@ -38,6 +38,12 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="With --json/--json-unit, include binary payloads (images/attachments) as base64 blobs.",
     )
+    parser.add_argument(
+        "--ignore-images",
+        dest="ignore_images",
+        action="store_true",
+        help="Skip image extraction for faster processing.",
+    )
     return parser
 
 
@@ -106,7 +112,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"File size {file_size} bytes exceeds CLI maximum of {MAX_CLI_FILE_SIZE} bytes"
             )
 
-        results = list(sharepoint2text.read_file(args.path))
+        results = list(
+            sharepoint2text.read_file(args.path, ignore_images=args.ignore_images)
+        )
         if not results:
             raise RuntimeError(f"No extraction results for {args.path}")
         if args.json or args.json_unit:

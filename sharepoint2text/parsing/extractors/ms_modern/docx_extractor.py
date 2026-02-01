@@ -986,13 +986,18 @@ def _extract_formulas_from_context(ctx: _DocxContext) -> list[DocxFormula]:
 
 
 def read_docx(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[DocxContent, Any, None]:
     """
     Extract all relevant content from a Word .docx file.
 
     Uses a generator pattern for API consistency. DOCX files yield exactly one
     DocxContent object containing paragraphs, tables, images, metadata, etc.
+
+    Args:
+        file_like: BytesIO object containing the DOCX file data.
+        path: Optional path to the source file for metadata.
+        ignore_images: If True, skip image extraction.
     """
     try:
         file_like.seek(0)
@@ -1007,7 +1012,7 @@ def read_docx(
             paragraphs = _extract_paragraphs_from_context(ctx)
             tables, table_anchor_paragraph_indices = _extract_tables_from_context(ctx)
             headers, footers = _extract_header_footers_from_context(ctx)
-            images = _extract_images_from_context(ctx)
+            images = [] if ignore_images else _extract_images_from_context(ctx)
             hyperlinks = _extract_hyperlinks_from_context(ctx)
             footnotes = _extract_footnotes_from_context(ctx)
             endnotes = _extract_endnotes_from_context(ctx)

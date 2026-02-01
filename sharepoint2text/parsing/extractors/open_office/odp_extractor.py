@@ -462,7 +462,7 @@ def _extract_slide(
 
 
 def read_odp(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[OdpContent, Any, None]:
     """
     Extract all relevant content from an OpenDocument Presentation (.odp) file.
@@ -480,6 +480,7 @@ def read_odp(
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
             returned OdpContent.metadata.
+        ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
         OdpContent: Single OdpContent object containing:

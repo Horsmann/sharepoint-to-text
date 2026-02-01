@@ -855,13 +855,16 @@ class _RtfParser:
 
 
 def read_rtf(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[RtfContent, Any, None]:
     """
     Extract content from an RTF file.
 
     Uses a generator pattern for API consistency. RTF files yield exactly one
     RtfContent object containing text, pages, metadata, and document elements.
+
+    Args:
+        ignore_images: If True, skip image extraction (not applicable for this format).
     """
     try:
         logger.debug("Reading RTF file")

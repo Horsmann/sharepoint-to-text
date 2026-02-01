@@ -196,9 +196,14 @@ def _extract_images(
 
 
 def read_odg(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[OdgContent, Any, None]:
-    """Extract text, metadata, and basic images from an ODG drawing file."""
+    """
+    Extract text, metadata, and basic images from an ODG drawing file.
+
+    Args:
+        ignore_images: If True, skip image extraction (not applicable for this format).
+    """
     try:
         file_like.seek(0)
         if is_odf_encrypted(file_like):

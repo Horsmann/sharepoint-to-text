@@ -212,7 +212,7 @@ def _read_eml_format(payload: bytes) -> EmailContent:
 
 
 def read_eml_format_mail(
-    file_like: io.BytesIO, path: str | None = None
+    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[EmailContent, Any, None]:
     """
     Read an EML file and extract its content as EmailContent.
@@ -231,6 +231,7 @@ def read_eml_format_mail(
             populates file metadata (filename, extension, folder) in the
             returned EmailContent.metadata object. Useful for tracking
             source files in batch processing scenarios.
+        ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
         EmailContent: Single EmailContent object containing all extracted
