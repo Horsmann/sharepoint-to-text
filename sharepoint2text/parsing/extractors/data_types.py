@@ -246,16 +246,7 @@ class TableData(TableInterface):
         return super().__eq__(other)
 
     def get_table(self) -> list[list[typing.Any]]:
-        """Return table data as a list of rows.
-
-        For tables originating from PDF extraction, rows are produced by
-        heuristics that infer columns from whitespace and numeric tokens.
-        The approach assumes visually aligned columns, consistent row
-        spacing, and row labels followed by numeric values. It may break
-        or split/merge rows when PDFs use multi-line labels, multi-column
-        layouts, irregular spacing, or when numbers and labels are
-        interleaved out of order by the content stream.
-        """
+        """Return table data as a list of rows."""
         return self.data
 
     def get_dim(self) -> TableDim:
