@@ -226,7 +226,7 @@ def read_odg(
 
             metadata = _extract_metadata(meta_root)
             full_text = _extract_full_text(drawing)
-            images = _extract_images(ctx, drawing)
+            images = [] if ignore_images else _extract_images(ctx, drawing)
         finally:
             ctx.close()
 

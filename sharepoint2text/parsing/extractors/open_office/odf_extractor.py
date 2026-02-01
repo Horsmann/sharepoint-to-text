@@ -260,6 +260,7 @@ def read_odf(
 
             metadata = _extract_metadata(meta_root)
             full_text = _extract_full_text(content_root)
+            # ODF formulas don't have images, ignore_images is a no-op
         finally:
             ctx.close()
 

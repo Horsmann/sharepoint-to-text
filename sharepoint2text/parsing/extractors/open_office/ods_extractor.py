@@ -408,17 +408,19 @@ def _extract_sheet(
     table: ET.Element,
     sheet_number: int,
     image_counter: int,
+    ignore_images: bool = False,
 ) -> tuple[OdsSheet, int]:
     """Extract content from a single sheet (table:table element).
 
     Args:
-        z: The open zipfile containing the spreadsheet.
+        ctx: The cached ODS context.
         table: The table:table XML element for this sheet.
         sheet_number: The 1-based sheet number.
         image_counter: The current global image counter across all sheets.
+        ignore_images: If True, skip image extraction.
 
     Returns:
-        A tuple of (OdsSheet, updated_image_counter).
+        A tuple of (OdsSheet, updated image_counter).
     """
     sheet = OdsSheet()
 
@@ -502,7 +504,10 @@ def _extract_sheet(
     sheet.data = rows_data
     sheet.text = "\n".join(text_lines)
     sheet.annotations = all_annotations
-    sheet.images, image_counter = _extract_images(ctx, table, image_counter)
+    if ignore_images:
+        sheet.images = []
+    else:
+        sheet.images, image_counter = _extract_images(ctx, table, image_counter)
 
     return sheet, image_counter
 
@@ -569,7 +574,7 @@ def read_ods(
             image_counter = 0
             for sheet_num, table in enumerate(body.findall("table:table", NS), start=1):
                 sheet, image_counter = _extract_sheet(
-                    ctx, table, sheet_num, image_counter
+                    ctx, table, sheet_num, image_counter, ignore_images
                 )
                 sheets.append(sheet)
         finally:

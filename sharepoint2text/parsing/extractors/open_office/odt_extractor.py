@@ -800,7 +800,7 @@ def read_odt(
             footnotes, endnotes = _extract_notes(body)
             annotations = _extract_annotations(body)
             bookmarks = _extract_bookmarks(body)
-            images = _extract_images_from_context(ctx, body)
+            images = [] if ignore_images else _extract_images_from_context(ctx, body)
             headers, footers = _extract_headers_footers_from_context(ctx)
             styles = _extract_styles_from_context(ctx)
             full_text = _extract_full_text(body)
