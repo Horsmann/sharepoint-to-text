@@ -52,7 +52,9 @@ def _odf_length_to_px(length: str | None) -> int | None:
 ##############
 class ExtractionInterface(Protocol):
     @abstractmethod
-    def iterate_units(self) -> typing.Iterator[UnitInterface]:
+    def iterate_units(
+        self, *, ignore_images: bool = False
+    ) -> typing.Iterator[UnitInterface]:
         """
         Returns an iterator over the extracted text i.e., the main text body of a file.
         Additional text areas may be missing if they are not part of the main text body of the file.
@@ -61,6 +63,11 @@ class ExtractionInterface(Protocol):
         Excel files return sheets.
         Content of footnotes, headers or alike is not part of this iterator's return values.
         The legacy and modern Word documents have no per-page representation in the files, they return only a single unit which is the full text.
+
+        Args:
+            ignore_images: If True, units will have empty image lists (images are not
+                returned in unit data). This can improve performance when image data
+                is not needed. Default is False.
         """
         ...
 
@@ -383,7 +390,10 @@ class EmailContent(ExtractionInterface):
         self.subject = self.subject.strip()
         self.body_plain = self.body_plain.strip()
 
-    def iterate_units(self) -> typing.Iterator[EmailUnit]:
+    def iterate_units(
+        self, *, ignore_images: bool = False
+    ) -> typing.Iterator[EmailUnit]:
+        # ignore_images is a no-op for emails (no images supported)
         if self.body_plain:
             yield EmailUnit(text=self.body_plain, body_type="plain")
             return
@@ -564,7 +574,7 @@ class DocContent(ExtractionInterface):
     tables: List[List[List[str]]] = field(default_factory=list)
     metadata: DocMetadata = field(default_factory=DocMetadata)
 
-    def iterate_units(self) -> typing.Iterator[DocUnit]:
+    def iterate_units(self, *, ignore_images: bool = False) -> typing.Iterator[DocUnit]:
         lines = [line.rstrip() for line in (self.main_text or "").splitlines()]
         if not lines:
             yield DocUnit(text="", unit_number=1, location=[])
@@ -671,30 +681,31 @@ class DocContent(ExtractionInterface):
             return
 
         # Attach unassigned images (no stable anchors in legacy DOC extraction).
-        for image in self.images:
-            matched_unit: DocUnit | None = None
-            if image.caption:
-                for unit in units:
-                    if image.caption in unit.text:
-                        matched_unit = unit
-                        break
-            if matched_unit is None:
-                matched_unit = next(
-                    (u for u in reversed(units) if u.heading_level == 1),
-                    units[-1],
+        if not ignore_images:
+            for image in self.images:
+                matched_unit: DocUnit | None = None
+                if image.caption:
+                    for unit in units:
+                        if image.caption in unit.text:
+                            matched_unit = unit
+                            break
+                if matched_unit is None:
+                    matched_unit = next(
+                        (u for u in reversed(units) if u.heading_level == 1),
+                        units[-1],
+                    )
+                matched_unit.images.append(
+                    DocImage(
+                        image_number=image.image_number,
+                        content_type=image.content_type,
+                        data=image.data,
+                        size_bytes=image.size_bytes,
+                        width=image.width,
+                        height=image.height,
+                        caption=image.caption,
+                        unit_number=matched_unit.unit_number,
+                    )
                 )
-            matched_unit.images.append(
-                DocImage(
-                    image_number=image.image_number,
-                    content_type=image.content_type,
-                    data=image.data,
-                    size_bytes=image.size_bytes,
-                    width=image.width,
-                    height=image.height,
-                    caption=image.caption,
-                    unit_number=matched_unit.unit_number,
-                )
-            )
 
         for unit in units:
             yield unit
@@ -906,7 +917,9 @@ class DocxContent(ExtractionInterface):
     full_text: str = ""  # Full text including formulas
     table_anchor_paragraph_indices: list[int] = field(default_factory=list)
 
-    def iterate_units(self) -> typing.Iterator[DocxUnit]:
+    def iterate_units(
+        self, *, ignore_images: bool = False
+    ) -> typing.Iterator[DocxUnit]:
         heading_re = re.compile(r"^heading\s*(\d+)\b", flags=re.IGNORECASE)
 
         def heading_level(style: str | None) -> int | None:
@@ -932,9 +945,10 @@ class DocxContent(ExtractionInterface):
         # Pre-index images and tables by their anchor paragraph indices so we can
         # attach them to heading-based units.
         images_by_paragraph: dict[int, list[DocxImage]] = {}
-        for img in self.images:
-            for para_idx in img.anchor_paragraph_indices:
-                images_by_paragraph.setdefault(para_idx, []).append(img)
+        if not ignore_images:
+            for img in self.images:
+                for para_idx in img.anchor_paragraph_indices:
+                    images_by_paragraph.setdefault(para_idx, []).append(img)
 
         table_anchors = self.table_anchor_paragraph_indices
         if len(table_anchors) != len(self.tables):
@@ -1081,7 +1095,7 @@ class DocxContent(ExtractionInterface):
             location=[self.metadata.title] if self.metadata.title else [],
             heading_level=None,
             heading_path=[],
-            images=list(self.images),
+            images=[] if ignore_images else list(self.images),
             tables=[TableData(data=table) for table in self.tables],
         )
 
@@ -1199,12 +1213,12 @@ class PdfContent(ExtractionInterface):
     pages: List[PdfPage] = field(default_factory=list)
     metadata: PdfMetadata = field(default_factory=PdfMetadata)
 
-    def iterate_units(self) -> typing.Iterator[PdfUnit]:
+    def iterate_units(self, *, ignore_images: bool = False) -> typing.Iterator[PdfUnit]:
         for page_number, page in enumerate(self.pages, start=1):
             yield PdfUnit(
                 page_number=page_number,
                 text=page.text,
-                images=list(page.images),
+                images=[] if ignore_images else list(page.images),
                 tables=[TableData(data=table) for table in page.tables],
             )
 
@@ -1274,7 +1288,10 @@ class PlainTextContent(ExtractionInterface):
     content: str = ""
     metadata: FileMetadataInterface = field(default_factory=FileMetadataInterface)
 
-    def iterate_units(self) -> typing.Iterator[PlainTextUnit]:
+    def iterate_units(
+        self, *, ignore_images: bool = False
+    ) -> typing.Iterator[PlainTextUnit]:
+        # ignore_images is a no-op for plain text (no images supported)
         yield PlainTextUnit(text=self.content.strip())
 
     def get_full_text(self) -> str:
@@ -1352,7 +1369,10 @@ class HtmlContent(ExtractionInterface):
     )  # List of {text: "...", href: "..."}
     metadata: HtmlMetadata = field(default_factory=HtmlMetadata)
 
-    def iterate_units(self) -> typing.Iterator[HtmlUnit]:
+    def iterate_units(
+        self, *, ignore_images: bool = False
+    ) -> typing.Iterator[HtmlUnit]:
+        # ignore_images is a no-op for HTML (no images in units)
         yield HtmlUnit(text=self.content.strip())
 
     def get_full_text(self) -> str:
@@ -1545,8 +1565,9 @@ class PptContent(ExtractionInterface):
     all_text: list[str] = field(default_factory=list)
     streams: list[list[str]] = field(default_factory=list)
 
-    def iterate_units(self) -> typing.Iterator[PptUnit]:
+    def iterate_units(self, *, ignore_images: bool = False) -> typing.Iterator[PptUnit]:
         """Iterate over slide text, yielding combined text per slide."""
+        # ignore_images is a no-op for PPT (images not included in units)
         for slide in self.slides:
             yield PptUnit(slide_number=slide.slide_number, text=slide.text_combined)
 
@@ -1720,11 +1741,13 @@ class PptxContent(ExtractionInterface):
     def iterate_units(
         self,
         include_image_captions: bool = False,
+        *,
+        ignore_images: bool = False,
     ) -> typing.Iterator[PptxUnit]:
         for slide in self.slides:
             yield PptxUnit(
                 slide_number=slide.slide_number,
-                images=list(slide.images),
+                images=[] if ignore_images else list(slide.images),
                 tables=[TableData(data=table) for table in slide.tables],
                 text=slide.get_text(
                     include_image_captions=include_image_captions,
@@ -1873,7 +1896,7 @@ class XlsContent(ExtractionInterface):
     images: List[XlsImage] = field(default_factory=list)
     full_text: str = ""
 
-    def iterate_units(self) -> typing.Iterator[XlsUnit]:
+    def iterate_units(self, *, ignore_images: bool = False) -> typing.Iterator[XlsUnit]:
         for sheet_index, sheet in enumerate(self.sheets, start=1):
             table = sheet.get_table()
             normalized_table = (
@@ -1888,7 +1911,11 @@ class XlsContent(ExtractionInterface):
                 sheet_number=sheet_index,
                 sheet_name=sheet.name,
                 tables=[TableData(data=normalized_table)] if normalized_table else [],
-                images=list(self.images) if sheet_index == 1 else [],
+                images=(
+                    (list(self.images) if sheet_index == 1 else [])
+                    if not ignore_images
+                    else []
+                ),
                 text=sheet.text.strip(),
             )
 
@@ -2028,12 +2055,14 @@ class XlsxContent(ExtractionInterface):
     metadata: XlsxMetadata = field(default_factory=XlsxMetadata)
     sheets: List[XlsxSheet] = field(default_factory=list)
 
-    def iterate_units(self) -> typing.Iterator[XlsxUnit]:
+    def iterate_units(
+        self, *, ignore_images: bool = False
+    ) -> typing.Iterator[XlsxUnit]:
         for sheet_index, sheet in enumerate(self.sheets, start=1):
             yield XlsxUnit(
                 sheet_index=sheet_index,
                 sheet_name=sheet.name,
-                images=list(sheet.images),
+                images=[] if ignore_images else list(sheet.images),
                 tables=[TableData(data=sheet.data)] if sheet.data else [],
                 text=sheet.name + "\n" + sheet.text.strip(),
             )
@@ -2197,8 +2226,11 @@ class OdgContent(ExtractionInterface):
     full_text: str = ""
     images: list[OpenDocumentImage] = field(default_factory=list)
 
-    def iterate_units(self) -> typing.Iterator[OdgUnit]:
-        yield OdgUnit(text=self.full_text.strip(), images=list(self.images))
+    def iterate_units(self, *, ignore_images: bool = False) -> typing.Iterator[OdgUnit]:
+        yield OdgUnit(
+            text=self.full_text.strip(),
+            images=[] if ignore_images else list(self.images),
+        )
 
     def get_full_text(self) -> str:
         return _join_unit_text(self.iterate_units())
@@ -2255,7 +2287,8 @@ class OdfContent(ExtractionInterface):
     metadata: OpenDocumentMetadata = field(default_factory=OpenDocumentMetadata)
     full_text: str = ""
 
-    def iterate_units(self) -> typing.Iterator[OdfUnit]:
+    def iterate_units(self, *, ignore_images: bool = False) -> typing.Iterator[OdfUnit]:
+        # ignore_images is a no-op for ODF (no images supported)
         yield OdfUnit(text=self.full_text.strip())
 
     def get_full_text(self) -> str:
@@ -2348,7 +2381,7 @@ class OdpContent(ExtractionInterface):
     metadata: OpenDocumentMetadata = field(default_factory=OpenDocumentMetadata)
     slides: List[OdpSlide] = field(default_factory=list)
 
-    def iterate_units(self) -> typing.Iterator[OdpUnit]:
+    def iterate_units(self, *, ignore_images: bool = False) -> typing.Iterator[OdpUnit]:
         """Iterate over slides, yielding combined text per slide."""
         for slide in self.slides:
             parts = [slide.text_combined]
@@ -2357,7 +2390,7 @@ class OdpContent(ExtractionInterface):
                 slide_number=slide.slide_number,
                 text="\n".join(parts),
                 location=[slide.title] if slide.title else [],
-                images=list(slide.images),
+                images=[] if ignore_images else list(slide.images),
                 tables=[TableData(data=table) for table in slide.tables],
             )
 
@@ -2454,13 +2487,13 @@ class OdsContent(ExtractionInterface):
     metadata: OpenDocumentMetadata = field(default_factory=OpenDocumentMetadata)
     sheets: List[OdsSheet] = field(default_factory=list)
 
-    def iterate_units(self) -> typing.Iterator[OdsUnit]:
+    def iterate_units(self, *, ignore_images: bool = False) -> typing.Iterator[OdsUnit]:
         """Iterate over sheets, yielding text per sheet."""
         for sheet_index, sheet in enumerate(self.sheets, start=1):
             yield OdsUnit(
                 sheet_number=sheet_index,
                 sheet_name=sheet.name,
-                images=list(sheet.images),
+                images=[] if ignore_images else list(sheet.images),
                 tables=[TableData(data=sheet.data)] if sheet.data else [],
                 text=(sheet.name + "\n" + sheet.text.strip()).strip(),
             )
@@ -2631,7 +2664,7 @@ class OdtContent(ExtractionInterface):
     styles: List[str] = field(default_factory=list)
     full_text: str = ""
 
-    def iterate_units(self) -> typing.Iterator[OdtUnit]:
+    def iterate_units(self, *, ignore_images: bool = False) -> typing.Iterator[OdtUnit]:
         """Iterate over heading-based units.
 
         Units are built from paragraph runs separated by headings (paragraphs with
@@ -2650,7 +2683,7 @@ class OdtContent(ExtractionInterface):
                     unit_number=1,
                     heading_level=1 if heading_path else None,
                     heading_path=heading_path,
-                    images=list(self.images),
+                    images=[] if ignore_images else list(self.images),
                     tables=[TableData(data=table.data) for table in self.tables],
                 )
             )
@@ -2746,19 +2779,20 @@ class OdtContent(ExtractionInterface):
                     unit_number=1,
                     heading_level=1 if heading_path else None,
                     heading_path=heading_path,
-                    images=list(self.images),
+                    images=[] if ignore_images else list(self.images),
                     tables=[TableData(data=table.data) for table in self.tables],
                 )
             ]
-            for image in self.images:
-                image.unit_name = 1
+            if not ignore_images:
+                for image in self.images:
+                    image.unit_name = 1
             for unit in units:
                 yield unit
             return
 
         # Best-effort mapping of unassigned tables/images to units.
         # (ODT extraction does not currently provide stable positional anchors.)
-        if units:
+        if units and not ignore_images:
             if table_index < len(self.tables):
                 remaining_tables = self.tables[table_index:]
                 for table in remaining_tables:
@@ -3090,7 +3124,7 @@ class RtfContent(ExtractionInterface):
     full_text: str = ""
     raw_text_blocks: List[str] = field(default_factory=list)
 
-    def iterate_units(self) -> typing.Iterator[RtfUnit]:
+    def iterate_units(self, *, ignore_images: bool = False) -> typing.Iterator[RtfUnit]:
         """Iterate over pages, yielding text per page.
 
         RTF documents are split on explicit page breaks (\\page).
@@ -3099,11 +3133,12 @@ class RtfContent(ExtractionInterface):
         """
         # Group images and tables by page number
         images_by_page: dict[int, List[RtfImage]] = {}
-        for img in self.images:
-            page = img.page_number or 1
-            if page not in images_by_page:
-                images_by_page[page] = []
-            images_by_page[page].append(img)
+        if not ignore_images:
+            for img in self.images:
+                page = img.page_number or 1
+                if page not in images_by_page:
+                    images_by_page[page] = []
+                images_by_page[page].append(img)
 
         tables_by_page: dict[int, List[RtfTable]] = {}
         for tbl in self.tables:
@@ -3277,10 +3312,23 @@ class EpubContent(ExtractionInterface):
         default_factory=list
     )  # Table of contents: [{title, href}, ...]
 
-    def iterate_units(self) -> typing.Iterator[EpubChapter]:
+    def iterate_units(
+        self, *, ignore_images: bool = False
+    ) -> typing.Iterator[EpubChapter]:
         """Iterate over chapters in reading order."""
         for chapter in self.chapters:
-            yield chapter
+            if ignore_images:
+                # Yield a copy with empty images
+                yield EpubChapter(
+                    chapter_number=chapter.chapter_number,
+                    href=chapter.href,
+                    title=chapter.title,
+                    text=chapter.text,
+                    images=[],
+                    tables=chapter.tables,
+                )
+            else:
+                yield chapter
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
         """Iterate over all images in the EPUB."""
