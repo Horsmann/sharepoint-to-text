@@ -2209,7 +2209,9 @@ def test_open_office__document_image_interface__no_images() -> None:
     # Create an OpenDocumentImage with test data
     path = "sharepoint2text/tests/resources/open_office/image_extraction.odt"
     odt: OdtContent = next(
-        read_odt(file_like=_read_file_to_file_like(path=path), path=path)
+        read_odt(
+            file_like=_read_file_to_file_like(path=path), path=path, ignore_images=True
+        )
     )
 
     tc.assertEqual(0, len(odt.images))
