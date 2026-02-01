@@ -2331,6 +2331,9 @@ def test_pdf__1() -> None:
     units = list(pdf.iterate_units())
     tc.assertEqual(PdfUnitMetadata(unit_number=1), units[0].get_metadata())
 
+    # tables
+    tc.assertEqual(0, len(list(pdf.iterate_tables())))
+
 
 def test_pdf__2() -> None:
     path = "sharepoint2text/tests/resources/pdf/multi_image.pdf"
