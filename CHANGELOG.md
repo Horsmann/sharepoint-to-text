@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ## [Released]
+
+## [0.9.0] - 2026-02-02
+### Added
+- **Image extraction support** (opt-in via `--extract-images` flag) for extracting embedded images from documents.
+- **PDF table removal option** (`--no-tables`) to exclude tables from PDF extraction.
+- **Support for additional plain text file types**: `.xml`, `.yaml`, `.yml`, `.ini`, `.cfg`, `.conf`, `.log`, `.properties`, `.sql`, `.sh`, `.bat`, `.ps1`, `.py`, `.js`, `.ts`, `.java`, `.c`, `.cpp`, `.h`, `.hpp`, `.cs`, `.rb`, `.go`, `.rs`, `.swift`, `.kt`, `.php`, `.r`, `.pl`.
+- **CLI `--output` parameter** to specify output file path instead of stdout.
+
+### Changed
+- Image extraction is now an **opt-in feature** (disabled by default) rather than enabled by default.
+- Harmonized variable names across data types for consistency.
+
 ## [0.8.1] - 2026-01-10
 ### Fixed
 - **Pinned the PDF extraction dependency to `>=6.5,<6.6`** to avoid a regression introduced in a recent upstream release.
