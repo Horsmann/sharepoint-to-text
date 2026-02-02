@@ -794,7 +794,7 @@ def _process_slide_from_context(
                             filename=f"image.{ext}",
                             content_type=content_type,
                             size_bytes=len(blob),
-                            blob=blob,
+                            data=io.BytesIO(blob) if blob else None,
                             width=width,
                             height=height,
                             caption=caption,

@@ -143,7 +143,7 @@ def _extract_images(
                     image_index=image_counter,
                     caption=caption,
                     description=description,
-                    unit_name=None,
+                    unit_number=None,
                 )
             )
             continue
@@ -163,7 +163,7 @@ def _extract_images(
                         image_index=image_counter,
                         caption=caption,
                         description=description,
-                        unit_name=None,
+                        unit_number=None,
                     )
                 )
             else:
@@ -176,7 +176,7 @@ def _extract_images(
                         image_index=image_counter,
                         caption=caption,
                         description=description,
-                        unit_name=None,
+                        unit_number=None,
                     )
                 )
         except Exception as exc:
@@ -188,7 +188,7 @@ def _extract_images(
                     image_index=image_counter,
                     caption=caption,
                     description=description,
-                    unit_name=None,
+                    unit_number=None,
                 )
             )
 

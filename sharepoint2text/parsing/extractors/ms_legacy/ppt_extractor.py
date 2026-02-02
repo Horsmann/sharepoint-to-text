@@ -9,6 +9,7 @@ text from various record types according to the MS-PPT specification.
 """
 
 import hashlib
+import io
 import logging
 import struct
 from datetime import datetime
@@ -660,7 +661,7 @@ def _extract_images_from_pictures_stream(ole: olefile.OleFileIO) -> list[PptImag
             PptImage(
                 image_index=image_index,
                 content_type=detected[1],
-                data=image_data,
+                data=io.BytesIO(image_data) if image_data else None,
                 size_bytes=len(image_data),
                 width=width,
                 height=height,

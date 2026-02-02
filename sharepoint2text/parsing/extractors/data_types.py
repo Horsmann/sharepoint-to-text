@@ -529,17 +529,19 @@ class DocMetadata(FileMetadataInterface):
 class DocImage(ImageInterface):
     image_index: int
     content_type: str
-    data: bytes = b""
+    data: Optional[io.BytesIO] = None
     size_bytes: int = 0
     width: Optional[int] = None
     height: Optional[int] = None
     caption: str = ""
+    description: str = ""
     unit_number: Optional[int] = None
 
     def get_bytes(self) -> io.BytesIO:
-        fl = io.BytesIO(self.data)
-        fl.seek(0)
-        return fl
+        if self.data is None:
+            return io.BytesIO()
+        self.data.seek(0)
+        return self.data
 
     def get_content_type(self) -> str:
         return self.content_type.strip()
@@ -548,7 +550,7 @@ class DocImage(ImageInterface):
         return self.caption.strip()
 
     def get_description(self) -> str:
-        return ""
+        return self.description.strip()
 
     def get_metadata(self) -> ImageMetadata:
         return ImageMetadata(
@@ -699,6 +701,7 @@ class DocContent(ExtractionInterface):
                         width=image.width,
                         height=image.height,
                         caption=image.caption,
+                        description=image.description,
                         unit_number=matched_unit.unit_number,
                     )
                 )
@@ -1154,21 +1157,23 @@ class PdfImage(ImageInterface):
     image_index: int = 0
     name: str = ""
     caption: str = ""
+    description: str = ""
     width: int = 0
     height: int = 0
     color_space: str = ""
     bits_per_component: int = 8
     filter: str = ""
-    data: bytes = b""
+    data: Optional[io.BytesIO] = None
     format: str = ""
     content_type: str = ""
-    unit_name: Optional[int] = None
+    unit_number: Optional[int] = None
 
     def get_bytes(self) -> io.BytesIO:
         """Returns the bytes of the image as a BytesIO object."""
-        fl = io.BytesIO(self.data)
-        fl.seek(0)
-        return fl
+        if self.data is None:
+            return io.BytesIO()
+        self.data.seek(0)
+        return self.data
 
     def get_content_type(self) -> str:
         """Returns the content type of the image as a string."""
@@ -1180,13 +1185,13 @@ class PdfImage(ImageInterface):
 
     def get_description(self) -> str:
         """Returns the descriptive text of the image as a string."""
-        return self.name
+        return self.description.strip()
 
     def get_metadata(self) -> ImageMetadata:
         return ImageMetadata(
             image_number=self.image_index,
             content_type=self.get_content_type(),
-            unit_number=self.unit_name,
+            unit_number=self.unit_number,
             width=self.width if self.width > 0 else None,
             height=self.height if self.height > 0 else None,
         )
@@ -1438,25 +1443,28 @@ class PptImage(ImageInterface):
 
     image_index: int = 0
     content_type: str = ""
-    data: bytes = b""
+    data: Optional[io.BytesIO] = None
     size_bytes: int = 0
     width: Optional[int] = None
     height: Optional[int] = None
+    caption: str = ""
+    description: str = ""
     slide_number: int = 0
 
     def get_bytes(self) -> io.BytesIO:
-        fl = io.BytesIO(self.data)
-        fl.seek(0)
-        return fl
+        if self.data is None:
+            return io.BytesIO()
+        self.data.seek(0)
+        return self.data
 
     def get_content_type(self) -> str:
         return self.content_type.strip()
 
     def get_caption(self) -> str:
-        return ""
+        return self.caption.strip()
 
     def get_description(self) -> str:
-        return ""
+        return self.description.strip()
 
     def get_metadata(self) -> ImageMetadata:
         return ImageMetadata(
@@ -1650,7 +1658,7 @@ class PptxImage(ImageInterface):
     filename: str = ""
     content_type: str = ""
     size_bytes: int = 0
-    blob: Optional[bytes] = None
+    data: Optional[io.BytesIO] = None
     width: Optional[int] = None
     height: Optional[int] = None
     caption: str = ""  # Title/name of the image shape
@@ -1658,9 +1666,10 @@ class PptxImage(ImageInterface):
     slide_number: int = 0
 
     def get_bytes(self) -> io.BytesIO:
-        fl = io.BytesIO(self.blob)
-        fl.seek(0)
-        return fl
+        if self.data is None:
+            return io.BytesIO()
+        self.data.seek(0)
+        return self.data
 
     def get_content_type(self) -> str:
         return self.content_type
@@ -1823,24 +1832,27 @@ class XlsImage(ImageInterface):
 
     image_index: int = 0
     content_type: str = ""
-    data: bytes = b""
+    data: Optional[io.BytesIO] = None
     size_bytes: int = 0
     width: Optional[int] = None
     height: Optional[int] = None
+    caption: str = ""
+    description: str = ""
 
     def get_bytes(self) -> io.BytesIO:
-        fl = io.BytesIO(self.data)
-        fl.seek(0)
-        return fl
+        if self.data is None:
+            return io.BytesIO()
+        self.data.seek(0)
+        return self.data
 
     def get_content_type(self) -> str:
         return self.content_type.strip()
 
     def get_caption(self) -> str:
-        return ""
+        return self.caption.strip()
 
     def get_description(self) -> str:
-        return ""
+        return self.description.strip()
 
     def get_metadata(self) -> ImageMetadata:
         return ImageMetadata(
@@ -2149,7 +2161,7 @@ class OpenDocumentImage(ImageInterface):
     image_index: int = 0
     caption: str = ""  # From svg:title or frame name
     description: str = ""  # From svg:desc (alt text)
-    unit_name: Optional[int] = None  # Page/slide number (None for ODT/ODS)
+    unit_number: Optional[int] = None  # Page/slide number (None for ODT/ODS)
 
     def get_bytes(self) -> io.BytesIO:
         """Returns the bytes of the image as a BytesIO object."""
@@ -2177,7 +2189,7 @@ class OpenDocumentImage(ImageInterface):
         return ImageMetadata(
             image_number=self.image_index,
             content_type=self.content_type,
-            unit_number=self.unit_name,
+            unit_number=self.unit_number,
             width=width_px if width_px and width_px > 0 else None,
             height=height_px if height_px and height_px > 0 else None,
         )
@@ -2781,7 +2793,7 @@ class OdtContent(ExtractionInterface):
             ]
             if not ignore_images:
                 for image in self.images:
-                    image.unit_name = 1
+                    image.unit_number = 1
             for unit in units:
                 yield unit
             return
@@ -2828,7 +2840,7 @@ class OdtContent(ExtractionInterface):
                             units[-1],
                         )
 
-                image.unit_name = matched_unit.unit_number
+                image.unit_number = matched_unit.unit_number
                 matched_unit.images.append(image)
 
         for unit in units:
@@ -3010,7 +3022,7 @@ class RtfImage(ImageInterface):
     image_type: str = ""  # png, jpeg, emf, wmf
     width: int = 0  # in twips (1/1440 inch)
     height: int = 0  # in twips
-    data: Optional[bytes] = None  # Binary image data
+    data: Optional[io.BytesIO] = None  # Binary image data
     image_index: int = 0  # Sequential index of the image (1-based)
     page_number: Optional[int] = None  # Page where image appears (if known)
     caption: str = ""  # Image caption/title if available
@@ -3030,7 +3042,8 @@ class RtfImage(ImageInterface):
         """Returns the bytes of the image as a BytesIO object."""
         if self.data is None:
             return io.BytesIO()
-        return io.BytesIO(self.data)
+        self.data.seek(0)
+        return self.data
 
     def get_content_type(self) -> str:
         """Returns the content type of the image as a string."""
@@ -3250,7 +3263,7 @@ class EpubImage(ImageInterface):
     size_bytes: int = 0
     width: Optional[int] = None
     height: Optional[int] = None
-    unit_index: Optional[int] = None  # Chapter number where image is referenced
+    unit_number: Optional[int] = None  # Chapter number where image is referenced
 
     def get_bytes(self) -> io.BytesIO:
         if self.data is None:
@@ -3271,7 +3284,7 @@ class EpubImage(ImageInterface):
         return ImageMetadata(
             image_number=self.image_index,
             content_type=self.content_type,
-            unit_number=self.unit_index,
+            unit_number=self.unit_number,
             width=self.width if self.width is not None and self.width > 0 else None,
             height=self.height if self.height is not None and self.height > 0 else None,
         )

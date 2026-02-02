@@ -457,7 +457,7 @@ def test_read_pptx_1() -> None:
     tc.assertEqual("image.png", pptx.slides[1].images[0].filename)
     tc.assertEqual("image/png", pptx.slides[1].images[0].content_type)
     tc.assertEqual(12538, pptx.slides[1].images[0].size_bytes)
-    tc.assertIsNotNone(pptx.slides[1].images[0].blob)
+    tc.assertIsNotNone(pptx.slides[1].images[0].data)
 
     # full text
     expected = (

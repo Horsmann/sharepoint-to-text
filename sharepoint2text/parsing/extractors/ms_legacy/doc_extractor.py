@@ -433,7 +433,7 @@ class _DocReader:
                 DocImage(
                     image_index=image_counter,
                     content_type="image/bmp",
-                    data=bmp_data,
+                    data=io.BytesIO(bmp_data) if bmp_data else None,
                     size_bytes=len(bmp_data),
                     width=abs_width,
                     height=abs_height,
@@ -492,7 +492,7 @@ class _DocReader:
                                 DocImage(
                                     image_index=image_counter,
                                     content_type="image/png",
-                                    data=png_bytes,
+                                    data=io.BytesIO(png_bytes) if png_bytes else None,
                                     size_bytes=len(png_bytes),
                                     width=width,
                                     height=height,
@@ -553,9 +553,12 @@ class _DocReader:
 
             diversities = []
             for image in group:
-                data = image.data
+                data_bytes = image.data.read() if image.data else b""
+                image.data.seek(0) if image.data else None
                 payload = (
-                    data[54:] if data.startswith(b"BM") and len(data) > 54 else data
+                    data_bytes[54:]
+                    if data_bytes.startswith(b"BM") and len(data_bytes) > 54
+                    else data_bytes
                 )
                 sample = payload[:100000]
                 diversities.append(len(set(sample)))
@@ -698,7 +701,9 @@ class _DocReader:
             dedup: List[DocImage] = []
             seen_hashes: set[str] = set()
             for image in images:
-                digest = hashlib.sha1(image.data).hexdigest() if image.data else ""
+                data_bytes = image.data.read() if image.data else b""
+                image.data.seek(0) if image.data else None
+                digest = hashlib.sha1(data_bytes).hexdigest() if data_bytes else ""
                 if digest and digest in seen_hashes:
                     continue
                 if digest:

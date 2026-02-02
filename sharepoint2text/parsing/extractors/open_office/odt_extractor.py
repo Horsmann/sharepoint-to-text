@@ -531,7 +531,7 @@ def _extract_images_from_context(
                             image_index=image_counter,
                             caption=caption,
                             description=description,
-                            unit_name=None,
+                            unit_number=None,
                         )
                     )
             except Exception as e:
@@ -584,7 +584,7 @@ def _extract_images_from_context(
                                 image_index=image_counter,
                                 caption=caption,
                                 description=description,
-                                unit_name=None,
+                                unit_number=None,
                             )
                         )
                         processed_hrefs.add(href)
@@ -604,7 +604,7 @@ def _extract_images_from_context(
                         image_index=image_counter,
                         caption=caption,
                         description=description,
-                        unit_name=None,
+                        unit_number=None,
                     )
                 )
                 processed_hrefs.add(href)

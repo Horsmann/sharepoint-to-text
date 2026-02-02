@@ -417,7 +417,7 @@ def _extract_images_from_workbook(file_like: io.BytesIO) -> list[XlsImage]:
                 XlsImage(
                     image_index=image_index,
                     content_type=detected[1],
-                    data=image_data,
+                    data=io.BytesIO(image_data) if image_data else None,
                     size_bytes=len(image_data),
                     width=width,
                     height=height,

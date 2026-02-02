@@ -558,7 +558,7 @@ class _RtfParser:
                     image_type=img_type,
                     width=width,
                     height=height,
-                    data=data,
+                    data=io.BytesIO(data) if data else None,
                     image_index=idx,
                     page_number=page_num,
                 )

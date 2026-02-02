@@ -827,10 +827,10 @@ def _extract_image(
         color_space=color_space,
         bits_per_component=int(bits),
         filter=filter_type,
-        data=data,
+        data=io.BytesIO(data) if data else None,
         format=img_format,
         content_type=content_type,
-        unit_name=page_num,
+        unit_number=page_num,
     )
 
 
