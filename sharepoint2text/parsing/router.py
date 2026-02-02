@@ -70,6 +70,18 @@ _EXTRACTOR_REGISTRY: dict[str, tuple[str, str]] = {
     "txt": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
     "tsv": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
     "md": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
+    # Configuration and data formats
+    "yaml": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
+    "yml": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
+    "xml": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
+    "log": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
+    "ini": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
+    "cfg": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
+    "conf": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
+    "properties": (
+        "sharepoint2text.parsing.extractors.plain_extractor",
+        "read_plain_text",
+    ),
     # Other formats
     "pdf": ("sharepoint2text.parsing.extractors.pdf.pdf_extractor", "read_pdf"),
     "html": ("sharepoint2text.parsing.extractors.html_extractor", "read_html"),
