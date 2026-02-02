@@ -10,7 +10,7 @@ def test_cli_outputs_full_text_by_default(capsys) -> None:
     path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
     expected = next(sharepoint2text.read_file(path)).get_full_text()
 
-    exit_code = main([str(path)])
+    exit_code = main(["--file", str(path)])
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -23,7 +23,7 @@ def test_cli_outputs_json_with_flag(capsys) -> None:
         next(sharepoint2text.read_file(path)), include_binary=False
     )
 
-    exit_code = main(["--json", str(path)])
+    exit_code = main(["--json", "--file", str(path)])
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -39,7 +39,7 @@ def test_cli_outputs_json_unit_with_flag(capsys) -> None:
         for unit in result.iterate_units()
     ]
 
-    exit_code = main(["--json-unit", str(path)])
+    exit_code = main(["--json-unit", "--file", str(path)])
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -57,10 +57,11 @@ def _contains_binary_markers(value: object) -> bool:
     return False
 
 
-def test_cli_outputs_json_without_binary_payloads(capsys) -> None:
+def test_cli_outputs_json_without_images(capsys) -> None:
+    """Test that by default (without --include-images), images are not extracted."""
     path = Path("sharepoint2text/tests/resources/pdf/multi_image.pdf").resolve()
 
-    exit_code = main(["--json", str(path)])
+    exit_code = main(["--json", "--file", str(path)])
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -68,15 +69,16 @@ def test_cli_outputs_json_without_binary_payloads(capsys) -> None:
     assert payload["_type"] == "PdfContent"
     assert _contains_binary_markers(payload) is False
 
+    # Images are not extracted by default
     images = payload["pages"][0]["images"]
-    assert len(images) > 0
-    assert images[0]["data"] is None
+    assert len(images) == 0
 
 
-def test_cli_outputs_json_unit_without_binary_payloads(capsys) -> None:
+def test_cli_outputs_json_unit_without_images(capsys) -> None:
+    """Test that by default (without --include-images), images are not extracted."""
     path = Path("sharepoint2text/tests/resources/pdf/multi_image.pdf").resolve()
 
-    exit_code = main(["--json-unit", str(path)])
+    exit_code = main(["--json-unit", "--file", str(path)])
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -86,15 +88,15 @@ def test_cli_outputs_json_unit_without_binary_payloads(capsys) -> None:
     assert payload[0]["_type"] == "PdfUnit"
     assert _contains_binary_markers(payload) is False
 
+    # Images are not extracted by default
     images = payload[0]["images"]
-    assert len(images) > 0
-    assert images[0]["data"] is None
+    assert len(images) == 0
 
 
 def test_cli_outputs_json_with_binary_payloads_when_requested(capsys) -> None:
     path = Path("sharepoint2text/tests/resources/pdf/multi_image.pdf").resolve()
 
-    exit_code = main(["--json", "--binary", str(path)])
+    exit_code = main(["--json", "--include-images", "--file", str(path)])
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -111,7 +113,7 @@ def test_cli_outputs_json_with_binary_payloads_when_requested(capsys) -> None:
 def test_cli_outputs_json_unit_with_binary_payloads_when_requested(capsys) -> None:
     path = Path("sharepoint2text/tests/resources/pdf/multi_image.pdf").resolve()
 
-    exit_code = main(["--json-unit", "--binary", str(path)])
+    exit_code = main(["--json-unit", "--include-images", "--file", str(path)])
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -129,16 +131,16 @@ def test_cli_outputs_json_unit_with_binary_payloads_when_requested(capsys) -> No
 
 def test_cli_warns_on_removed_no_binary_argument(capsys) -> None:
     path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
-    exit_code = main(["--no-binary", "--json", str(path)])
+    exit_code = main(["--no-binary", "--json", "--file", str(path)])
     captured = capsys.readouterr()
 
     assert exit_code == 1
     assert "warning: unsupported arguments" in captured.err
 
 
-def test_cli_rejects_binary_without_json(capsys) -> None:
+def test_cli_rejects_include_images_without_json(capsys) -> None:
     path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
-    exit_code = main(["--binary", str(path)])
+    exit_code = main(["--include-images", "--file", str(path)])
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -147,7 +149,7 @@ def test_cli_rejects_binary_without_json(capsys) -> None:
 
 def test_cli_warns_on_unsupported_argument(capsys) -> None:
     path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
-    exit_code = main(["--json", "--not-a-real-flag", str(path)])
+    exit_code = main(["--json", "--not-a-real-flag", "--file", str(path)])
     captured = capsys.readouterr()
 
     assert exit_code == 1

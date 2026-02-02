@@ -17,8 +17,15 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Extract file content and emit full text to stdout (or JSON with --json/--json-unit).",
     )
     parser.add_argument(
-        "path",
+        "--version",
+        action="version",
+        version=f"%(prog)s {sharepoint2text.__version__}",
+        help="Show the version and exit.",
+    )
+    parser.add_argument(
+        "--file",
         type=Path,
+        required=True,
         help="Path to the file to extract.",
     )
     output_group = parser.add_mutually_exclusive_group()
@@ -34,15 +41,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Emit JSON for extracted text units instead of full extraction objects (omits binary payloads by default).",
     )
     parser.add_argument(
-        "--binary",
+        "--include-images",
+        dest="include_images",
         action="store_true",
-        help="With --json/--json-unit, include binary payloads (images/attachments) as base64 blobs.",
-    )
-    parser.add_argument(
-        "--ignore-images",
-        dest="ignore_images",
-        action="store_true",
-        help="Skip image extraction for faster processing.",
+        help="Extract images from the file and include image data as base64 blobs in JSON output (default: images are ignored for faster processing).",
     )
     return parser
 
@@ -96,13 +98,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     try:
-        if args.binary and not (args.json or args.json_unit):
-            raise ValueError("--binary requires --json or --json-unit")
+        if args.include_images and not (args.json or args.json_unit):
+            raise ValueError("--include-images requires --json or --json-unit")
 
         # Validate file path and size before processing
-        file_path = Path(args.path)
+        file_path = Path(args.file)
         if not file_path.exists():
-            raise FileNotFoundError(f"File not found: {args.path}")
+            raise FileNotFoundError(f"File not found: {args.file}")
 
         # Check file size (100MB limit for CLI to prevent memory issues)
         MAX_CLI_FILE_SIZE = 100 * 1024 * 1024  # 100MB
@@ -113,12 +115,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
 
         results = list(
-            sharepoint2text.read_file(args.path, ignore_images=args.ignore_images)
+            sharepoint2text.read_file(args.file, ignore_images=not args.include_images)
         )
         if not results:
-            raise RuntimeError(f"No extraction results for {args.path}")
+            raise RuntimeError(f"No extraction results for {args.file}")
         if args.json or args.json_unit:
-            include_binary = bool(args.binary)
+            include_binary = bool(args.include_images)
             payload = (
                 _serialize_unit_results(results, include_binary=include_binary)
                 if args.json_unit
