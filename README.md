@@ -6,9 +6,9 @@ The library also includes an optional SharePoint client for reading files direct
 
 **Install:** `uv add sharepoint-to-text`
 **Python import:** `import sharepoint2text`
-**CLI (text):** `sharepoint2text /path/to/file.docx > extraction.txt`
-**CLI (JSON, full extraction):** `sharepoint2text --json /path/to/file.docx > extraction.json` (no binary by default; add `--binary` to include)
-**CLI (JSON, units):** `sharepoint2text --json-unit /path/to/file.docx > units.json` (no binary by default; add `--binary` to include)
+**CLI (text):** `sharepoint2text --file /path/to/file.docx > extraction.txt`
+**CLI (JSON, full extraction):** `sharepoint2text --file /path/to/file.docx --json > extraction.json` (images ignored by default; add `--include-images` to extract)
+**CLI (JSON, units):** `sharepoint2text --file /path/to/file.docx --json-unit > units.json` (images ignored by default; add `--include-images` to extract)
 
 ## What You Get
 
@@ -27,7 +27,7 @@ Every extracted result implements the same high-level interface (`ExtractionInte
 
 | Goal | Recommended | Why |
 |---|---|---|
-| Get “the document text” as one string | `result.get_full_text()` | Best default for indexing and simple exports; hides format-specific unit details. |
+| Get "the document text" as one string | `result.get_full_text()` | Best default for indexing and simple exports; hides format-specific unit details. |
 | Chunk text by page/slide/sheet (RAG, citations, per-unit metadata) | `result.iterate_units()` | Stable unit boundaries for formats that have them (PDF pages, PPT slides, XLS(X) sheets). |
 | Extract images (and optionally store payloads) | `result.iterate_images()` | Returns image objects with metadata; binary payload handling is caller-controlled. |
 | Extract tables as structured data | `result.iterate_tables()` | Returns table objects as 2D arrays, suitable for CSV/JSON downstream. |
@@ -37,14 +37,14 @@ Every extracted result implements the same high-level interface (`ExtractionInte
 ### Method Details (When to Use Which)
 
 - `get_full_text()`:
-  - Use when you want a single string per extracted item (search indexing, previews, “export to .txt”).
+  - Use when you want a single string per extracted item (search indexing, previews, "export to .txt").
   - It is usually derived from `iterate_units()`, but some formats may prepend metadata (e.g., titles) or omit optional content by default.
 - `iterate_units()`:
   - Use when you need chunk boundaries aligned with the source structure (pages/slides/sheets) or when you want to keep unit-level metadata.
   - Each unit supports `unit.get_text()`, `unit.get_images()`, `unit.get_tables()`, and `unit.get_metadata()`.
 - `iterate_images()` / `iterate_tables()`:
   - Use when you want *all* images/tables across the document (often simpler than traversing units).
-  - Prefer unit-level access (`unit.get_images()`, `unit.get_tables()`) when you need “where did this come from?” context (page/slide number).
+  - Prefer unit-level access (`unit.get_images()`, `unit.get_tables()`) when you need "where did this come from?" context (page/slide number).
 - `get_metadata()`:
   - Use for provenance fields like `filename`, `file_extension`, `file_path`, `folder_path`.
   - Pair with unit metadata for precise citations (e.g., `file_path + page_number`).
@@ -432,7 +432,7 @@ for page_num, unit in enumerate(result.iterate_units(), start=1):
 | `.pdf` | Concatenation of extracted page text | Tables/images are available via `iterate_tables()` / `iterate_images()` (`PdfContent.pages`) |
 | `.eml`, `.msg`, `.mbox` | Returns `body_plain` when present, else `body_html` | Attachments are in `EmailContent.attachments` and can be extracted via `iterate_supported_attachments()` |
 | `.txt`, `.csv`, `.tsv`, `.json`, `.md`, `.html` | Returns stripped content (leading/trailing whitespace removed) | Use the raw fields (`.content`) if you need untrimmed text |
-| `.rtf` | Returns the extractor’s `full_text` when available | `iterate_units()` yields per-page text when explicit `\\page` breaks exist |
+| `.rtf` | Returns the extractor's `full_text` when available | `iterate_units()` yields per-page text when explicit `\page` breaks exist |
 
 ### Basic Usage Examples
 
@@ -554,23 +554,31 @@ with open("archive.zip", "rb") as f:
 - **Table extraction not implemented:** PDF table extraction is not currently implemented. `iterate_tables()` will always yield empty results for PDF files. Tables may appear as part of the page text in `get_full_text()` or `iterate_units()`, but structured table data is not available.
 - **Image extraction on large encrypted files:** When a PDF is AES-encrypted and pypdf is running in its fallback crypto provider (i.e., neither `cryptography` nor `pycryptodome` is installed), image extraction is skipped for large files (>= 10MB). Text and tables still extract, but image lists are empty. Install `cryptography` or `pycryptodome` to enable full PDF image extraction without this skip.
 - **Password-protected PDFs:** PDFs requiring a non-empty password are rejected with an `ExtractionFileEncryptedError`.
+- **JBIG2 image format:** Some PDFs contain images encoded with JBIG2 compression. If you see warnings like `Failed to extract image data: jbig2dec binary is not available`, you can install the `jbig2dec` system binary to enable extraction of these images:
+  - **macOS:** `brew install jbig2dec`
+  - **Ubuntu/Debian:** `sudo apt-get install jbig2dec`
+  - **Other Linux:** Use your package manager (e.g., `yum install jbig2dec`, `pacman -S jbig2dec`)
+
+  Note: This is optional. The warning is harmless if you don't need to extract JBIG2-encoded images.
 
 ## CLI
 
-After installation, a `sharepoint2text` command is available. It accepts a single file path and prints the extracted full text to stdout by default.
+After installation, a `sharepoint2text` command is available. Use `--file` to specify the path and print the extracted full text to stdout by default.
 
 ```bash
-sharepoint2text /path/to/file.pdf > extraction.txt
+sharepoint2text --file /path/to/file.pdf > extraction.txt
 ```
 
 ### Command Line Options
 
 | Option | Output | Notes |
 |---|---|---|
+| `--file FILE` | *(required)* | Path to the file to extract. Can be specified in any order relative to other options. |
+| `--version` | Version info | Show the version and exit. |
 | *(default)* | Plain text | Prints `result.get_full_text()` (blank-line separated if multiple items). |
-| `--json` | JSON extraction object(s) | Prints `result.to_json()`; emits a single JSON object (one item) or a JSON array (multiple items). Binary fields are `null` by default; add `--binary` to include base64 blobs. |
-| `--json-unit` | JSON unit list(s) | Prints a JSON list of unit representations using `result.iterate_units()` (e.g., pages/slides/sheets). For multi-item inputs (e.g. `.mbox`), emits a JSON list where each item is that extraction’s unit list. Binary fields are `null` by default; add `--binary` to include base64 blobs. |
-| `--binary` | Include binary payloads | Only valid with `--json` or `--json-unit`. Encodes bytes/BytesIO as base64 in wrapper objects. |
+| `--json` | JSON extraction object(s) | Prints `result.to_json()`; emits a single JSON object (one item) or a JSON array (multiple items). Images are ignored by default for faster processing. |
+| `--json-unit` | JSON unit list(s) | Prints a JSON list of unit representations using `result.iterate_units()` (e.g., pages/slides/sheets). For multi-item inputs (e.g. `.mbox`), emits a JSON list where each item is that extraction's unit list. Images are ignored by default for faster processing. |
+| `--include-images` | Include image data | Extract images and include as base64 blobs in JSON output. Only valid with `--json` or `--json-unit`. |
 
 `--json` and `--json-unit` are mutually exclusive.
 
@@ -579,29 +587,31 @@ sharepoint2text /path/to/file.pdf > extraction.txt
 To emit structured output for the full extraction object, use `--json`:
 
 ```bash
-sharepoint2text --json /path/to/file.pdf > extraction.json
+sharepoint2text --file /path/to/file.pdf --json > extraction.json
 ```
 
 To emit per-unit output (pages/slides/sheets depending on format), use `--json-unit`:
 
 ```bash
-sharepoint2text --json-unit /path/to/file.pdf > units.json
+sharepoint2text --file /path/to/file.pdf --json-unit > units.json
 ```
 
-Some formats include binary payloads (e.g., embedded images in Office/PDF files, email attachments). The CLI omits binary payloads in JSON by default (emits `null` for binary fields). Use `--binary` to include base64 blobs:
+Some formats include embedded images (e.g., in Office/PDF files). The CLI ignores images by default for faster processing. Use `--include-images` to extract images and include them as base64 blobs:
 
 ```bash
-sharepoint2text --json /path/to/file.pdf > extraction.json
+# Default: images are ignored for faster processing
+sharepoint2text --file /path/to/file.pdf --json > extraction.json
 
-# include binary payloads
-sharepoint2text --json --binary /path/to/file.pdf > extraction.with-binary.json
+# Include extracted images as base64
+sharepoint2text --file /path/to/file.pdf --json --include-images > extraction.with-images.json
 ```
+
+Parameters can be specified in any order:
+
 ```bash
-# include binary payloads (units mode)
-sharepoint2text --json-unit --binary /path/to/file.pdf > units.with-binary.json
+sharepoint2text --json --include-images --file /path/to/file.pdf
+sharepoint2text --file /path/to/file.pdf --json --include-images
 ```
-
-Note: the PDF image skip described in the limitations section also applies to CLI output. In that scenario, `--json`/`--json-unit` will report empty image lists even with `--binary`, because the images are not extracted.
 
 ## API Reference
 
