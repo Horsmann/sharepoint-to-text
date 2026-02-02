@@ -7,8 +7,7 @@ The library also includes an optional SharePoint client for reading files direct
 **Install:** `uv add sharepoint-to-text`
 **Python import:** `import sharepoint2text`
 **CLI (text):** `sharepoint2text --file /path/to/file.docx > extraction.txt`
-**CLI (JSON, full extraction):** `sharepoint2text --file /path/to/file.docx --json > extraction.json` (images ignored by default; add `--include-images` to extract)
-**CLI (JSON, units):** `sharepoint2text --file /path/to/file.docx --json-unit > units.json` (images ignored by default; add `--include-images` to extract)
+**CLI (JSON):** `sharepoint2text --file /path/to/file.docx --json > extraction.json` (images ignored by default; add `--include-images` to extract)
 
 ## What You Get
 
@@ -202,6 +201,16 @@ The library uses a sophisticated multi-layered approach to detect and process fi
 | CSV        | `.csv`    | Comma-separated values   |
 | TSV        | `.tsv`    | Tab-separated values     |
 | JSON       | `.json`   | JSON files               |
+
+### Configuration & Data Files
+
+| Format       | Extension | Description                      |
+|--------------|-----------|----------------------------------|
+| YAML         | `.yaml`, `.yml` | YAML configuration files |
+| XML          | `.xml`    | XML documents and data files     |
+| Log files    | `.log`    | Application log files            |
+| INI/Config   | `.ini`, `.cfg`, `.conf` | Configuration files |
+| Properties   | `.properties` | Java properties files        |
 
 ### PDF
 
@@ -574,9 +583,10 @@ sharepoint2text --file /path/to/file.pdf > extraction.txt
 | Option | Output | Notes |
 |---|---|---|
 | `--file FILE` | *(required)* | Path to the file to extract. Can be specified in any order relative to other options. |
+| `--output FILE`, `-o FILE` | Output file | Write output to file instead of stdout. |
 | `--version` | Version info | Show the version and exit. |
-| *(default)* | Plain text | Prints `result.get_full_text()` (blank-line separated if multiple items). |
-| `--json` | JSON extraction object(s) | Prints `result.to_json()`; emits a single JSON object (one item) or a JSON array (multiple items). Images are ignored by default for faster processing. |
+| *(default)* | Plain text | Prints `result.get_full_text()`. |
+| `--json` | JSON extraction object(s) | Prints `result.to_json()`. Images are ignored by default for faster processing. |
 | `--json-unit` | JSON unit list(s) | Prints a JSON list of unit representations using `result.iterate_units()` (e.g., pages/slides/sheets). For multi-item inputs (e.g. `.mbox`), emits a JSON list where each item is that extraction's unit list. Images are ignored by default for faster processing. |
 | `--include-images` | Include image data | Extract images and include as base64 blobs in JSON output. Only valid with `--json` or `--json-unit`. |
 
@@ -584,25 +594,28 @@ sharepoint2text --file /path/to/file.pdf > extraction.txt
 
 ### Examples
 
-To emit structured output for the full extraction object, use `--json`:
+Extract text from a file:
+
+```bash
+sharepoint2text --file /path/to/file.pdf > extraction.txt
+```
+
+Emit structured JSON output:
 
 ```bash
 sharepoint2text --file /path/to/file.pdf --json > extraction.json
 ```
 
-To emit per-unit output (pages/slides/sheets depending on format), use `--json-unit`:
+Write to output file instead of stdout:
 
 ```bash
-sharepoint2text --file /path/to/file.pdf --json-unit > units.json
+sharepoint2text --file /path/to/file.pdf --output extraction.txt
+sharepoint2text --file /path/to/file.pdf --json --output extraction.json
 ```
 
-Some formats include embedded images (e.g., in Office/PDF files). The CLI ignores images by default for faster processing. Use `--include-images` to extract images and include them as base64 blobs:
+Include extracted images as base64:
 
 ```bash
-# Default: images are ignored for faster processing
-sharepoint2text --file /path/to/file.pdf --json > extraction.json
-
-# Include extracted images as base64
 sharepoint2text --file /path/to/file.pdf --json --include-images > extraction.with-images.json
 ```
 

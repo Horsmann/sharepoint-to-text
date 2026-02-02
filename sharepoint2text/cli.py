@@ -4,7 +4,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Sequence
+from typing import Sequence, TextIO
 
 import sharepoint2text
 from sharepoint2text.parsing.extractors.data_types import ExtractionInterface
@@ -45,6 +45,12 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="include_images",
         action="store_true",
         help="Extract images from the file and include image data as base64 blobs in JSON output (default: images are ignored for faster processing).",
+    )
+    parser.add_argument(
+        "--output",
+        "-o",
+        type=Path,
+        help="Output file path (default: stdout).",
     )
     return parser
 
@@ -114,11 +120,20 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"File size {file_size} bytes exceeds CLI maximum of {MAX_CLI_FILE_SIZE} bytes"
             )
 
+        # Determine output stream
+        output_stream: TextIO
+        if args.output:
+            output_file = open(args.output, "w", encoding="utf-8")
+            output_stream = output_file
+        else:
+            output_stream = sys.stdout
+
         results = list(
             sharepoint2text.read_file(args.file, ignore_images=not args.include_images)
         )
         if not results:
             raise RuntimeError(f"No extraction results for {args.file}")
+
         if args.json or args.json_unit:
             include_binary = bool(args.include_images)
             payload = (
@@ -126,11 +141,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if args.json_unit
                 else _serialize_results(results, include_binary=include_binary)
             )
-            json.dump(payload, sys.stdout)
-            sys.stdout.write("\n")
+            json.dump(payload, output_stream)
+            output_stream.write("\n")
         else:
-            sys.stdout.write(_serialize_full_text(results))
-            sys.stdout.write("\n")
+            output_stream.write(_serialize_full_text(results))
+            output_stream.write("\n")
+
+        # Close output file if we opened one
+        if args.output and output_stream is not sys.stdout:
+            output_stream.close()
+
         return 0
     except Exception as exc:
         print(f"sharepoint2text: {exc}", file=sys.stderr)
