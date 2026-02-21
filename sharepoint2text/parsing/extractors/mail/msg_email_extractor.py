@@ -161,10 +161,55 @@ def _read_ole_string(ole: OleFileIO, storage: str, stream_name: str) -> str:
         return ""
 
 
-def _extract_msg_attachments(file_bytes: bytes) -> list[EmailAttachment]:
+def _attachment_data_to_bytes(value: Any) -> bytes:
+    """Normalize msg-parser attachment payloads to bytes."""
+    if value is None:
+        return b""
+    if isinstance(value, bytes):
+        return value
+    if isinstance(value, bytearray):
+        return bytes(value)
+    if isinstance(value, memoryview):
+        return value.tobytes()
+    if isinstance(value, str):
+        return value.encode("utf-8", errors="ignore")
+    return bytes(value)
+
+
+def _extract_msg_attachments_from_msg(msg: MsOxMessage) -> list[EmailAttachment]:
+    """Extract attachments from msg_parser output without re-reading the OLE file."""
+    attachments: list[EmailAttachment] = []
+    msg_attachments = getattr(msg, "attachments", None) or []
+
+    for index, attachment in enumerate(msg_attachments, start=1):
+        data = _attachment_data_to_bytes(getattr(attachment, "data", b""))
+        filename = (
+            getattr(attachment, "Filename", None)
+            or getattr(attachment, "AttachLongFilename", None)
+            or getattr(attachment, "AttachFilename", None)
+            or f"attachment-{index}"
+        )
+        mime_type = (
+            getattr(attachment, "AttachMimeTag", None) or "application/octet-stream"
+        )
+
+        attachments.append(
+            EmailAttachment(
+                filename=filename,
+                mime_type=mime_type,
+                data=io.BytesIO(data),
+                is_supported_mime_type=is_supported_mime_type(mime_type),
+            )
+        )
+
+    return attachments
+
+
+def _extract_msg_attachments_from_ole(file_like: io.BytesIO) -> list[EmailAttachment]:
     attachments: list[EmailAttachment] = []
 
-    with OleFileIO(io.BytesIO(file_bytes)) as ole:
+    file_like.seek(0)
+    with OleFileIO(file_like) as ole:
         storages = ole.listdir(streams=False, storages=True)
         attach_storages = [
             storage[0]
@@ -345,8 +390,6 @@ def read_msg_format_mail(
             - Corrupted or invalid OLE structure
             - Missing required MAPI properties
             - Encrypted/protected messages
-        TypeError: If sent_date is missing or in unexpected format.
-        IndexError: If sender field is empty or malformed.
 
     Example:
         >>> import io
@@ -360,7 +403,7 @@ def read_msg_format_mail(
         - msg_parser.MsOxMessage handles OLE parsing internally
         - Sender is extracted via sender property and parsed as recipient list
         - To, Cc, Bcc fields may be strings or lists depending on msg_parser version
-        - reply_to is stored directly from msg_parser (not parsed as addresses)
+        - reply_to is normalized to List[EmailAddress]
         - body_plain is plain text; HTML is converted when detected
         - Attachments are returned as EmailAttachment dataclasses
         - For HTML body, additional extraction from RTF may be needed
@@ -368,23 +411,28 @@ def read_msg_format_mail(
     Maintenance Considerations:
         - msg_parser API may change between versions; verify property names
         - Some MSG files may have missing properties (sender, date, etc.)
-        - Consider adding try/except blocks for more robust error handling
         - HTML body extraction could be enhanced by parsing RTF content
 
     Known Issues:
         - body_html uses the raw HTML body when detected
-        - reply_to is stored as raw value, not parsed to EmailAddress list
-          (this differs from EML/MBOX extractors)
     """
+    source_path = path or "<in-memory>"
+    logger.info("Entering MSG extraction: %s", source_path)
     try:
         file_like.seek(0)
-        file_bytes = file_like.read()
-        msg = MsOxMessage(io.BytesIO(file_bytes))
+        msg = MsOxMessage(file_like)
 
         # Build metadata with date and message ID
+        sent_date = ""
+        if msg.sent_date:
+            try:
+                sent_date = parsedate_to_datetime(msg.sent_date).isoformat()
+            except (TypeError, ValueError):
+                logger.debug("Unable to parse MSG sent_date: %r", msg.sent_date)
+
         meta = EmailMetadata(
-            message_id=msg.message_id,
-            date=parsedate_to_datetime(msg.sent_date).isoformat(),
+            message_id=msg.message_id or "",
+            date=sent_date,
         )
 
         # Parse sender - expecting at least one result
@@ -392,7 +440,13 @@ def read_msg_format_mail(
         sender_list = _parse_multi_recipients(msg.sender)
         from_email = sender_list[0] if sender_list else EmailAddress()
 
-        attachments = _extract_msg_attachments(file_bytes)
+        msg_attachments = getattr(msg, "attachments", None) or []
+        attachments = []
+        if msg_attachments:
+            # Prefer raw OLE attachment payloads for byte-level fidelity.
+            attachments = _extract_msg_attachments_from_ole(file_like)
+            if not attachments:
+                attachments = _extract_msg_attachments_from_msg(msg)
 
         raw_body = msg.body or ""
         if _looks_like_html(raw_body):
@@ -403,12 +457,12 @@ def read_msg_format_mail(
             body_html = ""
 
         content = EmailContent(
-            subject=msg.subject,
+            subject=msg.subject or "",
             from_email=from_email,
             to_emails=_parse_multi_recipients(msg.to),
             to_cc=_parse_multi_recipients(msg.cc),
             to_bcc=_parse_multi_recipients(msg.bcc),
-            reply_to=msg.reply_to,  # Note: stored as-is, not parsed to EmailAddress list
+            reply_to=_parse_multi_recipients(msg.reply_to),
             body_plain=body_plain,
             body_html=body_html,
             attachments=attachments,
@@ -423,3 +477,5 @@ def read_msg_format_mail(
         raise
     except (ValueError, TypeError, AttributeError, OSError, UnicodeDecodeError) as exc:
         raise ExtractionFailedError("Failed to extract MSG file", cause=exc) from exc
+    finally:
+        logger.info("Leaving MSG extraction: %s", source_path)

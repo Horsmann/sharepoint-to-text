@@ -1,5 +1,6 @@
 import logging
 import unittest
+from pathlib import Path
 
 from sharepoint2text.parsing.exceptions import ExtractionFileFormatNotSupportedError
 from sharepoint2text.parsing.extractors.archive_extractor import read_archive
@@ -304,3 +305,24 @@ def test_router_force_plain_text():
 
     func = get_extractor("afile.dzs", force_plain_text=True)
     tc.assertEqual(read_plain_text, func)
+
+
+def test_router_accepts_path_objects():
+    tc.assertTrue(is_supported_file(Path("myfile.pdf")))
+    tc.assertTrue(is_supported_file(Path("myfile.tar.gz")))
+    tc.assertFalse(is_supported_file(Path("myfile.unsupported")))
+
+    func = get_extractor(Path("myfile.pdf"))
+    tc.assertEqual(read_pdf, func)
+
+
+def test_router_error_message_contains_path_and_extension():
+    try:
+        get_extractor(Path("no_extension"))
+    except ExtractionFileFormatNotSupportedError as exc:
+        message = str(exc)
+        tc.assertIn("no_extension", message)
+        tc.assertIn("extension: <none>", message)
+        tc.assertIn("MIME: <unknown>", message)
+    else:
+        tc.fail("Expected ExtractionFileFormatNotSupportedError")

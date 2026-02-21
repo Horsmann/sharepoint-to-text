@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 import sharepoint2text
-from sharepoint2text.cli import main
+from sharepoint2text.cli import _serialize_results, main
 from sharepoint2text.parsing.extractors.serialization import serialize_extraction
 
 
@@ -19,9 +19,11 @@ def test_cli_outputs_full_text_by_default(capsys) -> None:
 
 def test_cli_outputs_json_with_flag(capsys) -> None:
     path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
-    expected = serialize_extraction(
-        next(sharepoint2text.read_file(path)), include_binary=False
-    )
+    expected = [
+        serialize_extraction(
+            next(sharepoint2text.read_file(path)), include_binary=False
+        )
+    ]
 
     exit_code = main(["--json", "--file", str(path)])
     captured = capsys.readouterr()
@@ -31,12 +33,24 @@ def test_cli_outputs_json_with_flag(capsys) -> None:
     assert payload == expected
 
 
+def test_serialize_results_returns_list_for_multiple_results() -> None:
+    path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
+    result = next(sharepoint2text.read_file(path))
+
+    payload = _serialize_results([result, result], include_binary=False)
+
+    assert isinstance(payload, list)
+    assert len(payload) == 2
+
+
 def test_cli_outputs_json_unit_with_flag(capsys) -> None:
     path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
     result = next(sharepoint2text.read_file(path))
     expected = [
-        serialize_extraction(unit, include_binary=False)
-        for unit in result.iterate_units()
+        [
+            serialize_extraction(unit, include_binary=False)
+            for unit in result.iterate_units()
+        ]
     ]
 
     exit_code = main(["--json-unit", "--file", str(path)])
@@ -66,11 +80,12 @@ def test_cli_outputs_json_without_images(capsys) -> None:
 
     assert exit_code == 0
     payload = json.loads(captured.out.strip())
-    assert payload["_type"] == "PdfContent"
+    assert isinstance(payload, list)
+    assert payload[0]["_type"] == "PdfContent"
     assert _contains_binary_markers(payload) is False
 
     # Images are not extracted by default
-    images = payload["pages"][0]["images"]
+    images = payload[0]["pages"][0]["images"]
     assert len(images) == 0
 
 
@@ -85,11 +100,12 @@ def test_cli_outputs_json_unit_without_images(capsys) -> None:
     payload = json.loads(captured.out.strip())
     assert isinstance(payload, list)
     assert len(payload) > 0
-    assert payload[0]["_type"] == "PdfUnit"
+    assert isinstance(payload[0], list)
+    assert payload[0][0]["_type"] == "PdfUnit"
     assert _contains_binary_markers(payload) is False
 
     # Images are not extracted by default
-    images = payload[0]["images"]
+    images = payload[0][0]["images"]
     assert len(images) == 0
 
 
@@ -101,10 +117,11 @@ def test_cli_outputs_json_with_binary_payloads_when_requested(capsys) -> None:
 
     assert exit_code == 0
     payload = json.loads(captured.out.strip())
-    assert payload["_type"] == "PdfContent"
+    assert isinstance(payload, list)
+    assert payload[0]["_type"] == "PdfContent"
     assert _contains_binary_markers(payload) is True
 
-    images = payload["pages"][0]["images"]
+    images = payload[0]["pages"][0]["images"]
     assert len(images) > 0
     assert isinstance(images[0]["data"], dict)
     assert "_bytesio" in images[0]["data"] or "_bytes" in images[0]["data"]
@@ -120,10 +137,11 @@ def test_cli_outputs_json_unit_with_binary_payloads_when_requested(capsys) -> No
     payload = json.loads(captured.out.strip())
     assert isinstance(payload, list)
     assert len(payload) > 0
-    assert payload[0]["_type"] == "PdfUnit"
+    assert isinstance(payload[0], list)
+    assert payload[0][0]["_type"] == "PdfUnit"
     assert _contains_binary_markers(payload) is True
 
-    images = payload[0]["images"]
+    images = payload[0][0]["images"]
     assert len(images) > 0
     assert isinstance(images[0]["data"], dict)
     assert "_bytesio" in images[0]["data"] or "_bytes" in images[0]["data"]

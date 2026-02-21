@@ -773,6 +773,8 @@ def read_odt(
         - ZIP file is opened once and all XML is cached
         - content.xml and styles.xml are parsed once and reused
     """
+    source_path = path or "<in-memory>"
+    logger.info("Entering ODT extraction: %s", source_path)
     try:
         file_like.seek(0)
         if is_odf_encrypted(file_like):
@@ -829,3 +831,5 @@ def read_odt(
         raise
     except (KeyError, ET.ParseError, OSError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract ODT file", cause=exc) from exc
+    finally:
+        logger.info("Leaving ODT extraction: %s", source_path)

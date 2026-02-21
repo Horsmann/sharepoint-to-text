@@ -707,7 +707,7 @@ def read_epub(
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
             returned EpubContent.metadata.
-        ignore_images: If True, skip image extraction (not applicable for this format).
+        ignore_images: If True, skip image extraction.
 
     Yields:
         EpubContent: Single EpubContent object containing:
@@ -730,6 +730,8 @@ def read_epub(
         ...         for chapter in epub.chapters:
         ...             print(f"  {chapter.chapter_number}: {chapter.title}")
     """
+    source_path = path or "<in-memory>"
+    logger.info("Entering EPUB extraction: %s", source_path)
     try:
         file_like.seek(0)
 
@@ -758,7 +760,7 @@ def read_epub(
                     chapters.append(chapter)
 
             # Extract images from manifest
-            images = _extract_images(ctx)
+            images = [] if ignore_images else _extract_images(ctx)
 
             # Extract table of contents
             toc = _extract_toc(ctx)
@@ -776,3 +778,5 @@ def read_epub(
         raise
     except (KeyError, ET.ParseError, UnicodeDecodeError, OSError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract EPUB file", cause=exc) from exc
+    finally:
+        logger.info("Leaving EPUB extraction: %s", source_path)

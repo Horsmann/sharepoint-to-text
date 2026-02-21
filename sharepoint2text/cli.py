@@ -58,14 +58,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _serialize_results(
     results: list[ExtractionInterface], *, include_binary: bool
-) -> dict | list[dict]:
+) -> list[dict]:
     """Serialize extraction results for ``--json`` output.
 
-    Returns a single JSON object for one extraction result, otherwise a list of
-    JSON objects for multi-result inputs (for example, ``.mbox`` or archives).
+    Always returns a list so output shape is stable regardless of result
+    cardinality (single file, archives, mbox, etc.).
     """
-    if len(results) == 1:
-        return serialize_extraction(results[0], include_binary=include_binary)
     return [
         serialize_extraction(result, include_binary=include_binary)
         for result in results
@@ -74,18 +72,12 @@ def _serialize_results(
 
 def _serialize_unit_results(
     results: list[ExtractionInterface], *, include_binary: bool
-) -> list[dict] | list[list[dict]]:
+) -> list[list[dict]]:
     """Serialize per-unit output for ``--json-unit`` mode.
 
-    For a single extraction result, returns a flat list of unit objects.
-    For multiple extraction results, returns a list of unit-lists preserving the
-    result boundaries.
+    Always returns ``list[list[dict]]`` so each extraction result keeps a stable
+    unit-list boundary.
     """
-    if len(results) == 1:
-        return [
-            serialize_extraction(unit, include_binary=include_binary)
-            for unit in results[0].iterate_units()
-        ]
     return [
         [
             serialize_extraction(unit, include_binary=include_binary)

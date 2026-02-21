@@ -19,7 +19,7 @@ import xlrd
 from sharepoint2text.parsing.exceptions import (
     ExtractionError,
     ExtractionFileEncryptedError,
-    LegacyMicrosoftParsingError,
+    ExtractionLegacyMicrosoftParsingError,
 )
 from sharepoint2text.parsing.extractors.data_types import (
     XlsContent,
@@ -199,6 +199,7 @@ def _format_sheet_as_text(headers: list[str], rows: list[list[str]]) -> str:
 def _read_content(file_like: io.BytesIO) -> list[XlsSheet]:
     """Read all sheets from XLS file and extract content."""
     logger.debug("Reading content")
+    file_like.seek(0)
     workbook = xlrd.open_workbook(
         file_contents=file_like.read(),
         # xlrd's OLE parser may emit warnings via `print(...)` for slightly
@@ -261,6 +262,7 @@ def _read_content(file_like: io.BytesIO) -> list[XlsSheet]:
 
 def _read_metadata(file_like: io.BytesIO) -> XlsMetadata:
     """Extract document metadata from OLE container."""
+    file_like.seek(0)
     with olefile.OleFileIO(file_like) as ole:
         meta = ole.get_metadata()
 
@@ -293,20 +295,20 @@ def read_xls(
     XlsContent object containing sheets, metadata, and images.
 
     Args:
-        ignore_images: If True, skip image extraction (not applicable for this format).
+        ignore_images: If True, skip image extraction.
     """
+    source_path = path or "<in-memory>"
+    logger.info("Entering XLS extraction: %s", source_path)
     try:
         file_like.seek(0)
         if is_xls_encrypted(file_like):
             raise ExtractionFileEncryptedError("XLS is encrypted or password-protected")
 
         file_like.seek(0)
-        raw = file_like.read()
-
-        sheets = _read_content(io.BytesIO(raw))
-        metadata = _read_metadata(io.BytesIO(raw))
+        sheets = _read_content(file_like)
+        metadata = _read_metadata(file_like)
         metadata.populate_from_path(path)
-        images = _extract_images_from_workbook(io.BytesIO(raw))
+        images = [] if ignore_images else _extract_images_from_workbook(file_like)
 
         yield XlsContent(
             metadata=metadata,
@@ -317,9 +319,11 @@ def read_xls(
     except ExtractionError:
         raise
     except (xlrd.XLRDError, OSError, struct.error, ValueError) as exc:
-        raise LegacyMicrosoftParsingError(
+        raise ExtractionLegacyMicrosoftParsingError(
             "Failed to extract XLS file", cause=exc
         ) from exc
+    finally:
+        logger.info("Leaving XLS extraction: %s", source_path)
 
 
 # =============================================================================

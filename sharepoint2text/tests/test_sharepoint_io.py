@@ -13,6 +13,7 @@ import pytest
 
 from sharepoint2text.sharepoint_io import (
     EntraIDAppCredentials,
+    FileFilter,
     SharePointAuthError,
     SharePointFileMetadata,
     SharePointRequestError,
@@ -331,6 +332,96 @@ class TestSharePointRestClientListFiles:
         # Check parent path is set for nested file
         nested = next(f for f in files if f.name == "nested-file.pdf")
         assert nested.parent_path == "Folder A"
+
+    def test_list_all_files_can_exclude_root_files(self, credentials, site_url):
+        root_response = {
+            "value": [
+                {
+                    "id": "folder1",
+                    "name": "Folder A",
+                    "folder": {"childCount": 1},
+                },
+                {
+                    "id": "file1",
+                    "name": "root-file.txt",
+                    "file": {"mimeType": "text/plain"},
+                    "size": 100,
+                    "webUrl": "https://contoso.sharepoint.com/root-file.txt",
+                },
+            ]
+        }
+        folder_response = {
+            "value": [
+                {
+                    "id": "file2",
+                    "name": "nested-file.pdf",
+                    "file": {"mimeType": "application/pdf"},
+                    "size": 200,
+                    "webUrl": "https://contoso.sharepoint.com/Folder A/nested-file.pdf",
+                },
+            ]
+        }
+
+        def mock_request(request, timeout):
+            if _url_hostname(request.full_url) == "login.microsoftonline.com":
+                return _make_mock_response({"access_token": "token"})
+            if "/items/folder1/children" in request.full_url:
+                return _make_mock_response(folder_response)
+            if "/children" in request.full_url:
+                return _make_mock_response(root_response)
+            return _make_mock_response({"id": "site-id"})
+
+        client = SharePointRestClient(
+            site_url=site_url,
+            credentials=credentials,
+            request_func=mock_request,
+        )
+        files = client.list_all_files(include_root_files=False)
+        assert len(files) == 1
+        assert files[0].name == "nested-file.pdf"
+        assert files[0].parent_path == "Folder A"
+
+    def test_list_files_filtered_returns_list(self, credentials, site_url):
+        files_response = {
+            "value": [
+                {
+                    "id": "file1",
+                    "name": "document.pdf",
+                    "file": {"mimeType": "application/pdf"},
+                    "size": 12345,
+                    "webUrl": "https://contoso.sharepoint.com/document.pdf",
+                    "lastModifiedDateTime": "2024-01-02T00:00:00Z",
+                    "createdDateTime": "2024-01-01T00:00:00Z",
+                },
+                {
+                    "id": "file2",
+                    "name": "notes.txt",
+                    "file": {"mimeType": "text/plain"},
+                    "size": 20,
+                    "webUrl": "https://contoso.sharepoint.com/notes.txt",
+                    "lastModifiedDateTime": "2024-01-02T00:00:00Z",
+                    "createdDateTime": "2024-01-01T00:00:00Z",
+                },
+            ]
+        }
+
+        def mock_request(request, timeout):
+            if _url_hostname(request.full_url) == "login.microsoftonline.com":
+                return _make_mock_response({"access_token": "token"})
+            if "/children" in request.full_url:
+                return _make_mock_response(files_response)
+            return _make_mock_response({"id": "site-id"})
+
+        client = SharePointRestClient(
+            site_url=site_url,
+            credentials=credentials,
+            request_func=mock_request,
+        )
+
+        files = client.list_files_filtered(FileFilter(extensions=[".pdf"]))
+        assert isinstance(files, list)
+        assert len(files) == 1
+        assert files[0].name == "document.pdf"
 
     def test_list_files_with_custom_fields(self, credentials, site_url):
         """Test that custom fields are extracted from listItem.fields."""

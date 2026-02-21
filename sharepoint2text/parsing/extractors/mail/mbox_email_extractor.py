@@ -107,22 +107,22 @@ logger = logging.getLogger(__name__)
 # Pattern to match mbox "From " separator lines
 # Format: "From sender@example.com Mon Jan  1 00:00:00 2024"
 # The line must start with "From " followed by an address and a date
-MBOX_FROM_PATTERN = re.compile(rb"^From \S+.*\d{4}\r?\n", re.MULTILINE)
+MBOX_FROM_PATTERN = re.compile(rb"^From \S+.*\d{4}\r?\n")
 
 
-def _split_mbox_messages(data: bytes) -> list[bytes]:
+def _iter_mbox_messages(file_like: io.BytesIO):
     """
-    Split mbox data into individual message bytes without using temp files.
+    Yield mbox messages from a stream in a single pass.
 
     The mbox format separates messages with "From " lines at the start of a line.
-    This function finds all such separators and splits the data accordingly.
+    This parser scans line-by-line and yields one message at a time to avoid
+    materializing the full mailbox and all message slices in memory.
 
     Args:
-        data: Raw bytes of the entire mbox file.
+        file_like: Binary stream containing mbox data.
 
-    Returns:
-        List of bytes, each containing a single email message.
-        Empty list if no valid messages found.
+    Yields:
+        Raw bytes for each message in mbox order.
 
     Implementation Notes:
         - Uses regex to find "From " separator lines
@@ -130,36 +130,38 @@ def _split_mbox_messages(data: bytes) -> list[bytes]:
         - The "From " line itself is NOT part of the message content
         - Handles both Unix (LF) and Windows (CRLF) line endings
     """
-    if not data:
-        return []
+    file_like.seek(0)
+    current_lines: list[bytes] = []
+    saw_separator = False
+    preamble_lines: list[bytes] = []
 
-    messages = []
+    while True:
+        line = file_like.readline()
+        if line == b"":
+            break
 
-    # Find all "From " line positions
-    matches = list(MBOX_FROM_PATTERN.finditer(data))
+        if MBOX_FROM_PATTERN.match(line):
+            if saw_separator and current_lines:
+                msg_bytes = b"".join(current_lines).rstrip(b"\r\n")
+                if msg_bytes:
+                    yield msg_bytes
+                current_lines.clear()
+            saw_separator = True
+            continue
 
-    if not matches:
-        # No "From " lines found - might be a single message without separator
-        # or not a valid mbox format
-        return []
-
-    for i, match in enumerate(matches):
-        # Message content starts after the "From " line
-        msg_start = match.end()
-
-        # Message ends at the next "From " line or end of data
-        if i + 1 < len(matches):
-            msg_end = matches[i + 1].start()
+        if saw_separator:
+            current_lines.append(line)
         else:
-            msg_end = len(data)
+            preamble_lines.append(line)
 
-        # Extract message bytes (strip trailing blank lines between messages)
-        msg_bytes = data[msg_start:msg_end].rstrip(b"\r\n")
-
+    if saw_separator:
+        msg_bytes = b"".join(current_lines).rstrip(b"\r\n")
         if msg_bytes:
-            messages.append(msg_bytes)
-
-    return messages
+            yield msg_bytes
+    elif preamble_lines:
+        msg_bytes = b"".join(preamble_lines).rstrip(b"\r\n")
+        if msg_bytes:
+            yield msg_bytes
 
 
 def decode_header_value(value: str | None) -> str:
@@ -289,6 +291,21 @@ def parse_email_addresses(addr_string: str | None) -> list[EmailAddress]:
     return result
 
 
+def _parse_message_date(value: str | None) -> str:
+    """Parse an RFC 2822 date header value to ISO-8601.
+
+    Returns an empty string when the header is missing or malformed.
+    """
+    decoded = decode_header_value(value)
+    if not decoded:
+        return ""
+    try:
+        return parsedate_to_datetime(decoded).isoformat()
+    except (TypeError, ValueError):
+        logger.debug("Unable to parse message date header: %r", value)
+        return ""
+
+
 def get_body_content(message: email.message.Message) -> tuple[str, str]:
     """
     Extract plain text and HTML body content from an email message.
@@ -386,10 +403,6 @@ def parse_email_message(message: email.message.Message) -> EmailContent:
     Returns:
         EmailContent: Fully populated dataclass with all extracted data.
 
-    Raises:
-        TypeError: If parsedate_to_datetime receives None (missing Date header).
-            This can happen with malformed emails. Consider adding validation.
-
     Implementation Notes:
         - Date is parsed via parsedate_to_datetime and converted to ISO format
         - All header values are decoded for RFC 2047 encoded words
@@ -397,17 +410,15 @@ def parse_email_message(message: email.message.Message) -> EmailContent:
         - Body extraction delegates to get_body_content()
 
     Maintenance Considerations:
-        - Missing Date header will raise TypeError - may need error handling
+        - Missing/malformed Date headers are normalized to empty metadata.date
         - Message-ID may be missing in draft or malformed emails
         - In-Reply-To header links to parent message in thread
     """
     # Extract body content first
     body_plain, body_html = get_body_content(message)
 
-    # Parse date - expects RFC 2822 format
-    parsed_date = parsedate_to_datetime(
-        decode_header_value(message.get("Date"))
-    ).isoformat()
+    # Parse date when available (missing/malformed Date headers are common in exports)
+    parsed_date = _parse_message_date(message.get("Date"))
 
     # Build metadata with date and message ID
     metadata = EmailMetadata(
@@ -493,15 +504,12 @@ def read_mbox_format_mail(
         First
         Second
     """
+    source_path = path or "<in-memory>"
+    logger.info("Entering MBOX extraction: %s", source_path)
     try:
         file_like.seek(0)
-        data = file_like.read()
-
-        # Split mbox into individual messages in memory
-        message_bytes_list = _split_mbox_messages(data)
-
         message_count = 0
-        for msg_bytes in message_bytes_list:
+        for msg_bytes in _iter_mbox_messages(file_like):
             # Parse message from bytes using standard library
             message = email.message_from_bytes(msg_bytes)
             m = parse_email_message(message)
@@ -517,8 +525,10 @@ def read_mbox_format_mail(
             )
             yield m
 
-        logger.info("Extracted MBOX: %d messages", message_count)
+        logger.debug("Extracted MBOX: %d messages", message_count)
     except ExtractionError:
         raise
     except (ValueError, TypeError, UnicodeDecodeError, OSError) as exc:
         raise ExtractionFailedError("Failed to extract MBOX file", cause=exc) from exc
+    finally:
+        logger.info("Leaving MBOX extraction: %s", source_path)

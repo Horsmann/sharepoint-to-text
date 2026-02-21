@@ -502,6 +502,8 @@ def read_odp(
         ...         for slide in ppt.slides:
         ...             print(f"  {slide.slide_number}: {slide.title}")
     """
+    source_path = path or "<in-memory>"
+    logger.info("Entering ODP extraction: %s", source_path)
     try:
         file_like.seek(0)
         if is_odf_encrypted(file_like):
@@ -542,3 +544,5 @@ def read_odp(
         raise
     except (KeyError, ET.ParseError, OSError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract ODP file", cause=exc) from exc
+    finally:
+        logger.info("Leaving ODP extraction: %s", source_path)

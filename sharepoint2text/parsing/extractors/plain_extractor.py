@@ -174,6 +174,8 @@ def read_plain_text(
         ...         print(f"Lines: {len(lines)}")
         ...         print(f"First line: {lines[0] if lines else '(empty)'}")
     """
+    source_path = path or "<in-memory>"
+    logger.info("Entering plain text extraction: %s", source_path)
     try:
         logger.debug("Reading plain text file")
         file_like.seek(0)
@@ -197,3 +199,5 @@ def read_plain_text(
         raise ExtractionFailedError(
             "Failed to extract plain text file", cause=exc
         ) from exc
+    finally:
+        logger.info("Leaving plain text extraction: %s", source_path)

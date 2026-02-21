@@ -6,13 +6,21 @@ in SharePoint repositories. Supports both modern Office Open XML formats and
 legacy binary formats, plus PDF documents.
 """
 
-import io
 import logging
 import re
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any, BinaryIO, Generator
 
+from sharepoint2text.parsing.exceptions import (
+    ExtractionError,
+    ExtractionFailedError,
+    ExtractionFileEncryptedError,
+    ExtractionFileFormatNotSupportedError,
+    ExtractionFileTooLargeError,
+    ExtractionLegacyMicrosoftParsingError,
+    ExtractionZipBombError,
+)
 from sharepoint2text.parsing.extractors.data_types import (
     DocContent,
     DocxContent,
@@ -75,7 +83,7 @@ except PackageNotFoundError:  # pragma: no cover
 # Modern MS
 #############
 def read_docx(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[DocxContent, Any, None]:
     """Extract content from a DOCX file."""
     from sharepoint2text.parsing.extractors.ms_modern.docx_extractor import (
@@ -87,7 +95,7 @@ def read_docx(
 
 
 def read_xlsx(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[XlsxContent, Any, None]:
     """Extract content from an XLSX file."""
     from sharepoint2text.parsing.extractors.ms_modern.xlsx_extractor import (
@@ -99,7 +107,7 @@ def read_xlsx(
 
 
 def read_pptx(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[PptxContent, Any, None]:
     """Extract content from a PPTX file."""
     from sharepoint2text.parsing.extractors.ms_modern.pptx_extractor import (
@@ -116,7 +124,7 @@ def read_pptx(
 
 
 def read_doc(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[DocContent, Any, None]:
     """Extract content from a DOC file."""
     from sharepoint2text.parsing.extractors.ms_legacy.doc_extractor import (
@@ -128,7 +136,7 @@ def read_doc(
 
 
 def read_xls(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[XlsContent, Any, None]:
     """Extract content from an XLS file."""
     from sharepoint2text.parsing.extractors.ms_legacy.xls_extractor import (
@@ -140,7 +148,7 @@ def read_xls(
 
 
 def read_ppt(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[PptContent, Any, None]:
     """Extract content from a PPT file."""
     from sharepoint2text.parsing.extractors.ms_legacy.ppt_extractor import (
@@ -152,7 +160,7 @@ def read_ppt(
 
 
 def read_rtf(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[RtfContent, Any, None]:
     """Extract content from a RTF file."""
     from sharepoint2text.parsing.extractors.ms_legacy.rtf_extractor import (
@@ -169,7 +177,7 @@ def read_rtf(
 
 
 def read_odt(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[OdtContent, Any, None]:
     """Extract content from an ODT (OpenDocument Text) file."""
     from sharepoint2text.parsing.extractors.open_office.odt_extractor import (
@@ -181,7 +189,7 @@ def read_odt(
 
 
 def read_odp(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[OdpContent, Any, None]:
     """Extract content from an ODP (OpenDocument Presentation) file."""
     from sharepoint2text.parsing.extractors.open_office.odp_extractor import (
@@ -193,7 +201,7 @@ def read_odp(
 
 
 def read_ods(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[OdsContent, Any, None]:
     """Extract content from an ODS (OpenDocument Spreadsheet) file."""
     from sharepoint2text.parsing.extractors.open_office.ods_extractor import (
@@ -205,7 +213,7 @@ def read_ods(
 
 
 def read_odg(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[OdgContent, Any, None]:
     """Extract content from an ODG (OpenDocument Drawing) file."""
     from sharepoint2text.parsing.extractors.open_office.odg_extractor import (
@@ -217,7 +225,7 @@ def read_odg(
 
 
 def read_odf(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[OdfContent, Any, None]:
     """Extract content from an ODF (OpenDocument Formula) file."""
     from sharepoint2text.parsing.extractors.open_office.odf_extractor import (
@@ -234,7 +242,7 @@ def read_odf(
 
 
 def read_plain_text(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[PlainTextContent, Any, None]:
     """Extract content from a plain text file."""
     from sharepoint2text.parsing.extractors.plain_extractor import (
@@ -249,7 +257,7 @@ def read_plain_text(
 # PDF
 #############
 def read_pdf(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[PdfContent, Any, None]:
     """Extract content from a PDF file."""
     from sharepoint2text.parsing.extractors.pdf.pdf_extractor import (
@@ -264,7 +272,7 @@ def read_pdf(
 # HTML
 #############
 def read_html(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[HtmlContent, Any, None]:
     """Extract content from an HTML file."""
     from sharepoint2text.parsing.extractors.html_extractor import (
@@ -279,7 +287,7 @@ def read_html(
 # EPUB
 #############
 def read_epub(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[EpubContent, Any, None]:
     """Extract content from an EPUB eBook file."""
     from sharepoint2text.parsing.extractors.epub_extractor import (
@@ -294,7 +302,7 @@ def read_epub(
 # MHTML
 #############
 def read_mhtml(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[HtmlContent, Any, None]:
     """Extract content from an MHTML (web archive) file."""
     from sharepoint2text.parsing.extractors.mhtml_extractor import (
@@ -309,7 +317,7 @@ def read_mhtml(
 # Emails
 #############
 def read_email__msg_format(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[EmailContent, Any, None]:
     """Extract content from an email in msg format."""
     from sharepoint2text.parsing.extractors.mail.msg_email_extractor import (
@@ -321,7 +329,7 @@ def read_email__msg_format(
 
 
 def read_email__eml_format(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[EmailContent, Any, None]:
     """Extract content from an email in eml format."""
     from sharepoint2text.parsing.extractors.mail.eml_email_extractor import (
@@ -333,7 +341,7 @@ def read_email__eml_format(
 
 
 def read_email__mbox_format(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[EmailContent, Any, None]:
     """Extract content from an email in mbox format."""
     from sharepoint2text.parsing.extractors.mail.mbox_email_extractor import (
@@ -342,6 +350,27 @@ def read_email__mbox_format(
 
     logger.debug("Reading mail .mbox file: %s", path)
     return _read_mbox_format_mail(file_like, path, ignore_images=ignore_images)
+
+
+def read_msg_email(
+    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
+) -> Generator[EmailContent, Any, None]:
+    """Extract content from an Outlook MSG email file."""
+    return read_email__msg_format(file_like, path, ignore_images=ignore_images)
+
+
+def read_eml_email(
+    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
+) -> Generator[EmailContent, Any, None]:
+    """Extract content from an EML email file."""
+    return read_email__eml_format(file_like, path, ignore_images=ignore_images)
+
+
+def read_mbox_email(
+    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
+) -> Generator[EmailContent, Any, None]:
+    """Extract content from an MBOX email file."""
+    return read_email__mbox_format(file_like, path, ignore_images=ignore_images)
 
 
 def read_file(
@@ -442,10 +471,9 @@ def read_file(
     )
     with open(path, "rb") as f:
         try:
-            # For files within reasonable size, read entirely into memory
-            # For very large files, consider streaming in specific extractors
-            file_content = f.read()
-            for result in extractor(io.BytesIO(file_content), str(path)):
+            # Pass the file stream directly to avoid an unnecessary full-copy
+            # buffer before extraction.
+            for result in extractor(f, str(path)):
                 logger.info("Extraction complete: %s", path)
                 yield result
         except ExtractionError:
@@ -463,6 +491,14 @@ __all__ = [
     "read_file",
     "is_supported_file",
     "get_extractor",
+    # exceptions
+    "ExtractionError",
+    "ExtractionFileFormatNotSupportedError",
+    "ExtractionLegacyMicrosoftParsingError",
+    "ExtractionFileEncryptedError",
+    "ExtractionZipBombError",
+    "ExtractionFailedError",
+    "ExtractionFileTooLargeError",
     # legacy MS office
     "read_doc",
     "read_xls",
@@ -483,6 +519,9 @@ __all__ = [
     "read_email__msg_format",
     "read_email__eml_format",
     "read_email__mbox_format",
+    "read_msg_email",
+    "read_eml_email",
+    "read_mbox_email",
     # other
     "read_pdf",
     "read_epub",

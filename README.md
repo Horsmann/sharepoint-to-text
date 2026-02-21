@@ -7,7 +7,7 @@ The library also includes an optional SharePoint client for reading files direct
 **Install:** `uv add sharepoint-to-text`
 **Python import:** `import sharepoint2text`
 **CLI (text):** `sharepoint2text --file /path/to/file.docx > extraction.txt`
-**CLI (JSON):** `sharepoint2text --file /path/to/file.docx --json > extraction.json` (images ignored by default; add `--include-images` to extract)
+**CLI (JSON):** `sharepoint2text --file /path/to/file.docx --json > extraction.json` (always emits `list[extraction_object]`; images ignored by default unless `--include-images` is set)
 
 ## What You Get
 
@@ -449,7 +449,7 @@ for page_num, unit in enumerate(result.iterate_units(), start=1):
 | `.xls` | Concatenation of sheet `text` blocks (no sheet names) | Sheet names are available as `sheet.name` (`XlsSheet`) |
 | `.xlsx`, `.ods` | Includes sheet name + sheet text for each sheet | Images are available via `iterate_images()` / sheet image lists |
 | `.pdf` | Concatenation of extracted page text | Tables/images are available via `iterate_tables()` / `iterate_images()` (`PdfContent.pages`) |
-| `.eml`, `.msg`, `.mbox` | Returns `body_plain` when present, else `body_html` | Attachments are in `EmailContent.attachments` and can be extracted via `iterate_supported_attachments()` |
+| `.eml`, `.msg`, `.mbox` | Returns `body_plain` when present, else `body_html` | Attachments are in `EmailContent.attachments` and can be extracted via `iterate_supported_attachments()` (raises on supported-attachment extraction failures by default; use `skip_failed=True` to continue) |
 | `.txt`, `.csv`, `.tsv`, `.json`, `.md`, `.html` | Returns stripped content (leading/trailing whitespace removed) | Use the raw fields (`.content`) if you need untrimmed text |
 | `.rtf` | Returns the extractor's `full_text` when available | `iterate_units()` yields per-page text when explicit `\page` breaks exist |
 
@@ -511,9 +511,18 @@ print(f"From: {email.from_email.name} <{email.from_email.address}>")
 print(f"To: {', '.join(e.address for e in email.to_emails)}")
 print(f"Subject: {email.subject}")
 print(f"Body: {email.body_plain or email.body_html}")
+
+# Extract supported attachments.
+# Default behavior raises on supported-attachment extraction failures.
+for attachment_result in email.iterate_supported_attachments():
+    print(type(attachment_result).__name__, attachment_result.get_full_text()[:120])
+
+# Continue on attachment extraction failures instead of raising:
+for attachment_result in email.iterate_supported_attachments(skip_failed=True):
+    ...
 ```
 
-### Using Format-Specific Extractors with BytesIO
+### Using Format-Specific Extractors with Binary Streams
 
 For API responses or in-memory data:
 
@@ -525,7 +534,11 @@ import io
 with open("document.docx", "rb") as f:
     result = next(sharepoint2text.read_docx(io.BytesIO(f.read()), path="document.docx"))
 
-# Get extractor dynamically based on filename
+# You can also pass a regular binary file handle directly
+with open("document.docx", "rb") as f:
+    result = next(sharepoint2text.read_docx(f, path="document.docx"))
+
+# Get extractor dynamically based on filename or Path
 def extract_from_api(filename: str, content: bytes):
     extractor = sharepoint2text.get_extractor(filename)
     # Returns a generator - iterate or use next()
@@ -639,8 +652,8 @@ sharepoint2text --file /path/to/file.pdf > extraction.txt
 | `--output FILE`, `-o FILE` | Output file | Write output to file instead of stdout. |
 | `--version` | Version info | Show the version and exit. |
 | *(default)* | Plain text | Prints `result.get_full_text()`. |
-| `--json` | JSON extraction object(s) | Emits serialized extraction object(s). Binary image payloads are omitted unless `--include-images` is set. |
-| `--json-unit` | JSON unit list(s) | Emits serialized unit entries from `result.iterate_units()`. For multi-item inputs (e.g. `.mbox`), emits a list of unit lists. Binary image payloads are omitted unless `--include-images` is set. |
+| `--json` | JSON extraction list | Always emits `list[extraction_object]` (even for a single file). Binary image payloads are omitted unless `--include-images` is set. |
+| `--json-unit` | JSON unit lists | Always emits `list[list[unit_object]]` (one inner list per extracted result). Binary image payloads are omitted unless `--include-images` is set. |
 | `--include-images` | Include image data | Enables image extraction and includes binary image payloads in JSON output. Valid only with `--json` or `--json-unit`. |
 
 `--json` and `--json-unit` are mutually exclusive.
@@ -652,6 +665,7 @@ sharepoint2text --file /path/to/file.pdf > extraction.txt
 - The CLI validates input file existence before extraction.
 - The CLI enforces a max input size of `100MB`; larger files fail before extraction.
 - Plain-text mode writes joined `get_full_text()` output for all extracted results.
+- JSON output shape is stable: `--json` always returns an array, and `--json-unit` always returns an array of arrays.
 
 ### Examples
 
@@ -693,6 +707,9 @@ sharepoint2text --file /path/to/file.pdf --json --include-images
 
 ```python
 import sharepoint2text
+from os import PathLike
+from pathlib import Path
+from typing import BinaryIO, Callable
 
 # Read any supported file (recommended entry point)
 # Returns a generator - use next() for single-item formats or iterate for all
@@ -711,32 +728,41 @@ result = next(sharepoint2text.read_file("unknown.ext", force_plain_text=True))
 
 # Check if a file extension is supported
 # Uses same detection logic as read_file(): extension-first, MIME fallback
-supported = sharepoint2text.is_supported_file(path: str) -> bool
+supported = sharepoint2text.is_supported_file(path: str | PathLike[str]) -> bool
 
 # Get extractor function for a file type
 # Returns appropriate extractor based on file extension/MIME type
-extractor = sharepoint2text.get_extractor(path: str) -> Callable[[io.BytesIO, str | None], Generator[ContentType, Any, None]]
+extractor = sharepoint2text.get_extractor(
+    path: str | PathLike[str],
+) -> Callable[[BinaryIO, str | None], Generator[ContentType, Any, None]]
 ```
 
 ### Format-Specific Extractors
 
-All accept `io.BytesIO` and optional `path` for metadata population. All return generators:
+All accept a binary stream (`typing.BinaryIO`, including `io.BytesIO` and regular file handles) and optional `path` for metadata population. All return generators:
 
 ```python
-sharepoint2text.read_docx(file: io.BytesIO, path: str | None = None) -> Generator[DocxContent, Any, None]
-sharepoint2text.read_doc(file: io.BytesIO, path: str | None = None) -> Generator[DocContent, Any, None]
-sharepoint2text.read_xlsx(file: io.BytesIO, path: str | None = None) -> Generator[XlsxContent, Any, None]
-sharepoint2text.read_xls(file: io.BytesIO, path: str | None = None) -> Generator[XlsContent, Any, None]
-sharepoint2text.read_pptx(file: io.BytesIO, path: str | None = None) -> Generator[PptxContent, Any, None]
-sharepoint2text.read_ppt(file: io.BytesIO, path: str | None = None) -> Generator[PptContent, Any, None]
-sharepoint2text.read_odt(file: io.BytesIO, path: str | None = None) -> Generator[OdtContent, Any, None]
-sharepoint2text.read_odp(file: io.BytesIO, path: str | None = None) -> Generator[OdpContent, Any, None]
-sharepoint2text.read_ods(file: io.BytesIO, path: str | None = None) -> Generator[OdsContent, Any, None]
-sharepoint2text.read_pdf(file: io.BytesIO, path: str | None = None) -> Generator[PdfContent, Any, None]
-sharepoint2text.read_plain_text(file: io.BytesIO, path: str | None = None) -> Generator[PlainTextContent, Any, None]
-sharepoint2text.read_email__eml_format(file: io.BytesIO, path: str | None = None) -> Generator[EmailContent, Any, None]
-sharepoint2text.read_email__msg_format(file: io.BytesIO, path: str | None = None) -> Generator[EmailContent, Any, None]
-sharepoint2text.read_email__mbox_format(file: io.BytesIO, path: str | None = None) -> Generator[EmailContent, Any, None]
+sharepoint2text.read_docx(file: BinaryIO, path: str | None = None) -> Generator[DocxContent, Any, None]
+sharepoint2text.read_doc(file: BinaryIO, path: str | None = None) -> Generator[DocContent, Any, None]
+sharepoint2text.read_xlsx(file: BinaryIO, path: str | None = None) -> Generator[XlsxContent, Any, None]
+sharepoint2text.read_xls(file: BinaryIO, path: str | None = None) -> Generator[XlsContent, Any, None]
+sharepoint2text.read_pptx(file: BinaryIO, path: str | None = None) -> Generator[PptxContent, Any, None]
+sharepoint2text.read_ppt(file: BinaryIO, path: str | None = None) -> Generator[PptContent, Any, None]
+sharepoint2text.read_odt(file: BinaryIO, path: str | None = None) -> Generator[OdtContent, Any, None]
+sharepoint2text.read_odp(file: BinaryIO, path: str | None = None) -> Generator[OdpContent, Any, None]
+sharepoint2text.read_ods(file: BinaryIO, path: str | None = None) -> Generator[OdsContent, Any, None]
+sharepoint2text.read_pdf(file: BinaryIO, path: str | None = None) -> Generator[PdfContent, Any, None]
+sharepoint2text.read_plain_text(file: BinaryIO, path: str | None = None) -> Generator[PlainTextContent, Any, None]
+
+# Preferred email extractor names
+sharepoint2text.read_eml_email(file: BinaryIO, path: str | None = None) -> Generator[EmailContent, Any, None]
+sharepoint2text.read_msg_email(file: BinaryIO, path: str | None = None) -> Generator[EmailContent, Any, None]
+sharepoint2text.read_mbox_email(file: BinaryIO, path: str | None = None) -> Generator[EmailContent, Any, None]
+
+# Backward-compatible email names (still supported)
+sharepoint2text.read_email__eml_format(file: BinaryIO, path: str | None = None) -> Generator[EmailContent, Any, None]
+sharepoint2text.read_email__msg_format(file: BinaryIO, path: str | None = None) -> Generator[EmailContent, Any, None]
+sharepoint2text.read_email__mbox_format(file: BinaryIO, path: str | None = None) -> Generator[EmailContent, Any, None]
 ```
 
 ### Return Types
@@ -1042,6 +1068,7 @@ file_filter = FileFilter(
     extensions=[".docx", ".pdf", ".pptx"],
 )
 
+# list_files_filtered(...) returns a list of matching files
 for file_meta in client.list_files_filtered(file_filter):
     # Download and extract
     content = client.download_file(file_meta.id)

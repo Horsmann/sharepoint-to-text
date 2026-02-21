@@ -6,6 +6,7 @@ import zipfile
 from unittest import TestCase
 
 from sharepoint2text.parsing.exceptions import (
+    ExtractionFailedError,
     ExtractionFileEncryptedError,
     ExtractionFileTooLargeError,
 )
@@ -17,6 +18,9 @@ from sharepoint2text.parsing.extractors.data_types import (
     DocxContent,
     DocxFormula,
     DocxNote,
+    DocxUnit,
+    EmailAddress,
+    EmailAttachment,
     EmailContent,
     EmailUnitMetadata,
     EpubContent,
@@ -337,7 +341,7 @@ def test_read_xlsx_4__image_extraction() -> None:
     img_meta = list(xlsx.iterate_images())[0].get_metadata()
     tc.assertEqual(
         ImageMetadata(
-            unit_number=None,
+            unit_number=1,
             image_number=1,
             content_type="image/png",
             width=600,
@@ -345,7 +349,7 @@ def test_read_xlsx_4__image_extraction() -> None:
         ),
         img_meta,
     )
-    tc.assertIsNone(img_meta.unit_number)
+    tc.assertEqual(1, img_meta.unit_number)
     tc.assertEqual(600, img_meta.width)
     tc.assertEqual(300, img_meta.height)
 
@@ -820,7 +824,8 @@ def test_read_docx__units() -> None:
     tc.assertTrue(hasattr(units[0], "get_tables"))
 
     # first unit
-    tc.assertEqual(["Sample Document"], units[0].get_metadata().location)
+    unit_meta: DocxUnit = units[0].get_metadata()
+    tc.assertEqual(["Sample Document"], unit_meta.location)
     tc.assertEqual(
         "This document was created using accessibility techniques for headings, lists, image alternate text, tables, and columns. It should be completely accessible using assistive technologies such as screen readers.",
         units[0].get_text(),
@@ -1073,8 +1078,36 @@ def test_read_ppt__image_extraction() -> None:
     #########
     # Units #
     #########
-    tc.assertEqual(2, len(list(ppt.iterate_units())))
-    tc.assertEqual("", list(ppt.iterate_units())[0].get_text())
+    units = list(ppt.iterate_units())
+    tc.assertEqual(2, len(units))
+    tc.assertEqual("", units[0].get_text())
+    tc.assertEqual(1, len(units[0].get_images()))
+    tc.assertEqual(1, len(units[1].get_images()))
+
+
+def test_read_ppt__image_flag() -> None:
+    """Test legacy .ppt image extraction can be disabled with ignore_images."""
+    path = "sharepoint2text/tests/resources/legacy_ms/ppt_with_images.ppt"
+
+    result_with_images: PptContent = next(
+        read_ppt(
+            file_like=_read_file_to_file_like(path=path),
+            path=path,
+            ignore_images=False,
+        ),
+    )
+    tc.assertEqual(2, len(list(result_with_images.iterate_images())))
+    tc.assertEqual(2, sum(len(slide.images) for slide in result_with_images.slides))
+
+    result_without_images: PptContent = next(
+        read_ppt(
+            file_like=_read_file_to_file_like(path=path),
+            path=path,
+            ignore_images=True,
+        ),
+    )
+    tc.assertEqual(0, len(list(result_without_images.iterate_images())))
+    tc.assertEqual(0, sum(len(slide.images) for slide in result_without_images.slides))
 
 
 def test_read_doc() -> None:
@@ -1134,6 +1167,20 @@ def test_read_doc__image_extraction_1() -> None:
             height=660,
         ),
         images[0].get_metadata(),
+    )
+
+    units = list(doc.iterate_units())
+    tc.assertEqual(1, len(units))
+    tc.assertEqual(1, len(units[0].get_images()))
+    tc.assertEqual(
+        ImageMetadata(
+            unit_number=1,
+            image_number=1,
+            content_type="image/bmp",
+            width=1304,
+            height=660,
+        ),
+        units[0].get_images()[0].get_metadata(),
     )
 
 
@@ -1403,6 +1450,19 @@ def test_email__msg_format() -> None:
     tc.assertEqual(0, len(list(mail.iterate_tables())))
 
 
+def test_email__msg_format_reply_to_is_normalized_list() -> None:
+    path = "sharepoint2text/tests/resources/mails/basic_email.msg"
+    mail = next(
+        read_msg_format_mail(
+            file_like=_read_file_to_file_like(path=path),
+            path=path,
+        )
+    )
+
+    tc.assertIsInstance(mail.reply_to, list)
+    tc.assertListEqual([], mail.reply_to)
+
+
 def test_email__msg_format_with_attachment() -> None:
     path = "sharepoint2text/tests/resources/mails/msg_with_attachment.msg"
     mail_gen: typing.Generator[EmailContent, None, None] = read_msg_format_mail(
@@ -1494,6 +1554,29 @@ def test_email__msg_format_with_attachment() -> None:
     tc.assertEqual(0, len(list(mail.iterate_tables())))
 
 
+def test_email_iterate_supported_attachments_can_raise_or_skip_failures() -> None:
+    broken_mail = EmailContent(
+        from_email=EmailAddress(name="Sender", address="sender@example.com"),
+        subject="broken attachments",
+        attachments=[
+            EmailAttachment(
+                filename="broken.pdf",
+                mime_type="application/pdf",
+                data=io.BytesIO(b"not-a-real-pdf"),
+                is_supported_mime_type=True,
+            )
+        ],
+    )
+
+    with tc.assertRaises(ExtractionFailedError):
+        list(broken_mail.iterate_supported_attachments())
+
+    tc.assertEqual(
+        [],
+        list(broken_mail.iterate_supported_attachments(skip_failed=True)),
+    )
+
+
 def test_email__eml_format_with_attachment() -> None:
     path = "sharepoint2text/tests/resources/mails/msg_with_attachment.eml"
     mail_gen: typing.Generator[EmailContent, None, None] = read_eml_format_mail(
@@ -1566,6 +1649,35 @@ def test_email__eml_format_with_attachment() -> None:
 
     tc.assertEqual(0, len(list(mail.iterate_images())))
     tc.assertEqual(0, len(list(mail.iterate_tables())))
+
+
+def test_email__eml_format_missing_from_header_is_tolerated() -> None:
+    payload = b"Subject: Missing From header\n\nBody"
+    mail = next(read_eml_format_mail(file_like=io.BytesIO(payload)))
+
+    tc.assertEqual("", mail.from_email.name)
+    tc.assertEqual("", mail.from_email.address)
+    tc.assertEqual("Missing From header", mail.subject)
+    tc.assertEqual("", mail.get_metadata().date)
+
+
+def test_email__mbox_format_missing_date_and_from_headers_is_tolerated() -> None:
+    payload = (
+        b"From sender@example.com Mon Jan  1 00:00:00 2024\n"
+        b"Subject: Missing date and from\n"
+        b"\n"
+        b"Body\n"
+    )
+
+    mails = list(read_mbox_format_mail(file_like=io.BytesIO(payload)))
+
+    tc.assertEqual(1, len(mails))
+    mail = mails[0]
+    tc.assertEqual("", mail.from_email.name)
+    tc.assertEqual("", mail.from_email.address)
+    tc.assertEqual("", mail.get_metadata().date)
+    tc.assertEqual("Missing date and from", mail.subject)
+    tc.assertEqual("Body", mail.body_plain)
 
 
 ######################

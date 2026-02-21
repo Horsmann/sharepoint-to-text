@@ -121,7 +121,7 @@ import olefile
 from sharepoint2text.parsing.exceptions import (
     ExtractionError,
     ExtractionFileEncryptedError,
-    LegacyMicrosoftParsingError,
+    ExtractionLegacyMicrosoftParsingError,
 )
 from sharepoint2text.parsing.extractors.data_types import (
     DocContent,
@@ -234,6 +234,8 @@ def read_doc(
         - OLE container is opened and closed within this function
         - Large documents may use significant memory during parsing
     """
+    source_path = path or "<in-memory>"
+    logger.info("Entering DOC extraction: %s", source_path)
     try:
         file_like.seek(0)
         with _DocReader(file_like, ignore_images=ignore_images) as doc:
@@ -242,7 +244,7 @@ def read_doc(
             document.metadata.populate_from_path(path)
 
             text_len = len(document.main_text)
-            logger.info(
+            logger.debug(
                 "Extracted DOC: %d characters, %d words",
                 text_len,
                 document.metadata.num_words or len(document.main_text.split()),
@@ -252,9 +254,11 @@ def read_doc(
     except ExtractionError:
         raise
     except (OSError, struct.error, UnicodeDecodeError, ValueError) as exc:
-        raise LegacyMicrosoftParsingError(
+        raise ExtractionLegacyMicrosoftParsingError(
             "Failed to extract DOC file", cause=exc
         ) from exc
+    finally:
+        logger.info("Leaving DOC extraction: %s", source_path)
 
 
 class _DocReader:
@@ -638,19 +642,19 @@ class _DocReader:
             return self._content
 
         if not self.ole:
-            raise LegacyMicrosoftParsingError("File not opened")
+            raise ExtractionLegacyMicrosoftParsingError("File not opened")
 
         word_doc = self._get_stream("WordDocument")
         if not word_doc:
-            raise LegacyMicrosoftParsingError("No WordDocument Stream")
+            raise ExtractionLegacyMicrosoftParsingError("No WordDocument Stream")
 
         if len(word_doc) < MIN_DOC_SIZE:
-            raise LegacyMicrosoftParsingError("File too small")
+            raise ExtractionLegacyMicrosoftParsingError("File too small")
 
         # Validate magic number
         magic = _FIB_MAGIC.unpack_from(word_doc, 0)[0]
         if magic not in (FIB_MAGIC_WORD97, FIB_MAGIC_WORD95):
-            raise LegacyMicrosoftParsingError(
+            raise ExtractionLegacyMicrosoftParsingError(
                 f"Not a valid .doc file (Magic: {hex(magic)})"
             )
 

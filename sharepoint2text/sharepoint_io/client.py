@@ -380,6 +380,8 @@ class SharePointRestClient:
 
         # List all files recursively from the root
         for file_meta in self._walk_drive_items(site_id, item_id=None):
+            if not include_root_files and not file_meta.parent_path:
+                continue
             files.append(file_meta)
 
         return files
@@ -389,7 +391,7 @@ class SharePointRestClient:
         file_filter: FileFilter,
         *,
         drive_id: str | None = None,
-    ) -> Iterator[SharePointFileMetadata]:
+    ) -> list[SharePointFileMetadata]:
         """
         List files matching the specified filter criteria.
 
@@ -403,8 +405,8 @@ class SharePointRestClient:
             file_filter: Filter criteria to apply
             drive_id: Optional drive ID to search. If None, uses the default drive.
 
-        Yields:
-            SharePointFileMetadata for each file matching the filter criteria
+        Returns:
+            List of SharePointFileMetadata entries matching the filter criteria
 
         Example:
             # Delta sync: get files modified in the last 24 hours
@@ -434,23 +436,31 @@ class SharePointRestClient:
         site_id = self.get_site_id()
         target_folders = file_filter.get_target_folders()
 
+        matches: list[SharePointFileMetadata] = []
+
         if target_folders:
             # Search only specified folders
             for folder_path in target_folders:
-                yield from self._walk_and_filter(
-                    site_id,
-                    file_filter,
-                    folder_path=folder_path,
-                    drive_id=drive_id,
+                matches.extend(
+                    self._walk_and_filter(
+                        site_id,
+                        file_filter,
+                        folder_path=folder_path,
+                        drive_id=drive_id,
+                    )
                 )
         else:
             # Search entire drive
-            yield from self._walk_and_filter(
-                site_id,
-                file_filter,
-                folder_path=None,
-                drive_id=drive_id,
+            matches.extend(
+                self._walk_and_filter(
+                    site_id,
+                    file_filter,
+                    folder_path=None,
+                    drive_id=drive_id,
+                )
             )
+
+        return matches
 
     def _walk_and_filter(
         self,
@@ -532,7 +542,7 @@ class SharePointRestClient:
         folder_paths: list[str] | None = None,
         extensions: list[str] | None = None,
         drive_id: str | None = None,
-    ) -> Iterator[SharePointFileMetadata]:
+    ) -> list[SharePointFileMetadata]:
         """
         Convenience method for delta-sync: list files modified since a given datetime.
 
@@ -544,8 +554,8 @@ class SharePointRestClient:
             extensions: Optional list of file extensions to filter (e.g., [".pdf", ".docx"])
             drive_id: Optional drive ID to search
 
-        Yields:
-            SharePointFileMetadata for each matching file
+        Returns:
+            List of SharePointFileMetadata entries for each matching file
 
         Example:
             # Get all files modified in the last week
@@ -560,7 +570,7 @@ class SharePointRestClient:
             folder_paths=folder_paths or [],
             extensions=extensions or [],
         )
-        yield from self.list_files_filtered(file_filter, drive_id=drive_id)
+        return self.list_files_filtered(file_filter, drive_id=drive_id)
 
     def list_files_created_since(
         self,
@@ -569,7 +579,7 @@ class SharePointRestClient:
         folder_paths: list[str] | None = None,
         extensions: list[str] | None = None,
         drive_id: str | None = None,
-    ) -> Iterator[SharePointFileMetadata]:
+    ) -> list[SharePointFileMetadata]:
         """
         Convenience method for delta-sync: list files created since a given datetime.
 
@@ -579,15 +589,15 @@ class SharePointRestClient:
             extensions: Optional list of file extensions to filter
             drive_id: Optional drive ID to search
 
-        Yields:
-            SharePointFileMetadata for each matching file
+        Returns:
+            List of SharePointFileMetadata entries for each matching file
         """
         file_filter = FileFilter(
             created_after=since,
             folder_paths=folder_paths or [],
             extensions=extensions or [],
         )
-        yield from self.list_files_filtered(file_filter, drive_id=drive_id)
+        return self.list_files_filtered(file_filter, drive_id=drive_id)
 
     def list_drives(self) -> list[dict[str, Any]]:
         """List all document libraries (drives) in the resolved site.

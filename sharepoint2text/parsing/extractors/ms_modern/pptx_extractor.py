@@ -851,6 +851,8 @@ def read_pptx(
         - Images are loaded into memory as binary blobs
         - Large presentations with many images may use significant memory
     """
+    source_path = path or "<in-memory>"
+    logger.info("Entering PPTX extraction: %s", source_path)
     try:
         logger.debug("Reading pptx")
         file_like.seek(0)
@@ -879,7 +881,7 @@ def read_pptx(
             metadata.populate_from_path(path)
 
             total_images = sum(len(slide.images) for slide in slides_result)
-            logger.info(
+            logger.debug(
                 "Extracted PPTX: %d slides, %d images",
                 len(slides_result),
                 total_images,
@@ -892,3 +894,5 @@ def read_pptx(
         raise
     except (KeyError, ET.ParseError, OSError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract PPTX file", cause=exc) from exc
+    finally:
+        logger.info("Leaving PPTX extraction: %s", source_path)
