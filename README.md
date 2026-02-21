@@ -178,14 +178,14 @@ sharepoint2text --file /path/to/file.docx --json > extraction.json
 | `--json-unit`, `-u` | Emit `list[unit_object]` |
 | `--include-images`, `-i` | Include binary image payloads as base64 in JSON output |
 | `--no-attachments`, `-n` | Exclude email attachments from CLI extraction output |
-| `--max-file-size-mb` | Maximum input size in MiB (default: `100`, use `0` to disable) |
+| `--max-file-size-mb`, `-m` | Maximum input size in MiB (default: `100`, use `0` to disable) |
 | `--version`, `-v` | Print CLI version |
 
 Rules:
 
 - `--json` and `--json-unit` are mutually exclusive.
 - `--include-images` requires `--json` or `--json-unit`.
-- CLI enforces a configurable input file limit (default `100 MiB`; override with `--max-file-size-mb`).
+- CLI enforces a configurable input file limit (default `100 MiB`; override with `--max-file-size-mb` / `-m`).
 
 ## Optional SharePoint Integration
 

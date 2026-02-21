@@ -69,6 +69,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Output file path (default: stdout).",
     )
     parser.add_argument(
+        "-m",
         "--max-file-size-mb",
         type=float,
         default=100.0,
