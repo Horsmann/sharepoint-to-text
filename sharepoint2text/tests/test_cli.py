@@ -121,11 +121,11 @@ def test_cli_json_unit_extracts_supported_email_attachments(capsys) -> None:
     assert exit_code == 0
     payload = json.loads(captured.out.strip())
     assert isinstance(payload, list)
+    assert len(payload) == 1
 
     unit_types = {
         unit["_type"]
-        for unit_group in payload
-        for unit in unit_group
+        for unit in payload[0]
         if isinstance(unit, dict) and "_type" in unit
     }
     assert "EmailUnit" in unit_types

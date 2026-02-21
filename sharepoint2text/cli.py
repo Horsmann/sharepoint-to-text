@@ -80,17 +80,23 @@ def _serialize_results(
 
 
 def _serialize_unit_results(
-    results: list[ExtractionInterface], *, include_binary: bool
+    results: list[ExtractionInterface],
+    *,
+    include_binary: bool,
+    include_email_attachments: bool = False,
 ) -> list[list[dict]]:
     """Serialize per-unit output for ``--json-unit`` mode.
 
-    Always returns ``list[list[dict]]`` so each extraction result keeps a stable
+    Always returns ``list[list[dict]]`` so each root extraction result keeps a stable
     unit-list boundary.
     """
     return [
         [
             serialize_extraction(unit, include_binary=include_binary)
-            for unit in result.iterate_units()
+            for extraction in _iter_result_tree(
+                result, include_email_attachments=include_email_attachments
+            )
+            for unit in extraction.iterate_units()
         ]
         for result in results
     ]
@@ -107,17 +113,19 @@ def _expand_email_results(
     """Expand email results with any supported extracted attachments."""
     expanded: list[ExtractionInterface] = []
     for result in results:
-        expanded.extend(_expand_email_result(result))
+        expanded.extend(_iter_result_tree(result, include_email_attachments=True))
     return expanded
 
 
-def _expand_email_result(result: ExtractionInterface) -> Iterator[ExtractionInterface]:
-    """Yield the extraction result and recursively extracted email attachments."""
+def _iter_result_tree(
+    result: ExtractionInterface, *, include_email_attachments: bool
+) -> Iterator[ExtractionInterface]:
+    """Yield a root result and optionally nested supported email attachments."""
     yield result
-    if not isinstance(result, EmailContent):
+    if not include_email_attachments or not isinstance(result, EmailContent):
         return
     for attachment in result.iterate_supported_attachments():
-        yield from _expand_email_result(attachment)
+        yield from _iter_result_tree(attachment, include_email_attachments=True)
 
 
 def _strip_email_attachments(results: list[ExtractionInterface]) -> None:
@@ -186,22 +194,37 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             if not results:
                 raise RuntimeError(f"No extraction results for {args.file}")
-            if not args.no_attachments:
-                results = _expand_email_results(results)
-            else:
+            if args.no_attachments:
                 _strip_email_attachments(results)
 
             if args.json or args.json_unit:
                 include_binary = bool(args.include_images)
                 payload = (
-                    _serialize_unit_results(results, include_binary=include_binary)
+                    _serialize_unit_results(
+                        results,
+                        include_binary=include_binary,
+                        include_email_attachments=not args.no_attachments,
+                    )
                     if args.json_unit
-                    else _serialize_results(results, include_binary=include_binary)
+                    else _serialize_results(
+                        (
+                            _expand_email_results(results)
+                            if not args.no_attachments
+                            else results
+                        ),
+                        include_binary=include_binary,
+                    )
                 )
                 json.dump(payload, output_stream)
                 output_stream.write("\n")
             else:
-                output_stream.write(_serialize_full_text(results))
+                output_stream.write(
+                    _serialize_full_text(
+                        _expand_email_results(results)
+                        if not args.no_attachments
+                        else results
+                    )
+                )
                 output_stream.write("\n")
         finally:
             if output_file is not None:
