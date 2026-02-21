@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Export the exceptions under parsing package**
 - **Removed generic Exception handling**
 - **Fixed typing annotations**
+- **CLI: Export email attachments**
+- **CLI: Added shorthand commands**
 
 ## [Released]
 
