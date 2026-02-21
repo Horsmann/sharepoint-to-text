@@ -365,7 +365,15 @@ class SharePointRestClient:
         """
         List all files in the SharePoint site's default document library.
 
-        Uses Microsoft Graph API to traverse the document library.
+        Uses Microsoft Graph API to traverse folders recursively.
+
+        Args:
+            include_root_files: Backward-compatible flag. Files in the root are
+                currently always included regardless of this value.
+
+        Returns:
+            A list of file metadata objects. Each item contains the file name,
+            id, URLs, timestamps, and any detected custom fields.
         """
         site_id = self.get_site_id()
         files: list[SharePointFileMetadata] = []
@@ -582,7 +590,12 @@ class SharePointRestClient:
         yield from self.list_files_filtered(file_filter, drive_id=drive_id)
 
     def list_drives(self) -> list[dict[str, Any]]:
-        """List all document libraries (drives) in the site."""
+        """List all document libraries (drives) in the resolved site.
+
+        Returns:
+            Raw Graph drive dictionaries. Typical keys include ``id``, ``name``,
+            and ``driveType``.
+        """
         site_id = self.get_site_id()
         url = f"{_GRAPH_API_BASE}/sites/{site_id}/drives"
         data = self._get_json(url)
@@ -594,7 +607,18 @@ class SharePointRestClient:
         *,
         drive_id: str | None = None,
     ) -> list[SharePointFileMetadata]:
-        """List files in a specific folder."""
+        """List files directly inside one folder (non-recursive).
+
+        Args:
+            folder_path: Folder path relative to drive root. ``"/"`` (default)
+                targets the drive root.
+            drive_id: Optional drive/library id. If omitted, the site's default
+                drive is used.
+
+        Returns:
+            File metadata for items that are files in that folder. Subfolders are
+            not traversed.
+        """
         site_id = self.get_site_id()
 
         if drive_id is None:
@@ -617,7 +641,15 @@ class SharePointRestClient:
         return list(self._list_items_paginated(url))
 
     def download_file(self, file_id: str, *, drive_id: str | None = None) -> bytes:
-        """Download a file by its ID and return its bytes."""
+        """Download a file by Graph item id.
+
+        Args:
+            file_id: Graph drive-item id of the file to download.
+            drive_id: Optional drive/library id. If omitted, uses default drive.
+
+        Returns:
+            Raw file bytes.
+        """
         site_id = self.get_site_id()
 
         if drive_id is None:
@@ -636,7 +668,16 @@ class SharePointRestClient:
     def download_file_by_path(
         self, file_path: str, *, drive_id: str | None = None
     ) -> bytes:
-        """Download a file by its path and return its bytes."""
+        """Download a file by path relative to drive root.
+
+        Args:
+            file_path: Path relative to root, for example
+                ``"Documents/report.pdf"``.
+            drive_id: Optional drive/library id. If omitted, uses default drive.
+
+        Returns:
+            Raw file bytes.
+        """
         site_id = self.get_site_id()
         encoded_path = quote(file_path.strip("/"), safe="/")
 

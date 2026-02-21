@@ -180,6 +180,18 @@ def _get_extractor(
 
 
 def _file_type_from_extension(path_lower: str) -> str | None:
+    """Resolve a normalized path to an internal file-type key via extension.
+
+    Checks compound extensions first (for example ``.tar.gz``), then single
+    extensions with alias mapping (for example ``.htm`` -> ``html``).
+
+    Args:
+        path_lower: Lower-cased path or filename.
+
+    Returns:
+        Internal extractor key (for example ``"docx"``, ``"tgz"``), or ``None``
+        when the extension is missing or unsupported.
+    """
     # Check compound extensions first (e.g., .tar.gz)
     for compound_ext, file_type in _COMPOUND_EXTENSIONS.items():
         if path_lower.endswith(compound_ext):
@@ -197,15 +209,16 @@ def _file_type_from_extension(path_lower: str) -> str | None:
 
 def is_supported_file(path: str) -> bool:
     """
-    Check if a file path corresponds to a supported file format.
+    Check if a path/filename appears to be supported by the extractor registry.
 
     Detection is extension-first (OS-independent), then falls back to MIME.
+    This function does not open or inspect file contents.
 
     Args:
         path: File path or filename to check.
 
     Returns:
-        True if the file format is supported, False otherwise.
+        ``True`` if routing would likely succeed, else ``False``.
     """
     path_lower = path.lower()
 
@@ -228,10 +241,11 @@ def get_extractor(
     force_plain_text: bool = False,
 ) -> Callable[[io.BytesIO, str | None], Generator[ExtractionInterface, Any, None]]:
     """
-    Analyze a file path and return the appropriate extractor function.
+    Analyze a path/filename and return the appropriate extractor callable.
 
-    The file does not need to exist; the path or filename alone is sufficient
-    to determine the correct extractor based on extension and MIME type.
+    The file does not need to exist; routing is based on path text only.
+    Detection order is:
+    1) extension / alias lookup, 2) MIME mapping fallback.
 
     Args:
         path: File path or filename to analyze.
@@ -240,7 +254,8 @@ def get_extractor(
             even when extension/MIME detection does not recognize the file.
 
     Returns:
-        Extractor function that accepts (BytesIO, path) arguments.
+        Extractor function with signature ``(BytesIO, path) -> Generator`` that
+        yields one or more ``ExtractionInterface`` results.
 
     Raises:
         ExtractionFileFormatNotSupportedError: If no extractor exists for the file type.

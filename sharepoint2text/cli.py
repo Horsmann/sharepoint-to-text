@@ -12,6 +12,7 @@ from sharepoint2text.parsing.extractors.serialization import serialize_extractio
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    """Build and return the command-line argument parser for the CLI."""
     parser = argparse.ArgumentParser(
         prog="sharepoint2text",
         description="Extract file content and emit full text to stdout (or JSON with --json/--json-unit).",
@@ -58,6 +59,11 @@ def _build_parser() -> argparse.ArgumentParser:
 def _serialize_results(
     results: list[ExtractionInterface], *, include_binary: bool
 ) -> dict | list[dict]:
+    """Serialize extraction results for ``--json`` output.
+
+    Returns a single JSON object for one extraction result, otherwise a list of
+    JSON objects for multi-result inputs (for example, ``.mbox`` or archives).
+    """
     if len(results) == 1:
         return serialize_extraction(results[0], include_binary=include_binary)
     return [
@@ -69,6 +75,12 @@ def _serialize_results(
 def _serialize_unit_results(
     results: list[ExtractionInterface], *, include_binary: bool
 ) -> list[dict] | list[list[dict]]:
+    """Serialize per-unit output for ``--json-unit`` mode.
+
+    For a single extraction result, returns a flat list of unit objects.
+    For multiple extraction results, returns a list of unit-lists preserving the
+    result boundaries.
+    """
     if len(results) == 1:
         return [
             serialize_extraction(unit, include_binary=include_binary)
@@ -84,10 +96,22 @@ def _serialize_unit_results(
 
 
 def _serialize_full_text(results: list[ExtractionInterface]) -> str:
+    """Join ``get_full_text()`` from all results using blank-line separators."""
     return "\n\n".join(result.get_full_text().rstrip() for result in results).rstrip()
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Run the CLI and return a process-style exit code.
+
+    Args:
+        argv: Optional argument list. If ``None``, arguments are read from
+            ``sys.argv`` by ``argparse``.
+
+    Returns:
+        ``0`` on success, ``1`` on validation/extraction/serialization errors.
+        Parser-driven early exits (for example ``--help`` / ``--version``) return
+        the exit code produced by ``argparse``.
+    """
     parser = _build_parser()
     try:
         args, unknown = parser.parse_known_args(argv)
