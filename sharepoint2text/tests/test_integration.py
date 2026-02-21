@@ -310,3 +310,17 @@ def test_unit_serialize_deserialize_round_trip():
         tc.assertEqual(type(restored), type(unit))
         tc.assertEqual(restored.get_text(), unit.get_text())
         tc.assertEqual(restored.get_metadata(), unit.get_metadata())
+
+
+def test_read_file_force_plain_text_unknown_extension(tmp_path) -> None:
+    path = tmp_path / "custom.weirdformat"
+    path.write_text("line one\nline two", encoding="utf-8")
+
+    tc.assertRaises(
+        sharepoint2text.parsing.exceptions.ExtractionFileFormatNotSupportedError,
+        lambda: next(read_file(path)),
+    )
+
+    result = next(read_file(path, force_plain_text=True))
+    tc.assertTrue(isinstance(result, PlainTextContent))
+    tc.assertEqual("line one\nline two", result.get_full_text())

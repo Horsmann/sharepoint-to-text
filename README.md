@@ -324,6 +324,16 @@ for result in sharepoint2text.read_file("document.docx"):  # or .doc, .pdf, .ppt
 # For single-item formats, you can use next() directly:
 result = next(sharepoint2text.read_file("document.docx"))
 print(result.get_full_text())
+
+# If extension/MIME detection is unknown but the file is plain text,
+# force routing to the plain-text extractor:
+result = next(
+    sharepoint2text.read_file(
+        "custom_export.weirdformat",
+        force_plain_text=True,
+    )
+)
+print(result.get_full_text())
 ```
 
 Notes: `ImageInterface` provides `get_bytes()`, `get_content_type()`, `get_caption()`, `get_description()`, and `get_metadata()` (unit index, image index, content type, width, height). `TableInterface` provides `get_table()` (rows as lists) and `get_dim()` (rows, columns).
@@ -687,8 +697,17 @@ import sharepoint2text
 # Read any supported file (recommended entry point)
 # Returns a generator - use next() for single-item formats or iterate for all
 # Automatically detects format via extension (primary) or MIME type (fallback)
-for result in sharepoint2text.read_file(path: str | Path):
+for result in sharepoint2text.read_file(
+    path: str | Path,
+    max_file_size: int = 100 * 1024 * 1024,
+    ignore_images: bool = False,
+    force_plain_text: bool = False,
+):
     ...
+
+# force_plain_text=True routes directly to plain-text extraction, even if
+# extension/MIME detection does not recognize the file type.
+result = next(sharepoint2text.read_file("unknown.ext", force_plain_text=True))
 
 # Check if a file extension is supported
 # Uses same detection logic as read_file(): extension-first, MIME fallback

@@ -349,6 +349,7 @@ def read_file(
     max_file_size: int = 100 * 1024 * 1024,  # 100MB default
     *,
     ignore_images: bool = False,
+    force_plain_text: bool = False,
 ) -> Generator[ExtractionInterface, Any, None]:
     """
     Read and extract content from a file.
@@ -363,6 +364,9 @@ def read_file(
         ignore_images: If True, skip image extraction. This can significantly
                       improve performance for files with many images.
                       Default is False.
+        force_plain_text: If True, route extraction to plain text handling
+                      regardless of extension/MIME detection.
+                      Useful for unknown or custom plain-text file formats.
 
     Yields:
         A dataclass containing extracted content and metadata.
@@ -431,7 +435,11 @@ def read_file(
             )
 
     logger.info("Starting extraction: %s", path)
-    extractor = get_extractor(str(path), ignore_images=ignore_images)
+    extractor = get_extractor(
+        str(path),
+        ignore_images=ignore_images,
+        force_plain_text=force_plain_text,
+    )
     with open(path, "rb") as f:
         try:
             # For files within reasonable size, read entirely into memory

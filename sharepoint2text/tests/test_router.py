@@ -293,3 +293,14 @@ def test_router():
         get_extractor,
         "i-have-no-file-type",
     )
+
+
+def test_router_force_plain_text():
+    func = get_extractor("not_supported.misc", force_plain_text=True)
+    tc.assertEqual(read_plain_text, func)
+
+    func = get_extractor("i-have-no-file-type", force_plain_text=True)
+    tc.assertEqual(read_plain_text, func)
+
+    func = get_extractor("afile.dzs", force_plain_text=True)
+    tc.assertEqual(read_plain_text, func)
