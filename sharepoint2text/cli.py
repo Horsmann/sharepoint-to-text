@@ -121,35 +121,36 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
 
         # Determine output stream
-        output_stream: TextIO
+        output_stream: TextIO = sys.stdout
+        output_file: TextIO | None = None
         if args.output:
             output_file = open(args.output, "w", encoding="utf-8")
             output_stream = output_file
-        else:
-            output_stream = sys.stdout
 
-        results = list(
-            sharepoint2text.read_file(args.file, ignore_images=not args.include_images)
-        )
-        if not results:
-            raise RuntimeError(f"No extraction results for {args.file}")
-
-        if args.json or args.json_unit:
-            include_binary = bool(args.include_images)
-            payload = (
-                _serialize_unit_results(results, include_binary=include_binary)
-                if args.json_unit
-                else _serialize_results(results, include_binary=include_binary)
+        try:
+            results = list(
+                sharepoint2text.read_file(
+                    args.file, ignore_images=not args.include_images
+                )
             )
-            json.dump(payload, output_stream)
-            output_stream.write("\n")
-        else:
-            output_stream.write(_serialize_full_text(results))
-            output_stream.write("\n")
+            if not results:
+                raise RuntimeError(f"No extraction results for {args.file}")
 
-        # Close output file if we opened one
-        if args.output and output_stream is not sys.stdout:
-            output_stream.close()
+            if args.json or args.json_unit:
+                include_binary = bool(args.include_images)
+                payload = (
+                    _serialize_unit_results(results, include_binary=include_binary)
+                    if args.json_unit
+                    else _serialize_results(results, include_binary=include_binary)
+                )
+                json.dump(payload, output_stream)
+                output_stream.write("\n")
+            else:
+                output_stream.write(_serialize_full_text(results))
+                output_stream.write("\n")
+        finally:
+            if output_file is not None:
+                output_file.close()
 
         return 0
     except Exception as exc:
