@@ -225,6 +225,7 @@ def is_supported_file(path: str) -> bool:
 def get_extractor(
     path: str,
     ignore_images: bool = False,
+    force_plain_text: bool = False,
 ) -> Callable[[io.BytesIO, str | None], Generator[ExtractionInterface, Any, None]]:
     """
     Analyze a file path and return the appropriate extractor function.
@@ -235,6 +236,8 @@ def get_extractor(
     Args:
         path: File path or filename to analyze.
         ignore_images: If True, skip image extraction for supported formats.
+        force_plain_text: If True, always route to the plain text extractor,
+            even when extension/MIME detection does not recognize the file.
 
     Returns:
         Extractor function that accepts (BytesIO, path) arguments.
@@ -245,6 +248,10 @@ def get_extractor(
     path_lower = path.lower()
     mime_type, _ = mimetypes.guess_type(path_lower)
     logger.debug("Guessed MIME type: [%s]", mime_type)
+
+    if force_plain_text:
+        logger.info("Force plain text extraction for file: %s", path)
+        return _get_extractor("txt", ignore_images=ignore_images)
 
     # Primary detection: file extension (platform-independent)
     file_type = _file_type_from_extension(path_lower)
