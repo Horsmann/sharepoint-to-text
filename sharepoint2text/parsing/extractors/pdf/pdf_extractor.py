@@ -570,6 +570,8 @@ def read_pdf(
         ...             print(f"  Text: {page.text[:100]}...")
         ...             print(f"  Images: {len(page.images)}")
     """
+    source_path = path or "<in-memory>"
+    logger.info("Entering PDF extraction: %s", source_path)
     try:
         reader = _open_pdf_reader(file_like)
         if reader.is_encrypted:
@@ -585,7 +587,7 @@ def read_pdf(
 
         skip_images = ignore_images or _should_skip_images(reader, file_like)
         if skip_images and not ignore_images:
-            logger.info(
+            logger.debug(
                 "Skipping image extraction for large AES-encrypted PDF using fallback crypto"
             )
 
@@ -606,7 +608,7 @@ def read_pdf(
         metadata = PdfMetadata(total_pages=len(reader.pages))
         metadata.populate_from_path(path)
 
-        logger.info(
+        logger.debug(
             "Extracted PDF: %d pages, %d images",
             len(reader.pages),
             total_images,
@@ -620,6 +622,8 @@ def read_pdf(
         raise
     except (DependencyError, OSError, ValueError, TypeError, KeyError) as exc:
         raise ExtractionFailedError("Failed to extract PDF file", cause=exc) from exc
+    finally:
+        logger.info("Leaving PDF extraction: %s", source_path)
 
 
 def _extract_image_bytes(page: PageLike, page_num: int) -> list[PdfImage]:

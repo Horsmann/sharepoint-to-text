@@ -297,6 +297,8 @@ def read_xls(
     Args:
         ignore_images: If True, skip image extraction.
     """
+    source_path = path or "<in-memory>"
+    logger.info("Entering XLS extraction: %s", source_path)
     try:
         file_like.seek(0)
         if is_xls_encrypted(file_like):
@@ -320,6 +322,8 @@ def read_xls(
         raise LegacyMicrosoftParsingError(
             "Failed to extract XLS file", cause=exc
         ) from exc
+    finally:
+        logger.info("Leaving XLS extraction: %s", source_path)
 
 
 # =============================================================================

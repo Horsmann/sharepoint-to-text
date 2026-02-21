@@ -894,6 +894,8 @@ def read_docx(
         path: Optional path to the source file for metadata.
         ignore_images: If True, skip image extraction.
     """
+    source_path = path or "<in-memory>"
+    logger.info("Entering DOCX extraction: %s", source_path)
     try:
         file_like.seek(0)
         if is_ooxml_encrypted(file_like):
@@ -921,7 +923,7 @@ def read_docx(
 
             metadata.populate_from_path(path)
 
-            logger.info(
+            logger.debug(
                 "Extracted DOCX: %d paragraphs, %d tables, %d images",
                 len(paragraphs),
                 len(tables),
@@ -951,3 +953,5 @@ def read_docx(
         raise
     except (KeyError, ET.ParseError, OSError, ValueError, UnicodeDecodeError) as exc:
         raise ExtractionFailedError("Failed to extract DOCX file", cause=exc) from exc
+    finally:
+        logger.info("Leaving DOCX extraction: %s", source_path)

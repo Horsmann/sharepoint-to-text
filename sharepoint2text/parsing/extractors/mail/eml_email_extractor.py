@@ -257,6 +257,8 @@ def read_eml_format_mail(
         - Parses directly from the input stream to avoid an additional full-copy
           buffer in memory.
     """
+    source_path = path or "<in-memory>"
+    logger.info("Entering EML extraction: %s", source_path)
     try:
         file_like.seek(0)
         content = _read_eml_format(file_like.read())
@@ -264,7 +266,7 @@ def read_eml_format_mail(
         if path:
             content.metadata.populate_from_path(path)
 
-        logger.info("Extracted EML")
+        logger.debug("Extracted EML")
 
         yield content
     except ExtractionError:
@@ -277,3 +279,5 @@ def read_eml_format_mail(
         UnicodeDecodeError,
     ) as exc:
         raise ExtractionFailedError("Failed to extract EML file", cause=exc) from exc
+    finally:
+        logger.info("Leaving EML extraction: %s", source_path)

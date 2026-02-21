@@ -234,6 +234,8 @@ def read_doc(
         - OLE container is opened and closed within this function
         - Large documents may use significant memory during parsing
     """
+    source_path = path or "<in-memory>"
+    logger.info("Entering DOC extraction: %s", source_path)
     try:
         file_like.seek(0)
         with _DocReader(file_like, ignore_images=ignore_images) as doc:
@@ -242,7 +244,7 @@ def read_doc(
             document.metadata.populate_from_path(path)
 
             text_len = len(document.main_text)
-            logger.info(
+            logger.debug(
                 "Extracted DOC: %d characters, %d words",
                 text_len,
                 document.metadata.num_words or len(document.main_text.split()),
@@ -255,6 +257,8 @@ def read_doc(
         raise LegacyMicrosoftParsingError(
             "Failed to extract DOC file", cause=exc
         ) from exc
+    finally:
+        logger.info("Leaving DOC extraction: %s", source_path)
 
 
 class _DocReader:

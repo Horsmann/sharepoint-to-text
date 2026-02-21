@@ -618,6 +618,8 @@ def read_html(
         ...         for heading in doc.headings:
         ...             print(f"  {heading['level']}: {heading['text']}")
     """
+    source_path = path or "<in-memory>"
+    logger.info("Entering HTML extraction: %s", source_path)
     try:
         logger.debug("Reading HTML file")
         file_like.seek(0)
@@ -664,7 +666,7 @@ def read_html(
         extractor = _HtmlTextExtractor(root)
         text = extractor.extract(path)
 
-        logger.info(
+        logger.debug(
             "Extracted HTML: %d characters, %d tables, %d links",
             len(text),
             len(extractor.tables),
@@ -682,3 +684,5 @@ def read_html(
         raise
     except (OSError, UnicodeDecodeError, LookupError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract HTML file", cause=exc) from exc
+    finally:
+        logger.info("Leaving HTML extraction: %s", source_path)

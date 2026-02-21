@@ -558,6 +558,8 @@ def read_archive(
         ...     for content in read_archive(io.BytesIO(f.read())):
         ...         print(f"Extracted: {content.get_metadata().filename}")
     """
+    source_path = path or "<in-memory>"
+    logger.info("Entering archive extraction: %s", source_path)
     start_time = time.perf_counter()
 
     try:
@@ -599,3 +601,4 @@ def read_archive(
     finally:
         total_time = time.perf_counter() - start_time
         logger.debug(f"Archive extraction completed in {total_time:.3f}s")
+        logger.info("Leaving archive extraction: %s", source_path)

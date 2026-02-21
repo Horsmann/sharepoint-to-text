@@ -551,6 +551,8 @@ def read_ods(
         ...             for row in sheet.data[:5]:
         ...                 print(row)
     """
+    source_path = path or "<in-memory>"
+    logger.info("Entering ODS extraction: %s", source_path)
     try:
         file_like.seek(0)
         if is_odf_encrypted(file_like):
@@ -591,3 +593,5 @@ def read_ods(
         raise
     except (KeyError, ET.ParseError, OSError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract ODS file", cause=exc) from exc
+    finally:
+        logger.info("Leaving ODS extraction: %s", source_path)

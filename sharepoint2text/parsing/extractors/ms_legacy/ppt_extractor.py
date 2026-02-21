@@ -237,6 +237,8 @@ def read_ppt(
         path: Optional path to the source file for metadata.
         ignore_images: If True, skip image extraction.
     """
+    source_path = path or "<in-memory>"
+    logger.info("Entering PPT extraction: %s", source_path)
     try:
         file_like.seek(0)
         if is_ppt_encrypted(file_like):
@@ -253,6 +255,8 @@ def read_ppt(
         raise LegacyMicrosoftParsingError(
             "Failed to extract PPT file", cause=exc
         ) from exc
+    finally:
+        logger.info("Leaving PPT extraction: %s", source_path)
 
 
 def _extract_ppt_content_structured(

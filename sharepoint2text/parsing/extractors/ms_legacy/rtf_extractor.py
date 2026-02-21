@@ -866,6 +866,8 @@ def read_rtf(
     Args:
         ignore_images: If True, skip image extraction (not applicable for this format).
     """
+    source_path = path or "<in-memory>"
+    logger.info("Entering RTF extraction: %s", source_path)
     try:
         logger.debug("Reading RTF file")
         file_like.seek(0)
@@ -880,3 +882,5 @@ def read_rtf(
         raise
     except (OSError, UnicodeDecodeError, ValueError, re.error) as exc:
         raise ExtractionFailedError("Failed to extract RTF file", cause=exc) from exc
+    finally:
+        logger.info("Leaving RTF extraction: %s", source_path)

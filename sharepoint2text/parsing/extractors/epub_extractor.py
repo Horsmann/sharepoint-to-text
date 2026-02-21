@@ -730,6 +730,8 @@ def read_epub(
         ...         for chapter in epub.chapters:
         ...             print(f"  {chapter.chapter_number}: {chapter.title}")
     """
+    source_path = path or "<in-memory>"
+    logger.info("Entering EPUB extraction: %s", source_path)
     try:
         file_like.seek(0)
 
@@ -776,3 +778,5 @@ def read_epub(
         raise
     except (KeyError, ET.ParseError, UnicodeDecodeError, OSError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract EPUB file", cause=exc) from exc
+    finally:
+        logger.info("Leaving EPUB extraction: %s", source_path)

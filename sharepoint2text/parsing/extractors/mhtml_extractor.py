@@ -265,6 +265,8 @@ def read_mhtml(
         ...         print(f"Title: {doc.metadata.title}")
         ...         print(f"Content length: {len(doc.content)}")
     """
+    source_path = path or "<in-memory>"
+    logger.info("Entering MHTML extraction: %s", source_path)
     try:
         file_like.seek(0)
         content = file_like.read()
@@ -284,7 +286,7 @@ def read_mhtml(
         # Use the HTML extractor to process the content
         html_buffer = io.BytesIO(html_content)
         for result in read_html(html_buffer, path=path):
-            logger.info(
+            logger.debug(
                 "Extracted MHTML: %d characters, %d tables",
                 len(result.content),
                 len(result.tables),
@@ -295,3 +297,5 @@ def read_mhtml(
         raise
     except (OSError, ValueError, TypeError, UnicodeDecodeError) as exc:
         raise ExtractionFailedError("Failed to extract MHTML file", cause=exc) from exc
+    finally:
+        logger.info("Leaving MHTML extraction: %s", source_path)

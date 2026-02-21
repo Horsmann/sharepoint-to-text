@@ -421,6 +421,8 @@ def read_msg_format_mail(
         - reply_to is stored as raw value, not parsed to EmailAddress list
           (this differs from EML/MBOX extractors)
     """
+    source_path = path or "<in-memory>"
+    logger.info("Entering MSG extraction: %s", source_path)
     try:
         file_like.seek(0)
         msg = MsOxMessage(file_like)
@@ -473,3 +475,5 @@ def read_msg_format_mail(
         raise
     except (ValueError, TypeError, AttributeError, OSError, UnicodeDecodeError) as exc:
         raise ExtractionFailedError("Failed to extract MSG file", cause=exc) from exc
+    finally:
+        logger.info("Leaving MSG extraction: %s", source_path)
