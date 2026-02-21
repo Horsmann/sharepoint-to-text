@@ -95,7 +95,7 @@ Write clear, descriptive commit messages:
 
 If you want to add support for a new file format:
 
-1. Create a new extractor module in `sharepoint2text/extractors/`:
+1. Create a new extractor module in `sharepoint2text/parsing/extractors/`:
    - Follow the naming convention: `{format}_extractor.py`
    - Implement a `read_{format}(file_like: io.BytesIO, path: str | None = None)` function
    - Return a **generator** yielding one or more typed dataclasses that implement `ExtractionInterface`
@@ -104,9 +104,9 @@ If you want to add support for a new file format:
      - Single-document formats yield exactly one item (e.g., `.pdf`, `.docx`)
      - Multi-item formats yield multiple items (notably `.mbox`, one per email)
 
-2. Update `sharepoint2text/router.py`:
+2. Update `sharepoint2text/parsing/router.py`:
    - Add the extension → extractor registration in `_EXTRACTOR_REGISTRY`
-   - If needed, add a MIME type entry in `sharepoint2text/mime_types.py` so MIME-based detection can route too
+   - If needed, add a MIME type entry in `sharepoint2text/parsing/mime_types.py` so MIME-based detection can route too
    - If your extension has common aliases (e.g., `.htm` vs `.html`), add an alias in the router so detection is OS-independent
 
 3. Add tests in `sharepoint2text/tests/`:
@@ -128,9 +128,9 @@ If you want to add support for a new file format:
 
 ## Design Notes
 
-- **Prefer dataclasses** for extraction outputs. They work with `to_json()`/`from_json()` via the shared serialization layer in `sharepoint2text/extractors/serialization.py`.
+- **Prefer dataclasses** for extraction outputs. They work with `to_json()`/`from_json()` via the shared serialization layer in `sharepoint2text/parsing/extractors/serialization.py`.
 - **Keep routing deterministic**: extension-based routing should work regardless of platform MIME databases; MIME routing is a helpful secondary path.
-- **Use library exceptions** from `sharepoint2text/exceptions.py` for user-facing failure modes:
+- **Use library exceptions** from `sharepoint2text/parsing/exceptions.py` for user-facing failure modes:
   - `ExtractionFileFormatNotSupportedError` for unsupported formats
   - `ExtractionFileEncryptedError` for password-protected/encrypted content
   - `LegacyMicrosoftParsingError` for legacy Office parsing failures
