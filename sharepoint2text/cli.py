@@ -215,7 +215,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         include_binary=include_binary,
                     )
                 )
-                json.dump(payload, output_stream)
+                json.dump(payload, output_stream, indent=4)
                 output_stream.write("\n")
             else:
                 output_stream.write(
