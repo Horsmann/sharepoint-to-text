@@ -27,6 +27,7 @@ It also includes an optional SharePoint Graph client (`sharepoint_io`) for listi
 - [Exceptions](#exceptions)
 - [License](#license)
 - [Disclaimer](#disclaimer)
+- [More Usage Examples](#more-usage-examples)
 
 ## Why Use This Library
 
@@ -232,6 +233,10 @@ Setup details: [`sharepoint2text/sharepoint_io/SETUP.md`](sharepoint2text/sharep
 ### Email
 
 - `.eml`, `.msg`, `.mbox`
+- Email extraction includes sender/recipient metadata, subject, and body (`body_plain` / `body_html`).
+- Attachments are parsed and stored on `EmailContent.attachments` during email extraction.
+- Supported attachments can be recursively extracted via `EmailContent.iterate_supported_attachments()`.
+- If supported-attachment extraction fails, the default behavior is to raise; use `skip_failed=True` to continue.
 
 ### Plain text and config/data
 
@@ -307,6 +312,10 @@ sharepoint2text.get_extractor(path)
 
 All extractor functions accept a binary stream plus optional `path` and return generators.
 
+Email helper API:
+
+- `EmailContent.iterate_supported_attachments(skip_failed=False)` recursively extracts supported attachments from parsed emails.
+
 ## Exceptions
 
 Common exceptions:
@@ -325,3 +334,85 @@ Apache 2.0. See [`LICENSE`](LICENSE).
 ## Disclaimer
 
 This project is not affiliated with, endorsed by, or sponsored by Microsoft.
+
+## More Usage Examples
+
+### Extract email body plus supported attachments
+
+```python
+import sharepoint2text
+
+email = next(sharepoint2text.read_file("message-with-attachments.eml"))
+
+print(email.subject)
+print(email.get_full_text())  # plain body if available, otherwise HTML body
+print(f"Attachment count: {len(email.attachments)}")
+
+# Recursively extract supported attachment types (pdf, docx, pptx, etc.)
+for attachment_result in email.iterate_supported_attachments():
+    print(type(attachment_result).__name__)
+    print(attachment_result.get_full_text()[:200])
+```
+
+### Continue even if a supported attachment fails to extract
+
+```python
+import sharepoint2text
+
+email = next(sharepoint2text.read_file("message-with-attachments.msg"))
+
+for attachment_result in email.iterate_supported_attachments(skip_failed=True):
+    print(attachment_result.get_metadata().filename)
+```
+
+### Process a mailbox (`.mbox`) and flatten attachments
+
+```python
+import sharepoint2text
+
+for email in sharepoint2text.read_file("team-archive.mbox"):
+    print(f"Subject: {email.subject}")
+    for attachment_result in email.iterate_supported_attachments(skip_failed=True):
+        print(f"  attachment type: {type(attachment_result).__name__}")
+```
+
+### Batch-extract units for RAG-style chunking
+
+```python
+from pathlib import Path
+import sharepoint2text
+
+for path in Path("docs").rglob("*"):
+    if not path.is_file() or not sharepoint2text.is_supported_file(path):
+        continue
+    for result in sharepoint2text.read_file(path):
+        meta = result.get_metadata()
+        for unit in result.iterate_units(ignore_images=True):
+            chunk = unit.get_text().strip()
+            if chunk:
+                payload = {
+                    "text": chunk,
+                    "source": str(path),
+                    "filename": meta.filename,
+                    "unit_number": getattr(unit.get_metadata(), "unit_number", None),
+                }
+                # store payload in your index/vector DB
+```
+
+### Extract from API bytes when you only know MIME type
+
+```python
+import sharepoint2text
+
+# Example: bytes from HTTP response
+data = get_file_bytes_somehow()
+
+result = next(
+    sharepoint2text.read_bytes(
+        data,
+        mime_type="application/pdf",
+        ignore_images=True,
+    )
+)
+print(result.get_full_text()[:500])
+```
