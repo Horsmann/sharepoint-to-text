@@ -557,6 +557,49 @@ with open("archive.zip", "rb") as f:
 
 ## Limitations / Caveats
 
+### ZIP Bomb Protection Limits (Advanced)
+
+ZIP-based formats (including OOXML/ODF files such as `.docx`, `.xlsx`, `.pptx`, `.odt`, `.ods`, `.odp`) are validated with conservative anti-zip-bomb heuristics.
+
+Default limits are:
+
+- `max_entries = 50_000`
+- `max_total_uncompressed_bytes = 4 GiB`
+- `max_single_uncompressed_bytes = 1 GiB`
+- `max_total_compression_ratio = 200.0`
+- `max_entry_compression_ratio = 500.0`
+
+If you need to process trusted, legitimately large files, you can raise these limits at process startup:
+
+```python
+import sharepoint2text
+from sharepoint2text.parsing.extractors.util.zip_bomb import (
+    ZipBombLimits,
+    open_zipfile,
+    validate_zip_bytesio,
+    validate_zipfile,
+)
+
+custom_limits = ZipBombLimits(
+    max_entries=100_000,
+    max_total_uncompressed_bytes=16 * 1024 * 1024 * 1024,  # 16 GiB
+    max_single_uncompressed_bytes=4 * 1024 * 1024 * 1024,  # 4 GiB
+    max_total_compression_ratio=400.0,
+    max_entry_compression_ratio=1_000.0,
+)
+
+# Apply once during app startup (process-wide)
+open_zipfile.__kwdefaults__["limits"] = custom_limits
+validate_zipfile.__kwdefaults__["limits"] = custom_limits
+validate_zip_bytesio.__kwdefaults__["limits"] = custom_limits
+
+# Then use the library normally
+for result in sharepoint2text.read_file("very-large.xlsx"):
+    print(result.get_full_text()[:200])
+```
+
+Use higher limits only for trusted sources. Increasing these values reduces DoS protection.
+
 ### PDF Extraction
 
 - **No OCR support:** This library does not perform optical character recognition. PDFs that consist of scanned images or photos of documents will return empty text. The images themselves are still extracted and available via `iterate_images()`, but no text is derived from them.
@@ -586,11 +629,19 @@ sharepoint2text --file /path/to/file.pdf > extraction.txt
 | `--output FILE`, `-o FILE` | Output file | Write output to file instead of stdout. |
 | `--version` | Version info | Show the version and exit. |
 | *(default)* | Plain text | Prints `result.get_full_text()`. |
-| `--json` | JSON extraction object(s) | Prints `result.to_json()`. Images are ignored by default for faster processing. |
-| `--json-unit` | JSON unit list(s) | Prints a JSON list of unit representations using `result.iterate_units()` (e.g., pages/slides/sheets). For multi-item inputs (e.g. `.mbox`), emits a JSON list where each item is that extraction's unit list. Images are ignored by default for faster processing. |
-| `--include-images` | Include image data | Extract images and include as base64 blobs in JSON output. Only valid with `--json` or `--json-unit`. |
+| `--json` | JSON extraction object(s) | Emits serialized extraction object(s). Binary image payloads are omitted unless `--include-images` is set. |
+| `--json-unit` | JSON unit list(s) | Emits serialized unit entries from `result.iterate_units()`. For multi-item inputs (e.g. `.mbox`), emits a list of unit lists. Binary image payloads are omitted unless `--include-images` is set. |
+| `--include-images` | Include image data | Enables image extraction and includes binary image payloads in JSON output. Valid only with `--json` or `--json-unit`. |
 
 `--json` and `--json-unit` are mutually exclusive.
+
+### CLI Behavior Notes
+
+- `--include-images` without `--json`/`--json-unit` fails with exit code `1`.
+- Unknown/unsupported arguments fail with a warning and exit code `1`.
+- The CLI validates input file existence before extraction.
+- The CLI enforces a max input size of `100MB`; larger files fail before extraction.
+- Plain-text mode writes joined `get_full_text()` output for all extracted results.
 
 ### Examples
 
