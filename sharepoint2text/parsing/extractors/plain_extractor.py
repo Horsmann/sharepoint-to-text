@@ -112,8 +112,9 @@ def _detect_and_decode(content: bytes) -> tuple[str, str]:
     if best_match is not None:
         encoding = best_match.encoding
         logger.debug(
-            "Detected encoding: %s (confidence: %.2f)",
+            "Detected encoding: %s (confidence: %.2f, aliases: %s)",
             encoding,
+            best_match.percent_coherence,
             best_match.encoding_aliases,
         )
         try:
