@@ -1,6 +1,7 @@
 import io
 import io as std_io
 import logging
+import tarfile
 import typing
 import zipfile
 from unittest import TestCase
@@ -9,6 +10,7 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
     ExtractionFileEncryptedError,
     ExtractionFileTooLargeError,
+    ExtractionZipBombError,
 )
 from sharepoint2text.parsing.extractors.archive_extractor import read_archive
 from sharepoint2text.parsing.extractors.data_types import (
@@ -109,6 +111,17 @@ def _zip_bytes_to_file_like(files: dict[str, str]) -> io.BytesIO:
     with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for name, text in files.items():
             zf.writestr(name, text)
+    buffer.seek(0)
+    return buffer
+
+
+def _tar_bytes_to_file_like(files: dict[str, bytes]) -> io.BytesIO:
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w") as tf:
+        for name, data in files.items():
+            info = tarfile.TarInfo(name=name)
+            info.size = len(data)
+            tf.addfile(info, io.BytesIO(data))
     buffer.seek(0)
     return buffer
 
@@ -3165,6 +3178,22 @@ def test_read_zip_archive_2() -> None:
     tc.assertTrue(isinstance(results[1], EpubContent))
 
 
+def test_read_zip_archive_rejects_zip_bomb_ratio() -> None:
+    """ZIP archives with extreme compression ratio should be rejected."""
+    zip_buffer = std_io.BytesIO()
+    with zipfile.ZipFile(
+        zip_buffer,
+        mode="w",
+        compression=zipfile.ZIP_DEFLATED,
+        compresslevel=9,
+    ) as zf:
+        zf.writestr("bomb.txt", b"A" * 5_000_000)
+    zip_buffer.seek(0)
+
+    with tc.assertRaises(ExtractionZipBombError):
+        list(read_archive(zip_buffer, path="bomb.zip"))
+
+
 def test_read_tar_archive() -> None:
     """Test TAR archive extraction."""
     path = "sharepoint2text/tests/resources/archives/test_archive.tar"
@@ -3183,6 +3212,22 @@ def test_read_tar_archive() -> None:
     texts = [r.get_full_text() for r in results]
     tc.assertTrue(any("This is a test document" in t for t in texts))
     tc.assertTrue(any("Another file in the tar archive" in t for t in texts))
+
+
+def test_tar_archive_entry_limit() -> None:
+    """TAR archives exceeding configured entry limit should fail fast."""
+    import sharepoint2text.parsing.extractors.archive_extractor as archive_module
+
+    original_limit = archive_module.MAX_TAR_ENTRIES
+    archive_module.MAX_TAR_ENTRIES = 1
+
+    try:
+        tar_buffer = _tar_bytes_to_file_like({"a.txt": b"a", "b.txt": b"b"})
+        with tc.assertRaises(ExtractionFailedError) as cm:
+            list(read_archive(tar_buffer, path="test.tar"))
+        tc.assertIn("too many entries", str(cm.exception))
+    finally:
+        archive_module.MAX_TAR_ENTRIES = original_limit
 
 
 def test_read_7zip_archive() -> None:
@@ -3222,6 +3267,25 @@ def test_7zip_file_size_limit() -> None:
     finally:
         # Restore original size limit
         archive_module.MAX_7Z_FILE_SIZE = original_max_7z_file_size
+
+
+def test_7zip_total_uncompressed_size_limit() -> None:
+    """7z archives should be rejected when total uncompressed bytes exceed limit."""
+    import sharepoint2text.parsing.extractors.archive_extractor as archive_module
+
+    original_total_limit = archive_module.MAX_7Z_MEMORY_USAGE
+    archive_module.MAX_7Z_MEMORY_USAGE = 1
+
+    try:
+        path = "sharepoint2text/tests/resources/archives/test_archive.7z"
+        with tc.assertRaises(ExtractionFileTooLargeError) as cm:
+            list(read_archive(file_like=_read_file_to_file_like(path=path), path=path))
+
+        error = cm.exception
+        tc.assertEqual(1, error.max_size)
+        tc.assertGreater(error.actual_size, 1)
+    finally:
+        archive_module.MAX_7Z_MEMORY_USAGE = original_total_limit
 
 
 def test_read_tar_gz_archive() -> None:

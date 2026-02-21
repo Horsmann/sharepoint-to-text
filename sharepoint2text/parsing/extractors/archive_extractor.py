@@ -50,6 +50,7 @@ from sharepoint2text.parsing.extractors.util.sevenzip import (
     Bad7zFile,
     SevenZipFile,
 )
+from sharepoint2text.parsing.extractors.util.zip_bomb import open_zipfile
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,13 @@ MAX_ARCHIVE_FILE_SIZE = (
 # 7zip specific constants
 MAX_7Z_FILE_SIZE = 100 * 1024 * 1024  # 100MB maximum file size for 7z archives
 MAX_7Z_MEMORY_USAGE = 1024 * 1024 * 1024  # 1GB maximum memory usage (10x file size)
+MAX_7Z_ENTRIES = 50_000
+MAX_7Z_SINGLE_UNCOMPRESSED_BYTES = 1 * 1024 * 1024 * 1024  # 1 GiB
+
+# TAR safety limits (tarbomb mitigation)
+MAX_TAR_ENTRIES = 50_000
+MAX_TAR_TOTAL_UNCOMPRESSED_BYTES = 4 * 1024 * 1024 * 1024  # 4 GiB
+MAX_TAR_SINGLE_UNCOMPRESSED_BYTES = 1 * 1024 * 1024 * 1024  # 1 GiB
 
 # Magic bytes for archive detection (optimized order by frequency)
 MAGIC_SIGNATURES: Tuple[Tuple[bytes, str, int], ...] = (
@@ -283,7 +291,10 @@ def _extract_from_zip_optimized(
         ExtractionInterface objects for each supported file in the archive.
     """
     try:
-        with zipfile.ZipFile(file_like, "r") as zf:
+        with open_zipfile(
+            file_like,
+            source=archive_path or "<in-memory>",
+        ) as zf:
             # Single pass: check encryption and collect files to process
             files_to_process = []
 
@@ -363,11 +374,36 @@ def _extract_from_tar_optimized(
     """
     try:
         with tarfile.open(fileobj=file_like, mode=mode) as tf:
-            # Pre-filter members for better performance
-            for member in tf.getmembers():
+            total_entries = 0
+            total_uncompressed = 0
+
+            # Stream members to avoid materializing massive member lists in memory.
+            for member in tf:
                 # Skip directories and non-regular files
                 if not member.isreg():
                     continue
+
+                total_entries += 1
+                if total_entries > MAX_TAR_ENTRIES:
+                    raise ExtractionFailedError(
+                        f"TAR archive has too many entries ({total_entries} > {MAX_TAR_ENTRIES})"
+                    )
+
+                member_size = max(int(member.size or 0), 0)
+                if member_size > MAX_TAR_SINGLE_UNCOMPRESSED_BYTES:
+                    raise ExtractionFileTooLargeError(
+                        "TAR entry exceeds maximum allowed uncompressed size",
+                        max_size=MAX_TAR_SINGLE_UNCOMPRESSED_BYTES,
+                        actual_size=member_size,
+                    )
+
+                total_uncompressed += member_size
+                if total_uncompressed > MAX_TAR_TOTAL_UNCOMPRESSED_BYTES:
+                    raise ExtractionFileTooLargeError(
+                        "TAR archive total uncompressed size exceeds maximum allowed size",
+                        max_size=MAX_TAR_TOTAL_UNCOMPRESSED_BYTES,
+                        actual_size=total_uncompressed,
+                    )
 
                 filename = member.name
                 basename = os.path.basename(filename)
@@ -377,9 +413,9 @@ def _extract_from_tar_optimized(
                     continue
 
                 # Check file size for memory optimization
-                if member.size > _config.max_memory_size:
+                if member_size > _config.max_memory_size:
                     logger.warning(
-                        "File %s too large (%s bytes), skipping", filename, member.size
+                        "File %s too large (%s bytes), skipping", filename, member_size
                     )
                     continue
 
@@ -452,12 +488,36 @@ def _extract_from_7z_optimized(
                 )
 
             file_list = szf.list()
+            total_entries = 0
+            total_uncompressed = 0
 
             # Pre-filter files for better performance
             files_to_process = []
             for file_info in file_list:
                 if file_info.is_directory:
                     continue
+
+                total_entries += 1
+                if total_entries > MAX_7Z_ENTRIES:
+                    raise ExtractionFailedError(
+                        f"7z archive has too many entries ({total_entries} > {MAX_7Z_ENTRIES})"
+                    )
+
+                uncompressed_size = max(int(file_info.uncompressed or 0), 0)
+                if uncompressed_size > MAX_7Z_SINGLE_UNCOMPRESSED_BYTES:
+                    raise ExtractionFileTooLargeError(
+                        "7z entry exceeds maximum allowed uncompressed size",
+                        max_size=MAX_7Z_SINGLE_UNCOMPRESSED_BYTES,
+                        actual_size=uncompressed_size,
+                    )
+
+                total_uncompressed += uncompressed_size
+                if total_uncompressed > MAX_7Z_MEMORY_USAGE:
+                    raise ExtractionFileTooLargeError(
+                        "7z archive total uncompressed size exceeds maximum allowed size",
+                        max_size=MAX_7Z_MEMORY_USAGE,
+                        actual_size=total_uncompressed,
+                    )
 
                 filename = file_info.filename
                 basename = os.path.basename(filename)
@@ -466,11 +526,11 @@ def _extract_from_7z_optimized(
                     continue
 
                 # Check file size
-                if file_info.uncompressed > _config.max_memory_size:
+                if uncompressed_size > _config.max_memory_size:
                     logger.warning(
                         "File %s too large (%s bytes), skipping",
                         filename,
-                        file_info.uncompressed,
+                        uncompressed_size,
                     )
                     continue
 
