@@ -234,8 +234,9 @@ Setup details: [`sharepoint2text/sharepoint_io/SETUP.md`](sharepoint2text/sharep
 
 - `.eml`, `.msg`, `.mbox`
 - Email extraction includes sender/recipient metadata, subject, and body (`body_plain` / `body_html`).
-- Attachments are parsed and stored on `EmailContent.attachments` during email extraction.
-- Supported attachments can be recursively extracted via `EmailContent.iterate_supported_attachments()`.
+- `.eml` and `.msg` parse attachments and store them on `EmailContent.attachments`.
+- `.mbox` extraction currently focuses on message headers/body and does not parse/store attachments.
+- Parsed supported attachments can be extracted via `EmailContent.iterate_supported_attachments()`.
 - If supported-attachment extraction fails, the default behavior is to raise; use `skip_failed=True` to continue.
 
 ### Plain text and config/data
@@ -259,9 +260,11 @@ Setup details: [`sharepoint2text/sharepoint_io/SETUP.md`](sharepoint2text/sharep
 
 ## Archive Processing and Security
 
-Archives are extracted recursively. Every supported file inside yields its own extraction result.
+Archives are processed one level deep. Supported non-archive files inside the archive can yield extraction results.
+Nested archives are intentionally skipped as a safety guard.
 
 Built-in safeguards include zip-bomb protections and file size limits. For 7z, extraction is limited to 100MB archives.
+Archive entries may also be skipped when they exceed internal per-entry size limits or fail extraction.
 
 ## Limitations and Caveats
 
@@ -314,7 +317,7 @@ All extractor functions accept a binary stream plus optional `path` and return g
 
 Email helper API:
 
-- `EmailContent.iterate_supported_attachments(skip_failed=False)` recursively extracts supported attachments from parsed emails.
+- `EmailContent.iterate_supported_attachments(skip_failed=False)` extracts supported parsed attachments on demand (primarily from `.eml`/`.msg`).
 
 ## Exceptions
 
@@ -348,7 +351,7 @@ print(email.subject)
 print(email.get_full_text())  # plain body if available, otherwise HTML body
 print(f"Attachment count: {len(email.attachments)}")
 
-# Recursively extract supported attachment types (pdf, docx, pptx, etc.)
+# Extract supported attachment types (pdf, docx, pptx, etc.)
 for attachment_result in email.iterate_supported_attachments():
     print(type(attachment_result).__name__)
     print(attachment_result.get_full_text()[:200])
@@ -365,15 +368,14 @@ for attachment_result in email.iterate_supported_attachments(skip_failed=True):
     print(attachment_result.get_metadata().filename)
 ```
 
-### Process a mailbox (`.mbox`) and flatten attachments
+### Process a mailbox (`.mbox`) and read message bodies
 
 ```python
 import sharepoint2text
 
 for email in sharepoint2text.read_file("team-archive.mbox"):
     print(f"Subject: {email.subject}")
-    for attachment_result in email.iterate_supported_attachments(skip_failed=True):
-        print(f"  attachment type: {type(attachment_result).__name__}")
+    print(email.get_full_text()[:200])
 ```
 
 ### Batch-extract units for RAG-style chunking
