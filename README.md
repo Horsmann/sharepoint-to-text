@@ -178,13 +178,14 @@ sharepoint2text --file /path/to/file.docx --json > extraction.json
 | `--json-unit`, `-u` | Emit `list[unit_object]` |
 | `--include-images`, `-i` | Include binary image payloads as base64 in JSON output |
 | `--no-attachments`, `-n` | Exclude email attachments from CLI extraction output |
+| `--max-file-size-mb` | Maximum input size in MiB (default: `100`, use `0` to disable) |
 | `--version`, `-v` | Print CLI version |
 
 Rules:
 
 - `--json` and `--json-unit` are mutually exclusive.
 - `--include-images` requires `--json` or `--json-unit`.
-- CLI enforces a 100MB input file limit.
+- CLI enforces a configurable input file limit (default `100 MiB`; override with `--max-file-size-mb`).
 
 ## Optional SharePoint Integration
 
@@ -302,6 +303,7 @@ sharepoint2text.read_bytes(
     mime_type=None,        # e.g. "application/pdf"
     max_file_size=100 * 1024 * 1024,
     ignore_images=False,
+    force_plain_text=False,
 )
 
 sharepoint2text.is_supported_file(path)
@@ -312,7 +314,7 @@ sharepoint2text.get_extractor(path)
 
 - Office/OpenDocument: `read_docx`, `read_doc`, `read_xlsx`, `read_xls`, `read_pptx`, `read_ppt`, `read_rtf`, `read_odt`, `read_ods`, `read_odp`, `read_odg`, `read_odf`
 - Other documents: `read_pdf`, `read_html`, `read_epub`, `read_mhtml`, `read_plain_text`
-- Email: `read_eml_email`, `read_msg_email`, `read_mbox_email` (legacy aliases also exported)
+- Email: `read_eml_email`, `read_msg_email`, `read_mbox_email`
 
 All extractor functions accept a binary stream plus optional `path` and return generators.
 

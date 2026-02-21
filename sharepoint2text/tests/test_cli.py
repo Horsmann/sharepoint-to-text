@@ -282,3 +282,33 @@ def test_cli_warns_on_unsupported_argument(capsys) -> None:
 
     assert exit_code == 1
     assert "warning: unsupported arguments" in captured.err
+
+
+def test_cli_respects_max_file_size_override(capsys, tmp_path) -> None:
+    path = tmp_path / "small.txt"
+    path.write_text("hello", encoding="utf-8")
+
+    # 0.000001 MiB ~= 1 byte, should fail for a 5-byte file.
+    exit_code = main(["--file", str(path), "--max-file-size-mb", "0.000001"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "exceeds CLI maximum" in captured.err
+
+    # 0 disables size checks.
+    exit_code = main(["--file", str(path), "--max-file-size-mb", "0"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert captured.out == "hello\n"
+
+
+def test_cli_rejects_negative_max_file_size_mb(capsys, tmp_path) -> None:
+    path = tmp_path / "small.txt"
+    path.write_text("hello", encoding="utf-8")
+
+    exit_code = main(["--file", str(path), "--max-file-size-mb", "-1"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "--max-file-size-mb must be >= 0" in captured.err

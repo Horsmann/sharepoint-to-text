@@ -10,9 +10,6 @@ from sharepoint2text import (
     read_bytes,
     read_doc,
     read_docx,
-    read_email__eml_format,
-    read_email__mbox_format,
-    read_email__msg_format,
     read_eml_email,
     read_file,
     read_html,
@@ -168,24 +165,15 @@ def test_read_redirects_from_top_level():
     ##############
     # eml
     fl = _load_as_bytes(path="sharepoint2text/tests/resources/mails/basic_email.eml")
-    result = next(read_email__eml_format(fl))
-    tc.assertTrue(isinstance(result, EmailContent))
-    fl = _load_as_bytes(path="sharepoint2text/tests/resources/mails/basic_email.eml")
     result = next(read_eml_email(fl))
     tc.assertTrue(isinstance(result, EmailContent))
 
     # msg
     fl = _load_as_bytes(path="sharepoint2text/tests/resources/mails/basic_email.msg")
-    result = next(read_email__msg_format(fl))
-    tc.assertTrue(isinstance(result, EmailContent))
-    fl = _load_as_bytes(path="sharepoint2text/tests/resources/mails/basic_email.msg")
     result = next(read_msg_email(fl))
     tc.assertTrue(isinstance(result, EmailContent))
 
     # mbox
-    fl = _load_as_bytes(path="sharepoint2text/tests/resources/mails/basic_email.mbox")
-    result = next(read_email__mbox_format(fl))
-    tc.assertTrue(isinstance(result, EmailContent))
     fl = _load_as_bytes(path="sharepoint2text/tests/resources/mails/basic_email.mbox")
     result = next(read_mbox_email(fl))
     tc.assertTrue(isinstance(result, EmailContent))
@@ -361,3 +349,22 @@ def test_read_bytes_with_mime_and_bytesio_input() -> None:
 
 def test_read_bytes_requires_mime_or_extension() -> None:
     tc.assertRaises(ValueError, lambda: next(read_bytes(b"Hello World")))
+
+
+def test_read_bytes_force_plain_text_unknown_extension() -> None:
+    data = b"line one\nline two"
+
+    result = next(
+        read_bytes(
+            data,
+            extension=".weirdformat",
+            force_plain_text=True,
+        )
+    )
+    tc.assertTrue(isinstance(result, PlainTextContent))
+    tc.assertEqual("line one\nline two", result.get_full_text())
+
+    # force_plain_text should also work without extension/mime hints
+    result_no_hints = next(read_bytes(data, force_plain_text=True))
+    tc.assertTrue(isinstance(result_no_hints, PlainTextContent))
+    tc.assertEqual("line one\nline two", result_no_hints.get_full_text())

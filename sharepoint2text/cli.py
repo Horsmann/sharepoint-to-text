@@ -68,6 +68,15 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Output file path (default: stdout).",
     )
+    parser.add_argument(
+        "--max-file-size-mb",
+        type=float,
+        default=100.0,
+        help=(
+            "Maximum input file size in MiB (default: 100). "
+            "Use 0 to disable size checks."
+        ),
+    )
     return parser
 
 
@@ -168,18 +177,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.include_images and not (args.json or args.json_unit):
             raise ValueError("--include-images requires --json or --json-unit")
+        if args.max_file_size_mb < 0:
+            raise ValueError("--max-file-size-mb must be >= 0")
+
+        max_file_size_bytes = int(args.max_file_size_mb * 1024 * 1024)
 
         # Validate file path and size before processing
         file_path = Path(args.file)
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {args.file}")
 
-        # Check file size (100MB limit for CLI to prevent memory issues)
-        MAX_CLI_FILE_SIZE = 100 * 1024 * 1024  # 100MB
         file_size = file_path.stat().st_size
-        if file_size > MAX_CLI_FILE_SIZE:
+        if max_file_size_bytes > 0 and file_size > max_file_size_bytes:
             raise ValueError(
-                f"File size {file_size} bytes exceeds CLI maximum of {MAX_CLI_FILE_SIZE} bytes"
+                "File size "
+                f"{file_size} bytes exceeds CLI maximum of {max_file_size_bytes} bytes"
             )
 
         # Determine output stream
@@ -192,7 +204,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             results = list(
                 sharepoint2text.read_file(
-                    args.file, ignore_images=not args.include_images
+                    args.file,
+                    max_file_size=max_file_size_bytes,
+                    ignore_images=not args.include_images,
                 )
             )
             if not results:

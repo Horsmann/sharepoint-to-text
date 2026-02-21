@@ -318,10 +318,10 @@ def read_mhtml(
 #############
 # Emails
 #############
-def read_email__msg_format(
+def read_msg_email(
     file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[EmailContent, Any, None]:
-    """Extract content from an email in msg format."""
+    """Extract content from an Outlook MSG email file."""
     from sharepoint2text.parsing.extractors.mail.msg_email_extractor import (
         read_msg_format_mail as _read_msg_format_mail,
     )
@@ -330,10 +330,10 @@ def read_email__msg_format(
     return _read_msg_format_mail(file_like, path, ignore_images=ignore_images)
 
 
-def read_email__eml_format(
+def read_eml_email(
     file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[EmailContent, Any, None]:
-    """Extract content from an email in eml format."""
+    """Extract content from an EML email file."""
     from sharepoint2text.parsing.extractors.mail.eml_email_extractor import (
         read_eml_format_mail as _read_eml_format_mail,
     )
@@ -342,37 +342,16 @@ def read_email__eml_format(
     return _read_eml_format_mail(file_like, path, ignore_images=ignore_images)
 
 
-def read_email__mbox_format(
+def read_mbox_email(
     file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[EmailContent, Any, None]:
-    """Extract content from an email in mbox format."""
+    """Extract content from an MBOX email file."""
     from sharepoint2text.parsing.extractors.mail.mbox_email_extractor import (
         read_mbox_format_mail as _read_mbox_format_mail,
     )
 
     logger.debug("Reading mail .mbox file: %s", path)
     return _read_mbox_format_mail(file_like, path, ignore_images=ignore_images)
-
-
-def read_msg_email(
-    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[EmailContent, Any, None]:
-    """Extract content from an Outlook MSG email file."""
-    return read_email__msg_format(file_like, path, ignore_images=ignore_images)
-
-
-def read_eml_email(
-    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[EmailContent, Any, None]:
-    """Extract content from an EML email file."""
-    return read_email__eml_format(file_like, path, ignore_images=ignore_images)
-
-
-def read_mbox_email(
-    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[EmailContent, Any, None]:
-    """Extract content from an MBOX email file."""
-    return read_email__mbox_format(file_like, path, ignore_images=ignore_images)
 
 
 def read_file(
@@ -429,7 +408,7 @@ def read_file(
             If the file type is not supported.
         sharepoint2text.parsing.exceptions.ExtractionFileEncryptedError:
             If the file is encrypted or password-protected.
-        sharepoint2text.parsing.exceptions.LegacyMicrosoftParsingError:
+        sharepoint2text.parsing.exceptions.ExtractionLegacyMicrosoftParsingError:
             If parsing a legacy Office file fails.
         sharepoint2text.parsing.exceptions.ExtractionFailedError:
             If extraction fails for an unexpected reason (with `__cause__` set).
@@ -493,6 +472,7 @@ def read_bytes(
     extension: str | None = None,
     max_file_size: int = 100 * 1024 * 1024,  # 100MB default
     ignore_images: bool = False,
+    force_plain_text: bool = False,
 ) -> Generator[ExtractionInterface, Any, None]:
     """
     Read and extract content from in-memory bytes.
@@ -509,18 +489,22 @@ def read_bytes(
         ignore_images: If True, skip image extraction. This can significantly
                       improve performance for files with many images.
                       Default is False.
+        force_plain_text: If True, route extraction to plain text handling
+                      regardless of extension/MIME detection.
+                      Useful for unknown or custom plain-text file formats.
 
     Yields:
         A dataclass containing extracted content and metadata.
 
     Raises:
-        ValueError: If both ``mime_type`` and ``extension`` are missing/empty.
+        ValueError: If both ``mime_type`` and ``extension`` are missing/empty,
+            unless ``force_plain_text=True``.
         TypeError: If ``data`` is not ``bytes`` or ``io.BytesIO``.
         sharepoint2text.parsing.exceptions.ExtractionFileFormatNotSupportedError:
             If the provided extension/MIME type is unsupported.
         sharepoint2text.parsing.exceptions.ExtractionFileEncryptedError:
             If the file is encrypted or password-protected.
-        sharepoint2text.parsing.exceptions.LegacyMicrosoftParsingError:
+        sharepoint2text.parsing.exceptions.ExtractionLegacyMicrosoftParsingError:
             If parsing a legacy Office file fails.
         sharepoint2text.parsing.exceptions.ExtractionFailedError:
             If extraction fails for an unexpected reason (with ``__cause__`` set).
@@ -535,9 +519,6 @@ def read_bytes(
 
     if normalized_extension.startswith("."):
         normalized_extension = normalized_extension[1:]
-
-    if not normalized_extension and not normalized_mime_type:
-        raise ValueError("Either mime_type or extension must be provided")
 
     if isinstance(data, bytes):
         file_size = len(data)
@@ -559,33 +540,44 @@ def read_bytes(
     virtual_path = "<in-memory>"
     extension_error: ExtractionFileFormatNotSupportedError | None = None
 
-    if normalized_extension:
-        virtual_path = f"in_memory.{normalized_extension}"
-        try:
-            extractor = get_extractor(virtual_path, ignore_images=ignore_images)
-        except ExtractionFileFormatNotSupportedError as exc:
-            extension_error = exc
-            if not normalized_mime_type:
-                raise
-
-    if extractor is None and normalized_mime_type:
-        file_type = MIME_TYPE_MAPPING.get(normalized_mime_type)
-        if file_type is None:
-            if extension_error is not None:
-                raise extension_error
-            raise ExtractionFileFormatNotSupportedError(
-                f"File type not supported for MIME type '{normalized_mime_type}'"
-            )
-        virtual_path = f"in_memory.{file_type}"
-        extractor = get_extractor(virtual_path, ignore_images=ignore_images)
-
-    if extractor is None and extension_error is not None:
-        raise extension_error
-
-    if extractor is None:
-        raise ExtractionFileFormatNotSupportedError(
-            "Could not resolve extractor from provided extension/MIME type"
+    if force_plain_text:
+        virtual_path = "in_memory.txt"
+        extractor = get_extractor(
+            virtual_path,
+            ignore_images=ignore_images,
+            force_plain_text=True,
         )
+    else:
+        if not normalized_extension and not normalized_mime_type:
+            raise ValueError("Either mime_type or extension must be provided")
+
+        if normalized_extension:
+            virtual_path = f"in_memory.{normalized_extension}"
+            try:
+                extractor = get_extractor(virtual_path, ignore_images=ignore_images)
+            except ExtractionFileFormatNotSupportedError as exc:
+                extension_error = exc
+                if not normalized_mime_type:
+                    raise
+
+        if extractor is None and normalized_mime_type:
+            file_type = MIME_TYPE_MAPPING.get(normalized_mime_type)
+            if file_type is None:
+                if extension_error is not None:
+                    raise extension_error
+                raise ExtractionFileFormatNotSupportedError(
+                    f"File type not supported for MIME type '{normalized_mime_type}'"
+                )
+            virtual_path = f"in_memory.{file_type}"
+            extractor = get_extractor(virtual_path, ignore_images=ignore_images)
+
+        if extractor is None and extension_error is not None:
+            raise extension_error
+
+        if extractor is None:
+            raise ExtractionFileFormatNotSupportedError(
+                "Could not resolve extractor from provided extension/MIME type"
+            )
 
     logger.info("Starting in-memory extraction: %s", virtual_path)
     try:
@@ -634,9 +626,6 @@ __all__ = [
     "read_ods",
     "read_odg",
     "read_odf",
-    "read_email__msg_format",
-    "read_email__eml_format",
-    "read_email__mbox_format",
     "read_msg_email",
     "read_eml_email",
     "read_mbox_email",
