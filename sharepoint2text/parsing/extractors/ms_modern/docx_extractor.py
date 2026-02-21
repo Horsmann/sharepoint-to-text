@@ -31,10 +31,15 @@ from sharepoint2text.parsing.extractors.data_types import (
     DocxRun,
     DocxSection,
 )
+from sharepoint2text.parsing.extractors.ms_modern.omml_to_latex import omml_to_latex
+from sharepoint2text.parsing.extractors.ms_modern.ooxml_shared import (
+    OOXMLZipContext,
+    extract_omml_formulas,
+    get_element_text,
+    get_image_content_type,
+    get_image_pixel_dimensions,
+)
 from sharepoint2text.parsing.extractors.util.encryption import is_ooxml_encrypted
-from sharepoint2text.parsing.extractors.util.omml_to_latex import omml_to_latex
-from sharepoint2text.parsing.extractors.util.ooxml_context import OOXMLZipContext
-from sharepoint2text.parsing.extractors.util.zip_utils import parse_relationships
 
 logger = logging.getLogger(__name__)
 
@@ -152,91 +157,8 @@ TWIPS_PER_INCH = 1440
 # Caption style keywords
 CAPTION_STYLE_KEYWORDS = ("caption", "bildunterschrift", "abbildung", "figure")
 
-# Content type by extension
-_CONTENT_TYPE_MAP = {
-    "png": "image/png",
-    "jpg": "image/jpeg",
-    "jpeg": "image/jpeg",
-    "gif": "image/gif",
-    "bmp": "image/bmp",
-    "tiff": "image/tiff",
-    "tif": "image/tiff",
-    "emf": "image/x-emf",
-    "wmf": "image/x-wmf",
-}
-
 # Skip IDs for separator/continuation notes
 _SKIP_NOTE_IDS = frozenset({"-1", "0"})
-
-# JPEG SOF markers for dimension extraction
-_JPEG_SOF_MARKERS = frozenset(
-    {
-        0xC0,
-        0xC1,
-        0xC2,
-        0xC3,
-        0xC5,
-        0xC6,
-        0xC7,
-        0xC9,
-        0xCA,
-        0xCB,
-        0xCD,
-        0xCE,
-        0xCF,
-    }
-)
-
-
-# =============================================================================
-# Image dimension extraction
-# =============================================================================
-
-
-def _get_image_pixel_dimensions(image_data: bytes) -> tuple[int | None, int | None]:
-    """Extract pixel dimensions from common raster formats."""
-    if not image_data:
-        return None, None
-
-    # PNG
-    if image_data.startswith(b"\x89PNG\r\n\x1a\n") and len(image_data) >= 24:
-        w = int.from_bytes(image_data[16:20], "big")
-        h = int.from_bytes(image_data[20:24], "big")
-        return (w or None, h or None)
-
-    # GIF
-    if image_data[:6] in (b"GIF87a", b"GIF89a") and len(image_data) >= 10:
-        w = int.from_bytes(image_data[6:8], "little")
-        h = int.from_bytes(image_data[8:10], "little")
-        return (w or None, h or None)
-
-    # BMP
-    if image_data[:2] == b"BM" and len(image_data) >= 26:
-        w = int.from_bytes(image_data[18:22], "little", signed=True)
-        h = int.from_bytes(image_data[22:26], "little", signed=True)
-        return (abs(w) or None, abs(h) or None)
-
-    # JPEG
-    if image_data.startswith(b"\xff\xd8"):
-        i = 2
-        size = len(image_data)
-        while i + 4 <= size:
-            if image_data[i] != 0xFF:
-                i += 1
-                continue
-            marker = image_data[i + 1]
-            if marker in (0xD9, 0xDA):
-                break
-            length = int.from_bytes(image_data[i + 2 : i + 4], "big")
-            if length < 2:
-                break
-            if marker in _JPEG_SOF_MARKERS and i + 2 + length <= size:
-                h = int.from_bytes(image_data[i + 5 : i + 7], "big")
-                w = int.from_bytes(image_data[i + 7 : i + 9], "big")
-                return (w or None, h or None)
-            i += 2 + length
-
-    return None, None
 
 
 # =============================================================================
@@ -384,7 +306,6 @@ class _DocxContext(OOXMLZipContext):
         self._footnotes_root: ET.Element | None = None
         self._endnotes_root: ET.Element | None = None
         self._comments_root: ET.Element | None = None
-        self._rels_root: ET.Element | None = None
 
         # Data cache
         self._relationships: dict[str, dict] | None = None
@@ -402,12 +323,10 @@ class _DocxContext(OOXMLZipContext):
             ("word/footnotes.xml", "_footnotes_root"),
             ("word/endnotes.xml", "_endnotes_root"),
             ("word/comments.xml", "_comments_root"),
-            ("word/_rels/document.xml.rels", "_rels_root"),
         ]
 
         for path, attr in xml_files:
-            if path in self._namelist:
-                setattr(self, attr, self.read_xml_root(path))
+            setattr(self, attr, self.read_xml_root_if_exists(path))
 
         # Pre-load header and footer files
         self._relationships = self._parse_relationships()
@@ -416,16 +335,14 @@ class _DocxContext(OOXMLZipContext):
             target = rel_info.get("target", "")
             if "header" in rel_type.lower() or "footer" in rel_type.lower():
                 hf_path = "word/" + target
-                if hf_path in self._namelist:
-                    self._header_footer_roots[hf_path] = self.read_xml_root(hf_path)
+                root = self.read_xml_root_if_exists(hf_path)
+                if root is not None:
+                    self._header_footer_roots[hf_path] = root
 
     def _parse_relationships(self) -> dict[str, dict]:
         """Parse relationships from cached rels root."""
-        if self._rels_root is None:
-            return {}
-
         relationships = {}
-        for rel in parse_relationships(self._rels_root):
+        for rel in self.read_relationships_if_exists("word/_rels/document.xml.rels"):
             rel_id = rel["id"]
             if rel_id:
                 relationships[rel_id] = {
@@ -463,26 +380,10 @@ class _DocxContext(OOXMLZipContext):
                         self._styles[style_id] = style_name or style_id
         return self._styles
 
-    def get_image_data(self, image_path: str) -> bytes | None:
-        """Read image data from the ZIP file."""
-        if image_path not in self._namelist:
-            return None
-        return self.read_bytes(image_path)
-
 
 # =============================================================================
 # Extraction functions
 # =============================================================================
-
-
-def _get_element_text(root: ET.Element | None, tag: str) -> str | None:
-    """Extract text from an element if it exists and has text content."""
-    if root is None:
-        return None
-    elem = root.find(tag)
-    if elem is not None and elem.text:
-        return elem.text
-    return None
 
 
 def _extract_metadata_from_context(ctx: _DocxContext) -> DocxMetadata:
@@ -506,7 +407,7 @@ def _extract_metadata_from_context(ctx: _DocxContext) -> DocxMetadata:
     ]
 
     for tag, attr in field_mappings:
-        if text := _get_element_text(root, tag):
+        if text := get_element_text(root, tag):
             setattr(metadata, attr, text)
 
     revision_elem = root.find(_CP_REVISION)
@@ -899,20 +800,21 @@ def _extract_images_from_context(ctx: _DocxContext) -> list[DocxImage]:
         else:
             image_path = "word/" + target
         try:
-            img_data = ctx.get_image_data(image_path)
+            img_data = ctx.read_bytes_if_exists(image_path)
             if img_data is None:
                 continue
 
             image_counter += 1
-            ext = target.rsplit(".", 1)[-1].lower()
             caption, description = image_metadata.get(rel_id, ("", ""))
-            width, height = _get_image_pixel_dimensions(img_data)
+            width, height = get_image_pixel_dimensions(img_data)
 
             images.append(
                 DocxImage(
                     rel_id=rel_id,
                     filename=target.rsplit("/", 1)[-1],
-                    content_type=_CONTENT_TYPE_MAP.get(ext, f"image/{ext}"),
+                    content_type=get_image_content_type(
+                        target, fallback_to_extension=True
+                    ),
                     data=io.BytesIO(img_data),
                     size_bytes=len(img_data),
                     width=width,
@@ -962,26 +864,15 @@ def _extract_formulas_from_context(ctx: _DocxContext) -> list[DocxFormula]:
     if body is None:
         return []
 
-    formulas: list[DocxFormula] = []
-    omath_in_para: set[int] = set()
-
-    # Display equations (oMathPara)
-    for omath_para in body.iter(M_OMATHPARA):
-        omath = omath_para.find(M_OMATH)
-        if omath is not None:
-            omath_in_para.add(id(omath))
-            latex = omml_to_latex(omath)
-            if latex.strip():
-                formulas.append(DocxFormula(latex=latex, is_display=True))
-
-    # Inline equations (not in oMathPara)
-    for omath in body.iter(M_OMATH):
-        if id(omath) not in omath_in_para:
-            latex = omml_to_latex(omath)
-            if latex.strip():
-                formulas.append(DocxFormula(latex=latex, is_display=False))
-
-    return formulas
+    return [
+        DocxFormula(latex=latex, is_display=is_display)
+        for latex, is_display in extract_omml_formulas(
+            body,
+            omath_para_tag=M_OMATHPARA,
+            omath_tag=M_OMATH,
+            converter=omml_to_latex,
+        )
+    ]
 
 
 # =============================================================================

@@ -28,10 +28,13 @@ from sharepoint2text.parsing.extractors.data_types import (
     XlsxMetadata,
     XlsxSheet,
 )
+from sharepoint2text.parsing.extractors.ms_modern.ooxml_shared import (
+    OOXMLZipContext,
+    get_image_content_type,
+    get_image_pixel_dimensions,
+)
 from sharepoint2text.parsing.extractors.util.encryption import is_ooxml_encrypted
-from sharepoint2text.parsing.extractors.util.ooxml_context import OOXMLZipContext
 from sharepoint2text.parsing.extractors.util.zip_bomb import validate_zip_bytesio
-from sharepoint2text.parsing.extractors.util.zip_utils import parse_relationships
 
 logger = logging.getLogger(__name__)
 
@@ -61,37 +64,6 @@ ANCHOR_TYPES = (XDR_ONE_CELL_ANCHOR, XDR_TWO_CELL_ANCHOR, XDR_ABSOLUTE_ANCHOR)
 # =============================================================================
 
 EMU_PER_PIXEL = 9525
-
-_CONTENT_TYPE_MAP = {
-    "png": "image/png",
-    "jpg": "image/jpeg",
-    "jpeg": "image/jpeg",
-    "gif": "image/gif",
-    "bmp": "image/bmp",
-    "tiff": "image/tiff",
-    "tif": "image/tiff",
-    "emf": "image/x-emf",
-    "wmf": "image/x-wmf",
-}
-
-# JPEG SOF markers for dimension extraction
-_JPEG_SOF_MARKERS = frozenset(
-    {
-        0xC0,
-        0xC1,
-        0xC2,
-        0xC3,
-        0xC5,
-        0xC6,
-        0xC7,
-        0xC9,
-        0xCA,
-        0xCB,
-        0xCD,
-        0xCE,
-        0xCF,
-    }
-)
 
 # Datetime types for isinstance check
 _DATETIME_TYPES = (datetime.datetime, datetime.date, datetime.time)
@@ -392,58 +364,6 @@ def _read_metadata(file_like: io.BytesIO) -> XlsxMetadata:
 # =============================================================================
 
 
-def _get_content_type(filename: str) -> str:
-    """Determine MIME content type from image filename extension."""
-    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    return _CONTENT_TYPE_MAP.get(ext, "image/unknown")
-
-
-def _get_image_pixel_dimensions(image_data: bytes) -> tuple[int | None, int | None]:
-    """Extract pixel dimensions from common raster formats."""
-    if not image_data:
-        return None, None
-
-    # PNG
-    if image_data.startswith(b"\x89PNG\r\n\x1a\n") and len(image_data) >= 24:
-        w = int.from_bytes(image_data[16:20], "big")
-        h = int.from_bytes(image_data[20:24], "big")
-        return (w or None, h or None)
-
-    # GIF
-    if image_data[:6] in (b"GIF87a", b"GIF89a") and len(image_data) >= 10:
-        w = int.from_bytes(image_data[6:8], "little")
-        h = int.from_bytes(image_data[8:10], "little")
-        return (w or None, h or None)
-
-    # BMP
-    if image_data[:2] == b"BM" and len(image_data) >= 26:
-        w = int.from_bytes(image_data[18:22], "little", signed=True)
-        h = int.from_bytes(image_data[22:26], "little", signed=True)
-        return (abs(w) or None, abs(h) or None)
-
-    # JPEG
-    if image_data.startswith(b"\xff\xd8"):
-        i = 2
-        size = len(image_data)
-        while i + 4 <= size:
-            if image_data[i] != 0xFF:
-                i += 1
-                continue
-            marker = image_data[i + 1]
-            if marker in (0xD9, 0xDA):
-                break
-            length = int.from_bytes(image_data[i + 2 : i + 4], "big")
-            if length < 2:
-                break
-            if marker in _JPEG_SOF_MARKERS and i + 2 + length <= size:
-                h = int.from_bytes(image_data[i + 5 : i + 7], "big")
-                w = int.from_bytes(image_data[i + 7 : i + 9], "big")
-                return (w or None, h or None)
-            i += 2 + length
-
-    return None, None
-
-
 def _resolve_drawing_path(target: str) -> str:
     """Normalize drawing relationship targets to ZIP paths."""
     if target.startswith("/"):
@@ -469,24 +389,19 @@ def _extract_images_from_zip(
 
     ctx = OOXMLZipContext(file_like)
     try:
-        namelist = ctx.namelist
-
         # Build mapping of sheet index to drawing file
         sheet_to_drawing: dict[int, str] = {}
         for sheet_idx in range(len(sheet_names)):
             rels_path = f"xl/worksheets/_rels/sheet{sheet_idx + 1}.xml.rels"
-            if rels_path not in namelist:
-                continue
-
-            rels_root = ctx.read_xml_root(rels_path)
-            for rel in parse_relationships(rels_root):
+            for rel in ctx.read_relationships_if_exists(rels_path):
                 if "drawing" in rel["type"]:
                     sheet_to_drawing[sheet_idx] = _resolve_drawing_path(rel["target"])
                     break
 
         # Process each drawing file
         for sheet_idx, drawing_path in sheet_to_drawing.items():
-            if drawing_path not in namelist:
+            drawing_root = ctx.read_xml_root_if_exists(drawing_path)
+            if drawing_root is None:
                 continue
 
             # Parse drawing relationships to get image file paths
@@ -495,13 +410,10 @@ def _extract_images_from_zip(
             ).replace(".xml", ".xml.rels")
 
             rid_to_image: dict[str, str] = {}
-            if drawing_rels_path in namelist:
-                for rel in parse_relationships(ctx.read_xml_root(drawing_rels_path)):
-                    if "image" in rel["type"]:
-                        rid_to_image[rel["id"]] = _resolve_image_path(rel["target"])
+            for rel in ctx.read_relationships_if_exists(drawing_rels_path):
+                if "image" in rel["type"]:
+                    rid_to_image[rel["id"]] = _resolve_image_path(rel["target"])
 
-            # Parse the drawing XML to get image metadata
-            drawing_root = ctx.read_xml_root(drawing_path)
             sheet_images: list[XlsxImage] = []
 
             for anchor_type in ANCHOR_TYPES:
@@ -544,15 +456,13 @@ def _extract_images_from_zip(
                             continue
 
                         image_path = rid_to_image[embed_rid]
-                        if image_path not in namelist:
+                        image_bytes = ctx.read_bytes_if_exists(image_path)
+                        if image_bytes is None:
                             continue
-
-                        # Read image data
-                        image_bytes = ctx.read_bytes(image_path)
                         filename = image_path.rsplit("/", 1)[-1]
 
                         if width <= 0 or height <= 0:
-                            width, height = _get_image_pixel_dimensions(image_bytes)
+                            width, height = get_image_pixel_dimensions(image_bytes)
 
                         image_counter += 1
                         sheet_images.append(
@@ -560,7 +470,7 @@ def _extract_images_from_zip(
                                 image_index=image_counter,
                                 sheet_index=sheet_idx,
                                 filename=filename,
-                                content_type=_get_content_type(filename),
+                                content_type=get_image_content_type(filename),
                                 data=io.BytesIO(image_bytes),
                                 size_bytes=len(image_bytes),
                                 width=width,

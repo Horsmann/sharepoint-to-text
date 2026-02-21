@@ -116,12 +116,15 @@ from sharepoint2text.parsing.extractors.data_types import (
     PptxMetadata,
     PptxSlide,
 )
-from sharepoint2text.parsing.extractors.util.encryption import is_ooxml_encrypted
-from sharepoint2text.parsing.extractors.util.omml_to_latex import omml_to_latex
-from sharepoint2text.parsing.extractors.util.ooxml_context import OOXMLZipContext
-from sharepoint2text.parsing.extractors.util.zip_utils import (
-    parse_relationships,
+from sharepoint2text.parsing.extractors.ms_modern.omml_to_latex import omml_to_latex
+from sharepoint2text.parsing.extractors.ms_modern.ooxml_shared import (
+    OOXMLZipContext,
+    extract_omml_formulas,
+    get_element_text,
+    get_image_content_type,
+    get_image_pixel_dimensions,
 )
+from sharepoint2text.parsing.extractors.util.encryption import is_ooxml_encrypted
 
 logger = logging.getLogger(__name__)
 
@@ -200,83 +203,6 @@ FOOTER_TYPES = frozenset({"ftr"})
 # Note: sldNum (slide number) is NOT skipped - it goes to other_textboxes
 SKIP_TYPES = frozenset({"dt", "sldImg", "hdr"})
 
-# Content type mapping by file extension (cached at module level)
-_CONTENT_TYPE_MAP = {
-    "png": "image/png",
-    "jpg": "image/jpeg",
-    "jpeg": "image/jpeg",
-    "gif": "image/gif",
-    "bmp": "image/bmp",
-    "tiff": "image/tiff",
-    "tif": "image/tiff",
-    "emf": "image/x-emf",
-    "wmf": "image/x-wmf",
-}
-
-
-def _get_image_pixel_dimensions(
-    image_data: bytes,
-) -> tuple[int | None, int | None]:
-    """Best-effort extraction of pixel dimensions from common raster formats."""
-    if not image_data:
-        return None, None
-
-    # PNG
-    if image_data.startswith(b"\x89PNG\r\n\x1a\n") and len(image_data) >= 24:
-        width = int.from_bytes(image_data[16:20], "big")
-        height = int.from_bytes(image_data[20:24], "big")
-        return (width or None, height or None)
-
-    # GIF
-    if image_data[:6] in (b"GIF87a", b"GIF89a") and len(image_data) >= 10:
-        width = int.from_bytes(image_data[6:8], "little")
-        height = int.from_bytes(image_data[8:10], "little")
-        return (width or None, height or None)
-
-    # BMP
-    if image_data[:2] == b"BM" and len(image_data) >= 26:
-        width = int.from_bytes(image_data[18:22], "little", signed=True)
-        height = int.from_bytes(image_data[22:26], "little", signed=True)
-        return (abs(width) or None, abs(height) or None)
-
-    # JPEG
-    if image_data.startswith(b"\xff\xd8"):
-        i = 2
-        size = len(image_data)
-        while i + 4 <= size:
-            if image_data[i] != 0xFF:
-                i += 1
-                continue
-            marker = image_data[i + 1]
-            if marker in (0xD9, 0xDA):
-                break
-            length = int.from_bytes(image_data[i + 2 : i + 4], "big")
-            if length < 2:
-                break
-            if marker in (
-                0xC0,
-                0xC1,
-                0xC2,
-                0xC3,
-                0xC5,
-                0xC6,
-                0xC7,
-                0xC9,
-                0xCA,
-                0xCB,
-                0xCD,
-                0xCE,
-                0xCF,
-            ):
-                if i + 2 + length <= size:
-                    height = int.from_bytes(image_data[i + 5 : i + 7], "big")
-                    width = int.from_bytes(image_data[i + 7 : i + 9], "big")
-                    return (width or None, height or None)
-                break
-            i += 2 + length
-
-    return None, None
-
 
 class _PptxContext(OOXMLZipContext):
     """
@@ -294,11 +220,8 @@ class _PptxContext(OOXMLZipContext):
         # Cache for parsed XML roots
         self._core_root: ET.Element | None = None
         self._presentation_root: ET.Element | None = None
-        self._presentation_rels_root: ET.Element | None = None
-
         # Cache for slide-related XML (keyed by path)
         self._slide_roots: dict[str, ET.Element] = {}
-        self._slide_rels_roots: dict[str, ET.Element] = {}
         self._comment_roots: dict[str, ET.Element] = {}
 
         # Cache for extracted data
@@ -310,46 +233,33 @@ class _PptxContext(OOXMLZipContext):
     def _load_xml_files(self) -> None:
         """Load and parse all XML files from the ZIP at once."""
         # Core properties (metadata)
-        if "docProps/core.xml" in self._namelist:
-            self._core_root = self.read_xml_root("docProps/core.xml")
+        self._core_root = self.read_xml_root_if_exists("docProps/core.xml")
 
         # Presentation XML
-        if "ppt/presentation.xml" in self._namelist:
-            self._presentation_root = self.read_xml_root("ppt/presentation.xml")
-
-        # Presentation relationships
-        rels_path = "ppt/_rels/presentation.xml.rels"
-        if rels_path in self._namelist:
-            self._presentation_rels_root = self.read_xml_root(rels_path)
+        self._presentation_root = self.read_xml_root_if_exists("ppt/presentation.xml")
 
         # Pre-compute slide order so we know which slides to load
         self._slide_order = self._compute_slide_order()
 
         # Load all slide XML files
         for slide_path in self._slide_order:
-            if slide_path in self._namelist:
-                self._slide_roots[slide_path] = self.read_xml_root(slide_path)
-
-                # Load slide relationships
-                slide_dir = "/".join(slide_path.rsplit("/", 1)[:-1])
-                slide_name = slide_path.rsplit("/", 1)[-1]
-                rels_path = f"{slide_dir}/_rels/{slide_name}.rels"
-                if rels_path in self._namelist:
-                    self._slide_rels_roots[slide_path] = self.read_xml_root(rels_path)
+            root = self.read_xml_root_if_exists(slide_path)
+            if root is not None:
+                self._slide_roots[slide_path] = root
 
         # Load all comment files
-        for name in self._namelist:
+        for name in self.namelist:
             if name.startswith("ppt/comments/comment") and name.endswith(".xml"):
                 self._comment_roots[name] = self.read_xml_root(name)
 
     def _compute_slide_order(self) -> list[str]:
         """Compute slide order from cached presentation XML."""
-        if self._presentation_rels_root is None or self._presentation_root is None:
+        if self._presentation_root is None:
             return []
 
         # Build relationship map from rels
         rels_map: dict[str, str] = {}
-        for rel in parse_relationships(self._presentation_rels_root):
+        for rel in self.read_relationships_if_exists("ppt/_rels/presentation.xml.rels"):
             rel_id = rel["id"]
             target = rel["target"]
             rel_type = rel["type"].lower()
@@ -388,17 +298,18 @@ class _PptxContext(OOXMLZipContext):
         if slide_path in self._slide_relationships:
             return self._slide_relationships[slide_path]
 
-        relationships = {}
-        rels_root = self._slide_rels_roots.get(slide_path)
-        if rels_root is not None:
-            for rel in parse_relationships(rels_root):
-                rel_id = rel["id"]
-                if not rel_id:
-                    continue
-                relationships[rel_id] = {
-                    "type": rel["type"],
-                    "target": rel["target"],
-                }
+        relationships: dict[str, dict[str, str]] = {}
+        slide_dir = "/".join(slide_path.rsplit("/", 1)[:-1])
+        slide_name = slide_path.rsplit("/", 1)[-1]
+        rels_path = f"{slide_dir}/_rels/{slide_name}.rels"
+        for rel in self.read_relationships_if_exists(rels_path):
+            rel_id = rel["id"]
+            if not rel_id:
+                continue
+            relationships[rel_id] = {
+                "type": rel["type"],
+                "target": rel["target"],
+            }
 
         self._slide_relationships[slide_path] = relationships
         return relationships
@@ -407,22 +318,6 @@ class _PptxContext(OOXMLZipContext):
         """Get cached comment XML root for a slide."""
         comment_file = f"ppt/comments/comment{slide_number}.xml"
         return self._comment_roots.get(comment_file)
-
-    def get_image_data(self, image_path: str) -> bytes | None:
-        """Read image data from the ZIP file."""
-        if image_path not in self._namelist:
-            return None
-        return self.read_bytes(image_path)
-
-
-def _get_element_text(root: ET.Element | None, tag: str) -> str | None:
-    """Extract text from an element if it exists and has text content."""
-    if root is None:
-        return None
-    elem = root.find(tag)
-    if elem is not None and elem.text:
-        return elem.text
-    return None
 
 
 def _extract_metadata_from_context(ctx: _PptxContext) -> PptxMetadata:
@@ -441,23 +336,23 @@ def _extract_metadata_from_context(ctx: _PptxContext) -> PptxMetadata:
         return metadata
 
     # Extract metadata fields using helper
-    if text := _get_element_text(root, _DC_TITLE):
+    if text := get_element_text(root, _DC_TITLE):
         metadata.title = text
-    if text := _get_element_text(root, _DC_CREATOR):
+    if text := get_element_text(root, _DC_CREATOR):
         metadata.author = text
-    if text := _get_element_text(root, _DC_SUBJECT):
+    if text := get_element_text(root, _DC_SUBJECT):
         metadata.subject = text
-    if text := _get_element_text(root, _CP_KEYWORDS):
+    if text := get_element_text(root, _CP_KEYWORDS):
         metadata.keywords = text
-    if text := _get_element_text(root, _CP_CATEGORY):
+    if text := get_element_text(root, _CP_CATEGORY):
         metadata.category = text
-    if text := _get_element_text(root, _DC_DESCRIPTION):
+    if text := get_element_text(root, _DC_DESCRIPTION):
         metadata.comments = text
-    if text := _get_element_text(root, _DCTERMS_CREATED):
+    if text := get_element_text(root, _DCTERMS_CREATED):
         metadata.created = text.rstrip("Z")
-    if text := _get_element_text(root, _DCTERMS_MODIFIED):
+    if text := get_element_text(root, _DCTERMS_MODIFIED):
         metadata.modified = text.rstrip("Z")
-    if text := _get_element_text(root, _CP_LASTMODIFIEDBY):
+    if text := get_element_text(root, _CP_LASTMODIFIEDBY):
         metadata.last_modified_by = text
 
     revision_elem = root.find(_CP_REVISION)
@@ -655,26 +550,12 @@ def _extract_formulas_from_element(elem: ET.Element) -> list[tuple[str, bool]]:
         - latex_string: LaTeX representation of the formula
         - is_display: True for display equations (oMathPara), False for inline
     """
-    formulas: list[tuple[str, bool]] = []
-    omath_in_para: set[int] = set()
-
-    # First, find all oMathPara elements (display equations)
-    for omath_para in elem.iter(M_OMATHPARA):
-        omath = omath_para.find(M_OMATH)
-        if omath is not None:
-            omath_in_para.add(id(omath))
-            latex = omml_to_latex(omath)
-            if latex.strip():
-                formulas.append((latex, True))
-
-    # Then find inline oMath elements (not in oMathPara)
-    for omath in elem.iter(M_OMATH):
-        if id(omath) not in omath_in_para:
-            latex = omml_to_latex(omath)
-            if latex.strip():
-                formulas.append((latex, False))
-
-    return formulas
+    return extract_omml_formulas(
+        elem,
+        omath_para_tag=M_OMATHPARA,
+        omath_tag=M_OMATH,
+        converter=omml_to_latex,
+    )
 
 
 def _normalize_relative_path(base_dir: str, target: str) -> str:
@@ -781,12 +662,14 @@ def _process_slide_from_context(
                     caption = cNvPr.get("name", "")
                     description = cNvPr.get("descr", "")
 
-                blob = ctx.get_image_data(image_path)
+                blob = ctx.read_bytes_if_exists(image_path)
                 if blob is not None:
                     image_counter += 1
-                    ext = target.rsplit(".", 1)[-1].lower()
-                    content_type = _CONTENT_TYPE_MAP.get(ext, f"image/{ext}")
-                    width, height = _get_image_pixel_dimensions(blob)
+                    ext = target.rsplit(".", 1)[-1].lower() if "." in target else "bin"
+                    content_type = get_image_content_type(
+                        target, fallback_to_extension=True
+                    )
+                    width, height = get_image_pixel_dimensions(blob)
 
                     images.append(
                         PptxImage(
