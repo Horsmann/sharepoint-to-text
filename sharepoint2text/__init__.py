@@ -9,6 +9,7 @@ legacy binary formats, plus PDF documents.
 import logging
 import re
 from importlib.metadata import PackageNotFoundError, version
+from io import BytesIO
 from pathlib import Path
 from typing import Any, BinaryIO, Generator
 
@@ -41,6 +42,7 @@ from sharepoint2text.parsing.extractors.data_types import (
     XlsContent,
     XlsxContent,
 )
+from sharepoint2text.parsing.mime_types import MIME_TYPE_MAPPING
 from sharepoint2text.parsing.router import get_extractor, is_supported_file
 
 logger = logging.getLogger(__name__)
@@ -484,11 +486,127 @@ def read_file(
             ) from exc
 
 
+def read_bytes(
+    data: bytes | BytesIO,
+    *,
+    mime_type: str | None = None,
+    extension: str | None = None,
+    max_file_size: int = 100 * 1024 * 1024,  # 100MB default
+    ignore_images: bool = False,
+) -> Generator[ExtractionInterface, Any, None]:
+    """
+    Read and extract content from in-memory bytes.
+
+    This is an alternative to ``read_file`` for content that is already loaded
+    in memory. Routing is done via ``extension`` (preferred) or ``mime_type``.
+
+    Args:
+        data: Raw file bytes or a ``io.BytesIO`` buffer.
+        mime_type: MIME type hint (for example ``"application/pdf"``).
+        extension: File extension hint (for example ``"pdf"`` or ``".pdf"``).
+        max_file_size: Maximum file size in bytes (default: 100MB).
+                      Set to 0 to disable size checking.
+        ignore_images: If True, skip image extraction. This can significantly
+                      improve performance for files with many images.
+                      Default is False.
+
+    Yields:
+        A dataclass containing extracted content and metadata.
+
+    Raises:
+        ValueError: If both ``mime_type`` and ``extension`` are missing/empty.
+        TypeError: If ``data`` is not ``bytes`` or ``io.BytesIO``.
+        sharepoint2text.parsing.exceptions.ExtractionFileFormatNotSupportedError:
+            If the provided extension/MIME type is unsupported.
+        sharepoint2text.parsing.exceptions.ExtractionFileEncryptedError:
+            If the file is encrypted or password-protected.
+        sharepoint2text.parsing.exceptions.LegacyMicrosoftParsingError:
+            If parsing a legacy Office file fails.
+        sharepoint2text.parsing.exceptions.ExtractionFailedError:
+            If extraction fails for an unexpected reason (with ``__cause__`` set).
+        sharepoint2text.parsing.exceptions.ExtractionFileTooLargeError:
+            If the file exceeds the maximum allowed size.
+    """
+    if not isinstance(data, (bytes, BytesIO)):
+        raise TypeError("data must be bytes or io.BytesIO")
+
+    normalized_extension = extension.strip().lower() if extension else ""
+    normalized_mime_type = mime_type.strip().lower() if mime_type else ""
+
+    if normalized_extension.startswith("."):
+        normalized_extension = normalized_extension[1:]
+
+    if not normalized_extension and not normalized_mime_type:
+        raise ValueError("Either mime_type or extension must be provided")
+
+    if isinstance(data, bytes):
+        file_size = len(data)
+        file_like = BytesIO(data)
+    else:
+        file_size = data.getbuffer().nbytes
+        data.seek(0)
+        file_like = data
+
+    # Check file size before extraction
+    if max_file_size > 0 and file_size > max_file_size:
+        raise ExtractionFileTooLargeError(
+            f"File size {file_size} bytes exceeds maximum allowed size of {max_file_size} bytes",
+            max_size=max_file_size,
+            actual_size=file_size,
+        )
+
+    extractor = None
+    virtual_path = "<in-memory>"
+    extension_error: ExtractionFileFormatNotSupportedError | None = None
+
+    if normalized_extension:
+        virtual_path = f"in_memory.{normalized_extension}"
+        try:
+            extractor = get_extractor(virtual_path, ignore_images=ignore_images)
+        except ExtractionFileFormatNotSupportedError as exc:
+            extension_error = exc
+            if not normalized_mime_type:
+                raise
+
+    if extractor is None and normalized_mime_type:
+        file_type = MIME_TYPE_MAPPING.get(normalized_mime_type)
+        if file_type is None:
+            if extension_error is not None:
+                raise extension_error
+            raise ExtractionFileFormatNotSupportedError(
+                f"File type not supported for MIME type '{normalized_mime_type}'"
+            )
+        virtual_path = f"in_memory.{file_type}"
+        extractor = get_extractor(virtual_path, ignore_images=ignore_images)
+
+    if extractor is None and extension_error is not None:
+        raise extension_error
+
+    if extractor is None:
+        raise ExtractionFileFormatNotSupportedError(
+            "Could not resolve extractor from provided extension/MIME type"
+        )
+
+    logger.info("Starting in-memory extraction: %s", virtual_path)
+    try:
+        for result in extractor(file_like, virtual_path):
+            logger.info("In-memory extraction complete: %s", virtual_path)
+            yield result
+    except ExtractionError:
+        raise
+    except (OSError, ValueError, TypeError, UnicodeDecodeError) as exc:
+        raise ExtractionFailedError(
+            f"Failed to extract in-memory data: {virtual_path}",
+            cause=exc,
+        ) from exc
+
+
 __all__ = [
     # Version
     "__version__",
     # Main functions
     "read_file",
+    "read_bytes",
     "is_supported_file",
     "get_extractor",
     # exceptions

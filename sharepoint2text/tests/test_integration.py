@@ -7,6 +7,7 @@ import unittest
 
 import sharepoint2text.parsing.exceptions
 from sharepoint2text import (
+    read_bytes,
     read_doc,
     read_docx,
     read_email__eml_format,
@@ -336,3 +337,27 @@ def test_read_file_force_plain_text_unknown_extension(tmp_path) -> None:
     result = next(read_file(path, force_plain_text=True))
     tc.assertTrue(isinstance(result, PlainTextContent))
     tc.assertEqual("line one\nline two", result.get_full_text())
+
+
+def test_read_bytes_with_extension_and_bytes_input() -> None:
+    with open("sharepoint2text/tests/resources/plain_text/plain.txt", "rb") as fd:
+        data = fd.read()
+
+    result = next(read_bytes(data, extension=".txt"))
+    tc.assertTrue(isinstance(result, PlainTextContent))
+    tc.assertEqual("Hello World", result.get_full_text())
+
+    result_no_dot = next(read_bytes(data, extension="txt"))
+    tc.assertTrue(isinstance(result_no_dot, PlainTextContent))
+    tc.assertEqual("Hello World", result_no_dot.get_full_text())
+
+
+def test_read_bytes_with_mime_and_bytesio_input() -> None:
+    file_like = _load_as_bytes("sharepoint2text/tests/resources/plain_text/plain.txt")
+    result = next(read_bytes(file_like, mime_type="text/plain"))
+    tc.assertTrue(isinstance(result, PlainTextContent))
+    tc.assertEqual("Hello World", result.get_full_text())
+
+
+def test_read_bytes_requires_mime_or_extension() -> None:
+    tc.assertRaises(ValueError, lambda: next(read_bytes(b"Hello World")))
