@@ -5,6 +5,13 @@ import sharepoint2text
 from sharepoint2text.cli import _serialize_results, main
 from sharepoint2text.parsing.extractors.serialization import serialize_extraction
 
+EMAIL_WITH_ATTACHMENT_PATH = Path(
+    "sharepoint2text/tests/resources/mails/msg_with_attachment.eml"
+).resolve()
+BASIC_EMAIL_PATH = Path(
+    "sharepoint2text/tests/resources/mails/basic_email.eml"
+).resolve()
+
 
 def test_cli_outputs_full_text_by_default(capsys) -> None:
     path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
@@ -33,6 +40,22 @@ def test_cli_outputs_json_with_flag(capsys) -> None:
     assert payload == expected
 
 
+def test_cli_outputs_json_with_short_flag(capsys) -> None:
+    path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
+    expected = [
+        serialize_extraction(
+            next(sharepoint2text.read_file(path)), include_binary=False
+        )
+    ]
+
+    exit_code = main(["-j", "-f", str(path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out.strip())
+    assert payload == expected
+
+
 def test_serialize_results_returns_list_for_multiple_results() -> None:
     path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
     result = next(sharepoint2text.read_file(path))
@@ -47,10 +70,8 @@ def test_cli_outputs_json_unit_with_flag(capsys) -> None:
     path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
     result = next(sharepoint2text.read_file(path))
     expected = [
-        [
-            serialize_extraction(unit, include_binary=False)
-            for unit in result.iterate_units()
-        ]
+        serialize_extraction(unit, include_binary=False)
+        for unit in result.iterate_units()
     ]
 
     exit_code = main(["--json-unit", "--file", str(path)])
@@ -59,6 +80,97 @@ def test_cli_outputs_json_unit_with_flag(capsys) -> None:
     assert exit_code == 0
     payload = json.loads(captured.out.strip())
     assert payload == expected
+
+
+def test_cli_outputs_json_unit_with_short_flag(capsys) -> None:
+    path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
+    result = next(sharepoint2text.read_file(path))
+    expected = [
+        serialize_extraction(unit, include_binary=False)
+        for unit in result.iterate_units()
+    ]
+
+    exit_code = main(["-u", "-f", str(path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out.strip())
+    assert payload == expected
+
+
+def test_cli_plain_text_extracts_email_content(capsys) -> None:
+    expected = next(sharepoint2text.read_file(BASIC_EMAIL_PATH)).get_full_text()
+
+    exit_code = main(["--file", str(BASIC_EMAIL_PATH)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert captured.out == f"{expected}\n"
+
+
+def test_cli_plain_text_extracts_supported_email_attachments(capsys) -> None:
+    exit_code = main(["--file", str(EMAIL_WITH_ATTACHMENT_PATH)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "This is a test sentence" in captured.out
+    assert "The slide title" in captured.out
+
+
+def test_cli_json_extracts_supported_email_attachments(capsys) -> None:
+    exit_code = main(["--json", "--file", str(EMAIL_WITH_ATTACHMENT_PATH)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out.strip())
+    assert isinstance(payload, list)
+    assert {item["_type"] for item in payload} == {
+        "EmailContent",
+        "PdfContent",
+        "PptxContent",
+    }
+
+
+def test_cli_json_no_attachments_excludes_email_attachments(capsys) -> None:
+    exit_code = main(
+        ["--json", "--no-attachments", "--file", str(EMAIL_WITH_ATTACHMENT_PATH)]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out.strip())
+    assert isinstance(payload, list)
+    assert {item["_type"] for item in payload} == {"EmailContent"}
+    assert payload[0]["attachments"] == []
+
+
+def test_cli_json_no_attachments_excludes_email_attachments_with_short_flag(
+    capsys,
+) -> None:
+    exit_code = main(["-j", "-n", "-f", str(EMAIL_WITH_ATTACHMENT_PATH)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out.strip())
+    assert isinstance(payload, list)
+    assert {item["_type"] for item in payload} == {"EmailContent"}
+    assert payload[0]["attachments"] == []
+
+
+def test_cli_json_unit_extracts_supported_email_attachments(capsys) -> None:
+    exit_code = main(["--json-unit", "--file", str(EMAIL_WITH_ATTACHMENT_PATH)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out.strip())
+    assert isinstance(payload, list)
+
+    unit_types = {
+        unit["_type"] for unit in payload if isinstance(unit, dict) and "_type" in unit
+    }
+    assert "EmailUnit" in unit_types
+    assert "PdfUnit" in unit_types
+    assert "PptxUnit" in unit_types
 
 
 def _contains_binary_markers(value: object) -> bool:
@@ -100,12 +212,11 @@ def test_cli_outputs_json_unit_without_images(capsys) -> None:
     payload = json.loads(captured.out.strip())
     assert isinstance(payload, list)
     assert len(payload) > 0
-    assert isinstance(payload[0], list)
-    assert payload[0][0]["_type"] == "PdfUnit"
+    assert payload[0]["_type"] == "PdfUnit"
     assert _contains_binary_markers(payload) is False
 
     # Images are not extracted by default
-    images = payload[0][0]["images"]
+    images = payload[0]["images"]
     assert len(images) == 0
 
 
@@ -137,11 +248,10 @@ def test_cli_outputs_json_unit_with_binary_payloads_when_requested(capsys) -> No
     payload = json.loads(captured.out.strip())
     assert isinstance(payload, list)
     assert len(payload) > 0
-    assert isinstance(payload[0], list)
-    assert payload[0][0]["_type"] == "PdfUnit"
+    assert payload[0]["_type"] == "PdfUnit"
     assert _contains_binary_markers(payload) is True
 
-    images = payload[0][0]["images"]
+    images = payload[0]["images"]
     assert len(images) > 0
     assert isinstance(images[0]["data"], dict)
     assert "_bytesio" in images[0]["data"] or "_bytes" in images[0]["data"]
