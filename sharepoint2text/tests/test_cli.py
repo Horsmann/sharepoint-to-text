@@ -101,6 +101,19 @@ def test_cli_json_extracts_supported_email_attachments(capsys) -> None:
     }
 
 
+def test_cli_json_no_attachments_excludes_email_attachments(capsys) -> None:
+    exit_code = main(
+        ["--json", "--no-attachments", "--file", str(EMAIL_WITH_ATTACHMENT_PATH)]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out.strip())
+    assert isinstance(payload, list)
+    assert {item["_type"] for item in payload} == {"EmailContent"}
+    assert payload[0]["attachments"] == []
+
+
 def test_cli_json_unit_extracts_supported_email_attachments(capsys) -> None:
     exit_code = main(["--json-unit", "--file", str(EMAIL_WITH_ATTACHMENT_PATH)])
     captured = capsys.readouterr()

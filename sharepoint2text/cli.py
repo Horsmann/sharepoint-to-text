@@ -51,6 +51,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Extract images from the file and include image data as base64 blobs in JSON output (default: images are ignored for faster processing).",
     )
     parser.add_argument(
+        "--no-attachments",
+        dest="no_attachments",
+        action="store_true",
+        help="For email files, exclude supported attachments from CLI extraction output.",
+    )
+    parser.add_argument(
         "--output",
         "-o",
         type=Path,
@@ -114,6 +120,13 @@ def _expand_email_result(result: ExtractionInterface) -> Iterator[ExtractionInte
         yield from _expand_email_result(attachment)
 
 
+def _strip_email_attachments(results: list[ExtractionInterface]) -> None:
+    """Remove parsed attachment metadata/payloads from email results in-place."""
+    for result in results:
+        if isinstance(result, EmailContent):
+            result.attachments = []
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and return a process-style exit code.
 
@@ -173,7 +186,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             if not results:
                 raise RuntimeError(f"No extraction results for {args.file}")
-            results = _expand_email_results(results)
+            if not args.no_attachments:
+                results = _expand_email_results(results)
+            else:
+                _strip_email_attachments(results)
 
             if args.json or args.json_unit:
                 include_binary = bool(args.include_images)
