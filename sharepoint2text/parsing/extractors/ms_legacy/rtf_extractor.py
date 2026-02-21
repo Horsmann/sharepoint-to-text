@@ -327,13 +327,13 @@ class _RtfParser:
                 full_text=full_text,
                 raw_text_blocks=self.raw_text_blocks,
             )
-        except Exception as e:
+        except (UnicodeDecodeError, ValueError, re.error) as e:
             logger.error(f"RTF parsing failed: {e}")
             try:
                 text = self._decode_rtf()
                 plain = self._strip_rtf_simple(text)
                 return RtfContent(full_text=plain)
-            except Exception:
+            except (UnicodeDecodeError, ValueError):
                 return RtfContent()
 
     def _decode_rtf(self) -> str:
@@ -878,5 +878,5 @@ def read_rtf(
         yield content
     except ExtractionError:
         raise
-    except Exception as exc:
+    except (OSError, UnicodeDecodeError, ValueError, re.error) as exc:
         raise ExtractionFailedError("Failed to extract RTF file", cause=exc) from exc

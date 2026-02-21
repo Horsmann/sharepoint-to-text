@@ -249,7 +249,7 @@ def read_ppt(
         yield content
     except ExtractionError:
         raise
-    except Exception as exc:
+    except (OSError, struct.error, ValueError) as exc:
         raise LegacyMicrosoftParsingError(
             "Failed to extract PPT file", cause=exc
         ) from exc
@@ -338,7 +338,7 @@ def _extract_metadata(ole: olefile.OleFileIO) -> PptMetadata:
             if val is not None:
                 setattr(result, dst, int(val))
 
-    except Exception as e:
+    except (OSError, AttributeError, TypeError, UnicodeDecodeError, ValueError) as e:
         logger.debug(e)
 
     return result
@@ -608,7 +608,7 @@ def _extract_images_from_pictures_stream(ole: olefile.OleFileIO) -> list[PptImag
 
     try:
         data = ole.openstream("Pictures").read()
-    except Exception as e:
+    except (OSError, IOError) as e:
         logger.debug(f"Failed to read Pictures stream: {e}")
         return []
 

@@ -47,7 +47,7 @@ def validate_zipfile(
     """
     try:
         infos = zf.infolist()
-    except Exception as exc:
+    except (zipfile.BadZipFile, OSError, RuntimeError) as exc:
         raise ExtractionZipBombError(
             "Failed to inspect ZIP container", cause=exc
         ) from exc
@@ -125,7 +125,7 @@ def open_zipfile(
     zf = zipfile.ZipFile(file_like, "r")
     try:
         validate_zipfile(zf, limits=limits, source=source)
-    except Exception:
+    except (ExtractionZipBombError, zipfile.BadZipFile, OSError):
         zf.close()
         raise
     return zf

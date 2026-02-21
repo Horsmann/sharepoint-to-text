@@ -49,7 +49,7 @@ def test_serialize_for_json() -> None:
 
     try:
         json.dumps(payload)
-    except Exception as e:
+    except (TypeError, ValueError, OverflowError, RecursionError) as e:
         tc.fail("Unexpected exception: {}".format(e))
 
 
@@ -65,12 +65,12 @@ def test_image_metadata_json_serializable() -> None:
     # ImageMetadata should be serializable via to_dict() or to_json()
     try:
         json.dumps(meta.to_dict())
-    except Exception as e:
+    except (TypeError, ValueError, OverflowError, RecursionError) as e:
         tc.fail(f"JSON dump failed on object {e}")
 
     try:
         json.dumps(meta.to_json())
-    except Exception as e:
+    except (TypeError, ValueError, OverflowError, RecursionError) as e:
         tc.fail(f"JSON dump failed on object {e}")
 
     tc.assertEqual(

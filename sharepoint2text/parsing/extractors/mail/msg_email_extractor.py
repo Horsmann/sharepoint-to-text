@@ -146,18 +146,18 @@ def _html_to_text(html_text: str) -> str:
         text = extractor.extract()
         text = text.replace("\u200b", "").replace("\ufeff", "")
         return text.strip()
-    except Exception:
+    except (ValueError, RecursionError):
         return html_text.strip()
 
 
 def _read_ole_string(ole: OleFileIO, storage: str, stream_name: str) -> str:
     try:
         raw = ole.openstream([storage, stream_name]).read()
-    except Exception:
+    except (OSError, IOError):
         return ""
     try:
         return raw.decode("utf-16-le", errors="ignore").rstrip("\x00")
-    except Exception:
+    except (UnicodeDecodeError, ValueError):
         return ""
 
 
@@ -175,7 +175,7 @@ def _extract_msg_attachments(file_bytes: bytes) -> list[EmailAttachment]:
         for index, storage in enumerate(attach_storages, start=1):
             try:
                 data = ole.openstream([storage, "__substg1.0_37010102"]).read()
-            except Exception:
+            except (OSError, IOError):
                 continue
 
             filename = (
@@ -421,5 +421,5 @@ def read_msg_format_mail(
         yield content
     except ExtractionError:
         raise
-    except Exception as exc:
+    except (ValueError, TypeError, AttributeError, OSError, UnicodeDecodeError) as exc:
         raise ExtractionFailedError("Failed to extract MSG file", cause=exc) from exc

@@ -179,7 +179,7 @@ def _extract_images(
                         unit_number=None,
                     )
                 )
-        except Exception as exc:
+        except (KeyError, OSError, ValueError) as exc:
             images.append(
                 OpenDocumentImage(
                     href=href,
@@ -234,5 +234,5 @@ def read_odg(
         yield OdgContent(metadata=metadata, full_text=full_text, images=images)
     except ExtractionError:
         raise
-    except Exception as exc:
+    except (KeyError, ET.ParseError, OSError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract ODG file", cause=exc) from exc

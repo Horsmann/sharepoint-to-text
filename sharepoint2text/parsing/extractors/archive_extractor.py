@@ -259,7 +259,7 @@ def _process_archive_entry(
         for content in extractor(file_bytes, path=full_path):
             yield content
 
-    except Exception as e:
+    except (ExtractionError, OSError, ValueError, UnicodeDecodeError) as e:
         logger.warning("Failed to extract %s from archive: %s", filename, e)
         # Log the error but continue processing other files in the archive
         # This prevents one corrupted file from breaking the entire archive extraction
@@ -387,7 +387,7 @@ def _extract_from_tar_optimized(
                         filename, file_data, archive_path, basename
                     )
 
-                except Exception as e:
+                except (tarfile.TarError, OSError, ExtractionError) as e:
                     logger.warning("Failed to extract %s from TAR: %s", filename, e)
                     logger.debug(
                         "TAR extraction error details for %s: %s",
@@ -467,7 +467,7 @@ def _extract_from_7z_optimized(
             with tempfile.TemporaryDirectory() as temp_dir:
                 try:
                     szf.extractall(path=temp_dir)
-                except Exception as extract_error:
+                except (Bad7zFile, OSError, ValueError) as extract_error:
                     raise ExtractionFailedError(
                         f"Failed to extract 7z archive: {extract_error}",
                         cause=extract_error,
@@ -500,7 +500,7 @@ def _process_7z_files_sequential(
                 filename, file_data, archive_path, basename
             )
 
-        except Exception as e:
+        except (FileNotFoundError, PermissionError, OSError, ExtractionError) as e:
             logger.warning("Failed to process %s from 7z: %s", filename, e)
             logger.debug(
                 "7z processing error details for %s: %s",
@@ -561,7 +561,7 @@ def read_archive(
 
     except ExtractionError:
         raise
-    except Exception as exc:
+    except (OSError, ValueError, RuntimeError) as exc:
         raise ExtractionFailedError(
             "Failed to extract archive file", cause=exc
         ) from exc

@@ -270,5 +270,11 @@ def read_eml_format_mail(
         yield content
     except ExtractionError:
         raise
-    except Exception as exc:
+    except (
+        IndexError,
+        AttributeError,
+        ValueError,
+        TypeError,
+        UnicodeDecodeError,
+    ) as exc:
         raise ExtractionFailedError("Failed to extract EML file", cause=exc) from exc

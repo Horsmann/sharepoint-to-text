@@ -268,5 +268,5 @@ def read_odf(
         yield OdfContent(metadata=metadata, full_text=full_text)
     except ExtractionError:
         raise
-    except Exception as exc:
+    except (KeyError, ET.ParseError, OSError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract ODF file", cause=exc) from exc

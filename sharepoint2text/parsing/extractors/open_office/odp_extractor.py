@@ -359,7 +359,7 @@ def _extract_image(
                 description=description,
                 unit_number=slide_number,
             )
-    except Exception as e:
+    except (KeyError, OSError, ValueError) as e:
         logger.debug("Failed to extract image %s: %s", href, e)
         return OpenDocumentImage(
             href=href,
@@ -540,5 +540,5 @@ def read_odp(
         )
     except ExtractionError:
         raise
-    except Exception as exc:
+    except (KeyError, ET.ParseError, OSError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract ODP file", cause=exc) from exc

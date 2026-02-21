@@ -103,7 +103,7 @@ def _get_cell_value(
         try:
             dt = xlrd.xldate_as_tuple(value, workbook.datemode)
             return _format_date_tuple(dt)
-        except Exception:
+        except (xlrd.XLDateError, ValueError, OverflowError):
             return str(value) if as_string else value
 
     if ctype == _CELL_BOOLEAN:
@@ -140,7 +140,7 @@ def _get_cell_values(cell: xlrd.sheet.Cell, workbook: xlrd.Book) -> tuple[Any, s
             dt = xlrd.xldate_as_tuple(value, workbook.datemode)
             text = _format_date_tuple(dt)
             return text, text
-        except Exception:
+        except (xlrd.XLDateError, ValueError, OverflowError):
             text = str(value)
             return value, text
 
@@ -316,7 +316,7 @@ def read_xls(
         )
     except ExtractionError:
         raise
-    except Exception as exc:
+    except (xlrd.XLRDError, OSError, struct.error, ValueError) as exc:
         raise LegacyMicrosoftParsingError(
             "Failed to extract XLS file", cause=exc
         ) from exc
@@ -340,7 +340,7 @@ def _extract_images_from_workbook(file_like: io.BytesIO) -> list[XlsImage]:
             if not ole.exists("Workbook"):
                 return []
             data = ole.openstream("Workbook").read()
-    except Exception as e:
+    except (OSError, IOError) as e:
         logger.debug(f"Failed to read Workbook stream: {e}")
         return []
 

@@ -534,7 +534,7 @@ def _extract_images_from_context(
                             unit_number=None,
                         )
                     )
-            except Exception as e:
+            except (KeyError, OSError, ValueError) as e:
                 logger.debug("Failed to extract image %s: %s", href, e)
                 images.append(
                     OpenDocumentImage(href=href, name=name or href, error=str(e))
@@ -588,7 +588,7 @@ def _extract_images_from_context(
                             )
                         )
                         processed_hrefs.add(href)
-                except Exception as e:
+                except (KeyError, OSError, ValueError) as e:
                     logger.debug("Failed to extract image %s: %s", href, e)
                     images.append(
                         OpenDocumentImage(href=href, name=name or href, error=str(e))
@@ -827,5 +827,5 @@ def read_odt(
         )
     except ExtractionError:
         raise
-    except Exception as exc:
+    except (KeyError, ET.ParseError, OSError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract ODT file", cause=exc) from exc

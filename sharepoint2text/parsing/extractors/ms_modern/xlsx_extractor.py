@@ -480,13 +480,13 @@ def _extract_images_from_zip(
                             )
                         )
 
-                    except Exception as e:
+                    except (KeyError, ValueError, OSError) as e:
                         logger.debug(f"Failed to extract image from drawing: {e}")
 
             if sheet_images:
                 images_by_sheet[sheet_idx] = sheet_images
 
-    except Exception as e:
+    except (zipfile.BadZipFile, KeyError, ValueError, OSError) as e:
         logger.debug(f"Failed to extract images from XLSX: {e}")
     finally:
         ctx.close()
@@ -585,7 +585,13 @@ def _read_xlsb(raw: bytes, path: str | None = None) -> XlsxContent:
 
             if sheets:
                 return XlsxContent(metadata=metadata, sheets=sheets)
-    except Exception as exc:
+    except (
+        ImportError,
+        ModuleNotFoundError,
+        ValueError,
+        OSError,
+        zipfile.BadZipFile,
+    ) as exc:
         logger.debug("pyxlsb parsing unavailable or failed, using fallback: %s", exc)
 
     # Fallback path: shared strings extraction.
@@ -671,5 +677,5 @@ def read_xlsx(
         yield XlsxContent(metadata=metadata, sheets=sheets)
     except ExtractionError:
         raise
-    except Exception as exc:
+    except (zipfile.BadZipFile, KeyError, ValueError, OSError) as exc:
         raise ExtractionFailedError("Failed to extract XLSX file", cause=exc) from exc

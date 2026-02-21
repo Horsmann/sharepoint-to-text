@@ -123,14 +123,14 @@ def _decode_content(part: Message) -> bytes:
     if encoding == "quoted-printable":
         try:
             return quopri.decodestring(payload_bytes)
-        except Exception:
+        except (TypeError, ValueError):
             return payload_bytes
     elif encoding == "base64":
         try:
             # Remove whitespace that may be present in base64 content
             clean = _RE_BASE64_WS.sub(b"", payload_bytes)
             return base64.b64decode(clean)
-        except Exception:
+        except (ValueError, TypeError):
             return payload_bytes
     else:
         # 7bit, 8bit, binary, or unspecified
@@ -180,7 +180,7 @@ def _extract_from_mhtml(content: bytes) -> Optional[bytes]:
         html_content = _find_html_part(msg)
         if html_content:
             return html_content
-    except Exception as e:
+    except (TypeError, ValueError) as e:
         logger.debug("Standard MIME parsing failed: %s", e)
 
     # Fallback: Try to find HTML content directly in the file
@@ -213,7 +213,7 @@ def _extract_from_mhtml(content: bytes) -> Optional[bytes]:
                             html_bytes = base64.b64decode(
                                 _RE_BASE64_WS.sub(b"", html_bytes)
                             )
-                        except Exception:
+                        except (ValueError, TypeError):
                             pass
 
                 return html_bytes
@@ -223,7 +223,7 @@ def _extract_from_mhtml(content: bytes) -> Optional[bytes]:
         if html_match:
             return html_match.group(1)
 
-    except Exception as e:
+    except (AttributeError, ValueError, TypeError) as e:
         logger.debug("Fallback HTML extraction failed: %s", e)
 
     return None
@@ -293,5 +293,5 @@ def read_mhtml(
 
     except ExtractionError:
         raise
-    except Exception as exc:
+    except (OSError, ValueError, TypeError, UnicodeDecodeError) as exc:
         raise ExtractionFailedError("Failed to extract MHTML file", cause=exc) from exc

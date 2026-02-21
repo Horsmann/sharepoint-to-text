@@ -652,7 +652,7 @@ def read_html(
             parser = _HtmlTreeBuilder()
             parser.feed(html_text)
             root = parser.get_tree()
-        except Exception:
+        except (ValueError, RecursionError):
             # Last resort: return empty content
             logger.warning("Failed to parse HTML content")
             metadata = HtmlMetadata()
@@ -680,5 +680,5 @@ def read_html(
         )
     except ExtractionError:
         raise
-    except Exception as exc:
+    except (OSError, UnicodeDecodeError, LookupError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract HTML file", cause=exc) from exc

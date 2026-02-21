@@ -226,13 +226,13 @@ def _should_skip_images(reader: PdfReader, file_like: io.BytesIO) -> bool:
         return False
     try:
         import pypdf._crypt_providers as providers
-    except Exception:
+    except (ImportError, AttributeError):
         return False
     if providers.crypt_provider[0] != "local_crypt_fallback":
         return False
     try:
         data_size = file_like.getbuffer().nbytes
-    except Exception:
+    except (AttributeError, BufferError, ValueError):
         return False
     return data_size >= _AES_FALLBACK_IMAGE_SKIP_THRESHOLD_BYTES
 
@@ -408,7 +408,7 @@ def _patch_font_digit_map(
         desc = font_dict["/DescendantFonts"][0].get_object()
         font_desc = desc["/FontDescriptor"].get_object()
         font_data = font_desc["/FontFile2"].get_object().get_data()
-    except Exception:
+    except (KeyError, IndexError, AttributeError, TypeError):
         font_data = None
     if not font_data:
         return
@@ -569,7 +569,7 @@ def read_pdf(
         if reader.is_encrypted:
             try:
                 decrypt_result = reader.decrypt("")
-            except Exception:
+            except (ValueError, TypeError, NotImplementedError):
                 decrypt_result = 0
             if decrypt_result == 0:
                 raise ExtractionFileEncryptedError(
@@ -612,7 +612,7 @@ def read_pdf(
         )
     except ExtractionError:
         raise
-    except Exception as exc:
+    except (DependencyError, OSError, ValueError, TypeError, KeyError) as exc:
         raise ExtractionFailedError("Failed to extract PDF file", cause=exc) from exc
 
 
@@ -664,7 +664,7 @@ def _extract_image_bytes(page: PageLike, page_num: int) -> list[PdfImage]:
         try:
             image_data = _extract_image(obj, obj_name, image_index, page_num, caption)
             found_images.append(image_data)
-        except Exception as e:
+        except (KeyError, TypeError, ValueError, NotImplementedError) as e:
             logger.warning(
                 "Failed to extract image [%s] [%d]: %s", obj_name, image_index, e
             )
@@ -707,7 +707,7 @@ def _extract_text_with_spacing(page: PageLike) -> tuple[str, list[str]]:
             tm_list = list(tm)
             x = float(tm_list[4])  # Horizontal position
             y = float(tm_list[5])  # Vertical position
-        except Exception:
+        except (IndexError, TypeError, ValueError):
             return
         size = float(font_size) if font_size else 0.0
         segments.append((y, x, text, size))
@@ -716,7 +716,7 @@ def _extract_text_with_spacing(page: PageLike) -> tuple[str, list[str]]:
     with _patched_build_char_map():
         try:
             page_text = page.extract_text(visitor_text=visitor) or ""
-        except Exception:
+        except (TypeError, ValueError, KeyError):
             page_text = page.extract_text() or ""
             return page_text, page_text.splitlines()
 
@@ -812,7 +812,7 @@ def _extract_image(
     # Get raw image data
     try:
         data = image_obj.get_data()
-    except Exception as e:
+    except (KeyError, ValueError, TypeError, NotImplementedError) as e:
         logger.warning("Failed to extract image data: %s", e)
         data = image_obj._data if hasattr(image_obj, "_data") else b""
 
@@ -867,7 +867,7 @@ def _extract_page_mcid_data(
 
     try:
         stream = ContentStream(contents, page.pdf)
-    except Exception as e:
+    except (TypeError, ValueError, KeyError) as e:
         logger.debug("Failed to parse content stream: %s", e)
         return [], [], {}
 

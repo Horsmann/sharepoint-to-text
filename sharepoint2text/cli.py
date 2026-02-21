@@ -177,7 +177,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 output_file.close()
 
         return 0
-    except Exception as exc:
+    except (
+        FileNotFoundError,
+        PermissionError,
+        ValueError,
+        RuntimeError,
+        OSError,
+        TypeError,
+    ) as exc:
         print(f"sharepoint2text: {exc}", file=sys.stderr)
         return 1
 

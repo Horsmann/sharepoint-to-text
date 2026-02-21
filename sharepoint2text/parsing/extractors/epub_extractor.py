@@ -335,7 +335,7 @@ class _EpubContext(ZipContext):
                     self._opf_dir = self._opf_path.rsplit("/", 1)[0] + "/"
                 else:
                     self._opf_dir = ""
-        except Exception as e:
+        except (KeyError, ET.ParseError, UnicodeDecodeError, OSError) as e:
             logger.warning("Failed to parse container.xml: %s", e)
 
     def _parse_opf(self) -> None:
@@ -348,7 +348,7 @@ class _EpubContext(ZipContext):
             self._parse_metadata()
             self._parse_manifest()
             self._parse_spine()
-        except Exception as e:
+        except (KeyError, ET.ParseError, UnicodeDecodeError, OSError) as e:
             logger.warning("Failed to parse OPF file: %s", e)
 
     def _parse_metadata(self) -> None:
@@ -504,7 +504,7 @@ def _extract_chapter(
 
     try:
         content = ctx.read_text(href)
-    except Exception as e:
+    except (KeyError, UnicodeDecodeError, OSError, ValueError) as e:
         logger.debug("Failed to read content document %s: %s", href, e)
         return None, image_counter, []
 
@@ -512,7 +512,7 @@ def _extract_chapter(
     parser = _XhtmlTextExtractor()
     try:
         parser.feed(content)
-    except Exception as e:
+    except (ValueError, UnicodeError) as e:
         logger.debug("Failed to parse content document %s: %s", href, e)
         return None, image_counter, []
 
@@ -570,7 +570,7 @@ def _extract_images(ctx: _EpubContext) -> List[EpubImage]:
                     size_bytes=len(data),
                 )
             )
-        except Exception as e:
+        except (KeyError, OSError, ValueError) as e:
             logger.debug("Failed to extract image %s: %s", href, e)
 
     return images
@@ -623,7 +623,7 @@ def _parse_nav_document(ctx: _EpubContext, href: str) -> List[Dict[str, str]]:
             if title:
                 toc.append({"title": title, "href": link_href})
         return toc
-    except Exception as e:
+    except (KeyError, UnicodeDecodeError, OSError, ValueError) as e:
         logger.debug("Failed to parse nav document: %s", e)
         return []
 
@@ -661,7 +661,7 @@ def _parse_ncx(ctx: _EpubContext, href: str) -> List[Dict[str, str]]:
 
         extract_nav_points(nav_map)
         return toc
-    except Exception as e:
+    except (KeyError, ET.ParseError, AttributeError, ValueError) as e:
         logger.debug("Failed to parse NCX: %s", e)
         return []
 
@@ -678,7 +678,7 @@ def _is_epub_encrypted(ctx: _EpubContext) -> bool:
             )
             if encrypted:
                 return True
-        except Exception:
+        except (KeyError, ET.ParseError, OSError):
             pass
 
     # Check for rights.xml (Adobe DRM)
@@ -774,5 +774,5 @@ def read_epub(
         )
     except ExtractionError:
         raise
-    except Exception as exc:
+    except (KeyError, ET.ParseError, UnicodeDecodeError, OSError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract EPUB file", cause=exc) from exc

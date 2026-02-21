@@ -397,7 +397,7 @@ def _extract_slide_comments_from_context(
                     date=cm.get("dt", ""),
                 )
             )
-    except Exception as e:
+    except (AttributeError, TypeError, ValueError) as e:
         logger.debug(f"Failed to extract comments for slide {slide_number}: {e}")
 
     return comments
@@ -466,7 +466,7 @@ def _get_shape_position(shape_elem: ET.Element) -> tuple[int, int]:
                         return (999999998, 0)
 
         return (999999999, 999999999)
-    except Exception:
+    except (AttributeError, TypeError, ValueError):
         return (999999999, 999999999)
 
 
@@ -690,7 +690,7 @@ def _process_slide_from_context(
                         ordered_content.append(
                             (position, "image_caption", f"[Image: {description}]")
                         )
-            except Exception as e:
+            except (KeyError, ValueError, OSError) as e:
                 logger.debug(f"Failed to extract image on slide {slide_number}: {e}")
             continue
 
@@ -703,7 +703,7 @@ def _process_slide_from_context(
                     table_text = "\n".join("\t".join(row) for row in table_data).strip()
                     if table_text:
                         ordered_content.append((position, "table", table_text))
-            except Exception as e:
+            except (AttributeError, TypeError, ValueError) as e:
                 logger.debug(f"Failed to extract table on slide {slide_number}: {e}")
             continue
 
@@ -890,5 +890,5 @@ def read_pptx(
             ctx.close()
     except ExtractionError:
         raise
-    except Exception as exc:
+    except (KeyError, ET.ParseError, OSError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract PPTX file", cause=exc) from exc

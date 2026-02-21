@@ -384,7 +384,7 @@ def _extract_images(
                             unit_number=None,
                         )
                     )
-            except Exception as e:
+            except (KeyError, OSError, ValueError) as e:
                 logger.debug("Failed to extract image %s: %s", href, e)
                 images.append(
                     OpenDocumentImage(
@@ -589,5 +589,5 @@ def read_ods(
         )
     except ExtractionError:
         raise
-    except Exception as exc:
+    except (KeyError, ET.ParseError, OSError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract ODS file", cause=exc) from exc

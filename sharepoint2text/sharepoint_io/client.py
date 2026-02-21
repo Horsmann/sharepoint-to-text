@@ -878,7 +878,7 @@ class SharePointRestClient:
             if response is not None:
                 try:
                     response.close()
-                except Exception:
+                except (OSError, ValueError):
                     pass
 
         if status is None or not (200 <= status < 300):

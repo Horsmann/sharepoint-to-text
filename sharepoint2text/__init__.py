@@ -450,7 +450,7 @@ def read_file(
                 yield result
         except ExtractionError:
             raise
-        except Exception as exc:
+        except (OSError, ValueError, TypeError, UnicodeDecodeError) as exc:
             raise ExtractionFailedError(
                 f"Failed to extract file: {path}", cause=exc
             ) from exc

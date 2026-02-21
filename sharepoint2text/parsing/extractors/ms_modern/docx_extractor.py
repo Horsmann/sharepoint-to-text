@@ -827,7 +827,7 @@ def _extract_images_from_context(ctx: _DocxContext) -> list[DocxImage]:
                     ),
                 )
             )
-        except Exception as e:
+        except (KeyError, ValueError, OSError, UnicodeDecodeError) as e:
             logger.debug(f"Image extraction failed for rel_id {rel_id} - {e}")
             images.append(DocxImage(rel_id=rel_id, error=str(e)))
 
@@ -949,5 +949,5 @@ def read_docx(
             ctx.close()
     except ExtractionError:
         raise
-    except Exception as exc:
+    except (KeyError, ET.ParseError, OSError, ValueError, UnicodeDecodeError) as exc:
         raise ExtractionFailedError("Failed to extract DOCX file", cause=exc) from exc

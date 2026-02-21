@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Protocol
 
+from sharepoint2text.parsing.exceptions import ExtractionError
 from sharepoint2text.parsing.extractors.serialization import (
     deserialize_extraction,
     serialize_extraction,
@@ -447,7 +448,7 @@ class EmailContent(ExtractionInterface):
                 yield from extractor(attachment.data, attachment.filename)
             except ExtractionFileEncryptedError:
                 raise
-            except Exception as exc:
+            except (ExtractionError, OSError, ValueError, UnicodeDecodeError) as exc:
                 logger.debug(
                     "Failed to extract attachment: %s (mime=%s) error=%s",
                     attachment.filename,

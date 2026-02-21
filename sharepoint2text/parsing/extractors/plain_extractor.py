@@ -121,7 +121,7 @@ def _detect_and_decode(content: bytes) -> tuple[str, str]:
             # Use the detected encoding
             text = str(best_match)
             return text, encoding
-        except Exception as e:
+        except (UnicodeDecodeError, LookupError, ValueError) as e:
             logger.warning(
                 "Failed to decode with detected encoding %s: %s", encoding, e
             )
@@ -193,7 +193,7 @@ def read_plain_text(
         yield PlainTextContent(content=text, metadata=metadata)
     except ExtractionError:
         raise
-    except Exception as exc:
+    except (OSError, UnicodeDecodeError, ValueError, TypeError) as exc:
         raise ExtractionFailedError(
             "Failed to extract plain text file", cause=exc
         ) from exc

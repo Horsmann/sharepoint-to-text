@@ -251,7 +251,7 @@ def read_doc(
             yield document
     except ExtractionError:
         raise
-    except Exception as exc:
+    except (OSError, struct.error, UnicodeDecodeError, ValueError) as exc:
         raise LegacyMicrosoftParsingError(
             "Failed to extract DOC file", cause=exc
         ) from exc
@@ -499,7 +499,7 @@ class _DocReader:
                                 )
                             )
                         break
-            except Exception:
+            except (struct.error, IndexError, ValueError):
                 pass
 
             offset = start + 1
@@ -929,6 +929,12 @@ class _DocReader:
                 num_words=m.num_words,
                 num_chars=m.num_chars,
             )
-        except Exception as e:
+        except (
+            OSError,
+            AttributeError,
+            TypeError,
+            UnicodeDecodeError,
+            ValueError,
+        ) as e:
             logger.debug(f"Metadata extraction failed: [{e}]")
             return DocMetadata()

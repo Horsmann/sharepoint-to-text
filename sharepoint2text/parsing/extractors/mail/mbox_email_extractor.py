@@ -520,5 +520,5 @@ def read_mbox_format_mail(
         logger.info("Extracted MBOX: %d messages", message_count)
     except ExtractionError:
         raise
-    except Exception as exc:
+    except (ValueError, TypeError, UnicodeDecodeError, OSError) as exc:
         raise ExtractionFailedError("Failed to extract MBOX file", cause=exc) from exc
