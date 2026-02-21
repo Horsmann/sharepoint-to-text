@@ -12,6 +12,7 @@ The library also includes an optional SharePoint client for reading files direct
 ## What You Get
 
 - **Unified API**: `sharepoint2text.read_file(path)` yields one or more typed extraction results.
+- **In-memory API**: `sharepoint2text.read_bytes(data, extension=... | mime_type=...)` extracts directly from `bytes`/`io.BytesIO` without writing temp files.
 - **Typed results**: each format returns a specific dataclass (e.g. `DocxContent`, `PdfContent`) that also supports the common interface.
 - **Text**: `get_full_text()` or `iterate_units()` (pages / slides / sheets depending on format; call `unit.get_text()` for the string).
 - **Structured content**: tables and images where the format supports it.
@@ -325,6 +326,12 @@ for result in sharepoint2text.read_file("document.docx"):  # or .doc, .pdf, .ppt
 result = next(sharepoint2text.read_file("document.docx"))
 print(result.get_full_text())
 
+# If you already have bytes in memory, use read_bytes and provide either
+# extension (with or without a leading ".") or MIME type.
+payload = b"Hello from memory"
+result = next(sharepoint2text.read_bytes(payload, extension="txt"))
+print(result.get_full_text())
+
 # If extension/MIME detection is unknown but the file is plain text,
 # force routing to the plain-text extractor:
 result = next(
@@ -522,9 +529,28 @@ for attachment_result in email.iterate_supported_attachments(skip_failed=True):
     ...
 ```
 
-### Using Format-Specific Extractors with Binary Streams
+### Using In-Memory Data (`read_bytes`) and Format-Specific Extractors
 
-For API responses or in-memory data:
+For API responses or any already-loaded file content, `read_bytes` is the most direct option:
+
+```python
+import sharepoint2text
+import io
+
+# If extension is known
+with open("document.docx", "rb") as f:
+    result = next(sharepoint2text.read_bytes(f.read(), extension=".docx"))
+
+# If only MIME type is known
+with open("document.pdf", "rb") as f:
+    result = next(sharepoint2text.read_bytes(f.read(), mime_type="application/pdf"))
+
+# BytesIO is supported too
+with open("document.txt", "rb") as f:
+    result = next(sharepoint2text.read_bytes(io.BytesIO(f.read()), extension="txt"))
+```
+
+You can still call format-specific extractors directly with binary streams:
 
 ```python
 import sharepoint2text
@@ -707,6 +733,7 @@ sharepoint2text --file /path/to/file.pdf --json --include-images
 
 ```python
 import sharepoint2text
+from io import BytesIO
 from os import PathLike
 from pathlib import Path
 from typing import BinaryIO, Callable
@@ -719,6 +746,17 @@ for result in sharepoint2text.read_file(
     max_file_size: int = 100 * 1024 * 1024,
     ignore_images: bool = False,
     force_plain_text: bool = False,
+):
+    ...
+
+# Read supported in-memory content without writing to disk.
+# Requires at least one of extension or mime_type.
+for result in sharepoint2text.read_bytes(
+    data: bytes | BytesIO,
+    extension: str | None = None,  # accepts ".pdf" or "pdf"
+    mime_type: str | None = None,  # e.g. "application/pdf"
+    max_file_size: int = 100 * 1024 * 1024,
+    ignore_images: bool = False,
 ):
     ...
 
