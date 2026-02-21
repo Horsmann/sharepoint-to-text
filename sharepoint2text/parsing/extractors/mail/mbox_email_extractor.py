@@ -291,6 +291,21 @@ def parse_email_addresses(addr_string: str | None) -> list[EmailAddress]:
     return result
 
 
+def _parse_message_date(value: str | None) -> str:
+    """Parse an RFC 2822 date header value to ISO-8601.
+
+    Returns an empty string when the header is missing or malformed.
+    """
+    decoded = decode_header_value(value)
+    if not decoded:
+        return ""
+    try:
+        return parsedate_to_datetime(decoded).isoformat()
+    except (TypeError, ValueError):
+        logger.debug("Unable to parse message date header: %r", value)
+        return ""
+
+
 def get_body_content(message: email.message.Message) -> tuple[str, str]:
     """
     Extract plain text and HTML body content from an email message.
@@ -388,10 +403,6 @@ def parse_email_message(message: email.message.Message) -> EmailContent:
     Returns:
         EmailContent: Fully populated dataclass with all extracted data.
 
-    Raises:
-        TypeError: If parsedate_to_datetime receives None (missing Date header).
-            This can happen with malformed emails. Consider adding validation.
-
     Implementation Notes:
         - Date is parsed via parsedate_to_datetime and converted to ISO format
         - All header values are decoded for RFC 2047 encoded words
@@ -399,17 +410,15 @@ def parse_email_message(message: email.message.Message) -> EmailContent:
         - Body extraction delegates to get_body_content()
 
     Maintenance Considerations:
-        - Missing Date header will raise TypeError - may need error handling
+        - Missing/malformed Date headers are normalized to empty metadata.date
         - Message-ID may be missing in draft or malformed emails
         - In-Reply-To header links to parent message in thread
     """
     # Extract body content first
     body_plain, body_html = get_body_content(message)
 
-    # Parse date - expects RFC 2822 format
-    parsed_date = parsedate_to_datetime(
-        decode_header_value(message.get("Date"))
-    ).isoformat()
+    # Parse date when available (missing/malformed Date headers are common in exports)
+    parsed_date = _parse_message_date(message.get("Date"))
 
     # Build metadata with date and message ID
     metadata = EmailMetadata(

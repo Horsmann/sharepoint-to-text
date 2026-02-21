@@ -390,8 +390,6 @@ def read_msg_format_mail(
             - Corrupted or invalid OLE structure
             - Missing required MAPI properties
             - Encrypted/protected messages
-        TypeError: If sent_date is missing or in unexpected format.
-        IndexError: If sender field is empty or malformed.
 
     Example:
         >>> import io
@@ -405,7 +403,7 @@ def read_msg_format_mail(
         - msg_parser.MsOxMessage handles OLE parsing internally
         - Sender is extracted via sender property and parsed as recipient list
         - To, Cc, Bcc fields may be strings or lists depending on msg_parser version
-        - reply_to is stored directly from msg_parser (not parsed as addresses)
+        - reply_to is normalized to List[EmailAddress]
         - body_plain is plain text; HTML is converted when detected
         - Attachments are returned as EmailAttachment dataclasses
         - For HTML body, additional extraction from RTF may be needed
@@ -413,13 +411,10 @@ def read_msg_format_mail(
     Maintenance Considerations:
         - msg_parser API may change between versions; verify property names
         - Some MSG files may have missing properties (sender, date, etc.)
-        - Consider adding try/except blocks for more robust error handling
         - HTML body extraction could be enhanced by parsing RTF content
 
     Known Issues:
         - body_html uses the raw HTML body when detected
-        - reply_to is stored as raw value, not parsed to EmailAddress list
-          (this differs from EML/MBOX extractors)
     """
     source_path = path or "<in-memory>"
     logger.info("Entering MSG extraction: %s", source_path)
@@ -428,9 +423,16 @@ def read_msg_format_mail(
         msg = MsOxMessage(file_like)
 
         # Build metadata with date and message ID
+        sent_date = ""
+        if msg.sent_date:
+            try:
+                sent_date = parsedate_to_datetime(msg.sent_date).isoformat()
+            except (TypeError, ValueError):
+                logger.debug("Unable to parse MSG sent_date: %r", msg.sent_date)
+
         meta = EmailMetadata(
-            message_id=msg.message_id,
-            date=parsedate_to_datetime(msg.sent_date).isoformat(),
+            message_id=msg.message_id or "",
+            date=sent_date,
         )
 
         # Parse sender - expecting at least one result
@@ -455,12 +457,12 @@ def read_msg_format_mail(
             body_html = ""
 
         content = EmailContent(
-            subject=msg.subject,
+            subject=msg.subject or "",
             from_email=from_email,
             to_emails=_parse_multi_recipients(msg.to),
             to_cc=_parse_multi_recipients(msg.cc),
             to_bcc=_parse_multi_recipients(msg.bcc),
-            reply_to=msg.reply_to,  # Note: stored as-is, not parsed to EmailAddress list
+            reply_to=_parse_multi_recipients(msg.reply_to),
             body_plain=body_plain,
             body_html=body_html,
             attachments=attachments,

@@ -1450,6 +1450,19 @@ def test_email__msg_format() -> None:
     tc.assertEqual(0, len(list(mail.iterate_tables())))
 
 
+def test_email__msg_format_reply_to_is_normalized_list() -> None:
+    path = "sharepoint2text/tests/resources/mails/basic_email.msg"
+    mail = next(
+        read_msg_format_mail(
+            file_like=_read_file_to_file_like(path=path),
+            path=path,
+        )
+    )
+
+    tc.assertIsInstance(mail.reply_to, list)
+    tc.assertListEqual([], mail.reply_to)
+
+
 def test_email__msg_format_with_attachment() -> None:
     path = "sharepoint2text/tests/resources/mails/msg_with_attachment.msg"
     mail_gen: typing.Generator[EmailContent, None, None] = read_msg_format_mail(
@@ -1636,6 +1649,35 @@ def test_email__eml_format_with_attachment() -> None:
 
     tc.assertEqual(0, len(list(mail.iterate_images())))
     tc.assertEqual(0, len(list(mail.iterate_tables())))
+
+
+def test_email__eml_format_missing_from_header_is_tolerated() -> None:
+    payload = b"Subject: Missing From header\n\nBody"
+    mail = next(read_eml_format_mail(file_like=io.BytesIO(payload)))
+
+    tc.assertEqual("", mail.from_email.name)
+    tc.assertEqual("", mail.from_email.address)
+    tc.assertEqual("Missing From header", mail.subject)
+    tc.assertEqual("", mail.get_metadata().date)
+
+
+def test_email__mbox_format_missing_date_and_from_headers_is_tolerated() -> None:
+    payload = (
+        b"From sender@example.com Mon Jan  1 00:00:00 2024\n"
+        b"Subject: Missing date and from\n"
+        b"\n"
+        b"Body\n"
+    )
+
+    mails = list(read_mbox_format_mail(file_like=io.BytesIO(payload)))
+
+    tc.assertEqual(1, len(mails))
+    mail = mails[0]
+    tc.assertEqual("", mail.from_email.name)
+    tc.assertEqual("", mail.from_email.address)
+    tc.assertEqual("", mail.get_metadata().date)
+    tc.assertEqual("Missing date and from", mail.subject)
+    tc.assertEqual("Body", mail.body_plain)
 
 
 ######################

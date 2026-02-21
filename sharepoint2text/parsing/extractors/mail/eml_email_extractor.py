@@ -67,6 +67,7 @@ See Also
 """
 
 import base64
+import email.utils
 import io
 import logging
 from typing import Any, Generator
@@ -85,6 +86,50 @@ from sharepoint2text.parsing.mime_types import is_supported_mime_type
 logger = logging.getLogger(__name__)
 
 
+def _to_email_address(raw: Any) -> EmailAddress | None:
+    """Best-effort conversion of a mailparser address value to EmailAddress."""
+    if raw is None:
+        return None
+
+    if isinstance(raw, (tuple, list)):
+        name = str(raw[0]).strip() if len(raw) > 0 and raw[0] is not None else ""
+        address = str(raw[1]).strip() if len(raw) > 1 and raw[1] is not None else ""
+        if not address and len(raw) == 1 and name:
+            parsed_name, parsed_addr = email.utils.parseaddr(name)
+            if parsed_addr:
+                name, address = parsed_name.strip(), parsed_addr.strip()
+        if not (name or address):
+            return None
+        return EmailAddress(name=name, address=address)
+
+    text = str(raw).strip()
+    if not text:
+        return None
+    parsed_name, parsed_addr = email.utils.parseaddr(text)
+    if parsed_addr:
+        return EmailAddress(name=parsed_name.strip(), address=parsed_addr.strip())
+    return EmailAddress(name=text, address="")
+
+
+def _parse_mailparser_address_list(raw: Any) -> list[EmailAddress]:
+    """Normalize mailparser address collections to List[EmailAddress]."""
+    if not raw:
+        return []
+
+    if isinstance(raw, (list, tuple)):
+        result = []
+        for entry in raw:
+            addr = _to_email_address(entry)
+            if addr is not None and (addr.name or addr.address):
+                result.append(addr)
+        return result
+
+    addr = _to_email_address(raw)
+    if addr is None or not (addr.name or addr.address):
+        return []
+    return [addr]
+
+
 def _read_eml_format(payload: bytes) -> EmailContent:
     """
     Parse raw EML file bytes and construct an EmailContent object.
@@ -99,14 +144,9 @@ def _read_eml_format(payload: bytes) -> EmailContent:
     Returns:
         EmailContent: Populated dataclass with all extracted email data.
 
-    Raises:
-        IndexError: If the From header is missing or malformed. The mailparser
-            library returns from_ as a list of (name, address) tuples.
-        AttributeError: If mailparser fails to parse the payload structure.
-
     Implementation Notes:
-        - mailparser.from_ returns a list; we take the first entry as the
-          sender (multiple From addresses are rare and non-standard)
+        - mailparser.from_ is normalized to a best-effort EmailAddress
+          (missing/malformed sender headers become empty fields)
         - CC, BCC, and Reply-To fields filter out empty/malformed entries
         - Date is converted to ISO format string for consistency
         - Both text/plain and text/html bodies are extracted if present
@@ -118,33 +158,23 @@ def _read_eml_format(payload: bytes) -> EmailContent:
     """
     mail = parse_from_bytes(payload)
 
-    # Extract sender address - mailparser returns list of (name, address) tuples
-    # First entry is the primary From address
-    from_email = EmailAddress(mail.from_[0][0], mail.from_[0][1])
+    # Extract sender address - tolerate missing/malformed values in real-world data.
+    from_candidates = _parse_mailparser_address_list(getattr(mail, "from_", None))
+    from_email = from_candidates[0] if from_candidates else EmailAddress()
 
-    # Extract recipient lists - filter malformed entries that lack address
-    to_emails = [EmailAddress(name=t[0], address=t[1]) for t in mail.to]
-
-    cc = [
-        EmailAddress(name=t[0], address=t[1])
-        for t in mail.cc
-        if t and len(t) > 1 and t[1]
-    ]
-    bcc = [
-        EmailAddress(name=t[0], address=t[1])
-        for t in mail.bcc
-        if t and len(t) > 1 and t[1]
-    ]
-    reply_to = [
-        EmailAddress(name=t[0], address=t[1])
-        for t in mail.reply_to
-        if t and len(t) > 1 and t[1]
-    ]
+    # Extract recipient lists with robust normalization.
+    to_emails = _parse_mailparser_address_list(getattr(mail, "to", None))
+    cc = _parse_mailparser_address_list(getattr(mail, "cc", None))
+    bcc = _parse_mailparser_address_list(getattr(mail, "bcc", None))
+    reply_to = _parse_mailparser_address_list(getattr(mail, "reply_to", None))
 
     # Extract and format date as ISO string for consistent representation
     date_str = ""
     if mail.date:
-        date_str = mail.date.isoformat()
+        try:
+            date_str = mail.date.isoformat()
+        except AttributeError:
+            date_str = str(mail.date)
 
     metadata = EmailMetadata(
         date=date_str,
@@ -168,17 +198,20 @@ def _read_eml_format(payload: bytes) -> EmailContent:
             body_html = str(mail.text_html)
 
     attachments: list[EmailAttachment] = []
-    for attachment in mail.attachments:
+    for attachment in getattr(mail, "attachments", None) or []:
         filename = attachment.get("filename") or "attachment"
         mime_type = attachment.get("mail_content_type") or "application/octet-stream"
         payload = attachment.get("payload") or b""
         is_binary = bool(attachment.get("binary"))
 
         if is_binary:
-            if isinstance(payload, str):
+            try:
                 data = base64.b64decode(payload)
-            else:
-                data = base64.b64decode(payload)
+            except (ValueError, TypeError):
+                logger.debug(
+                    "Unable to base64-decode EML attachment payload: %s", filename
+                )
+                data = b""
         else:
             if isinstance(payload, str):
                 data = payload.encode("utf-8", errors="ignore")
