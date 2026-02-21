@@ -40,6 +40,22 @@ def test_cli_outputs_json_with_flag(capsys) -> None:
     assert payload == expected
 
 
+def test_cli_outputs_json_with_short_flag(capsys) -> None:
+    path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
+    expected = [
+        serialize_extraction(
+            next(sharepoint2text.read_file(path)), include_binary=False
+        )
+    ]
+
+    exit_code = main(["-j", "-f", str(path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out.strip())
+    assert payload == expected
+
+
 def test_serialize_results_returns_list_for_multiple_results() -> None:
     path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
     result = next(sharepoint2text.read_file(path))
@@ -59,6 +75,22 @@ def test_cli_outputs_json_unit_with_flag(capsys) -> None:
     ]
 
     exit_code = main(["--json-unit", "--file", str(path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out.strip())
+    assert payload == expected
+
+
+def test_cli_outputs_json_unit_with_short_flag(capsys) -> None:
+    path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
+    result = next(sharepoint2text.read_file(path))
+    expected = [
+        serialize_extraction(unit, include_binary=False)
+        for unit in result.iterate_units()
+    ]
+
+    exit_code = main(["-u", "-f", str(path)])
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -103,6 +135,19 @@ def test_cli_json_no_attachments_excludes_email_attachments(capsys) -> None:
     exit_code = main(
         ["--json", "--no-attachments", "--file", str(EMAIL_WITH_ATTACHMENT_PATH)]
     )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out.strip())
+    assert isinstance(payload, list)
+    assert {item["_type"] for item in payload} == {"EmailContent"}
+    assert payload[0]["attachments"] == []
+
+
+def test_cli_json_no_attachments_excludes_email_attachments_with_short_flag(
+    capsys,
+) -> None:
+    exit_code = main(["-j", "-n", "-f", str(EMAIL_WITH_ATTACHMENT_PATH)])
     captured = capsys.readouterr()
 
     assert exit_code == 0

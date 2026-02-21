@@ -21,12 +21,14 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Extract file content and emit full text to stdout (or JSON with --json/--json-unit).",
     )
     parser.add_argument(
+        "-v",
         "--version",
         action="version",
         version=f"%(prog)s {sharepoint2text.__version__}",
         help="Show the version and exit.",
     )
     parser.add_argument(
+        "-f",
         "--file",
         type=Path,
         required=True,
@@ -34,23 +36,27 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     output_group = parser.add_mutually_exclusive_group()
     output_group.add_argument(
+        "-j",
         "--json",
         action="store_true",
         help="Emit structured JSON instead of plain full text (omits binary payloads by default).",
     )
     output_group.add_argument(
+        "-u",
         "--json-unit",
         dest="json_unit",
         action="store_true",
         help="Emit JSON for extracted text units instead of full extraction objects (omits binary payloads by default).",
     )
     parser.add_argument(
+        "-i",
         "--include-images",
         dest="include_images",
         action="store_true",
         help="Extract images from the file and include image data as base64 blobs in JSON output (default: images are ignored for faster processing).",
     )
     parser.add_argument(
+        "-n",
         "--no-attachments",
         dest="no_attachments",
         action="store_true",

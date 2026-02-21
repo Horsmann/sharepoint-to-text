@@ -172,12 +172,13 @@ sharepoint2text --file /path/to/file.docx --json > extraction.json
 
 | Option | Description |
 |---|---|
-| `--file FILE` | Required input file |
+| `--file FILE`, `-f FILE` | Required input file |
 | `--output FILE`, `-o FILE` | Write output to file (default: stdout) |
-| `--json` | Emit `list[extraction_object]` |
-| `--json-unit` | Emit `list[unit_object]` |
-| `--include-images` | Include binary image payloads as base64 in JSON output |
-| `--version` | Print CLI version |
+| `--json`, `-j` | Emit `list[extraction_object]` |
+| `--json-unit`, `-u` | Emit `list[unit_object]` |
+| `--include-images`, `-i` | Include binary image payloads as base64 in JSON output |
+| `--no-attachments`, `-n` | Exclude email attachments from CLI extraction output |
+| `--version`, `-v` | Print CLI version |
 
 Rules:
 
