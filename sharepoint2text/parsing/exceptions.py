@@ -30,7 +30,7 @@ class ExtractionFileFormatNotSupportedError(ExtractionError):
             self.__cause__ = cause
 
 
-class LegacyMicrosoftParsingError(ExtractionError):
+class ExtractionLegacyMicrosoftParsingError(ExtractionError):
     """
     Raised when parsing a legacy Microsoft Office file fails.
 

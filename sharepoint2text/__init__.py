@@ -12,6 +12,15 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, BinaryIO, Generator
 
+from sharepoint2text.parsing.exceptions import (
+    ExtractionError,
+    ExtractionFailedError,
+    ExtractionFileEncryptedError,
+    ExtractionFileFormatNotSupportedError,
+    ExtractionFileTooLargeError,
+    ExtractionLegacyMicrosoftParsingError,
+    ExtractionZipBombError,
+)
 from sharepoint2text.parsing.extractors.data_types import (
     DocContent,
     DocxContent,
@@ -482,6 +491,14 @@ __all__ = [
     "read_file",
     "is_supported_file",
     "get_extractor",
+    # exceptions
+    "ExtractionError",
+    "ExtractionFileFormatNotSupportedError",
+    "ExtractionLegacyMicrosoftParsingError",
+    "ExtractionFileEncryptedError",
+    "ExtractionZipBombError",
+    "ExtractionFailedError",
+    "ExtractionFileTooLargeError",
     # legacy MS office
     "read_doc",
     "read_xls",

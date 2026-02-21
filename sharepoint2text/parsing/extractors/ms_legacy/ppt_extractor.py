@@ -20,7 +20,7 @@ import olefile
 from sharepoint2text.parsing.exceptions import (
     ExtractionError,
     ExtractionFileEncryptedError,
-    LegacyMicrosoftParsingError,
+    ExtractionLegacyMicrosoftParsingError,
 )
 from sharepoint2text.parsing.extractors.data_types import (
     PPT_TEXT_TYPE_BODY,
@@ -252,7 +252,7 @@ def read_ppt(
     except ExtractionError:
         raise
     except (OSError, struct.error, ValueError) as exc:
-        raise LegacyMicrosoftParsingError(
+        raise ExtractionLegacyMicrosoftParsingError(
             "Failed to extract PPT file", cause=exc
         ) from exc
     finally:
@@ -266,7 +266,7 @@ def _extract_ppt_content_structured(
     file_like.seek(0)
 
     if not olefile.isOleFile(file_like):
-        raise LegacyMicrosoftParsingError(
+        raise ExtractionLegacyMicrosoftParsingError(
             message="Not a valid OLE file (legacy PowerPoint format)"
         )
 
@@ -278,7 +278,7 @@ def _extract_ppt_content_structured(
         content.metadata = _extract_metadata(ole)
 
         if not ole.exists("PowerPoint Document"):
-            raise LegacyMicrosoftParsingError(
+            raise ExtractionLegacyMicrosoftParsingError(
                 message="No 'PowerPoint Document' stream found"
             )
 
@@ -685,7 +685,7 @@ def _extract_ppt_metadata(file_like: BinaryIO) -> PptMetadata:
     file_like.seek(0)
 
     if not olefile.isOleFile(file_like):
-        raise LegacyMicrosoftParsingError("Not a valid OLE file")
+        raise ExtractionLegacyMicrosoftParsingError("Not a valid OLE file")
 
     file_like.seek(0)
 

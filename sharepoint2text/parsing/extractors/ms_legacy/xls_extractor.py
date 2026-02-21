@@ -19,7 +19,7 @@ import xlrd
 from sharepoint2text.parsing.exceptions import (
     ExtractionError,
     ExtractionFileEncryptedError,
-    LegacyMicrosoftParsingError,
+    ExtractionLegacyMicrosoftParsingError,
 )
 from sharepoint2text.parsing.extractors.data_types import (
     XlsContent,
@@ -319,7 +319,7 @@ def read_xls(
     except ExtractionError:
         raise
     except (xlrd.XLRDError, OSError, struct.error, ValueError) as exc:
-        raise LegacyMicrosoftParsingError(
+        raise ExtractionLegacyMicrosoftParsingError(
             "Failed to extract XLS file", cause=exc
         ) from exc
     finally:

@@ -121,7 +121,7 @@ import olefile
 from sharepoint2text.parsing.exceptions import (
     ExtractionError,
     ExtractionFileEncryptedError,
-    LegacyMicrosoftParsingError,
+    ExtractionLegacyMicrosoftParsingError,
 )
 from sharepoint2text.parsing.extractors.data_types import (
     DocContent,
@@ -254,7 +254,7 @@ def read_doc(
     except ExtractionError:
         raise
     except (OSError, struct.error, UnicodeDecodeError, ValueError) as exc:
-        raise LegacyMicrosoftParsingError(
+        raise ExtractionLegacyMicrosoftParsingError(
             "Failed to extract DOC file", cause=exc
         ) from exc
     finally:
@@ -642,19 +642,19 @@ class _DocReader:
             return self._content
 
         if not self.ole:
-            raise LegacyMicrosoftParsingError("File not opened")
+            raise ExtractionLegacyMicrosoftParsingError("File not opened")
 
         word_doc = self._get_stream("WordDocument")
         if not word_doc:
-            raise LegacyMicrosoftParsingError("No WordDocument Stream")
+            raise ExtractionLegacyMicrosoftParsingError("No WordDocument Stream")
 
         if len(word_doc) < MIN_DOC_SIZE:
-            raise LegacyMicrosoftParsingError("File too small")
+            raise ExtractionLegacyMicrosoftParsingError("File too small")
 
         # Validate magic number
         magic = _FIB_MAGIC.unpack_from(word_doc, 0)[0]
         if magic not in (FIB_MAGIC_WORD97, FIB_MAGIC_WORD95):
-            raise LegacyMicrosoftParsingError(
+            raise ExtractionLegacyMicrosoftParsingError(
                 f"Not a valid .doc file (Magic: {hex(magic)})"
             )
 
