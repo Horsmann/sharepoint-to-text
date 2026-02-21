@@ -231,8 +231,14 @@ def _should_skip_images(reader: PdfReader, file_like: io.BytesIO) -> bool:
     if providers.crypt_provider[0] != "local_crypt_fallback":
         return False
     try:
-        data_size = file_like.getbuffer().nbytes
-    except (AttributeError, BufferError, ValueError):
+        if hasattr(file_like, "getbuffer"):
+            data_size = file_like.getbuffer().nbytes
+        else:
+            pos = file_like.tell()
+            file_like.seek(0, io.SEEK_END)
+            data_size = file_like.tell()
+            file_like.seek(pos)
+    except (AttributeError, BufferError, OSError, ValueError):
         return False
     return data_size >= _AES_FALLBACK_IMAGE_SKIP_THRESHOLD_BYTES
 

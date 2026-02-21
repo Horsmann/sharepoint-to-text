@@ -107,22 +107,22 @@ logger = logging.getLogger(__name__)
 # Pattern to match mbox "From " separator lines
 # Format: "From sender@example.com Mon Jan  1 00:00:00 2024"
 # The line must start with "From " followed by an address and a date
-MBOX_FROM_PATTERN = re.compile(rb"^From \S+.*\d{4}\r?\n", re.MULTILINE)
+MBOX_FROM_PATTERN = re.compile(rb"^From \S+.*\d{4}\r?\n")
 
 
-def _split_mbox_messages(data: bytes) -> list[bytes]:
+def _iter_mbox_messages(file_like: io.BytesIO):
     """
-    Split mbox data into individual message bytes without using temp files.
+    Yield mbox messages from a stream in a single pass.
 
     The mbox format separates messages with "From " lines at the start of a line.
-    This function finds all such separators and splits the data accordingly.
+    This parser scans line-by-line and yields one message at a time to avoid
+    materializing the full mailbox and all message slices in memory.
 
     Args:
-        data: Raw bytes of the entire mbox file.
+        file_like: Binary stream containing mbox data.
 
-    Returns:
-        List of bytes, each containing a single email message.
-        Empty list if no valid messages found.
+    Yields:
+        Raw bytes for each message in mbox order.
 
     Implementation Notes:
         - Uses regex to find "From " separator lines
@@ -130,36 +130,38 @@ def _split_mbox_messages(data: bytes) -> list[bytes]:
         - The "From " line itself is NOT part of the message content
         - Handles both Unix (LF) and Windows (CRLF) line endings
     """
-    if not data:
-        return []
+    file_like.seek(0)
+    current_lines: list[bytes] = []
+    saw_separator = False
+    preamble_lines: list[bytes] = []
 
-    messages = []
+    while True:
+        line = file_like.readline()
+        if line == b"":
+            break
 
-    # Find all "From " line positions
-    matches = list(MBOX_FROM_PATTERN.finditer(data))
+        if MBOX_FROM_PATTERN.match(line):
+            if saw_separator and current_lines:
+                msg_bytes = b"".join(current_lines).rstrip(b"\r\n")
+                if msg_bytes:
+                    yield msg_bytes
+                current_lines.clear()
+            saw_separator = True
+            continue
 
-    if not matches:
-        # No "From " lines found - might be a single message without separator
-        # or not a valid mbox format
-        return []
-
-    for i, match in enumerate(matches):
-        # Message content starts after the "From " line
-        msg_start = match.end()
-
-        # Message ends at the next "From " line or end of data
-        if i + 1 < len(matches):
-            msg_end = matches[i + 1].start()
+        if saw_separator:
+            current_lines.append(line)
         else:
-            msg_end = len(data)
+            preamble_lines.append(line)
 
-        # Extract message bytes (strip trailing blank lines between messages)
-        msg_bytes = data[msg_start:msg_end].rstrip(b"\r\n")
-
+    if saw_separator:
+        msg_bytes = b"".join(current_lines).rstrip(b"\r\n")
         if msg_bytes:
-            messages.append(msg_bytes)
-
-    return messages
+            yield msg_bytes
+    elif preamble_lines:
+        msg_bytes = b"".join(preamble_lines).rstrip(b"\r\n")
+        if msg_bytes:
+            yield msg_bytes
 
 
 def decode_header_value(value: str | None) -> str:
@@ -495,13 +497,8 @@ def read_mbox_format_mail(
     """
     try:
         file_like.seek(0)
-        data = file_like.read()
-
-        # Split mbox into individual messages in memory
-        message_bytes_list = _split_mbox_messages(data)
-
         message_count = 0
-        for msg_bytes in message_bytes_list:
+        for msg_bytes in _iter_mbox_messages(file_like):
             # Parse message from bytes using standard library
             message = email.message_from_bytes(msg_bytes)
             m = parse_email_message(message)

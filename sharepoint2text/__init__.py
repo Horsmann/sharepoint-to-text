@@ -442,10 +442,9 @@ def read_file(
     )
     with open(path, "rb") as f:
         try:
-            # For files within reasonable size, read entirely into memory
-            # For very large files, consider streaming in specific extractors
-            file_content = f.read()
-            for result in extractor(io.BytesIO(file_content), str(path)):
+            # Pass the file stream directly to avoid an unnecessary full-copy
+            # buffer before extraction.
+            for result in extractor(f, str(path)):
                 logger.info("Extraction complete: %s", path)
                 yield result
         except ExtractionError:

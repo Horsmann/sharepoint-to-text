@@ -707,7 +707,7 @@ def read_epub(
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
             returned EpubContent.metadata.
-        ignore_images: If True, skip image extraction (not applicable for this format).
+        ignore_images: If True, skip image extraction.
 
     Yields:
         EpubContent: Single EpubContent object containing:
@@ -758,7 +758,7 @@ def read_epub(
                     chapters.append(chapter)
 
             # Extract images from manifest
-            images = _extract_images(ctx)
+            images = [] if ignore_images else _extract_images(ctx)
 
             # Extract table of contents
             toc = _extract_toc(ctx)

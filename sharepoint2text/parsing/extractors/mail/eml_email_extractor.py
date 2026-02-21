@@ -254,13 +254,12 @@ def read_eml_format_mail(
         ...     print(email.metadata.filename)  # "msg.eml"
 
     Performance Notes:
-        - Entire file is loaded into memory via getvalue()
-        - For very large emails (>10MB), consider memory implications
-        - Stream position is reset; original position is not preserved
+        - Parses directly from the input stream to avoid an additional full-copy
+          buffer in memory.
     """
     try:
         file_like.seek(0)
-        content = _read_eml_format(file_like.getvalue())
+        content = _read_eml_format(file_like.read())
 
         if path:
             content.metadata.populate_from_path(path)

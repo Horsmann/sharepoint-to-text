@@ -11,6 +11,7 @@ import datetime
 import io
 import logging
 import re
+import shutil
 import zipfile
 from typing import Any, Generator
 
@@ -115,12 +116,11 @@ def _iter_xlsb_records(data: bytes):
         i += rl
 
 
-def _extract_xlsb_shared_strings(raw: bytes) -> list[str]:
+def _extract_xlsb_shared_strings(zf: zipfile.ZipFile) -> list[str]:
     """Extract shared strings from xl/sharedStrings.bin in an XLSB ZIP."""
-    with zipfile.ZipFile(io.BytesIO(raw)) as zf:
-        if "xl/sharedStrings.bin" not in zf.namelist():
-            return []
-        sst_data = zf.read("xl/sharedStrings.bin")
+    if "xl/sharedStrings.bin" not in zf.namelist():
+        return []
+    sst_data = zf.read("xl/sharedStrings.bin")
 
     out: list[str] = []
     for record_type, payload in _iter_xlsb_records(sst_data):
@@ -141,18 +141,17 @@ def _extract_xlsb_shared_strings(raw: bytes) -> list[str]:
     return out
 
 
-def _extract_xlsb_sheet_names(raw: bytes) -> list[str]:
+def _extract_xlsb_sheet_names(zf: zipfile.ZipFile) -> list[str]:
     """Best-effort extraction of sheet names from workbook.bin."""
-    with zipfile.ZipFile(io.BytesIO(raw)) as zf:
-        worksheet_entries = [
-            name
-            for name in zf.namelist()
-            if name.startswith("xl/worksheets/sheet") and name.endswith(".bin")
-        ]
-        default_names = [f"Sheet{i}" for i in range(1, len(worksheet_entries) + 1)]
-        if "xl/workbook.bin" not in zf.namelist():
-            return default_names or ["Sheet1"]
-        workbook_bin = zf.read("xl/workbook.bin")
+    worksheet_entries = [
+        name
+        for name in zf.namelist()
+        if name.startswith("xl/worksheets/sheet") and name.endswith(".bin")
+    ]
+    default_names = [f"Sheet{i}" for i in range(1, len(worksheet_entries) + 1)]
+    if "xl/workbook.bin" not in zf.namelist():
+        return default_names or ["Sheet1"]
+    workbook_bin = zf.read("xl/workbook.bin")
 
     # Sheet names are UTF-16LE; pick likely runs and deduplicate in order.
     decoded = workbook_bin.decode("utf-16le", errors="ignore")
@@ -502,16 +501,15 @@ def _extract_images_from_zip(
 def _read_content(file_like: io.BytesIO) -> list[XlsxSheet]:
     """Read all sheets from XLSX file and extract content."""
     file_like.seek(0)
-    raw = file_like.read()
-
-    wb = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    wb = load_workbook(file_like, read_only=True, data_only=True)
     try:
         sheet_names = list(wb.sheetnames)
         sheets = _read_content_from_workbook(wb, sheet_names)
     finally:
         wb.close()
 
-    images_by_sheet = _extract_images_from_zip(io.BytesIO(raw), sheet_names)
+    file_like.seek(0)
+    images_by_sheet = _extract_images_from_zip(file_like, sheet_names)
     for sheet_idx, sheet_images in images_by_sheet.items():
         if sheet_idx < len(sheets):
             sheets[sheet_idx].images = sheet_images
@@ -549,7 +547,7 @@ def _read_content_from_workbook(wb, sheet_names: list[str]) -> list[XlsxSheet]:
 # =============================================================================
 
 
-def _read_xlsb(raw: bytes, path: str | None = None) -> XlsxContent:
+def _read_xlsb(file_like: io.BytesIO, path: str | None = None) -> XlsxContent:
     """Extract text from XLSB files with optional pyxlsb support and a fallback."""
     metadata = XlsxMetadata()
     metadata.populate_from_path(path)
@@ -561,7 +559,8 @@ def _read_xlsb(raw: bytes, path: str | None = None) -> XlsxContent:
         from pyxlsb import open_workbook  # type: ignore
 
         with tempfile.NamedTemporaryFile(suffix=".xlsb") as tmp:
-            tmp.write(raw)
+            file_like.seek(0)
+            shutil.copyfileobj(file_like, tmp)
             tmp.flush()
 
             sheets: list[XlsxSheet] = []
@@ -595,8 +594,10 @@ def _read_xlsb(raw: bytes, path: str | None = None) -> XlsxContent:
         logger.debug("pyxlsb parsing unavailable or failed, using fallback: %s", exc)
 
     # Fallback path: shared strings extraction.
-    sheet_names = _extract_xlsb_sheet_names(raw)
-    shared_strings = _extract_xlsb_shared_strings(raw)
+    file_like.seek(0)
+    with zipfile.ZipFile(file_like, "r") as zf:
+        sheet_names = _extract_xlsb_sheet_names(zf)
+        shared_strings = _extract_xlsb_shared_strings(zf)
     fallback_text = "\n".join(shared_strings).strip()
     fallback_table = [[s] for s in shared_strings] if shared_strings else []
     first_sheet_name = sheet_names[0] if sheet_names else "Sheet1"
@@ -634,11 +635,11 @@ def read_xlsx(
                 "XLSX is encrypted or password-protected"
             )
 
-        raw = file_like.read()
-
         if _is_xlsb_path(path):
-            validate_zip_bytesio(io.BytesIO(raw), source="read_xlsb")
-            content = _read_xlsb(raw, path=path)
+            file_like.seek(0)
+            validate_zip_bytesio(file_like, source="read_xlsb")
+            file_like.seek(0)
+            content = _read_xlsb(file_like, path=path)
             logger.info(
                 "Extracted XLSB: %d sheets, %d total rows",
                 len(content.sheets),
@@ -647,9 +648,11 @@ def read_xlsx(
             yield content
             return
 
-        validate_zip_bytesio(io.BytesIO(raw), source="read_xlsx")
+        file_like.seek(0)
+        validate_zip_bytesio(file_like, source="read_xlsx")
 
-        wb = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+        file_like.seek(0)
+        wb = load_workbook(file_like, read_only=True, data_only=True)
         try:
             metadata = _extract_metadata_from_workbook(wb)
             sheet_names = list(wb.sheetnames)
@@ -658,7 +661,8 @@ def read_xlsx(
             wb.close()
 
         if not ignore_images:
-            images_by_sheet = _extract_images_from_zip(io.BytesIO(raw), sheet_names)
+            file_like.seek(0)
+            images_by_sheet = _extract_images_from_zip(file_like, sheet_names)
             for sheet_idx, sheet_images in images_by_sheet.items():
                 if sheet_idx < len(sheets):
                     sheets[sheet_idx].images = sheet_images

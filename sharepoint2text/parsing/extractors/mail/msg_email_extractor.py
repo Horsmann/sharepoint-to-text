@@ -161,10 +161,55 @@ def _read_ole_string(ole: OleFileIO, storage: str, stream_name: str) -> str:
         return ""
 
 
-def _extract_msg_attachments(file_bytes: bytes) -> list[EmailAttachment]:
+def _attachment_data_to_bytes(value: Any) -> bytes:
+    """Normalize msg-parser attachment payloads to bytes."""
+    if value is None:
+        return b""
+    if isinstance(value, bytes):
+        return value
+    if isinstance(value, bytearray):
+        return bytes(value)
+    if isinstance(value, memoryview):
+        return value.tobytes()
+    if isinstance(value, str):
+        return value.encode("utf-8", errors="ignore")
+    return bytes(value)
+
+
+def _extract_msg_attachments_from_msg(msg: MsOxMessage) -> list[EmailAttachment]:
+    """Extract attachments from msg_parser output without re-reading the OLE file."""
+    attachments: list[EmailAttachment] = []
+    msg_attachments = getattr(msg, "attachments", None) or []
+
+    for index, attachment in enumerate(msg_attachments, start=1):
+        data = _attachment_data_to_bytes(getattr(attachment, "data", b""))
+        filename = (
+            getattr(attachment, "Filename", None)
+            or getattr(attachment, "AttachLongFilename", None)
+            or getattr(attachment, "AttachFilename", None)
+            or f"attachment-{index}"
+        )
+        mime_type = (
+            getattr(attachment, "AttachMimeTag", None) or "application/octet-stream"
+        )
+
+        attachments.append(
+            EmailAttachment(
+                filename=filename,
+                mime_type=mime_type,
+                data=io.BytesIO(data),
+                is_supported_mime_type=is_supported_mime_type(mime_type),
+            )
+        )
+
+    return attachments
+
+
+def _extract_msg_attachments_from_ole(file_like: io.BytesIO) -> list[EmailAttachment]:
     attachments: list[EmailAttachment] = []
 
-    with OleFileIO(io.BytesIO(file_bytes)) as ole:
+    file_like.seek(0)
+    with OleFileIO(file_like) as ole:
         storages = ole.listdir(streams=False, storages=True)
         attach_storages = [
             storage[0]
@@ -378,8 +423,7 @@ def read_msg_format_mail(
     """
     try:
         file_like.seek(0)
-        file_bytes = file_like.read()
-        msg = MsOxMessage(io.BytesIO(file_bytes))
+        msg = MsOxMessage(file_like)
 
         # Build metadata with date and message ID
         meta = EmailMetadata(
@@ -392,7 +436,13 @@ def read_msg_format_mail(
         sender_list = _parse_multi_recipients(msg.sender)
         from_email = sender_list[0] if sender_list else EmailAddress()
 
-        attachments = _extract_msg_attachments(file_bytes)
+        msg_attachments = getattr(msg, "attachments", None) or []
+        attachments = []
+        if msg_attachments:
+            # Prefer raw OLE attachment payloads for byte-level fidelity.
+            attachments = _extract_msg_attachments_from_ole(file_like)
+            if not attachments:
+                attachments = _extract_msg_attachments_from_msg(msg)
 
         raw_body = msg.body or ""
         if _looks_like_html(raw_body):

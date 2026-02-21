@@ -158,10 +158,10 @@ def _is_supported_file_cached(filename: str) -> bool:
 
 
 @lru_cache(maxsize=CACHE_SIZE)
-def _get_file_extractor_cached(filename: str) -> Callable:
+def _get_file_extractor_cached(filename: str, ignore_images: bool) -> Callable:
     """Cached version of extractor retrieval."""
     _, get_extractor = _get_router_functions()
-    return get_extractor(filename)
+    return get_extractor(filename, ignore_images=ignore_images)
 
 
 def _detect_archive_type_optimized(file_like: io.BytesIO) -> Optional[str]:
@@ -222,6 +222,7 @@ def _process_archive_entry(
     file_data: bytes,
     archive_path: Optional[str],
     basename: str,
+    ignore_images: bool = False,
 ) -> Generator[ExtractionInterface, Any, None]:
     """
     Process a single archive entry with optimized memory usage.
@@ -250,7 +251,7 @@ def _process_archive_entry(
         full_path = f"{archive_path}!/{filename}" if archive_path else filename
 
         # Use cached extractor for performance
-        extractor = _get_file_extractor_cached(basename)
+        extractor = _get_file_extractor_cached(basename, ignore_images)
 
         # Create BytesIO with optimal buffer size
         file_bytes = io.BytesIO(file_data)
@@ -269,7 +270,7 @@ def _process_archive_entry(
 
 
 def _extract_from_zip_optimized(
-    file_like: io.BytesIO, archive_path: Optional[str]
+    file_like: io.BytesIO, archive_path: Optional[str], *, ignore_images: bool = False
 ) -> Generator[ExtractionInterface, Any, None]:
     """
     Optimized ZIP extraction with single-pass processing.
@@ -322,7 +323,11 @@ def _extract_from_zip_optimized(
 
                     # Process the file
                     yield from _process_archive_entry(
-                        filename, file_data, archive_path, basename
+                        filename,
+                        file_data,
+                        archive_path,
+                        basename,
+                        ignore_images=ignore_images,
                     )
 
                 except RuntimeError as e:
@@ -339,7 +344,11 @@ def _extract_from_zip_optimized(
 
 
 def _extract_from_tar_optimized(
-    file_like: io.BytesIO, archive_path: Optional[str], mode: str = "r:*"
+    file_like: io.BytesIO,
+    archive_path: Optional[str],
+    mode: str = "r:*",
+    *,
+    ignore_images: bool = False,
 ) -> Generator[ExtractionInterface, Any, None]:
     """
     Optimized TAR extraction with streaming support.
@@ -384,7 +393,11 @@ def _extract_from_tar_optimized(
 
                     # Process the file
                     yield from _process_archive_entry(
-                        filename, file_data, archive_path, basename
+                        filename,
+                        file_data,
+                        archive_path,
+                        basename,
+                        ignore_images=ignore_images,
                     )
 
                 except (tarfile.TarError, OSError, ExtractionError) as e:
@@ -402,7 +415,7 @@ def _extract_from_tar_optimized(
 
 
 def _extract_from_7z_optimized(
-    file_like: io.BytesIO, archive_path: Optional[str]
+    file_like: io.BytesIO, archive_path: Optional[str], *, ignore_images: bool = False
 ) -> Generator[ExtractionInterface, Any, None]:
     """
     Optimized 7z extraction with file size limits.
@@ -475,7 +488,10 @@ def _extract_from_7z_optimized(
 
                 # Process files sequentially (no parallel processing)
                 yield from _process_7z_files_sequential(
-                    files_to_process, temp_dir, archive_path
+                    files_to_process,
+                    temp_dir,
+                    archive_path,
+                    ignore_images=ignore_images,
                 )
 
     except Bad7zFile as e:
@@ -483,7 +499,11 @@ def _extract_from_7z_optimized(
 
 
 def _process_7z_files_sequential(
-    files_to_process: list, temp_dir: str, archive_path: Optional[str]
+    files_to_process: list,
+    temp_dir: str,
+    archive_path: Optional[str],
+    *,
+    ignore_images: bool = False,
 ) -> Generator[ExtractionInterface, Any, None]:
     """Sequential processing of 7z files."""
     for file_info, filename, basename in files_to_process:
@@ -497,7 +517,11 @@ def _process_7z_files_sequential(
                 file_data = extracted_file.read()
 
             yield from _process_archive_entry(
-                filename, file_data, archive_path, basename
+                filename,
+                file_data,
+                archive_path,
+                basename,
+                ignore_images=ignore_images,
             )
 
         except (FileNotFoundError, PermissionError, OSError, ExtractionError) as e:
@@ -549,12 +573,19 @@ def read_archive(
 
         # Route to optimized extractor
         if archive_type == "zip":
-            yield from _extract_from_zip_optimized(file_like, path)
+            yield from _extract_from_zip_optimized(
+                file_like, path, ignore_images=ignore_images
+            )
         elif archive_type == "7z":
-            yield from _extract_from_7z_optimized(file_like, path)
+            yield from _extract_from_7z_optimized(
+                file_like, path, ignore_images=ignore_images
+            )
         elif archive_type in ("tar", "tar.gz", "tar.bz2", "tar.xz"):
             yield from _extract_from_tar_optimized(
-                file_like, path, f"r:{archive_type.split('.')[-1]}"
+                file_like,
+                path,
+                f"r:{archive_type.split('.')[-1]}",
+                ignore_images=ignore_images,
             )
         else:
             raise ExtractionFailedError(f"Unsupported archive type: {archive_type}")
