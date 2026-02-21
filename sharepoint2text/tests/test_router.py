@@ -52,6 +52,7 @@ def test_is_supported():
     tc.assertTrue(is_supported_file("myfile.xlt"))
     tc.assertTrue(is_supported_file("myfile.xltx"))
     tc.assertTrue(is_supported_file("myfile.xltm"))
+    tc.assertTrue(is_supported_file("myfile.xlsb"))
     tc.assertTrue(is_supported_file("myfile.pot"))
     tc.assertTrue(is_supported_file("myfile.potx"))
     tc.assertTrue(is_supported_file("myfile.potm"))
