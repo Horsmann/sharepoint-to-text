@@ -1934,7 +1934,7 @@ class XlsMetadata(FileMetadataInterface):
 @dataclass
 class XlsSheet(TableInterface):
     name: str = ""
-    data: List[Dict[str, typing.Any]] = field(default_factory=list)
+    data: List[List[str, typing.Any]] = field(default_factory=list)
     text: str = ""
 
     def get_table(self) -> list[list[typing.Any]]:
