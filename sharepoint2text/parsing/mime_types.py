@@ -9,6 +9,7 @@ MIME_TYPE_MAPPING = {
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+    "application/vnd.ms-excel.sheet.binary.macroEnabled.12": "xlsb",
     # Macro-enabled variants
     "application/vnd.ms-powerpoint.presentation.macroEnabled.12": "pptm",
     "application/vnd.ms-word.document.macroEnabled.12": "docm",

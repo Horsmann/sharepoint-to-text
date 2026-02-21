@@ -42,6 +42,7 @@ def test_is_supported():
     tc.assertTrue(is_supported_file("myfile.pptx"))
     tc.assertTrue(is_supported_file("myfile.xls"))
     tc.assertTrue(is_supported_file("myfile.xlsx"))
+    tc.assertTrue(is_supported_file("myfile.xlsb"))
     tc.assertTrue(is_supported_file("myfile.doc"))
     tc.assertTrue(is_supported_file("myfile.docx"))
     # Office templates / slide shows (aliases)
@@ -123,6 +124,10 @@ def test_router():
     func = get_extractor("myfile.xlsx")
     tc.assertEqual(read_xlsx, func)
     func = get_extractor("myfile.xltx")
+    tc.assertEqual(read_xlsx, func)
+
+    # xlsb
+    func = get_extractor("myfile.xlsb")
     tc.assertEqual(read_xlsx, func)
 
     # pdf
