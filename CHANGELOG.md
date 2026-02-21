@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+
+## [Released]
+
+## [1.0.0] - 2026-02-21
 ### Added
 - **Support for .xlsb files**
 
@@ -16,8 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Fixed typing annotations**
 - **CLI: Export email attachments**
 - **CLI: Added shorthand commands**
-
-## [Released]
 
 ## [0.9.0] - 2026-02-02
 ### Added
