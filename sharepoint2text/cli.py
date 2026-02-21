@@ -84,21 +84,18 @@ def _serialize_unit_results(
     *,
     include_binary: bool,
     include_email_attachments: bool = False,
-) -> list[list[dict]]:
+) -> list[dict]:
     """Serialize per-unit output for ``--json-unit`` mode.
 
-    Always returns ``list[list[dict]]`` so each root extraction result keeps a stable
-    unit-list boundary.
+    Returns a flat ``list[dict]`` with one dictionary per extracted unit.
     """
     return [
-        [
-            serialize_extraction(unit, include_binary=include_binary)
-            for extraction in _iter_result_tree(
-                result, include_email_attachments=include_email_attachments
-            )
-            for unit in extraction.iterate_units()
-        ]
+        serialize_extraction(unit, include_binary=include_binary)
         for result in results
+        for extraction in _iter_result_tree(
+            result, include_email_attachments=include_email_attachments
+        )
+        for unit in extraction.iterate_units()
     ]
 
 
