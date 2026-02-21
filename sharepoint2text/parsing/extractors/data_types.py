@@ -518,8 +518,8 @@ class DocMetadata(FileMetadataInterface):
     subject: str = ""
     keywords: str = ""
     last_saved_by: str = ""
-    create_time: str = None
-    last_saved_time: str = None
+    create_time: str | None = None
+    last_saved_time: str | None = None
     num_pages: int = 0
     num_words: int = 0
     num_chars: int = 0
