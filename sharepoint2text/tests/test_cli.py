@@ -5,6 +5,13 @@ import sharepoint2text
 from sharepoint2text.cli import _serialize_results, main
 from sharepoint2text.parsing.extractors.serialization import serialize_extraction
 
+EMAIL_WITH_ATTACHMENT_PATH = Path(
+    "sharepoint2text/tests/resources/mails/msg_with_attachment.eml"
+).resolve()
+BASIC_EMAIL_PATH = Path(
+    "sharepoint2text/tests/resources/mails/basic_email.eml"
+).resolve()
+
 
 def test_cli_outputs_full_text_by_default(capsys) -> None:
     path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
@@ -59,6 +66,58 @@ def test_cli_outputs_json_unit_with_flag(capsys) -> None:
     assert exit_code == 0
     payload = json.loads(captured.out.strip())
     assert payload == expected
+
+
+def test_cli_plain_text_extracts_email_content(capsys) -> None:
+    expected = next(sharepoint2text.read_file(BASIC_EMAIL_PATH)).get_full_text()
+
+    exit_code = main(["--file", str(BASIC_EMAIL_PATH)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert captured.out == f"{expected}\n"
+
+
+def test_cli_plain_text_extracts_supported_email_attachments(capsys) -> None:
+    exit_code = main(["--file", str(EMAIL_WITH_ATTACHMENT_PATH)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "This is a test sentence" in captured.out
+    assert "The slide title" in captured.out
+
+
+def test_cli_json_extracts_supported_email_attachments(capsys) -> None:
+    exit_code = main(["--json", "--file", str(EMAIL_WITH_ATTACHMENT_PATH)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out.strip())
+    assert isinstance(payload, list)
+    assert {item["_type"] for item in payload} == {
+        "EmailContent",
+        "PdfContent",
+        "PptxContent",
+    }
+
+
+def test_cli_json_unit_extracts_supported_email_attachments(capsys) -> None:
+    exit_code = main(["--json-unit", "--file", str(EMAIL_WITH_ATTACHMENT_PATH)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out.strip())
+    assert isinstance(payload, list)
+
+    unit_types = {
+        unit["_type"]
+        for unit_group in payload
+        for unit in unit_group
+        if isinstance(unit, dict) and "_type" in unit
+    }
+    assert "EmailUnit" in unit_types
+    assert "PdfUnit" in unit_types
+    assert "PptxUnit" in unit_types
 
 
 def _contains_binary_markers(value: object) -> bool:

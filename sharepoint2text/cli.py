@@ -4,10 +4,13 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Sequence, TextIO
+from typing import Iterator, Sequence, TextIO
 
 import sharepoint2text
-from sharepoint2text.parsing.extractors.data_types import ExtractionInterface
+from sharepoint2text.parsing.extractors.data_types import (
+    EmailContent,
+    ExtractionInterface,
+)
 from sharepoint2text.parsing.extractors.serialization import serialize_extraction
 
 
@@ -92,6 +95,25 @@ def _serialize_full_text(results: list[ExtractionInterface]) -> str:
     return "\n\n".join(result.get_full_text().rstrip() for result in results).rstrip()
 
 
+def _expand_email_results(
+    results: list[ExtractionInterface],
+) -> list[ExtractionInterface]:
+    """Expand email results with any supported extracted attachments."""
+    expanded: list[ExtractionInterface] = []
+    for result in results:
+        expanded.extend(_expand_email_result(result))
+    return expanded
+
+
+def _expand_email_result(result: ExtractionInterface) -> Iterator[ExtractionInterface]:
+    """Yield the extraction result and recursively extracted email attachments."""
+    yield result
+    if not isinstance(result, EmailContent):
+        return
+    for attachment in result.iterate_supported_attachments():
+        yield from _expand_email_result(attachment)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and return a process-style exit code.
 
@@ -151,6 +173,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             if not results:
                 raise RuntimeError(f"No extraction results for {args.file}")
+            results = _expand_email_results(results)
 
             if args.json or args.json_unit:
                 include_binary = bool(args.include_images)
