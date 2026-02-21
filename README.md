@@ -269,6 +269,7 @@ Built-in safeguards include zip-bomb protections and file size limits. For 7z, e
 
 ### General
 
+- Inputs are expected to be already decrypted. If a file has encryption, DRM, password protection, or similar security controls, remove/unlock those before calling `sharepoint2text`.
 - Very large or highly compressed files may hit protection limits.
 - Raise limits only for trusted inputs.
 
