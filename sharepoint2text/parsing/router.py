@@ -286,7 +286,7 @@ def get_extractor(
             mime_type,
             path_str,
         )
-        logger.info("Using extractor for file type: %s", file_type)
+        logger.debug("Using extractor for file type: %s", file_type)
         return _get_extractor(file_type, ignore_images=ignore_images)
 
     extension = ""
