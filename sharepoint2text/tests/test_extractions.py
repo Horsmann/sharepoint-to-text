@@ -17,6 +17,7 @@ from sharepoint2text.parsing.extractors.data_types import (
     DocxContent,
     DocxFormula,
     DocxNote,
+    DocxUnit,
     EmailContent,
     EmailUnitMetadata,
     EpubContent,
@@ -820,7 +821,8 @@ def test_read_docx__units() -> None:
     tc.assertTrue(hasattr(units[0], "get_tables"))
 
     # first unit
-    tc.assertEqual(["Sample Document"], units[0].get_metadata().location)
+    unit_meta: DocxUnit = units[0].get_metadata()
+    tc.assertEqual(["Sample Document"], unit_meta.location)
     tc.assertEqual(
         "This document was created using accessibility techniques for headings, lists, image alternate text, tables, and columns. It should be completely accessible using assistive technologies such as screen readers.",
         units[0].get_text(),
@@ -1075,6 +1077,31 @@ def test_read_ppt__image_extraction() -> None:
     #########
     tc.assertEqual(2, len(list(ppt.iterate_units())))
     tc.assertEqual("", list(ppt.iterate_units())[0].get_text())
+
+
+def test_read_ppt__image_flag() -> None:
+    """Test legacy .ppt image extraction can be disabled with ignore_images."""
+    path = "sharepoint2text/tests/resources/legacy_ms/ppt_with_images.ppt"
+
+    result_with_images: PptContent = next(
+        read_ppt(
+            file_like=_read_file_to_file_like(path=path),
+            path=path,
+            ignore_images=False,
+        ),
+    )
+    tc.assertEqual(2, len(list(result_with_images.iterate_images())))
+    tc.assertEqual(2, sum(len(slide.images) for slide in result_with_images.slides))
+
+    result_without_images: PptContent = next(
+        read_ppt(
+            file_like=_read_file_to_file_like(path=path),
+            path=path,
+            ignore_images=True,
+        ),
+    )
+    tc.assertEqual(0, len(list(result_without_images.iterate_images())))
+    tc.assertEqual(0, sum(len(slide.images) for slide in result_without_images.slides))
 
 
 def test_read_doc() -> None:

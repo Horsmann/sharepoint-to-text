@@ -757,7 +757,7 @@ class DocxUnit(UnitInterface):
     def get_tables(self) -> list[TableData]:
         return list(self.tables)
 
-    def get_metadata(self) -> DocxUnitMetadata:
+    def get_metadata(self) -> UnitMetadataInterface:
         return DocxUnitMetadata(
             unit_number=self.unit_number,
             location=list(self.location),
