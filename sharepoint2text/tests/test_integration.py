@@ -12,8 +12,11 @@ from sharepoint2text import (
     read_email__eml_format,
     read_email__mbox_format,
     read_email__msg_format,
+    read_eml_email,
     read_file,
     read_html,
+    read_mbox_email,
+    read_msg_email,
     read_odf,
     read_odg,
     read_odp,
@@ -166,15 +169,24 @@ def test_read_redirects_from_top_level():
     fl = _load_as_bytes(path="sharepoint2text/tests/resources/mails/basic_email.eml")
     result = next(read_email__eml_format(fl))
     tc.assertTrue(isinstance(result, EmailContent))
+    fl = _load_as_bytes(path="sharepoint2text/tests/resources/mails/basic_email.eml")
+    result = next(read_eml_email(fl))
+    tc.assertTrue(isinstance(result, EmailContent))
 
     # msg
     fl = _load_as_bytes(path="sharepoint2text/tests/resources/mails/basic_email.msg")
     result = next(read_email__msg_format(fl))
     tc.assertTrue(isinstance(result, EmailContent))
+    fl = _load_as_bytes(path="sharepoint2text/tests/resources/mails/basic_email.msg")
+    result = next(read_msg_email(fl))
+    tc.assertTrue(isinstance(result, EmailContent))
 
     # mbox
     fl = _load_as_bytes(path="sharepoint2text/tests/resources/mails/basic_email.mbox")
     result = next(read_email__mbox_format(fl))
+    tc.assertTrue(isinstance(result, EmailContent))
+    fl = _load_as_bytes(path="sharepoint2text/tests/resources/mails/basic_email.mbox")
+    result = next(read_mbox_email(fl))
     tc.assertTrue(isinstance(result, EmailContent))
 
     ##############

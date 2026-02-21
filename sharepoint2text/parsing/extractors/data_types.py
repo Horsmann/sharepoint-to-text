@@ -9,7 +9,6 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Protocol
 
-from sharepoint2text.parsing.exceptions import ExtractionError
 from sharepoint2text.parsing.extractors.serialization import (
     deserialize_extraction,
     serialize_extraction,
@@ -410,11 +409,18 @@ class EmailContent(ExtractionInterface):
 
     def iterate_supported_attachments(
         self,
+        *,
+        skip_failed: bool = False,
     ) -> typing.Generator[ExtractionInterface, None, None]:
-        """Iterates over the attachments. If the file type is supported an extracted object is returned.
-        Not supported attachments are silently skipped. The attachments are extracted at call-time.
+        """Iterate over supported attachments and extract them on demand.
+
+        Args:
+            skip_failed: If True, extraction errors for supported attachments are
+                logged and skipped. If False (default), supported attachment
+                extraction failures raise ``ExtractionFailedError``.
         """
         from sharepoint2text.parsing.exceptions import (
+            ExtractionFailedError,
             ExtractionFileEncryptedError,
             ExtractionFileFormatNotSupportedError,
         )
@@ -448,13 +454,20 @@ class EmailContent(ExtractionInterface):
                 yield from extractor(attachment.data, attachment.filename)
             except ExtractionFileEncryptedError:
                 raise
-            except (ExtractionError, OSError, ValueError, UnicodeDecodeError) as exc:
-                logger.debug(
-                    "Failed to extract attachment: %s (mime=%s) error=%s",
-                    attachment.filename,
-                    attachment.mime_type,
-                    exc,
-                )
+            except Exception as exc:
+                if skip_failed:
+                    logger.warning(
+                        "Failed to extract attachment: %s (mime=%s) error=%s",
+                        attachment.filename,
+                        attachment.mime_type,
+                        exc,
+                    )
+                    continue
+                raise ExtractionFailedError(
+                    "Failed to extract supported attachment: "
+                    f"{attachment.filename} (mime={attachment.mime_type})",
+                    cause=exc,
+                ) from exc
             finally:
                 attachment.data.seek(0)
 
@@ -578,7 +591,23 @@ class DocContent(ExtractionInterface):
     ) -> typing.Iterator[UnitInterface]:
         lines = [line.rstrip() for line in (self.main_text or "").splitlines()]
         if not lines:
-            yield DocUnit(text="", unit_number=1, location=[])
+            unit_images: list[DocImage] = []
+            if not ignore_images:
+                unit_images = [
+                    DocImage(
+                        image_index=image.image_index,
+                        content_type=image.content_type,
+                        data=image.data,
+                        size_bytes=image.size_bytes,
+                        width=image.width,
+                        height=image.height,
+                        caption=image.caption,
+                        description=image.description,
+                        unit_number=1,
+                    )
+                    for image in self.images
+                ]
+            yield DocUnit(text="", unit_number=1, location=[], images=unit_images)
             return
 
         base_location = [self.metadata.title] if self.metadata.title else []
@@ -672,11 +701,27 @@ class DocContent(ExtractionInterface):
         flush_current()
 
         if not any_headings:
+            unit_images: list[DocImage] = []
+            if not ignore_images:
+                unit_images = [
+                    DocImage(
+                        image_index=image.image_index,
+                        content_type=image.content_type,
+                        data=image.data,
+                        size_bytes=image.size_bytes,
+                        width=image.width,
+                        height=image.height,
+                        caption=image.caption,
+                        description=image.description,
+                        unit_number=1,
+                    )
+                    for image in self.images
+                ]
             yield DocUnit(
                 text=self.main_text.strip(),
                 unit_number=1,
                 location=base_location,
-                images=[],
+                images=unit_images,
                 tables=[TableData(data=table) for table in self.tables],
             )
             return
@@ -1425,12 +1470,13 @@ class PptUnitMetadata(UnitMetadataInterface):
 class PptUnit(UnitInterface):
     slide_number: int
     text: str
+    images: list["PptImage"] = field(default_factory=list)
 
     def get_text(self) -> str:
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
-        return []
+        return list(self.images)
 
     def get_tables(self) -> list[TableData]:
         return []
@@ -1578,9 +1624,12 @@ class PptContent(ExtractionInterface):
         self, *, ignore_images: bool = False
     ) -> typing.Iterator[UnitInterface]:
         """Iterate over slide text, yielding combined text per slide."""
-        # ignore_images is a no-op for PPT (images not included in units)
         for slide in self.slides:
-            yield PptUnit(slide_number=slide.slide_number, text=slide.text_combined)
+            yield PptUnit(
+                slide_number=slide.slide_number,
+                text=slide.text_combined,
+                images=[] if ignore_images else list(slide.images),
+            )
 
     def get_full_text(self) -> str:
         """Full text of the slide deck as one single block of text"""
@@ -2045,7 +2094,7 @@ class XlsxImage(ImageInterface):
         return ImageMetadata(
             image_number=self.image_index,
             content_type=self.content_type,
-            unit_number=None,  # XLSX has sheets, not pages/slides
+            unit_number=self.sheet_index + 1 if self.sheet_index >= 0 else None,
             width=self.width if self.width > 0 else None,
             height=self.height if self.height > 0 else None,
         )

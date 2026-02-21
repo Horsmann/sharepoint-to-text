@@ -1,9 +1,8 @@
 import functools
-import io
 import logging
 import mimetypes
 import os
-from typing import Any, Callable, Generator
+from typing import Any, BinaryIO, Callable, Generator
 
 from sharepoint2text.parsing.exceptions import ExtractionFileFormatNotSupportedError
 from sharepoint2text.parsing.extractors.data_types import ExtractionInterface
@@ -142,7 +141,7 @@ _SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
 def _get_extractor(
     file_type: str,
     ignore_images: bool = False,
-) -> Callable[[io.BytesIO, str | None], Generator[ExtractionInterface, Any, None]]:
+) -> Callable[[BinaryIO, str | None], Generator[ExtractionInterface, Any, None]]:
     """
     Return the extractor function for a file type using lazy import.
 
@@ -155,7 +154,7 @@ def _get_extractor(
         ignore_images: If True, skip image extraction for supported formats.
 
     Returns:
-        Callable extractor function that accepts (BytesIO, path) arguments.
+        Callable extractor function that accepts (binary stream, path) arguments.
 
     Raises:
         ExtractionFileFormatNotSupportedError: If no extractor exists for the file type.
@@ -207,7 +206,7 @@ def _file_type_from_extension(path_lower: str) -> str | None:
     return ext if ext in _EXTRACTOR_REGISTRY else None
 
 
-def is_supported_file(path: str) -> bool:
+def is_supported_file(path: str | os.PathLike[str]) -> bool:
     """
     Check if a path/filename appears to be supported by the extractor registry.
 
@@ -220,7 +219,7 @@ def is_supported_file(path: str) -> bool:
     Returns:
         ``True`` if routing would likely succeed, else ``False``.
     """
-    path_lower = path.lower()
+    path_lower = os.fspath(path).lower()
 
     # Check compound extensions first (e.g., .tar.gz)
     for compound_ext in _COMPOUND_EXTENSIONS:
@@ -236,10 +235,10 @@ def is_supported_file(path: str) -> bool:
 
 
 def get_extractor(
-    path: str,
+    path: str | os.PathLike[str],
     ignore_images: bool = False,
     force_plain_text: bool = False,
-) -> Callable[[io.BytesIO, str | None], Generator[ExtractionInterface, Any, None]]:
+) -> Callable[[BinaryIO, str | None], Generator[ExtractionInterface, Any, None]]:
     """
     Analyze a path/filename and return the appropriate extractor callable.
 
@@ -254,24 +253,27 @@ def get_extractor(
             even when extension/MIME detection does not recognize the file.
 
     Returns:
-        Extractor function with signature ``(BytesIO, path) -> Generator`` that
+        Extractor function with signature ``(binary stream, path) -> Generator`` that
         yields one or more ``ExtractionInterface`` results.
 
     Raises:
         ExtractionFileFormatNotSupportedError: If no extractor exists for the file type.
     """
-    path_lower = path.lower()
+    path_str = os.fspath(path)
+    path_lower = path_str.lower()
     mime_type, _ = mimetypes.guess_type(path_lower)
     logger.debug("Guessed MIME type: [%s]", mime_type)
 
     if force_plain_text:
-        logger.info("Force plain text extraction for file: %s", path)
+        logger.info("Force plain text extraction for file: %s", path_str)
         return _get_extractor("txt", ignore_images=ignore_images)
 
     # Primary detection: file extension (platform-independent)
     file_type = _file_type_from_extension(path_lower)
     if file_type:
-        logger.debug("Detected file type: %s (extension) for file: %s", file_type, path)
+        logger.debug(
+            "Detected file type: %s (extension) for file: %s", file_type, path_str
+        )
         logger.info("Using extractor for file type: %s", file_type)
         return _get_extractor(file_type, ignore_images=ignore_images)
 
@@ -279,10 +281,26 @@ def get_extractor(
     if mime_type is not None and mime_type in MIME_TYPE_MAPPING:
         file_type = MIME_TYPE_MAPPING[mime_type]
         logger.debug(
-            "Detected file type: %s (MIME: %s) for file: %s", file_type, mime_type, path
+            "Detected file type: %s (MIME: %s) for file: %s",
+            file_type,
+            mime_type,
+            path_str,
         )
         logger.info("Using extractor for file type: %s", file_type)
         return _get_extractor(file_type, ignore_images=ignore_images)
 
-    logger.warning("Unsupported file type: %s (MIME: %s)", path, mime_type)
-    raise ExtractionFileFormatNotSupportedError(f"File type not supported: {mime_type}")
+    extension = ""
+    for compound_ext in _COMPOUND_EXTENSIONS:
+        if path_lower.endswith(compound_ext):
+            extension = compound_ext
+            break
+    if not extension:
+        extension = os.path.splitext(path_lower)[1]
+
+    mime_display = mime_type if mime_type is not None else "<unknown>"
+    extension_display = extension if extension else "<none>"
+    logger.warning("Unsupported file type: %s (MIME: %s)", path_str, mime_type)
+    raise ExtractionFileFormatNotSupportedError(
+        "File type not supported for path "
+        f"'{path_str}' (extension: {extension_display}, MIME: {mime_display})"
+    )

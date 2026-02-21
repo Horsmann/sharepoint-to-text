@@ -6,6 +6,7 @@ import zipfile
 from unittest import TestCase
 
 from sharepoint2text.parsing.exceptions import (
+    ExtractionFailedError,
     ExtractionFileEncryptedError,
     ExtractionFileTooLargeError,
 )
@@ -18,6 +19,8 @@ from sharepoint2text.parsing.extractors.data_types import (
     DocxFormula,
     DocxNote,
     DocxUnit,
+    EmailAddress,
+    EmailAttachment,
     EmailContent,
     EmailUnitMetadata,
     EpubContent,
@@ -338,7 +341,7 @@ def test_read_xlsx_4__image_extraction() -> None:
     img_meta = list(xlsx.iterate_images())[0].get_metadata()
     tc.assertEqual(
         ImageMetadata(
-            unit_number=None,
+            unit_number=1,
             image_number=1,
             content_type="image/png",
             width=600,
@@ -346,7 +349,7 @@ def test_read_xlsx_4__image_extraction() -> None:
         ),
         img_meta,
     )
-    tc.assertIsNone(img_meta.unit_number)
+    tc.assertEqual(1, img_meta.unit_number)
     tc.assertEqual(600, img_meta.width)
     tc.assertEqual(300, img_meta.height)
 
@@ -1075,8 +1078,11 @@ def test_read_ppt__image_extraction() -> None:
     #########
     # Units #
     #########
-    tc.assertEqual(2, len(list(ppt.iterate_units())))
-    tc.assertEqual("", list(ppt.iterate_units())[0].get_text())
+    units = list(ppt.iterate_units())
+    tc.assertEqual(2, len(units))
+    tc.assertEqual("", units[0].get_text())
+    tc.assertEqual(1, len(units[0].get_images()))
+    tc.assertEqual(1, len(units[1].get_images()))
 
 
 def test_read_ppt__image_flag() -> None:
@@ -1161,6 +1167,20 @@ def test_read_doc__image_extraction_1() -> None:
             height=660,
         ),
         images[0].get_metadata(),
+    )
+
+    units = list(doc.iterate_units())
+    tc.assertEqual(1, len(units))
+    tc.assertEqual(1, len(units[0].get_images()))
+    tc.assertEqual(
+        ImageMetadata(
+            unit_number=1,
+            image_number=1,
+            content_type="image/bmp",
+            width=1304,
+            height=660,
+        ),
+        units[0].get_images()[0].get_metadata(),
     )
 
 
@@ -1519,6 +1539,29 @@ def test_email__msg_format_with_attachment() -> None:
 
     tc.assertEqual(0, len(list(mail.iterate_images())))
     tc.assertEqual(0, len(list(mail.iterate_tables())))
+
+
+def test_email_iterate_supported_attachments_can_raise_or_skip_failures() -> None:
+    broken_mail = EmailContent(
+        from_email=EmailAddress(name="Sender", address="sender@example.com"),
+        subject="broken attachments",
+        attachments=[
+            EmailAttachment(
+                filename="broken.pdf",
+                mime_type="application/pdf",
+                data=io.BytesIO(b"not-a-real-pdf"),
+                is_supported_mime_type=True,
+            )
+        ],
+    )
+
+    with tc.assertRaises(ExtractionFailedError):
+        list(broken_mail.iterate_supported_attachments())
+
+    tc.assertEqual(
+        [],
+        list(broken_mail.iterate_supported_attachments(skip_failed=True)),
+    )
 
 
 def test_email__eml_format_with_attachment() -> None:
