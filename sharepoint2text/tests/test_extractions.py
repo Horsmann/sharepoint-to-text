@@ -53,6 +53,7 @@ from sharepoint2text.parsing.extractors.data_types import (
     XlsContent,
     XlsUnitMetadata,
     XlsxContent,
+    XlsxSheet,
     XlsxUnitMetadata,
 )
 from sharepoint2text.parsing.extractors.epub_extractor import read_epub
@@ -2839,6 +2840,115 @@ def test_read_macro_enabled_xlsm() -> None:
     # Verify it extracts as XlsxContent (same as .xlsx)
     tc.assertIsInstance(result, XlsxContent)
     tc.assertTrue(len(result.sheets) > 0)
+
+
+def test_read_xlsb() -> None:
+    """Test .xlsm (macro-enabled Excel) extraction - same structure as .xlsx."""
+    path = "sharepoint2text/tests/resources/modern_ms/excel.xlsb"
+    result: XlsxContent = next(
+        read_xlsx(file_like=_read_file_to_file_like(path=path), path=path)
+    )
+    # Verify it extracts as XlsxContent (same as .xlsx)
+    tc.assertEqual(
+        """Sheet2
+A
+A1
+A2
+A3
+B
+Atable
+Btable
+Ctable
+Ytable
+Zparam
+Y
+X
+W
+XWtable
+Utable
+Stable
+S
+.
+H
+R
+P
+O
+B1
+B2
+B3
+POtable
+I1
+I2
+I3
+I4
+Itable
+I
+Ttable
+Dtable
++
+-
+Etable
+Q
+RQtable
+H1
+H2
+H3
+PPtable
+PP""",
+        result.get_full_text(),
+    )
+
+    tc.assertEqual(1, len(list(result.iterate_tables())))
+    sheet: XlsxSheet = list(result.iterate_tables())[0]
+    tc.assertListEqual(
+        [
+            ["A"],
+            ["A1"],
+            ["A2"],
+            ["A3"],
+            ["B"],
+            ["Atable"],
+            ["Btable"],
+            ["Ctable"],
+            ["Ytable"],
+            ["Zparam"],
+            ["Y"],
+            ["X"],
+            ["W"],
+            ["XWtable"],
+            ["Utable"],
+            ["Stable"],
+            ["S"],
+            ["."],
+            ["H"],
+            ["R"],
+            ["P"],
+            ["O"],
+            ["B1"],
+            ["B2"],
+            ["B3"],
+            ["POtable"],
+            ["I1"],
+            ["I2"],
+            ["I3"],
+            ["I4"],
+            ["Itable"],
+            ["I"],
+            ["Ttable"],
+            ["Dtable"],
+            ["+"],
+            ["-"],
+            ["Etable"],
+            ["Q"],
+            ["RQtable"],
+            ["H1"],
+            ["H2"],
+            ["H3"],
+            ["PPtable"],
+            ["PP"],
+        ],
+        sheet.data,
+    )
 
 
 def test_read_xlsx__image_flag() -> None:

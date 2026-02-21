@@ -1,15 +1,17 @@
 """
-XLSX Spreadsheet Extractor
+XLSX/XLSB Spreadsheet Extractor
 
-Extracts text content and metadata from Microsoft Excel .xlsx files
-(Office Open XML format, Excel 2007+).
+Extracts text content and metadata from Microsoft Excel spreadsheet files.
 
-Uses openpyxl for parsing cells/sheets and direct ZIP parsing for images.
+- .xlsx/.xlsm: Parsed with openpyxl.
+- .xlsb: Parsed via a lightweight XLSB fallback path (and optional pyxlsb).
 """
 
 import datetime
 import io
 import logging
+import re
+import zipfile
 from typing import Any, Generator
 
 from openpyxl import load_workbook
@@ -93,6 +95,110 @@ _JPEG_SOF_MARKERS = frozenset(
 
 # Datetime types for isinstance check
 _DATETIME_TYPES = (datetime.datetime, datetime.date, datetime.time)
+_XLSB_SST_ITEM_RECORD = 19
+
+
+def _is_xlsb_path(path: str | None) -> bool:
+    return bool(path and path.lower().endswith(".xlsb"))
+
+
+def _iter_xlsb_records(data: bytes):
+    """Yield (record_type, payload) from an XLSB stream."""
+    i = 0
+    n = len(data)
+    while i < n:
+        # Record type varint
+        rt = 0
+        shift = 0
+        while True:
+            if i >= n:
+                return
+            b = data[i]
+            i += 1
+            rt |= (b & 0x7F) << shift
+            if (b & 0x80) == 0:
+                break
+            shift += 7
+            if shift > 35:
+                return
+
+        # Payload length varint
+        rl = 0
+        shift = 0
+        while True:
+            if i >= n:
+                return
+            b = data[i]
+            i += 1
+            rl |= (b & 0x7F) << shift
+            if (b & 0x80) == 0:
+                break
+            shift += 7
+            if shift > 35:
+                return
+
+        if rl < 0 or i + rl > n:
+            return
+        yield rt, data[i : i + rl]
+        i += rl
+
+
+def _extract_xlsb_shared_strings(raw: bytes) -> list[str]:
+    """Extract shared strings from xl/sharedStrings.bin in an XLSB ZIP."""
+    with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+        if "xl/sharedStrings.bin" not in zf.namelist():
+            return []
+        sst_data = zf.read("xl/sharedStrings.bin")
+
+    out: list[str] = []
+    for record_type, payload in _iter_xlsb_records(sst_data):
+        if record_type != _XLSB_SST_ITEM_RECORD or len(payload) < 5:
+            continue
+        # XLWideString in BrtSSTItem: 1-byte flags + 4-byte char count + UTF-16LE chars
+        cch = int.from_bytes(payload[1:5], "little", signed=False)
+        if cch <= 0:
+            continue
+        byte_len = cch * 2
+        start = 5
+        end = start + byte_len
+        if end > len(payload):
+            continue
+        text = payload[start:end].decode("utf-16le", errors="ignore").strip()
+        if text:
+            out.append(text)
+    return out
+
+
+def _extract_xlsb_sheet_names(raw: bytes) -> list[str]:
+    """Best-effort extraction of sheet names from workbook.bin."""
+    with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+        worksheet_entries = [
+            name
+            for name in zf.namelist()
+            if name.startswith("xl/worksheets/sheet") and name.endswith(".bin")
+        ]
+        default_names = [f"Sheet{i}" for i in range(1, len(worksheet_entries) + 1)]
+        if "xl/workbook.bin" not in zf.namelist():
+            return default_names or ["Sheet1"]
+        workbook_bin = zf.read("xl/workbook.bin")
+
+    # Sheet names are UTF-16LE; pick likely runs and deduplicate in order.
+    decoded = workbook_bin.decode("utf-16le", errors="ignore")
+    candidates = re.findall(r"[A-Za-z0-9 _().-]{1,64}", decoded)
+    names: list[str] = []
+    for candidate in candidates:
+        name = candidate.strip()
+        if not name:
+            continue
+        if name.startswith("Sheet") or name.lower().endswith("table"):
+            if name not in names:
+                names.append(name)
+
+    if not names:
+        return default_names or ["Sheet1"]
+    if default_names and len(names) >= len(default_names):
+        return names[: len(default_names)]
+    return names
 
 
 # =============================================================================
@@ -533,6 +639,64 @@ def _read_content_from_workbook(wb, sheet_names: list[str]) -> list[XlsxSheet]:
 # =============================================================================
 
 
+def _read_xlsb(raw: bytes, path: str | None = None) -> XlsxContent:
+    """Extract text from XLSB files with optional pyxlsb support and a fallback."""
+    metadata = XlsxMetadata()
+    metadata.populate_from_path(path)
+
+    # Prefer pyxlsb when available for row-accurate extraction.
+    try:
+        import tempfile
+
+        from pyxlsb import open_workbook  # type: ignore
+
+        with tempfile.NamedTemporaryFile(suffix=".xlsb") as tmp:
+            tmp.write(raw)
+            tmp.flush()
+
+            sheets: list[XlsxSheet] = []
+            with open_workbook(tmp.name) as wb:
+                sheet_names = list(getattr(wb, "sheets", []) or [])
+                for sheet_index, sheet_name in enumerate(sheet_names, start=1):
+                    all_rows: list[list[Any]] = []
+                    with wb.get_sheet(sheet_index) as sheet:
+                        for row in sheet.rows(sparse=False):
+                            vals: list[Any] = []
+                            for cell in row:
+                                value = getattr(cell, "v", None)
+                                vals.append(_get_cell_value(value))
+                            if any(_is_cell_non_empty(v) for v in vals):
+                                all_rows.append(vals)
+
+                    text = _format_sheet_as_text(all_rows) if all_rows else ""
+                    sheets.append(
+                        XlsxSheet(name=str(sheet_name), data=all_rows, text=text)
+                    )
+
+            if sheets:
+                return XlsxContent(metadata=metadata, sheets=sheets)
+    except Exception as exc:
+        logger.debug("pyxlsb parsing unavailable or failed, using fallback: %s", exc)
+
+    # Fallback path: shared strings extraction.
+    sheet_names = _extract_xlsb_sheet_names(raw)
+    shared_strings = _extract_xlsb_shared_strings(raw)
+    fallback_text = "\n".join(shared_strings).strip()
+    fallback_table = [[s] for s in shared_strings] if shared_strings else []
+    first_sheet_name = sheet_names[0] if sheet_names else "Sheet1"
+    return XlsxContent(
+        metadata=metadata,
+        sheets=[
+            XlsxSheet(
+                name=first_sheet_name,
+                data=fallback_table,
+                text=fallback_text,
+                images=[],
+            )
+        ],
+    )
+
+
 def read_xlsx(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[XlsxContent, Any, None]:
@@ -555,6 +719,18 @@ def read_xlsx(
             )
 
         raw = file_like.read()
+
+        if _is_xlsb_path(path):
+            validate_zip_bytesio(io.BytesIO(raw), source="read_xlsb")
+            content = _read_xlsb(raw, path=path)
+            logger.info(
+                "Extracted XLSB: %d sheets, %d total rows",
+                len(content.sheets),
+                sum(len(sheet.data) for sheet in content.sheets),
+            )
+            yield content
+            return
+
         validate_zip_bytesio(io.BytesIO(raw), source="read_xlsx")
 
         wb = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)

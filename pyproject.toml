@@ -122,7 +122,7 @@ include = ["sharepoint2text/py.typed"]
 
 [tool.black]
 line-length = 88
-target-version = ["py310", "py311", "py312"]
+target-version = ["py310", "py311", "py312", "py313", "py314"]
 
 [tool.pytest.ini_options]
 testpaths = ["sharepoint2text/tests"]

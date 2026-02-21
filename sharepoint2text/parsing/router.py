@@ -19,6 +19,10 @@ _EXTRACTOR_REGISTRY: dict[str, tuple[str, str]] = {
         "sharepoint2text.parsing.extractors.ms_modern.xlsx_extractor",
         "read_xlsx",
     ),
+    "xlsb": (
+        "sharepoint2text.parsing.extractors.ms_modern.xlsx_extractor",
+        "read_xlsx",
+    ),
     "docx": (
         "sharepoint2text.parsing.extractors.ms_modern.docx_extractor",
         "read_docx",
