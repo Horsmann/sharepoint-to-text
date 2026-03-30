@@ -13,6 +13,7 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionZipBombError,
 )
 from sharepoint2text.parsing.extractors.archive_extractor import read_archive
+from sharepoint2text.parsing.extractors.csv_extractor import read_csv
 from sharepoint2text.parsing.extractors.data_types import (
     DocContent,
     DocImage,
@@ -3136,6 +3137,16 @@ def test_read_mhtml() -> None:
     tc.assertEqual("https://example.com", result.links[0]["href"])
 
 
+def test_read_csv_2():
+    path = "sharepoint2text/tests/resources/plain_text/plain.csv"
+    results = list(read_csv(file_like=_read_file_to_file_like(path=path), path=path))
+
+    tc.assertListEqual(
+        [["Text", "Date"], ["Hello World", "2025-12-25"]],
+        list(results[0].iterate_tables())[0].get_table(),
+    )
+
+
 ############
 # Archives #
 ############
@@ -3340,3 +3351,20 @@ def test_archive_skips_hidden_files() -> None:
     # Should only extract visible.txt
     tc.assertEqual(1, len(results))
     tc.assertIn("visible content", results[0].get_full_text())
+
+
+def test_markdown_export():
+    """Test markdown export functionality."""
+
+    path = (
+        "sharepoint2text/tests/resources/modern_ms/sample_with_comment_and_table.docx"
+    )
+
+    docx: DocxContent = next(read_docx(_read_file_to_file_like(path=path)))
+
+    tc.assertEqual(
+        "Hello World!\nAn image of space\nIncome\ntax\n119\n19\n"
+        "Another sentence after the table.\n$$\\frac{3}{4}\\times4=\\sqrt{9}$$\n\n"
+        "## Tables\n\n| Income | tax |\n|--------|-----|\n| 119    | 19  |",
+        docx.get_full_markdown(),
+    )

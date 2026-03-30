@@ -23,6 +23,7 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionZipBombError,
 )
 from sharepoint2text.parsing.extractors.data_types import (
+    CsvContent,
     DocContent,
     DocxContent,
     EmailContent,
@@ -61,11 +62,14 @@ def _normalize_version(value: str) -> str:
 
 def _version_from_pyproject() -> str | None:
     here = Path(__file__).resolve()
-    for parent in list(here.parents)[:5]:
+    for parent in list(here.parents)[:3]:
         pyproject = parent / "pyproject.toml"
         if not pyproject.is_file():
             continue
         text = pyproject.read_text(encoding="utf-8", errors="ignore")
+        # Verify this is our project's pyproject.toml
+        if 'name = "sharepoint-to-text"' not in text:
+            continue
         match = re.search(
             r'(?ms)^\[project\]\s.*?^version\s*=\s*["\']([^"\']+)["\']\s*$',
             text,
@@ -253,6 +257,19 @@ def read_plain_text(
 
     logger.debug("Reading plain text file: %s", path)
     return _read_plain_text(file_like, path, ignore_images=ignore_images)
+
+
+#############
+# CSV / TSV
+#############
+def read_csv(
+    file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
+) -> Generator[CsvContent, Any, None]:
+    """Extract structured content from a CSV or TSV file."""
+    from sharepoint2text.parsing.extractors.csv_extractor import read_csv as _read_csv
+
+    logger.debug("Reading CSV/TSV file: %s", path)
+    return _read_csv(file_like, path, ignore_images=ignore_images)
 
 
 #############
@@ -619,6 +636,7 @@ __all__ = [
     "read_pptx",
     "read_rtf",
     "read_plain_text",
+    "read_csv",
     "read_html",
     # open office
     "read_odt",
@@ -634,6 +652,7 @@ __all__ = [
     "read_epub",
     "read_mhtml",
     # content types
+    "CsvContent",
     "DocContent",
     "DocxContent",
     "EmailContent",
