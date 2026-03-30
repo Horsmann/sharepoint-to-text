@@ -21,8 +21,8 @@ Tests cover:
 """
 
 from unittest import TestCase
-from xml.etree import ElementTree as ET
 
+from sharepoint2text.parsing import _defused_xml as ET
 from sharepoint2text.parsing.extractors.ms_modern.omml_to_latex import (
     GREEK_TO_LATEX,
     convert_greek_and_symbols,
