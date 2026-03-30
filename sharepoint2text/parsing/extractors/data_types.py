@@ -47,6 +47,74 @@ def _odf_length_to_px(length: str | None) -> int | None:
     return None
 
 
+def _markdown_unit_heading(meta: UnitMetadataInterface, multi_unit: bool) -> str | None:
+    """Generate a markdown heading from unit metadata using duck-typing."""
+    if not multi_unit:
+        return None
+
+    heading_level = getattr(meta, "heading_level", None)
+    heading_path = getattr(meta, "heading_path", None)
+    if heading_path and heading_level:
+        prefix = "#" * min(heading_level + 1, 6)
+        return f"{prefix} {heading_path[-1]}"
+
+    sheet_name = getattr(meta, "sheet_name", None)
+    if sheet_name:
+        return f"## {sheet_name}"
+
+    title = getattr(meta, "title", None)
+    if title:
+        return f"## {title}"
+
+    slide_number = getattr(meta, "slide_number", None)
+    if slide_number is not None:
+        return f"## Slide {slide_number}"
+
+    total_pages = getattr(meta, "total_pages", None)
+    if total_pages is not None:
+        return f"## Page {meta.unit_number}"
+
+    page_number = getattr(meta, "page_number", None)
+    if page_number is not None:
+        return f"## Page {page_number}"
+
+    return f"## Section {meta.unit_number}"
+
+
+def _render_markdown_table(data: list[list[typing.Any]]) -> str:
+    """Render a 2D list as a Markdown pipe table."""
+    if not data:
+        return ""
+
+    num_cols = max((len(row) for row in data), default=0)
+    if num_cols == 0:
+        return ""
+
+    rows: list[list[str]] = []
+    for row in data:
+        normalized = [str(cell) if cell is not None else "" for cell in row]
+        while len(normalized) < num_cols:
+            normalized.append("")
+        rows.append(normalized)
+
+    widths = [3] * num_cols
+    for row in rows:
+        for i, cell in enumerate(row):
+            widths[i] = max(widths[i], len(cell))
+
+    lines: list[str] = []
+    header = "| " + " | ".join(cell.ljust(w) for cell, w in zip(rows[0], widths)) + " |"
+    separator = "|" + "|".join("-" * (w + 2) for w in widths) + "|"
+    lines.append(header)
+    lines.append(separator)
+
+    for row in rows[1:]:
+        line = "| " + " | ".join(cell.ljust(w) for cell, w in zip(row, widths)) + " |"
+        lines.append(line)
+
+    return "\n".join(lines)
+
+
 ##############
 # Interfaces #
 ##############
@@ -127,6 +195,43 @@ class ExtractionInterface(Protocol):
             >>> assert restored.get_full_text() == content.get_full_text()
         """
         return deserialize_extraction(data)
+
+    def get_full_markdown(self) -> str:
+        """Get content as Markdown-formatted text.
+
+        Renders the extraction result as Markdown with:
+        - Section headers derived from unit metadata (pages, slides, sheets, headings)
+        - Tables from ``iterate_tables()`` rendered as pipe-delimited Markdown tables
+
+        Multi-unit documents (e.g. PDFs, slide decks, spreadsheets) receive
+        a ``##``-level heading per unit. Single-unit documents omit the heading.
+
+        Returns:
+            A Markdown-formatted string.
+        """
+        parts: list[str] = []
+        units = list(self.iterate_units())
+        multi_unit = len(units) > 1
+
+        for unit in units:
+            meta = unit.get_metadata()
+            heading = _markdown_unit_heading(meta, multi_unit)
+            if heading:
+                parts.append(heading)
+
+            text = unit.get_text().strip()
+            if text:
+                parts.append(text)
+
+        tables = list(self.iterate_tables())
+        if tables:
+            parts.append("## Tables")
+            for table in tables:
+                md = _render_markdown_table(table.get_table())
+                if md:
+                    parts.append(md)
+
+        return "\n\n".join(parts).strip()
 
 
 @dataclass
@@ -1361,6 +1466,69 @@ class PlainTextContent(ExtractionInterface):
 
     def __post_init__(self):
         self.content = self.content.strip()
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
+
+
+############
+# CSV / TSV
+############
+
+
+@dataclass
+class CsvUnitMetadata(UnitMetadataInterface):
+    """CSV/TSV Unit Metadata"""
+
+    pass
+
+
+@dataclass
+class CsvUnit(UnitInterface):
+    text: str
+    tables: list[TableData] = field(default_factory=list)
+
+    def get_text(self) -> str:
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        return []
+
+    def get_tables(self) -> list[TableData]:
+        return list(self.tables)
+
+    def get_metadata(self) -> CsvUnitMetadata:
+        return CsvUnitMetadata(unit_number=1)
+
+    def to_json(self) -> dict:
+        return serialize_extraction(self)
+
+
+@dataclass
+class CsvContent(ExtractionInterface):
+    content: str = ""
+    table: TableData = field(default_factory=TableData)
+    metadata: FileMetadataInterface = field(default_factory=FileMetadataInterface)
+
+    def iterate_units(
+        self, *, ignore_images: bool = False
+    ) -> typing.Iterator[UnitInterface]:
+        tables = [self.table] if self.table.data else []
+        yield CsvUnit(text=self.content.strip(), tables=tables)
+
+    def get_full_text(self) -> str:
+        return _join_unit_text(self.iterate_units())
+
+    def get_metadata(self) -> FileMetadataInterface:
+        return self.metadata
+
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        yield from ()
+        return
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        if self.table.data:
+            yield self.table
 
     def to_json(self) -> dict:
         return serialize_extraction(self)

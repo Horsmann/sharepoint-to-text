@@ -4,6 +4,7 @@ from pathlib import Path
 
 from sharepoint2text.parsing.exceptions import ExtractionFileFormatNotSupportedError
 from sharepoint2text.parsing.extractors.archive_extractor import read_archive
+from sharepoint2text.parsing.extractors.csv_extractor import read_csv
 from sharepoint2text.parsing.extractors.epub_extractor import read_epub
 from sharepoint2text.parsing.extractors.html_extractor import read_html
 from sharepoint2text.parsing.extractors.mail.eml_email_extractor import (
@@ -178,11 +179,11 @@ def test_router():
 
     # csv
     func = get_extractor("myfile.csv")
-    tc.assertEqual(read_plain_text, func)
+    tc.assertEqual(read_csv, func)
 
     # tsv
     func = get_extractor("myfile.tsv")
-    tc.assertEqual(read_plain_text, func)
+    tc.assertEqual(read_csv, func)
 
     # rtf
     func = get_extractor("myfile.rtf")

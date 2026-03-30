@@ -67,11 +67,12 @@ _EXTRACTOR_REGISTRY: dict[str, tuple[str, str]] = {
         "sharepoint2text.parsing.extractors.mail.eml_email_extractor",
         "read_eml_format_mail",
     ),
+    # Structured delimited formats
+    "csv": ("sharepoint2text.parsing.extractors.csv_extractor", "read_csv"),
+    "tsv": ("sharepoint2text.parsing.extractors.csv_extractor", "read_csv"),
     # Plain text variants (all use the same extractor)
-    "csv": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
     "json": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
     "txt": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
-    "tsv": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
     "md": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
     # Configuration and data formats
     "yaml": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
