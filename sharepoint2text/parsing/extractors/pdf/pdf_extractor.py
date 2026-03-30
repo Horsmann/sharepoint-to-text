@@ -111,13 +111,14 @@ import struct
 from typing import Any, Callable, Generator, Iterable, Optional, Protocol
 
 from pypdf import PdfReader
-from pypdf.errors import DependencyError
+from pypdf.errors import DependencyError, LimitReachedError
 from pypdf.generic import ContentStream
 
 from sharepoint2text.parsing.exceptions import (
     ExtractionError,
     ExtractionFailedError,
     ExtractionFileEncryptedError,
+    ExtractionFileTooLargeError,
 )
 from sharepoint2text.parsing.extractors.data_types import (
     PdfContent,
@@ -620,6 +621,13 @@ def read_pdf(
         )
     except ExtractionError:
         raise
+    except LimitReachedError as exc:
+        raise ExtractionFileTooLargeError(
+            f"PDF decompression limit reached: {exc}",
+            max_size=0,
+            actual_size=0,
+            cause=exc,
+        ) from exc
     except (DependencyError, OSError, ValueError, TypeError, KeyError) as exc:
         raise ExtractionFailedError("Failed to extract PDF file", cause=exc) from exc
     finally:
