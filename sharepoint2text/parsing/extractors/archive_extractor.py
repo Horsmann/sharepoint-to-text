@@ -103,6 +103,22 @@ NESTED_ARCHIVE_EXTENSIONS: Set[str] = {
 # Hidden file patterns
 HIDDEN_PATTERNS: Set[str] = {".", "__MACOSX/"}
 
+# Image file extensions (lowercase)
+IMAGE_EXTENSIONS: Set[str] = {
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".bmp",
+    ".tiff",
+    ".tif",
+    ".svg",
+    ".webp",
+    ".ico",
+    ".heic",
+    ".heif",
+}
+
 
 @dataclass(frozen=True)
 class ArchiveConfig:
@@ -218,9 +234,29 @@ def _is_unsafe_archive_path(filename: str) -> bool:
     return False
 
 
-def _should_skip_file(filename: str, basename: str) -> bool:
+def _is_image_file(filename: str) -> bool:
+    """Check if a file is an image based on its extension.
+
+    Args:
+        filename: File path or basename to check.
+
+    Returns:
+        True if the file has an image extension, False otherwise.
+    """
+    _, ext = os.path.splitext(filename.lower())
+    return ext in IMAGE_EXTENSIONS
+
+
+def _should_skip_file(
+    filename: str, basename: str, ignore_images: bool = False
+) -> bool:
     """
     Fast file filtering with early returns.
+
+    Args:
+        filename: Full path in archive.
+        basename: Base filename for type checking.
+        ignore_images: If True, skip image files.
 
     Returns:
         True if file should be skipped, False otherwise.
@@ -232,6 +268,10 @@ def _should_skip_file(filename: str, basename: str) -> bool:
 
     # Fast path: check hidden patterns
     if basename.startswith(".") or filename.startswith("__MACOSX/"):
+        return True
+
+    # Skip images if flag is set
+    if ignore_images and _is_image_file(basename):
         return True
 
     # Check unsupported file types (cached)
@@ -334,7 +374,7 @@ def _extract_from_zip_optimized(
                 basename = os.path.basename(filename)
 
                 # Fast filtering
-                if _should_skip_file(filename, basename):
+                if _should_skip_file(filename, basename, ignore_images=ignore_images):
                     continue
 
                 files_to_process.append((info, filename, basename))
@@ -430,7 +470,7 @@ def _extract_from_tar_optimized(
                 basename = os.path.basename(filename)
 
                 # Fast filtering
-                if _should_skip_file(filename, basename):
+                if _should_skip_file(filename, basename, ignore_images=ignore_images):
                     continue
 
                 # Check file size for memory optimization
@@ -543,7 +583,7 @@ def _extract_from_7z_optimized(
                 filename = file_info.filename
                 basename = os.path.basename(filename)
 
-                if _should_skip_file(filename, basename):
+                if _should_skip_file(filename, basename, ignore_images=ignore_images):
                     continue
 
                 # Check file size

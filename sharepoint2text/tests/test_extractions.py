@@ -3353,6 +3353,31 @@ def test_archive_skips_hidden_files() -> None:
     tc.assertIn("visible content", results[0].get_full_text())
 
 
+def test_archive_skips_images() -> None:
+
+    path = "sharepoint2text/tests/resources/archives/with_images.zip"
+    results = list(
+        read_archive(
+            file_like=_read_file_to_file_like(path=path), path=path, ignore_images=True
+        )
+    )
+    tc.assertEqual(2, len(results))
+    tc.assertEqual("#\nApache sample", results[0].get_full_text())
+    tc.assertEqual("Hello World", results[1].get_full_text())
+    tc.assertEqual([], list(results[0].iterate_images()))
+    tc.assertEqual([], list(results[1].iterate_images()))
+
+    path = "sharepoint2text/tests/resources/archives/with_images.zip"
+    results = list(
+        read_archive(
+            file_like=_read_file_to_file_like(path=path), path=path, ignore_images=False
+        )
+    )
+    tc.assertEqual(2, len(results))
+    tc.assertEqual(1, len(list(results[0].iterate_images())))
+    tc.assertEqual(1, len(list(results[1].iterate_images())))
+
+
 def test_markdown_export():
     """Test markdown export functionality."""
 
