@@ -202,6 +202,22 @@ def _detect_archive_type_optimized(file_like: io.BytesIO) -> Optional[str]:
     return None
 
 
+def _is_unsafe_archive_path(filename: str) -> bool:
+    """Check if an archive entry path is a path traversal attempt.
+
+    Rejects absolute paths and paths containing '..' components that could
+    escape the extraction directory.
+    """
+    normalized = os.path.normpath(filename)
+    if os.path.isabs(normalized):
+        return True
+    # Check for '..' that would escape the base directory
+    parts = normalized.replace("\\", "/").split("/")
+    if ".." in parts:
+        return True
+    return False
+
+
 def _should_skip_file(filename: str, basename: str) -> bool:
     """
     Fast file filtering with early returns.
@@ -209,6 +225,11 @@ def _should_skip_file(filename: str, basename: str) -> bool:
     Returns:
         True if file should be skipped, False otherwise.
     """
+    # Reject path traversal attempts (absolute paths or '..' components)
+    if _is_unsafe_archive_path(filename):
+        logger.warning("Skipping unsafe archive entry path: %s", filename)
+        return True
+
     # Fast path: check hidden patterns
     if basename.startswith(".") or filename.startswith("__MACOSX/"):
         return True
@@ -569,6 +590,18 @@ def _process_7z_files_sequential(
     for file_info, filename, basename in files_to_process:
         try:
             extracted_path = os.path.join(temp_dir, filename)
+            # Verify the resolved path stays within the temp directory
+            real_extracted = os.path.realpath(extracted_path)
+            real_temp = os.path.realpath(temp_dir)
+            if not (
+                real_extracted == real_temp
+                or real_extracted.startswith(real_temp + os.sep)
+            ):
+                logger.warning(
+                    "Skipping 7z entry with path escaping temp dir: %s", filename
+                )
+                continue
+
             if not os.path.exists(extracted_path):
                 logger.warning("Extracted file not found: %s", filename)
                 continue

@@ -39,7 +39,7 @@ bracket is found.
 
 Usage
 -----
-    >>> from xml.etree import ElementTree as ET
+    >>> from defusedxml import ElementTree as ET
     >>> from sharepoint2text.parsing.extractors.util.omml_to_latex import omml_to_latex
     >>>
     >>> # Parse OMML from document XML
@@ -53,7 +53,7 @@ See Also
 - pptx_extractor: Uses this module for formula extraction
 """
 
-from xml.etree import ElementTree as ET
+from sharepoint2text.parsing import _defused_xml as ET
 
 # OMML namespace
 M_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/math}"
@@ -236,7 +236,7 @@ def omml_to_latex(omath_element: ET.Element | None) -> str:
         matching closing bracket is found.
 
     Example:
-        >>> from xml.etree import ElementTree as ET
+        >>> from defusedxml import ElementTree as ET
         >>> # Simple fraction
         >>> xml = '''<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">
         ...   <m:f>

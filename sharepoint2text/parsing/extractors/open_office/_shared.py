@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import mimetypes
 from functools import lru_cache
-from xml.etree import ElementTree as ET
 
+from sharepoint2text.parsing import _defused_xml as ET
 from sharepoint2text.parsing.extractors.data_types import OpenDocumentMetadata
 
 

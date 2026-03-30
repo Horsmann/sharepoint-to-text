@@ -11,8 +11,8 @@ extraction, without requiring the python-docx library.
 import io
 import logging
 from typing import Any, Generator
-from xml.etree import ElementTree as ET
 
+from sharepoint2text.parsing import _defused_xml as ET
 from sharepoint2text.parsing.exceptions import (
     ExtractionError,
     ExtractionFailedError,

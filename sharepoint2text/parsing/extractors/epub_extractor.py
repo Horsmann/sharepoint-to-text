@@ -88,8 +88,8 @@ import re
 from functools import lru_cache
 from html.parser import HTMLParser
 from typing import Any, Dict, Generator, List, Optional, Tuple
-from xml.etree import ElementTree as ET
 
+from sharepoint2text.parsing import _defused_xml as ET
 from sharepoint2text.parsing.exceptions import (
     ExtractionError,
     ExtractionFailedError,
