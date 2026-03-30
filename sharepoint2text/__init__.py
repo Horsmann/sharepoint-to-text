@@ -8,6 +8,7 @@ legacy binary formats, plus PDF documents.
 
 import logging
 import re
+import sys
 from importlib.metadata import PackageNotFoundError, version
 from io import BytesIO
 from pathlib import Path
@@ -47,6 +48,52 @@ from sharepoint2text.parsing.mime_types import MIME_TYPE_MAPPING
 from sharepoint2text.parsing.router import get_extractor, is_supported_file
 
 logger = logging.getLogger(__name__)
+
+# Default pypdf decompression limit (bytes). pypdf uses 75 MB internally.
+_PYPDF_DEFAULT_DECOMPRESSION_LIMIT = 75_000_000
+
+# Sentinel value to effectively disable pypdf limits.  pypdf checks
+# ``length > MAX_…`` so any stream smaller than this passes.  We cannot
+# use ``0`` because that would make *every* stream exceed the limit.
+# ``sys.maxsize`` is the platform's ``ssize_t`` max, accepted by zlib.
+_PYPDF_NO_LIMIT = sys.maxsize
+
+
+def _configure_pypdf_limits(max_file_size: int) -> None:
+    """Adjust pypdf's internal decompression limits to match *max_file_size*.
+
+    pypdf caps zlib/LZW/RunLength/JBIG2 output and declared stream lengths
+    at 75 MB.  When the caller raises (or disables) the sharepoint2text size
+    limit we must propagate that to pypdf, otherwise large but legitimate
+    PDFs still hit ``LimitReachedError``.
+
+    Args:
+        max_file_size: The user-supplied limit in bytes.
+                       ``0`` means "no limit" – pypdf limits are disabled.
+    """
+    import pypdf.filters as _filters  # noqa: PLC0415
+
+    if max_file_size == 0:
+        # Disable all pypdf decompression limits.
+        target = _PYPDF_NO_LIMIT
+    elif max_file_size > _PYPDF_DEFAULT_DECOMPRESSION_LIMIT:
+        # Use the user's limit (compressed content can expand, so match it).
+        target = max_file_size
+    else:
+        # User limit is at or below pypdf's default – leave pypdf defaults.
+        return
+
+    for attr in (
+        "ZLIB_MAX_OUTPUT_LENGTH",
+        "LZW_MAX_OUTPUT_LENGTH",
+        "RUN_LENGTH_MAX_OUTPUT_LENGTH",
+        "JBIG2_MAX_OUTPUT_LENGTH",
+        "MAX_DECLARED_STREAM_LENGTH",
+        "MAX_ARRAY_BASED_STREAM_OUTPUT_LENGTH",
+    ):
+        if hasattr(_filters, attr):
+            setattr(_filters, attr, target)
+
 
 _PRERELEASE_NORMALIZE_RE = re.compile(r"(?<=\d)\.(a|b|rc)(0|[1-9]\d*)\b", re.IGNORECASE)
 
@@ -451,6 +498,8 @@ def read_file(
 
     path = Path(path)
 
+    _configure_pypdf_limits(max_file_size)
+
     # Check file size before reading
     if max_file_size > 0:
         file_size = path.stat().st_size
@@ -530,6 +579,8 @@ def read_bytes(
     """
     if not isinstance(data, (bytes, BytesIO)):
         raise TypeError("data must be bytes or io.BytesIO")
+
+    _configure_pypdf_limits(max_file_size)
 
     normalized_extension = extension.strip().lower() if extension else ""
     normalized_mime_type = mime_type.strip().lower() if mime_type else ""
