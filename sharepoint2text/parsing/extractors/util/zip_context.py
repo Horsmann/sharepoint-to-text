@@ -1,11 +1,13 @@
 import io
-from xml.etree.ElementTree import Element as XmlElement
 
+from sharepoint2text.parsing import _defused_xml as ET
 from sharepoint2text.parsing.extractors.util.zip_bomb import open_zipfile
 from sharepoint2text.parsing.extractors.util.zip_utils import (
     read_zip_text,
     read_zip_xml_root,
 )
+
+XmlElement = ET.Element
 
 
 class ZipContext:

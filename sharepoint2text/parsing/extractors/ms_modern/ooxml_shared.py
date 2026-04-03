@@ -1,10 +1,12 @@
 """Shared helpers for OOXML extractors (DOCX/PPTX/XLSX)."""
 
 from typing import Callable
-from xml.etree.ElementTree import Element as XmlElement
 
+from sharepoint2text.parsing import _defused_xml as ET
 from sharepoint2text.parsing.extractors.util.zip_context import ZipContext
 from sharepoint2text.parsing.extractors.util.zip_utils import parse_relationships
+
+XmlElement = ET.Element
 
 IMAGE_CONTENT_TYPE_MAP = {
     "png": "image/png",

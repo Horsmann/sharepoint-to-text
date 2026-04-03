@@ -426,7 +426,7 @@ class _DocReader:
             bmp_data = _DocReader._build_bmp_from_dib(
                 dib_data, header_size, color_table_size
             )
-            digest = hashlib.sha1(bmp_data).hexdigest()
+            digest = hashlib.sha256(bmp_data).hexdigest()
             if digest in seen_hashes:
                 i += dib_len
                 continue
@@ -488,7 +488,7 @@ class _DocReader:
                     pos = crc_end
                     if chunk_type == b"IEND":
                         png_bytes = data[start:pos]
-                        digest = hashlib.sha1(png_bytes).hexdigest()
+                        digest = hashlib.sha256(png_bytes).hexdigest()
                         if digest not in seen_hashes:
                             seen_hashes.add(digest)
                             image_counter += 1
@@ -707,7 +707,7 @@ class _DocReader:
             for image in images:
                 data_bytes = image.data.read() if image.data else b""
                 image.data.seek(0) if image.data else None
-                digest = hashlib.sha1(data_bytes).hexdigest() if data_bytes else ""
+                digest = hashlib.sha256(data_bytes).hexdigest() if data_bytes else ""
                 if digest and digest in seen_hashes:
                     continue
                 if digest:

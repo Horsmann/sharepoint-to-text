@@ -654,7 +654,7 @@ def _extract_images_from_pictures_stream(ole: olefile.OleFileIO) -> list[PptImag
             continue
 
         # Deduplicate
-        digest = hashlib.sha1(image_data or b"").hexdigest()
+        digest = hashlib.sha256(image_data or b"").hexdigest()
         if digest in seen_hashes:
             continue
         seen_hashes.add(digest)

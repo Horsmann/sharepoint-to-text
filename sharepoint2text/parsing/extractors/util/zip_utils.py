@@ -1,8 +1,7 @@
 import zipfile
 from typing import Dict, List
-from xml.etree.ElementTree import Element as XmlElement
 
-from defusedxml import ElementTree as ET
+from sharepoint2text.parsing import _defused_xml as ET
 
 RELATIONSHIP_NAMESPACE = "http://schemas.openxmlformats.org/package/2006/relationships"
 
@@ -12,14 +11,13 @@ def read_zip_text(zf: zipfile.ZipFile, path: str) -> str:
     return zf.read(path).decode("utf-8", errors="ignore")
 
 
-def read_zip_xml_root(zf: zipfile.ZipFile, path: str) -> XmlElement:
+def read_zip_xml_root(zf: zipfile.ZipFile, path: str) -> ET.Element:
     """Parse an XML file from a ZIP archive and return its root element."""
-    element = ET.fromstring(zf.read(path))
-    assert isinstance(element, XmlElement)
+    element: ET.Element = ET.fromstring(zf.read(path))
     return element
 
 
-def find_relationship_elements(rels_root: XmlElement) -> List[XmlElement]:
+def find_relationship_elements(rels_root: ET.Element) -> List[ET.Element]:
     """Return Relationship elements, handling namespace differences."""
     relationships = rels_root.findall(
         "rel:Relationship", {"rel": RELATIONSHIP_NAMESPACE}
@@ -29,7 +27,7 @@ def find_relationship_elements(rels_root: XmlElement) -> List[XmlElement]:
     return rels_root.findall(f".//{{{RELATIONSHIP_NAMESPACE}}}Relationship")
 
 
-def parse_relationships(rels_root: XmlElement) -> List[Dict[str, str]]:
+def parse_relationships(rels_root: ET.Element) -> List[Dict[str, str]]:
     """Normalize Relationship elements into a list of dictionaries."""
     relationships: List[Dict[str, str]] = []
     for rel in find_relationship_elements(rels_root):
