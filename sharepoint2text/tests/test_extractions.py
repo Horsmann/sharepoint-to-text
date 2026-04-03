@@ -3427,26 +3427,25 @@ def test_apple_pages_3():
     """Test apple pages extractor."""
 
     path = "sharepoint2text/tests/resources/apple/pages_text_only.pages"
+    expected = "\n".join(
+        (
+            "My Title",
+            "",
+            "Chapter 1",
+            "",
+            "Paragraph 1",
+            "",
+            "The document outlines a series of standard procedures that are to be followed during routine operational checks. Each procedure has been reviewed and approved by the relevant oversight committee and is intended to ensure consistency across all applicable scenarios. Staff members are expected to familiarize themselves with these procedures and apply them as described, without deviation unless otherwise instructed. Any discrepancies observed during implementation should be recorded in the appropriate log and submitted for further evaluation at the end of the reporting period.",
+            "",
+            "Paragraph 2",
+            "",
+            "In addition to the procedural guidelines, the document includes a summary of general expectations regarding documentation and communication. All entries must be completed in a clear and legible manner, using the designated formats provided in the appendix. Communication between departments should adhere to the established channels to avoid unnecessary delays or misunderstandings. Periodic reviews will be conducted to confirm compliance with these expectations, and any required adjustments will be communicated through standard administrative updates.",
+        )
+    )
 
     page_obj: ApplePagesContent = next(
         read_apple_pages(_read_file_to_file_like(path=path))
     )
 
-    tc.assertEqual(
-        "\n".join(
-            (
-                "My Title",
-                "",
-                "Chapter 1",
-                "",
-                "Paragraph 1",
-                "",
-                "The document outlines a series of standard procedures that are to be followed during routine operational checks. Each procedure has been reviewed and approved by the relevant oversight committee and is intended to ensure consistency across all applicable scenarios. Staff members are expected to familiarize themselves with these procedures and apply them as described, without deviation unless otherwise instructed. Any discrepancies observed during implementation should be recorded in the appropriate log and submitted for further evaluation at the end of the reporting period.",
-                "",
-                "Paragraph 2",
-                "",
-                "In addition to the procedural guidelines, the document includes a summary of general expectations regarding documentation and communication. All entries must be completed in a clear and legible manner, using the designated formats provided in the appendix. Communication between departments should adhere to the established channels to avoid unnecessary delays or misunderstandings. Periodic reviews will be conducted to confirm compliance with these expectations, and any required adjustments will be communicated through standard administrative updates.",
-            )
-        ),
-        page_obj.get_full_text(),
-    )
+    tc.assertEqual(expected, page_obj.get_full_text())
+    tc.assertEqual(expected, page_obj.get_full_markdown())
