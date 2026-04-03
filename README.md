@@ -346,9 +346,8 @@ restored = ExtractionInterface.from_json(payload)
 
 ## Additional Documentation
 
-- [doc/integration-guide.md](doc/integration-guide.md): package-selection and integration guide for engineers
+- [doc/direct-extractors.md](doc/direct-extractors.md): call format-specific extractors directly and work with concrete result attributes
 - [doc/format-matrix.md](doc/format-matrix.md): per-format behavior, units, and caveats
-- [doc/troubleshooting.md](doc/troubleshooting.md): common runtime issues and how to respond
 - [CONTRIBUTING.md](CONTRIBUTING.md): contributor workflow
 - [CHANGELOG.md](CHANGELOG.md): release history
 
