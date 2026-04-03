@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [Released]
+
+## [1.0.1] - 2026-04-03
 ### Added
 - CSV reader added to treat csv like tables
 - Allow a `get_full_markdown()` export
@@ -16,8 +20,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Prevent XML External Entity attacks for .xml-based formats
 - Archive extraction respects ignore_images flag now
 - Minor speed-tweaks
-
-## [Released]
 
 ## [1.0.0] - 2026-02-21
 ### Added
