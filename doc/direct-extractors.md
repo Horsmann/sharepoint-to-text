@@ -83,6 +83,7 @@ methods with concrete attributes from the specific result type.
 | `read_ppt` | `.ppt`, `.pot`, `.pps` | `PptContent` | one unit per slide | `slides`, `master_text`, `all_text`, `streams`, `metadata` |
 | `read_odp` | `.odp`, `.otp` | `OdpContent` | one unit per slide | `slides`, `metadata` |
 | `read_pdf` | `.pdf` | `PdfContent` | one unit per page | `pages`, `metadata` |
+| `read_apple_pages` | `.pages` | `ApplePagesContent` | usually heading-aware document units | `paragraphs`, `tables`, `images`, `full_text`, `metadata` |
 | `read_html` | `.html`, `.htm` | `HtmlContent` | one document-level unit | `content`, `tables`, `headings`, `links`, `metadata` |
 | `read_mhtml` | `.mhtml`, `.mht` | `HtmlContent` | one document-level unit | `content`, `tables`, `headings`, `links`, `metadata` |
 | `read_epub` | `.epub` | `EpubContent` | one unit per chapter/content document | `chapters`, `images`, `toc`, `metadata` |
@@ -92,6 +93,11 @@ methods with concrete attributes from the specific result type.
 | `read_mbox_email` | `.mbox` | `EmailContent` | one result per message | `from_email`, `subject`, `body_plain`, `body_html`, `attachments`, `metadata` |
 | `read_odg` | `.odg` | `OdgContent` | one document-level unit | `full_text`, `images`, `metadata` |
 | `read_odf` | `.odf` | `OdfContent` | one document-level unit | `full_text`, `metadata` |
+
+`read_apple_pages` is experimental. It is useful for text-first `.pages`
+documents, but its heading reconstruction, layout ordering, and table/image
+placement are currently less stable than the mature OOXML and OpenDocument
+extractors.
 
 ## Working With Concrete Types
 
@@ -130,6 +136,8 @@ Equivalent patterns for other word-like results:
   `annotations`, `pages`
 - `OdtContent`: use `paragraphs`, `hyperlinks`, `annotations`, `bookmarks`,
   `footnotes`, `endnotes`
+- `ApplePagesContent` (experimental): use `paragraphs`, `tables`, `images`,
+  `full_text`
 
 ### Spreadsheets
 
