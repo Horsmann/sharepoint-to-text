@@ -6,8 +6,6 @@ import typing
 import zipfile
 from unittest import TestCase
 
-from parsing.extractors.apple.pages_extractor import read_apple_pages
-
 import sharepoint2text.parsing.extractors.archive_extractor as archive_module
 from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
@@ -15,6 +13,7 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFileTooLargeError,
     ExtractionZipBombError,
 )
+from sharepoint2text.parsing.extractors.apple.pages_extractor import read_apple_pages
 from sharepoint2text.parsing.extractors.archive_extractor import read_archive
 from sharepoint2text.parsing.extractors.csv_extractor import read_csv
 from sharepoint2text.parsing.extractors.data_types import (
