@@ -5,7 +5,7 @@ import re
 import string
 import struct
 import zipfile
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Generator
@@ -29,6 +29,7 @@ from sharepoint2text.parsing.extractors.util.image_utils import (
 PRINTABLE_ASCII = set(string.printable) - {"\x0b", "\x0c"}
 MAX_HEADING_WORDS = 12
 MAX_HEADING_TEXT_LENGTH = 160
+MIN_BODY_WORDS = 14
 
 
 @dataclass(frozen=True)
@@ -75,6 +76,15 @@ class DocumentFlow:
 class StyledTextRun:
     offset: int
     style_id: int | None
+
+
+@dataclass(frozen=True)
+class ParagraphStyleProfile:
+    style_id: int
+    first_index: int
+    paragraph_count: int
+    heading_like_count: int
+    body_like_count: int
 
 
 def guess_caption_from_filename(filename: str) -> str:
@@ -1130,7 +1140,7 @@ def _is_heading_candidate(text: str) -> bool:
     stripped = text.strip()
     if not stripped:
         return False
-    if stripped[-1] in ".!?;:":
+    if stripped[-1] in ".!?;":
         return False
     if len(stripped) > MAX_HEADING_TEXT_LENGTH:
         return False
@@ -1145,18 +1155,23 @@ def _heading_family_key(text: str) -> str:
     return lowered.strip()
 
 
-def extract_primary_document_paragraphs(pages_path: Path) -> list[ApplePagesParagraph]:
-    """Extract paragraph structure and inferred heading levels from a Pages file."""
-    message = extract_primary_text_message(pages_path)
-    if message is None:
-        return []
+def _is_body_like_paragraph(text: str) -> bool:
+    """Return whether a paragraph looks like prose rather than a structural heading."""
+    stripped = text.strip()
+    if not stripped:
+        return False
 
-    text = _extract_message_text(message)
-    if text is None:
-        return []
+    if stripped[-1] in ".!?;":
+        return True
 
-    style_runs = extract_text_style_runs(message)
-    line_entries: list[tuple[str, int, int | None, bool]] = []
+    return len(stripped.split()) >= MIN_BODY_WORDS
+
+
+def _merge_styled_paragraphs(
+    text: str, style_runs: list[StyledTextRun]
+) -> list[tuple[str, int | None]]:
+    """Split extracted text into paragraph blocks with the active style identifier."""
+    line_entries: list[tuple[str, int | None, bool]] = []
     position = 0
     pending_blank = False
     for raw_line in text.splitlines(keepends=True):
@@ -1166,7 +1181,6 @@ def extract_primary_document_paragraphs(pages_path: Path) -> list[ApplePagesPara
             line_entries.append(
                 (
                     stripped,
-                    position,
                     _style_at_offset(style_runs, position),
                     pending_blank,
                 )
@@ -1179,7 +1193,7 @@ def extract_primary_document_paragraphs(pages_path: Path) -> list[ApplePagesPara
     merged_paragraphs: list[tuple[str, int | None]] = []
     current_parts: list[str] = []
     current_style: int | None = None
-    for text_part, _, style_id, had_blank_before in line_entries:
+    for text_part, style_id, had_blank_before in line_entries:
         if current_parts and not had_blank_before and style_id == current_style:
             current_parts.append(text_part)
             continue
@@ -1190,31 +1204,121 @@ def extract_primary_document_paragraphs(pages_path: Path) -> list[ApplePagesPara
     if current_parts:
         merged_paragraphs.append(("\n".join(current_parts), current_style))
 
-    heading_levels: OrderedDict[int, int] = OrderedDict()
-    heading_levels_by_family: dict[str, int] = {}
+    return merged_paragraphs
+
+
+def _build_style_profiles(
+    paragraphs: list[tuple[str, int | None]],
+) -> dict[int, ParagraphStyleProfile]:
+    """Summarize whether each non-body style behaves like a heading style."""
+    counts: Counter[int] = Counter()
+    heading_like_counts: Counter[int] = Counter()
+    body_like_counts: Counter[int] = Counter()
+    first_indices: dict[int, int] = {}
+
+    for index, (paragraph_text, style_id) in enumerate(paragraphs):
+        if style_id is None:
+            continue
+        counts[style_id] += 1
+        first_indices.setdefault(style_id, index)
+        if _is_heading_candidate(paragraph_text):
+            heading_like_counts[style_id] += 1
+        if _is_body_like_paragraph(paragraph_text):
+            body_like_counts[style_id] += 1
+
+    return {
+        style_id: ParagraphStyleProfile(
+            style_id=style_id,
+            first_index=first_indices[style_id],
+            paragraph_count=counts[style_id],
+            heading_like_count=heading_like_counts[style_id],
+            body_like_count=body_like_counts[style_id],
+        )
+        for style_id in counts
+    }
+
+
+def _infer_outline_levels(
+    paragraphs: list[tuple[str, int | None]],
+) -> list[int | None]:
+    """Infer Apple Pages outline levels from paragraph text and style evidence."""
+    style_profiles = _build_style_profiles(paragraphs)
+    style_levels: dict[int, int] = {}
+    for profile in sorted(style_profiles.values(), key=lambda item: item.first_index):
+        if profile.heading_like_count <= 0 or profile.body_like_count > 0:
+            continue
+        style_levels[profile.style_id] = min(len(style_levels) + 1, 6)
+
     paragraph_levels: list[int | None] = []
-    for paragraph_text, style_id in merged_paragraphs:
+    heading_levels_by_family: dict[str, int] = {}
+    body_start_index = next(
+        (
+            index
+            for index, (paragraph_text, _) in enumerate(paragraphs)
+            if _is_body_like_paragraph(paragraph_text)
+        ),
+        len(paragraphs),
+    )
+
+    for index, (paragraph_text, style_id) in enumerate(paragraphs):
         if not _is_heading_candidate(paragraph_text):
             paragraph_levels.append(None)
             continue
+
         family_key = _heading_family_key(paragraph_text)
         if family_key and family_key in heading_levels_by_family:
             paragraph_levels.append(heading_levels_by_family[family_key])
             continue
 
-        if style_id is not None and style_id in heading_levels:
-            level = heading_levels[style_id]
+        if style_id is not None and style_id in style_levels:
+            level = style_levels[style_id]
             paragraph_levels.append(level)
             if family_key:
                 heading_levels_by_family[family_key] = level
             continue
 
-        level = min(len(heading_levels) + 1, 6)
-        if style_id is not None:
-            heading_levels[style_id] = level
-        if family_key:
-            heading_levels_by_family[family_key] = level
-        paragraph_levels.append(level)
+        if style_id is None and index < body_start_index:
+            existing_levels = [level for level in paragraph_levels if level is not None]
+            next_level = min((max(existing_levels) if existing_levels else 0) + 1, 6)
+            paragraph_levels.append(next_level)
+            if family_key:
+                heading_levels_by_family[family_key] = next_level
+            continue
+
+        paragraph_levels.append(None)
+
+    return paragraph_levels
+
+
+def extract_primary_document_paragraphs(pages_path: Path) -> list[ApplePagesParagraph]:
+    """Extract paragraph structure and inferred heading levels from a Pages file.
+
+    Args:
+        pages_path: Path to the Apple Pages archive on disk.
+
+    Returns:
+        Paragraphs from the primary document text message with inferred
+        `outline_level` values when heading structure can be recovered.
+
+    Raises:
+        zipfile.BadZipFile: If the Pages archive is invalid.
+        KeyError: If the expected document payload is missing from the archive.
+
+    Example:
+        >>> extract_primary_document_paragraphs(Path("document.pages"))
+        [ApplePagesParagraph(text="Title", style_name="Title", outline_level=1)]
+    """
+    message = extract_primary_text_message(pages_path)
+    if message is None:
+        return []
+
+    text = _extract_message_text(message)
+    if text is None:
+        return []
+
+    style_runs = extract_text_style_runs(message)
+    merged_paragraphs = _merge_styled_paragraphs(text, style_runs)
+    paragraph_levels = _infer_outline_levels(merged_paragraphs)
 
     paragraphs: list[ApplePagesParagraph] = []
     for (paragraph_text, style_id), outline_level in zip(

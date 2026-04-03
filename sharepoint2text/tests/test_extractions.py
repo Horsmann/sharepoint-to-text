@@ -13,7 +13,10 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFileTooLargeError,
     ExtractionZipBombError,
 )
-from sharepoint2text.parsing.extractors.apple.pages_extractor import read_apple_pages
+from sharepoint2text.parsing.extractors.apple.pages_extractor import (
+    _infer_outline_levels,
+    read_apple_pages,
+)
 from sharepoint2text.parsing.extractors.archive_extractor import read_archive
 from sharepoint2text.parsing.extractors.csv_extractor import read_csv
 from sharepoint2text.parsing.extractors.data_types import (
@@ -3464,3 +3467,75 @@ def test_apple_pages_3():
 
     tc.assertEqual(expected_text, page_obj.get_full_text())
     tc.assertEqual(expected_markdown, page_obj.get_full_markdown())
+
+
+def test_apple_pages_heading_inference_reuses_family_across_style_mismatch():
+    """Keep repeated heading families stable even when Pages style ids drift."""
+
+    levels = _infer_outline_levels(
+        [
+            ("My Title", 1),
+            ("Chapter 1", 2),
+            ("Paragraph 1", 3),
+            (
+                "The document outlines a series of standard procedures that are to be "
+                "followed during routine operational checks and reporting windows.",
+                None,
+            ),
+            ("Paragraph 2", 2),
+            (
+                "In addition to the procedural guidelines, the document includes a "
+                "summary of general expectations regarding documentation.",
+                None,
+            ),
+        ]
+    )
+
+    tc.assertEqual([1, 2, 3, None, 3, None], levels)
+
+
+def test_apple_pages_heading_inference_ignores_unstyled_short_labels_after_body():
+    """Avoid promoting arbitrary short labels to headings once body prose has started."""
+
+    levels = _infer_outline_levels(
+        [
+            ("My Title", 1),
+            (
+                "This introductory paragraph explains the purpose of the document and "
+                "sets expectations for the remaining sections.",
+                None,
+            ),
+            ("Note", None),
+            (
+                "This follow-up paragraph continues the prose and should remain body "
+                "content instead of becoming a heading.",
+                None,
+            ),
+        ]
+    )
+
+    tc.assertEqual([1, None, None, None], levels)
+
+
+def test_apple_pages_heading_inference_supports_unstyled_front_matter():
+    """Infer a simple heading ladder from unstyled front matter before body prose."""
+
+    levels = _infer_outline_levels(
+        [
+            ("Project Atlas", None),
+            ("Section 1", None),
+            (
+                "This opening section contains enough descriptive prose to count as "
+                "body text and anchor later family-based heading reuse.",
+                None,
+            ),
+            ("Section 2", None),
+            (
+                "This later section should inherit the same heading depth from the "
+                "normalized family key instead of becoming body text.",
+                None,
+            ),
+        ]
+    )
+
+    tc.assertEqual([1, 2, None, 2, None], levels)
