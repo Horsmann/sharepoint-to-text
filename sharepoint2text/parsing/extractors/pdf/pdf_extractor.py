@@ -124,9 +124,6 @@ from sharepoint2text.parsing.extractors.data_types import (
     PdfMetadata,
     PdfPage,
 )
-from sharepoint2text.parsing.extractors.pdf._pypdf_aes_fallback import (
-    patch_pypdf_fallback_aes,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -190,15 +187,7 @@ class PageLike(Protocol):
 
 def _open_pdf_reader(file_like: io.BytesIO) -> PdfReader:
     file_like.seek(0)
-    try:
-        return PdfReader(file_like)
-    except DependencyError as exc:
-        if "AES algorithm" not in str(exc):
-            raise
-        if not patch_pypdf_fallback_aes():
-            raise
-        file_like.seek(0)
-        return PdfReader(file_like)
+    return PdfReader(file_like)
 
 
 def _should_skip_images(reader: PdfReader, file_like: io.BytesIO) -> bool:
