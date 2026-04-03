@@ -96,6 +96,7 @@ sharepoint2text = "sharepoint2text.cli:main"
 [dependency-groups]
 dev = [
     "pytest>=8.4.2",
+    "pytest-mypy>=0.10.3",
     "pre-commit>=4.3.0",
     "black>=25.12.0",
     "python-dotenv>=1.0.0",
@@ -125,12 +126,17 @@ include = ["sharepoint2text/py.typed"]
 line-length = 88
 target-version = ["py310", "py311", "py312", "py313", "py314"]
 
-[tool.pytest.ini_options]
+[tool.pytest]
 testpaths = ["sharepoint2text/tests"]
 log_cli = true
 log_cli_level = "DEBUG"
 log_cli_format = "%(asctime)s [%(levelname)8s] %(message)s (%(filename)s:%(lineno)s)"
 log_cli_date_format = "%Y-%m-%d %H:%M:%S"
+
+[tool.pytest.mypy]
+mypy_paths = ["sharepoint2text"]
+ignore_missing_imports = true
+allow_untyped_calls = false
 
 [tool.mypy]
 python_version = "3.10"
