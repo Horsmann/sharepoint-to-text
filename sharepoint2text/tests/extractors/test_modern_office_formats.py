@@ -14,6 +14,7 @@ from sharepoint2text.parsing.extractors.data_types import (
     TableData,
     TableDim,
     XlsxContent,
+    XlsxSheet,
     XlsxUnitMetadata,
 )
 from sharepoint2text.parsing.extractors.ms_modern.docx_extractor import read_docx
@@ -702,3 +703,152 @@ def test_read_macro_enabled_docm() -> None:
     # Verify it extracts as DocxContent (same as .docx)
     tc.assertIsInstance(result, DocxContent)
     tc.assertTrue(len(result.get_full_text()) > 0)
+
+
+def test_read_macro_enabled_xlsm() -> None:
+    """Test .xlsm (macro-enabled Excel) extraction - same structure as .xlsx."""
+    path = "sharepoint2text/tests/resources/modern_ms/sample.xlsm"
+    result: XlsxContent = next(
+        read_xlsx(file_like=read_file_to_file_like(path=path), path=path)
+    )
+    # Verify it extracts as XlsxContent (same as .xlsx)
+    tc.assertIsInstance(result, XlsxContent)
+    tc.assertTrue(len(result.sheets) > 0)
+
+
+def test_read_xlsb() -> None:
+    """Test .xlsm (macro-enabled Excel) extraction - same structure as .xlsx."""
+    path = "sharepoint2text/tests/resources/modern_ms/excel.xlsb"
+    result: XlsxContent = next(
+        read_xlsx(file_like=read_file_to_file_like(path=path), path=path)
+    )
+    # Verify it extracts as XlsxContent (same as .xlsx)
+    tc.assertEqual(
+        """Sheet2
+A
+A1
+A2
+A3
+B
+Atable
+Btable
+Ctable
+Ytable
+Zparam
+Y
+X
+W
+XWtable
+Utable
+Stable
+S
+.
+H
+R
+P
+O
+B1
+B2
+B3
+POtable
+I1
+I2
+I3
+I4
+Itable
+I
+Ttable
+Dtable
++
+-
+Etable
+Q
+RQtable
+H1
+H2
+H3
+PPtable
+PP""",
+        result.get_full_text(),
+    )
+
+    tc.assertEqual(1, len(list(result.iterate_tables())))
+    sheet: XlsxSheet = list(result.iterate_tables())[0]
+    tc.assertListEqual(
+        [
+            ["A"],
+            ["A1"],
+            ["A2"],
+            ["A3"],
+            ["B"],
+            ["Atable"],
+            ["Btable"],
+            ["Ctable"],
+            ["Ytable"],
+            ["Zparam"],
+            ["Y"],
+            ["X"],
+            ["W"],
+            ["XWtable"],
+            ["Utable"],
+            ["Stable"],
+            ["S"],
+            ["."],
+            ["H"],
+            ["R"],
+            ["P"],
+            ["O"],
+            ["B1"],
+            ["B2"],
+            ["B3"],
+            ["POtable"],
+            ["I1"],
+            ["I2"],
+            ["I3"],
+            ["I4"],
+            ["Itable"],
+            ["I"],
+            ["Ttable"],
+            ["Dtable"],
+            ["+"],
+            ["-"],
+            ["Etable"],
+            ["Q"],
+            ["RQtable"],
+            ["H1"],
+            ["H2"],
+            ["H3"],
+            ["PPtable"],
+            ["PP"],
+        ],
+        sheet.data,
+    )
+
+
+def test_read_xlsx__image_flag() -> None:
+    """Test .xlsm (macro-enabled Excel) extraction - same structure as .xlsx."""
+    path = "sharepoint2text/tests/resources/modern_ms/excel_images.xlsx"
+    result: XlsxContent = next(
+        read_xlsx(
+            file_like=read_file_to_file_like(path=path), path=path, ignore_images=False
+        ),
+    )
+    tc.assertEqual(1, len(result.sheets[0].images))
+
+    result: XlsxContent = next(
+        read_xlsx(
+            file_like=read_file_to_file_like(path=path), path=path, ignore_images=True
+        ),
+    )
+    tc.assertEqual(0, len(result.sheets[0].images))
+
+
+def test_read_macro_enabled_pptm() -> None:
+    """Test .pptm (macro-enabled PowerPoint) extraction - same structure as .pptx."""
+    path = "sharepoint2text/tests/resources/modern_ms/sample.pptm"
+    result: PptxContent = next(
+        read_pptx(file_like=read_file_to_file_like(path=path), path=path)
+    )
+    # Verify it extracts as PptxContent (same as .pptx)
+    tc.assertIsInstance(result, PptxContent)
+    tc.assertTrue(len(result.slides) > 0)
