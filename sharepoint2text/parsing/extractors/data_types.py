@@ -1489,6 +1489,7 @@ class ApplePagesContent(ExtractionInterface):
     """Extracted content from Apple Pages (.pages) files."""
 
     tables: List[List[List[str]]] = field(default_factory=list)
+    images: List["ApplePagesImage"] = field(default_factory=list)
     full_text: str = ""  # Full text including tables rendered as text
     metadata: FileMetadataInterface = field(default_factory=FileMetadataInterface)
 
@@ -1507,9 +1508,9 @@ class ApplePagesContent(ExtractionInterface):
         return self.metadata
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
-        """Apple Pages content does not yield images."""
-        yield from ()
-        return
+        """Yield embedded images from the document."""
+        for image in self.images:
+            yield image
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
         """Yield tables from the document."""
@@ -1519,6 +1520,51 @@ class ApplePagesContent(ExtractionInterface):
     def to_json(self) -> dict:
         """Returns a JSON-serializable dictionary representation."""
         return serialize_extraction(self)
+
+
+@dataclass
+class ApplePagesImage(ImageInterface):
+    """Represents an embedded image in an Apple Pages document."""
+
+    name: str = ""
+    content_type: str = ""
+    data: Optional[io.BytesIO] = None
+    size_bytes: int = 0
+    width: Optional[int] = None
+    height: Optional[int] = None
+    image_index: int = 0
+    caption: str = ""
+    description: str = ""
+    unit_number: Optional[int] = None
+
+    def get_bytes(self) -> io.BytesIO:
+        """Return the raw image bytes."""
+        if self.data is None:
+            return io.BytesIO()
+        self.data.seek(0)
+        return self.data
+
+    def get_content_type(self) -> str:
+        """Return the image MIME type."""
+        return self.content_type
+
+    def get_caption(self) -> str:
+        """Return the image caption text."""
+        return self.caption
+
+    def get_description(self) -> str:
+        """Return the image description text."""
+        return self.description
+
+    def get_metadata(self) -> ImageMetadata:
+        """Return image metadata."""
+        return ImageMetadata(
+            image_number=self.image_index,
+            content_type=self.content_type,
+            width=self.width if self.width is not None and self.width > 0 else None,
+            height=self.height if self.height is not None and self.height > 0 else None,
+            unit_number=self.unit_number,
+        )
 
 
 ############

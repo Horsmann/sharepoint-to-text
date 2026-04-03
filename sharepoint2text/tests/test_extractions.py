@@ -3393,6 +3393,9 @@ def test_apple_pages_2():
         page_obj.get_full_text(),
     )
 
+    tc.assertEqual(1, len(list(page_obj.iterate_images())))
+    tc.assertEqual("Space Image", list(page_obj.iterate_images())[0].get_caption())
+
     tc.assertEqual(2, len(page_obj.tables))
     tc.assertEqual(
         [

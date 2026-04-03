@@ -1,5 +1,6 @@
 import io
 import math
+import os
 import re
 import string
 import struct
@@ -9,7 +10,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Generator
 
-from sharepoint2text.parsing.extractors.data_types import ApplePagesContent
+from sharepoint2text.parsing.extractors.data_types import (
+    ApplePagesContent,
+    ApplePagesImage,
+    FileMetadataInterface,
+)
+from sharepoint2text.parsing.extractors.util.image_utils import (
+    detect_image_type,
+    get_image_dimensions,
+)
 
 # =============================================================================
 # Main entry point
@@ -57,6 +66,13 @@ class DocumentFlow:
     segments: list[str]
     placeholder_count: int
     source_object_id: int
+
+
+def guess_caption_from_filename(filename: str) -> str:
+    """Build a readable caption from an embedded Pages asset filename."""
+    stem = Path(filename).stem
+    stem = re.sub(r"-\d+$", "", stem)
+    return stem.strip()
 
 
 def read_varint(data: bytes, pos: int) -> tuple[int, int]:
@@ -999,6 +1015,87 @@ def extract_document_flow(pages_path: Path) -> DocumentFlow | None:
     return best
 
 
+def extract_image_captions_from_pages(pages_path: Path) -> list[str]:
+    """Extract image caption strings from the Pages document graph."""
+    with zipfile.ZipFile(pages_path) as archive:
+        raw = archive.read("Index/Document.iwa")
+        messages = decode_iwa_messages(raw, source="Index/Document.iwa")
+
+    direct_captions: list[str] = []
+    fallback_captions: list[str] = []
+    for message in messages:
+        if message.message_type != 2001:
+            continue
+        fields = parse_proto_fields(message.body)
+        direct_caption = next(
+            (
+                value.decode("utf-8", errors="replace").strip()
+                for field, wire, value in fields
+                if field == 3 and wire == 2 and isinstance(value, bytes)
+            ),
+            "",
+        )
+        if (
+            direct_caption
+            and "\n" not in direct_caption
+            and "\ufffc" not in direct_caption
+            and len(direct_caption) <= 120
+        ):
+            if direct_caption not in direct_captions:
+                direct_captions.append(direct_caption)
+            continue
+
+        for text in iter_visible_strings(message.body, min_chars=3):
+            cleaned = normalize_text(text)
+            if not cleaned or len(cleaned) < 3:
+                continue
+            if cleaned.lower() in {"de", "en", "fr"}:
+                continue
+            if cleaned not in fallback_captions:
+                fallback_captions.append(cleaned)
+    return direct_captions or fallback_captions
+
+
+def extract_images_from_pages(pages_path: Path) -> list[ApplePagesImage]:
+    """Extract embedded raster images and basic metadata from a Pages archive."""
+    captions = extract_image_captions_from_pages(pages_path)
+    images: list[ApplePagesImage] = []
+
+    with zipfile.ZipFile(pages_path) as archive:
+        image_names = sorted(
+            name
+            for name in archive.namelist()
+            if name.startswith("Data/") and not name.endswith("/")
+        )
+        for index, name in enumerate(image_names, start=1):
+            data = archive.read(name)
+            detected = detect_image_type(data)
+            if detected is None:
+                continue
+
+            extension, content_type = detected
+            width, height = get_image_dimensions(data, extension)
+            caption = captions[index - 1] if index - 1 < len(captions) else ""
+            if not caption:
+                caption = guess_caption_from_filename(os.path.basename(name))
+
+            images.append(
+                ApplePagesImage(
+                    name=os.path.basename(name),
+                    content_type=content_type,
+                    data=io.BytesIO(data),
+                    size_bytes=len(data),
+                    width=width,
+                    height=height,
+                    image_index=index,
+                    caption=caption,
+                    description="",
+                )
+            )
+
+    return images
+
+
 def merge_document_segments(left: str, right: str) -> str:
     """Merge two cleaned document-flow segments split by a non-table placeholder."""
     left = left.strip()
@@ -1342,6 +1439,7 @@ def read_apple_pages(
             # the header row. Preserve declared trailing empty rows in table data,
             # but keep the textual renderer based on the unpadded decoded rows.
             tables_data = extract_tables_from_pages(temp_path)
+            images = [] if ignore_images else extract_images_from_pages(temp_path)
             tables: list[list[list[str]]] = []
             for table in tables_data:
                 declared_row_count = table.metadata.get("declared_row_count")
@@ -1373,9 +1471,13 @@ def read_apple_pages(
             )
 
             # Create the ApplePagesContent object
+            metadata = FileMetadataInterface()
+            metadata.populate_from_path(path)
             content = ApplePagesContent(
                 tables=tables,
+                images=images,
                 full_text=full_text,
+                metadata=metadata,
             )
 
             yield content
