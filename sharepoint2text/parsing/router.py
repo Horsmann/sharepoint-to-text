@@ -10,6 +10,8 @@ from sharepoint2text.parsing.mime_types import MIME_TYPE_MAPPING
 
 logger = logging.getLogger(__name__)
 
+_ATTACHMENT_AWARE_FILE_TYPES = frozenset({"msg", "eml", "mbox"})
+
 # Mapping from file type identifiers to their extractor module paths and function names
 # Format: file_type -> (module_path, function_name)
 _EXTRACTOR_REGISTRY: dict[str, tuple[str, str]] = {
@@ -142,6 +144,7 @@ _SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
 def _get_extractor(
     file_type: str,
     ignore_images: bool = False,
+    include_attachments: bool = True,
 ) -> Callable[[BinaryIO, str | None], Generator[ExtractionInterface, Any, None]]:
     """
     Return the extractor function for a file type using lazy import.
@@ -173,9 +176,15 @@ def _get_extractor(
     module = importlib.import_module(module_path)
     extractor: Any = getattr(module, function_name)
 
-    # If ignore_images is True, wrap the extractor with the flag
-    if ignore_images:
-        return functools.partial(extractor, ignore_images=True)
+    if ignore_images or (
+        file_type in _ATTACHMENT_AWARE_FILE_TYPES and not include_attachments
+    ):
+        partial_kwargs: dict[str, Any] = {}
+        if ignore_images:
+            partial_kwargs["ignore_images"] = True
+        if file_type in _ATTACHMENT_AWARE_FILE_TYPES and not include_attachments:
+            partial_kwargs["include_attachments"] = False
+        return functools.partial(extractor, **partial_kwargs)
     return extractor  # type: ignore[no-any-return]
 
 
@@ -239,6 +248,7 @@ def get_extractor(
     path: str | os.PathLike[str],
     ignore_images: bool = False,
     force_plain_text: bool = False,
+    include_attachments: bool = True,
 ) -> Callable[[BinaryIO, str | None], Generator[ExtractionInterface, Any, None]]:
     """
     Analyze a path/filename and return the appropriate extractor callable.
@@ -267,7 +277,11 @@ def get_extractor(
 
     if force_plain_text:
         logger.info("Force plain text extraction for file: %s", path_str)
-        return _get_extractor("txt", ignore_images=ignore_images)
+        return _get_extractor(
+            "txt",
+            ignore_images=ignore_images,
+            include_attachments=include_attachments,
+        )
 
     # Primary detection: file extension (platform-independent)
     file_type = _file_type_from_extension(path_lower)
@@ -276,7 +290,11 @@ def get_extractor(
             "Detected file type: %s (extension) for file: %s", file_type, path_str
         )
         logger.info("Using extractor for file type: %s", file_type)
-        return _get_extractor(file_type, ignore_images=ignore_images)
+        return _get_extractor(
+            file_type,
+            ignore_images=ignore_images,
+            include_attachments=include_attachments,
+        )
 
     # Secondary detection: MIME type lookup (may vary by OS configuration)
     if mime_type is not None and mime_type in MIME_TYPE_MAPPING:
@@ -288,7 +306,11 @@ def get_extractor(
             path_str,
         )
         logger.debug("Using extractor for file type: %s", file_type)
-        return _get_extractor(file_type, ignore_images=ignore_images)
+        return _get_extractor(
+            file_type,
+            ignore_images=ignore_images,
+            include_attachments=include_attachments,
+        )
 
     extension = ""
     for compound_ext in _COMPOUND_EXTENSIONS:

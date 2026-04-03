@@ -448,7 +448,11 @@ def parse_email_message(message: email.message.Message) -> EmailContent:
 
 
 def read_mbox_format_mail(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: io.BytesIO,
+    path: str | None = None,
+    *,
+    ignore_images: bool = False,
+    include_attachments: bool = True,
 ) -> Generator[EmailContent, Any, None]:
     """
     Read all emails from an mbox format file.
@@ -507,6 +511,7 @@ def read_mbox_format_mail(
     source_path = path or "<in-memory>"
     logger.info("Entering MBOX extraction: %s", source_path)
     try:
+        _ = include_attachments
         file_like.seek(0)
         message_count = 0
         for msg_bytes in _iter_mbox_messages(file_like):

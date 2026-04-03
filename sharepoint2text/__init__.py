@@ -383,7 +383,11 @@ def read_mhtml(
 # Emails
 #############
 def read_msg_email(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: io.BytesIO,
+    path: str | None = None,
+    *,
+    ignore_images: bool = False,
+    include_attachments: bool = True,
 ) -> Generator[EmailContent, Any, None]:
     """Extract content from an Outlook MSG email file."""
     from sharepoint2text.parsing.extractors.mail.msg_email_extractor import (
@@ -391,11 +395,20 @@ def read_msg_email(
     )
 
     logger.debug("Reading mail .msg file: %s", path)
-    return _read_msg_format_mail(file_like, path, ignore_images=ignore_images)
+    return _read_msg_format_mail(
+        file_like,
+        path,
+        ignore_images=ignore_images,
+        include_attachments=include_attachments,
+    )
 
 
 def read_eml_email(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: io.BytesIO,
+    path: str | None = None,
+    *,
+    ignore_images: bool = False,
+    include_attachments: bool = True,
 ) -> Generator[EmailContent, Any, None]:
     """Extract content from an EML email file."""
     from sharepoint2text.parsing.extractors.mail.eml_email_extractor import (
@@ -403,11 +416,20 @@ def read_eml_email(
     )
 
     logger.debug("Reading mail .eml file: %s", path)
-    return _read_eml_format_mail(file_like, path, ignore_images=ignore_images)
+    return _read_eml_format_mail(
+        file_like,
+        path,
+        ignore_images=ignore_images,
+        include_attachments=include_attachments,
+    )
 
 
 def read_mbox_email(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: io.BytesIO,
+    path: str | None = None,
+    *,
+    ignore_images: bool = False,
+    include_attachments: bool = True,
 ) -> Generator[EmailContent, Any, None]:
     """Extract content from an MBOX email file."""
     from sharepoint2text.parsing.extractors.mail.mbox_email_extractor import (
@@ -415,7 +437,12 @@ def read_mbox_email(
     )
 
     logger.debug("Reading mail .mbox file: %s", path)
-    return _read_mbox_format_mail(file_like, path, ignore_images=ignore_images)
+    return _read_mbox_format_mail(
+        file_like,
+        path,
+        ignore_images=ignore_images,
+        include_attachments=include_attachments,
+    )
 
 
 def read_file(
@@ -424,6 +451,7 @@ def read_file(
     *,
     ignore_images: bool = False,
     force_plain_text: bool = False,
+    include_attachments: bool = True,
 ) -> Generator[ExtractionInterface, Any, None]:
     """
     Read and extract content from a file.
@@ -441,6 +469,8 @@ def read_file(
         force_plain_text: If True, route extraction to plain text handling
                       regardless of extension/MIME detection.
                       Useful for unknown or custom plain-text file formats.
+        include_attachments: If False, skip extracting/storing email attachment
+                      payloads for email file formats.
 
     Yields:
         A dataclass containing extracted content and metadata.
@@ -515,6 +545,7 @@ def read_file(
         str(path),
         ignore_images=ignore_images,
         force_plain_text=force_plain_text,
+        include_attachments=include_attachments,
     )
     with open(path, "rb") as f:
         try:
@@ -539,6 +570,7 @@ def read_bytes(
     max_file_size: int = 100 * 1024 * 1024,  # 100MB default
     ignore_images: bool = False,
     force_plain_text: bool = False,
+    include_attachments: bool = True,
 ) -> Generator[ExtractionInterface, Any, None]:
     """
     Read and extract content from in-memory bytes.
@@ -558,6 +590,8 @@ def read_bytes(
         force_plain_text: If True, route extraction to plain text handling
                       regardless of extension/MIME detection.
                       Useful for unknown or custom plain-text file formats.
+        include_attachments: If False, skip extracting/storing email attachment
+            payloads for email file formats.
 
     Yields:
         A dataclass containing extracted content and metadata.
@@ -614,6 +648,7 @@ def read_bytes(
             virtual_path,
             ignore_images=ignore_images,
             force_plain_text=True,
+            include_attachments=include_attachments,
         )
     else:
         if not normalized_extension and not normalized_mime_type:
@@ -622,7 +657,11 @@ def read_bytes(
         if normalized_extension:
             virtual_path = f"in_memory.{normalized_extension}"
             try:
-                extractor = get_extractor(virtual_path, ignore_images=ignore_images)
+                extractor = get_extractor(
+                    virtual_path,
+                    ignore_images=ignore_images,
+                    include_attachments=include_attachments,
+                )
             except ExtractionFileFormatNotSupportedError as exc:
                 extension_error = exc
                 if not normalized_mime_type:
@@ -637,7 +676,11 @@ def read_bytes(
                     f"File type not supported for MIME type '{normalized_mime_type}'"
                 )
             virtual_path = f"in_memory.{file_type}"
-            extractor = get_extractor(virtual_path, ignore_images=ignore_images)
+            extractor = get_extractor(
+                virtual_path,
+                ignore_images=ignore_images,
+                include_attachments=include_attachments,
+            )
 
         if extractor is None and extension_error is not None:
             raise extension_error

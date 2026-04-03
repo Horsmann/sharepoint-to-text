@@ -130,7 +130,9 @@ def _parse_mailparser_address_list(raw: Any) -> list[EmailAddress]:
     return [addr]
 
 
-def _read_eml_format(payload: bytes) -> EmailContent:
+def _read_eml_format(
+    payload: bytes, *, include_attachments: bool = True
+) -> EmailContent:
     """
     Parse raw EML file bytes and construct an EmailContent object.
 
@@ -198,36 +200,39 @@ def _read_eml_format(payload: bytes) -> EmailContent:
             body_html = str(mail.text_html)
 
     attachments: list[EmailAttachment] = []
-    for attachment in getattr(mail, "attachments", None) or []:
-        filename = attachment.get("filename") or "attachment"
-        mime_type = attachment.get("mail_content_type") or "application/octet-stream"
-        payload = attachment.get("payload") or b""
-        is_binary = bool(attachment.get("binary"))
-
-        if is_binary:
-            try:
-                data = base64.b64decode(payload)
-            except (ValueError, TypeError):
-                logger.debug(
-                    "Unable to base64-decode EML attachment payload: %s", filename
-                )
-                data = b""
-        else:
-            if isinstance(payload, str):
-                data = payload.encode("utf-8", errors="ignore")
-            else:
-                data = payload
-
-        data_stream = io.BytesIO(data)
-        data_stream.seek(0)
-        attachments.append(
-            EmailAttachment(
-                filename=filename,
-                mime_type=mime_type,
-                data=data_stream,
-                is_supported_mime_type=is_supported_mime_type(mime_type),
+    if include_attachments:
+        for attachment in getattr(mail, "attachments", None) or []:
+            filename = attachment.get("filename") or "attachment"
+            mime_type = (
+                attachment.get("mail_content_type") or "application/octet-stream"
             )
-        )
+            payload = attachment.get("payload") or b""
+            is_binary = bool(attachment.get("binary"))
+
+            if is_binary:
+                try:
+                    data = base64.b64decode(payload)
+                except (ValueError, TypeError):
+                    logger.debug(
+                        "Unable to base64-decode EML attachment payload: %s", filename
+                    )
+                    data = b""
+            else:
+                if isinstance(payload, str):
+                    data = payload.encode("utf-8", errors="ignore")
+                else:
+                    data = payload
+
+            data_stream = io.BytesIO(data)
+            data_stream.seek(0)
+            attachments.append(
+                EmailAttachment(
+                    filename=filename,
+                    mime_type=mime_type,
+                    data=data_stream,
+                    is_supported_mime_type=is_supported_mime_type(mime_type),
+                )
+            )
 
     return EmailContent(
         subject=mail.subject or "",
@@ -245,7 +250,11 @@ def _read_eml_format(payload: bytes) -> EmailContent:
 
 
 def read_eml_format_mail(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: io.BytesIO,
+    path: str | None = None,
+    *,
+    ignore_images: bool = False,
+    include_attachments: bool = True,
 ) -> Generator[EmailContent, Any, None]:
     """
     Read an EML file and extract its content as EmailContent.
@@ -294,7 +303,9 @@ def read_eml_format_mail(
     logger.info("Entering EML extraction: %s", source_path)
     try:
         file_like.seek(0)
-        content = _read_eml_format(file_like.read())
+        content = _read_eml_format(
+            file_like.read(), include_attachments=include_attachments
+        )
 
         if path:
             content.metadata.populate_from_path(path)
