@@ -354,7 +354,7 @@ def omml_to_latex(omath_element: ET.Element | None) -> str:
                 "\u222c": "\\iint",
                 "\u222d": "\\iiint",
             }
-            latex_op = op_map.get(op, convert_greek_and_symbols(op))
+            latex_op = op_map.get(op or "", convert_greek_and_symbols(op or ""))
 
             sub_text = process_element(sub)
             sup_text = process_element(sup)
@@ -428,16 +428,16 @@ def omml_to_latex(omath_element: ET.Element | None) -> str:
                 "\u20d7": "\\vec",
                 "\u0307": "\\dot",
             }
-            latex_accent = accent_map.get(accent, "\\hat")
+            latex_accent = accent_map.get(accent or "", "\\hat")
             return f"{latex_accent}{{{content_text}}}"
 
         # Default: recurse into children and concatenate results
-        result = []
+        child_results: list[str] = []
         for child in elem:
             child_result = process_element(child)
             if child_result:
-                result.append(child_result)
-        return "".join(result)
+                child_results.append(child_result)
+        return "".join(child_results)
 
     # Process all children of the omath element
     for child in omath_element:

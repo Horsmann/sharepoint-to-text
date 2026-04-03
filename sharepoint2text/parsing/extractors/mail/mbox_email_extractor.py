@@ -110,7 +110,7 @@ logger = logging.getLogger(__name__)
 MBOX_FROM_PATTERN = re.compile(rb"^From \S+.*\d{4}\r?\n")
 
 
-def _iter_mbox_messages(file_like: io.BytesIO):
+def _iter_mbox_messages(file_like: io.BytesIO) -> Generator[bytes, None, None]:
     """
     Yield mbox messages from a stream in a single pass.
 
@@ -353,7 +353,7 @@ def get_body_content(message: email.message.Message) -> tuple[str, str]:
 
             if content_type == "text/plain" and not body_plain:
                 payload = part.get_payload(decode=True)
-                if payload:
+                if payload and isinstance(payload, bytes):
                     charset = part.get_content_charset() or "utf-8"
                     try:
                         body_plain = payload.decode(charset, errors="replace")
@@ -362,7 +362,7 @@ def get_body_content(message: email.message.Message) -> tuple[str, str]:
 
             elif content_type == "text/html" and not body_html:
                 payload = part.get_payload(decode=True)
-                if payload:
+                if payload and isinstance(payload, bytes):
                     charset = part.get_content_charset() or "utf-8"
                     try:
                         body_html = payload.decode(charset, errors="replace")
@@ -373,7 +373,7 @@ def get_body_content(message: email.message.Message) -> tuple[str, str]:
         content_type = message.get_content_type()
         payload = message.get_payload(decode=True)
 
-        if payload:
+        if payload and isinstance(payload, bytes):
             charset = message.get_content_charset() or "utf-8"
             try:
                 decoded_payload = payload.decode(charset, errors="replace")

@@ -185,7 +185,7 @@ class _OdtContext(ZipContext):
 
     def open_file(self, path: str) -> io.BufferedReader:
         """Open a file from the ZIP archive."""
-        return self.open_stream(path)
+        return self.open_stream(path)  # type: ignore[no-any-return]
 
 
 # ODF namespaces
@@ -385,7 +385,7 @@ def _extract_annotations(body: ET.Element) -> list[OpenDocumentAnnotation]:
         text = "\n".join(text_parts)
 
         annotations.append(
-            OpenDocumentAnnotation(creator=creator, date=date, text=text)
+            OpenDocumentAnnotation(creator=creator or "", date=date or "", text=text)
         )
 
     return annotations
@@ -617,8 +617,8 @@ def _extract_headers_footers_from_context(
 ) -> tuple[list[OdtHeaderFooter], list[OdtHeaderFooter]]:
     """Extract headers and footers from cached styles.xml root."""
     logger.debug("Extracting ODT headers/footers")
-    headers = []
-    footers = []
+    headers: list[OdtHeaderFooter] = []
+    footers: list[OdtHeaderFooter] = []
 
     root = ctx.styles_root
     if root is None:

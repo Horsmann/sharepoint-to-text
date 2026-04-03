@@ -33,7 +33,7 @@ class ZipContext:
     def read_bytes(self, path: str) -> bytes:
         return self._zip.read(path)
 
-    def open_stream(self, path: str) -> io.BufferedReader:
+    def open_stream(self, path: str):  # type: ignore[no-untyped-def]
         return self._zip.open(path)
 
     def close(self) -> None:

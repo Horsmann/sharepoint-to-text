@@ -116,7 +116,7 @@ import re
 import struct
 from typing import Any, Generator, List, Optional
 
-import olefile
+import olefile  # type: ignore[import-untyped]
 
 from sharepoint2text.parsing.exceptions import (
     ExtractionError,
@@ -305,12 +305,12 @@ class _DocReader:
         self._text_start: Optional[int] = None
         self._ignore_images = ignore_images
 
-    def __enter__(self):
+    def __enter__(self) -> "_DocReader":
         """Open the OLE container for reading."""
         self.ole = olefile.OleFileIO(self.file_like)
         return self
 
-    def __exit__(self, *args):
+    def __exit__(self, *args: Any) -> None:
         """Close the OLE container and release resources."""
         if self.ole:
             self.ole.close()

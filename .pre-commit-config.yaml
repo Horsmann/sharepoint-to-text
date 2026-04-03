@@ -34,3 +34,12 @@ repos:
     hooks:
       - id: flake8
         args: ["--extend-ignore=E203,E501"]
+
+  # Type checking (run locally: pre-commit run mypy --all)
+  # Note: For comprehensive type checking with all dependencies, use: uv run mypy sharepoint2text --exclude tests
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.14.0
+    hooks:
+      - id: mypy
+        args: [--ignore-missing-imports, --no-warn-unused-ignores, --disable-error-code=attr-defined, --disable-error-code=assignment, --exclude=tests/]
+        exclude: ^sharepoint2text/tests/

@@ -178,14 +178,17 @@ def _get_router_functions() -> Tuple[Callable, Callable]:
 def _is_supported_file_cached(filename: str) -> bool:
     """Cached version of file type checking."""
     is_supported_file, _ = _get_router_functions()
-    return is_supported_file(filename)
+    return bool(is_supported_file(filename))
 
 
 @lru_cache(maxsize=CACHE_SIZE)
-def _get_file_extractor_cached(filename: str, ignore_images: bool) -> Callable:
+def _get_file_extractor_cached(
+    filename: str, ignore_images: bool
+) -> Callable[..., Any]:
     """Cached version of extractor retrieval."""
     _, get_extractor = _get_router_functions()
-    return get_extractor(filename, ignore_images=ignore_images)
+    extractor: Callable[..., Any] = get_extractor(filename, ignore_images=ignore_images)
+    return extractor
 
 
 def _detect_archive_type_optimized(file_like: io.BytesIO) -> Optional[str]:
@@ -434,7 +437,7 @@ def _extract_from_tar_optimized(
         ExtractionInterface objects for each supported file in the archive.
     """
     try:
-        with tarfile.open(fileobj=file_like, mode=mode) as tf:
+        with tarfile.open(fileobj=file_like, mode=mode) as tf:  # type: ignore[call-overload]
             total_entries = 0
             total_uncompressed = 0
 

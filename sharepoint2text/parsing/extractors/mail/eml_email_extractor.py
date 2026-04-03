@@ -72,7 +72,7 @@ import io
 import logging
 from typing import Any, Generator
 
-from mailparser import parse_from_bytes
+from mailparser import parse_from_bytes  # type: ignore[import-untyped]
 
 from sharepoint2text.parsing.exceptions import ExtractionError, ExtractionFailedError
 from sharepoint2text.parsing.extractors.data_types import (

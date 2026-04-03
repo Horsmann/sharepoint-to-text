@@ -9,4 +9,9 @@ extractor modules can ``import _defused_xml as ET`` and use ``ET.Element``,
 
 from xml.etree.ElementTree import Element, ParseError  # noqa: F401
 
-from defusedxml.ElementTree import fromstring, iterparse, parse, tostring  # noqa: F401
+from defusedxml.ElementTree import (  # noqa: F401  # type: ignore[import-untyped]
+    fromstring,
+    iterparse,
+    parse,
+    tostring,
+)

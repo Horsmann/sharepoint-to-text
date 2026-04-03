@@ -194,7 +194,7 @@ class ExtractionInterface(Protocol):
             >>> restored = ExtractionInterface.from_json(json_data)
             >>> assert restored.get_full_text() == content.get_full_text()
         """
-        return deserialize_extraction(data)
+        return typing.cast(ExtractionInterface, deserialize_extraction(data))
 
     def get_full_markdown(self) -> str:
         """Get content as Markdown-formatted text.
@@ -429,6 +429,7 @@ def _join_unit_text(units: typing.Iterable[UnitInterface]) -> str:
 #########
 @dataclass
 class EmailUnitMetadata(UnitMetadataInterface):
+    unit_number: int
     body_type: str
 
 
@@ -487,7 +488,7 @@ class EmailContent(ExtractionInterface):
     attachments: List[EmailAttachment] = field(default_factory=list)
     metadata: EmailMetadata = field(default_factory=EmailMetadata)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         self.subject = self.subject.strip()
         self.body_plain = self.body_plain.strip()
 
@@ -806,9 +807,9 @@ class DocContent(ExtractionInterface):
         flush_current()
 
         if not any_headings:
-            unit_images: list[DocImage] = []
+            all_unit_images: list[DocImage] = []
             if not ignore_images:
-                unit_images = [
+                all_unit_images = [
                     DocImage(
                         image_index=image.image_index,
                         content_type=image.content_type,
@@ -826,7 +827,7 @@ class DocContent(ExtractionInterface):
                 text=self.main_text.strip(),
                 unit_number=1,
                 location=base_location,
-                images=unit_images,
+                images=all_unit_images,
                 tables=[TableData(data=table) for table in self.tables],
             )
             return
@@ -1279,6 +1280,8 @@ class DocxContent(ExtractionInterface):
 class PdfUnitMetadata(UnitMetadataInterface):
     """PDF unit metadata"""
 
+    unit_number: int
+
     pass
 
 
@@ -1416,6 +1419,8 @@ class PdfContent(ExtractionInterface):
 class PlainUnitMetadata(UnitMetadataInterface):
     """Plain Unit Metadata"""
 
+    unit_number: int
+
     pass
 
 
@@ -1464,7 +1469,7 @@ class PlainTextContent(ExtractionInterface):
         yield from ()
         return
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         self.content = self.content.strip()
 
     def to_json(self) -> dict:
@@ -1479,6 +1484,8 @@ class PlainTextContent(ExtractionInterface):
 @dataclass
 class CsvUnitMetadata(UnitMetadataInterface):
     """CSV/TSV Unit Metadata"""
+
+    unit_number: int
 
     pass
 
@@ -1542,6 +1549,8 @@ class CsvContent(ExtractionInterface):
 @dataclass
 class HtmlUnitMetadata(UnitMetadataInterface):
     """Html Unit Metadata"""
+
+    unit_number: int
 
     pass
 
@@ -1630,6 +1639,8 @@ PPT_TEXT_TYPE_QUARTER_BODY = 8  # Quarter body
 @dataclass
 class PptUnitMetadata(UnitMetadataInterface):
     """Ppt Unit Metadata"""
+
+    unit_number: int
 
     ...
 
@@ -1740,6 +1751,8 @@ class PptTextBlock:
             PPT_TEXT_TYPE_HALF_BODY: "half_body",
             PPT_TEXT_TYPE_QUARTER_BODY: "quarter_body",
         }
+        if self.text_type is None:
+            return "unknown"
         return type_names.get(self.text_type, "unknown")
 
 
@@ -1835,6 +1848,8 @@ class PptContent(ExtractionInterface):
 @dataclass
 class PptxUnitMetadata(UnitMetadataInterface):
     """Pptx Unit Metadata"""
+
+    unit_number: int
 
     pass
 
@@ -2021,6 +2036,7 @@ class PptxContent(ExtractionInterface):
 
 @dataclass
 class XlsUnitMetadata(UnitMetadataInterface):
+    unit_number: int
     sheet_name: str
 
 
@@ -2111,7 +2127,7 @@ class XlsSheet(TableInterface):
         headers = list(self.data[0].keys())
         rows = [headers]
         for row in self.data:
-            rows.append([row.get(header) for header in headers])
+            rows.append([row.get(header, "") for header in headers])
         return rows
 
     def get_dim(self) -> TableDim:
@@ -2180,6 +2196,7 @@ class XlsContent(ExtractionInterface):
 
 @dataclass
 class XlsxUnitMetadata(UnitMetadataInterface):
+    unit_number: int
     sheet_number: int
     sheet_name: str
 
@@ -3055,19 +3072,19 @@ class OdtContent(ExtractionInterface):
                     (matched_unit or units[-1]).tables.append(table_data)
 
             for image in self.images:
-                matched_unit: OdtUnit | None = None
+                matched_image_unit: OdtUnit | None = None
                 for unit in units:
                     if image.caption and image.caption in unit.text:
-                        matched_unit = unit
+                        matched_image_unit = unit
                         break
                     if image.description and image.description in unit.text:
-                        matched_unit = unit
+                        matched_image_unit = unit
                         break
-                if matched_unit is None:
+                if matched_image_unit is None:
                     if len(units) == 1:
-                        matched_unit = units[0]
+                        matched_image_unit = units[0]
                     else:
-                        matched_unit = next(
+                        matched_image_unit = next(
                             (
                                 u
                                 for u in reversed(units)
@@ -3076,8 +3093,8 @@ class OdtContent(ExtractionInterface):
                             units[-1],
                         )
 
-                image.unit_number = matched_unit.unit_number
-                matched_unit.images.append(image)
+                image.unit_number = matched_image_unit.unit_number
+                matched_image_unit.images.append(image)
 
         for unit in units:
             yield unit
@@ -3109,6 +3126,7 @@ class OdtContent(ExtractionInterface):
 
 @dataclass
 class RtfUnitMetadata(UnitMetadataInterface):
+    unit_number: int
     page_number: int
 
 
@@ -3395,11 +3413,11 @@ class RtfContent(ExtractionInterface):
             tables_by_page[page].append(tbl)
 
         if self.pages:
-            for page_number, page in enumerate(self.pages, start=1):
-                if page.strip():
+            for page_number, page_text in enumerate(self.pages, start=1):
+                if page_text.strip():
                     yield RtfUnit(
                         page_number=page_number,
-                        text=page,
+                        text=page_text,
                         images=images_by_page.get(page_number, []),
                         tables=tables_by_page.get(page_number, []),
                     )

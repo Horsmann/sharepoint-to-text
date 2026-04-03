@@ -15,8 +15,8 @@ import shutil
 import zipfile
 from typing import Any, Generator
 
-from openpyxl import load_workbook
-from openpyxl.worksheet.worksheet import Worksheet
+from openpyxl import load_workbook  # type: ignore[import-untyped]
+from openpyxl.worksheet.worksheet import Worksheet  # type: ignore[import-untyped]
 
 from sharepoint2text.parsing.exceptions import (
     ExtractionError,
@@ -75,7 +75,7 @@ def _is_xlsb_path(path: str | None) -> bool:
     return bool(path and path.lower().endswith(".xlsb"))
 
 
-def _iter_xlsb_records(data: bytes):
+def _iter_xlsb_records(data: bytes) -> Generator[tuple[int, bytes], None, None]:
     """Yield (record_type, payload) from an XLSB stream."""
     i = 0
     n = len(data)
@@ -322,7 +322,7 @@ def _format_sheet_as_text(all_rows: list[list[Any]]) -> str:
 # =============================================================================
 
 
-def _extract_metadata_from_workbook(wb) -> XlsxMetadata:
+def _extract_metadata_from_workbook(wb: Any) -> XlsxMetadata:
     """Extract document metadata from an openpyxl workbook properties object."""
     props = wb.properties
 
@@ -461,7 +461,9 @@ def _extract_images_from_zip(
                         filename = image_path.rsplit("/", 1)[-1]
 
                         if width <= 0 or height <= 0:
-                            width, height = get_image_pixel_dimensions(image_bytes)
+                            dims = get_image_pixel_dimensions(image_bytes)
+                            width = dims[0] or 0 if dims else 0
+                            height = dims[1] or 0 if dims else 0
 
                         image_counter += 1
                         sheet_images.append(
@@ -517,7 +519,7 @@ def _read_content(file_like: io.BytesIO) -> list[XlsxSheet]:
     return sheets
 
 
-def _read_content_from_workbook(wb, sheet_names: list[str]) -> list[XlsxSheet]:
+def _read_content_from_workbook(wb: Any, sheet_names: list[str]) -> list[XlsxSheet]:
     """Read all sheets from an openpyxl workbook and extract content."""
     sheets: list[XlsxSheet] = []
 

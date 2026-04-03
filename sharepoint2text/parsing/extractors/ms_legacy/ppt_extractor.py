@@ -15,7 +15,7 @@ import struct
 from datetime import datetime
 from typing import Any, BinaryIO, Generator, Iterator, NamedTuple
 
-import olefile
+import olefile  # type: ignore[import-untyped]
 
 from sharepoint2text.parsing.exceptions import (
     ExtractionError,
@@ -241,11 +241,12 @@ def read_ppt(
     logger.info("Entering PPT extraction: %s", source_path)
     try:
         file_like.seek(0)
-        if is_ppt_encrypted(file_like):
+        file_like_binary: io.BytesIO = file_like  # type: ignore[assignment]
+        if is_ppt_encrypted(file_like_binary):
             raise ExtractionFileEncryptedError("PPT is encrypted or password-protected")
 
         content = _extract_ppt_content_structured(
-            file_like, ignore_images=ignore_images
+            file_like_binary, ignore_images=ignore_images
         )
         content.metadata.populate_from_path(path)
         yield content
@@ -305,7 +306,7 @@ def _extract_metadata(ole: olefile.OleFileIO) -> PptMetadata:
     try:
         meta = ole.get_metadata()
 
-        def decode_if_bytes(value) -> str:
+        def decode_if_bytes(value: Any) -> str:
             if isinstance(value, bytes):
                 return value.decode("utf-8", errors="replace")
             return str(value) if value else ""
@@ -645,7 +646,7 @@ def _extract_images_from_pictures_stream(ole: olefile.OleFileIO) -> list[PptImag
             elif record.rec_type == BLIP_TYPE_WMF:
                 detected = ("wmf", "image/x-wmf")
             elif record.rec_type == BLIP_TYPE_DIB:
-                image_data = wrap_dib_as_bmp(image_data)
+                image_data = wrap_dib_as_bmp(image_data) or b""
                 if image_data:
                     detected = ("bmp", "image/bmp")
 
@@ -653,7 +654,7 @@ def _extract_images_from_pictures_stream(ole: olefile.OleFileIO) -> list[PptImag
             continue
 
         # Deduplicate
-        digest = hashlib.sha1(image_data).hexdigest()
+        digest = hashlib.sha1(image_data or b"").hexdigest()
         if digest in seen_hashes:
             continue
         seen_hashes.add(digest)

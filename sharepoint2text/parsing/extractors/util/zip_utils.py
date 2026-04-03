@@ -14,7 +14,9 @@ def read_zip_text(zf: zipfile.ZipFile, path: str) -> str:
 
 def read_zip_xml_root(zf: zipfile.ZipFile, path: str) -> XmlElement:
     """Parse an XML file from a ZIP archive and return its root element."""
-    return ET.fromstring(zf.read(path))
+    element = ET.fromstring(zf.read(path))
+    assert isinstance(element, XmlElement)
+    return element
 
 
 def find_relationship_elements(rels_root: XmlElement) -> List[XmlElement]:

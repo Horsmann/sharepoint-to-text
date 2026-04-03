@@ -164,7 +164,7 @@ def _decode_jwt_payload(token: str) -> dict[str, object]:
     payload_b64 = parts[1]
     padding = "=" * (-len(payload_b64) % 4)
     raw = base64.urlsafe_b64decode(payload_b64 + padding)
-    return json.loads(raw.decode("utf-8", errors="replace"))
+    return json.loads(raw.decode("utf-8", errors="replace"))  # type: ignore[no-any-return]
 
 
 def _print_token_claims(token: str) -> None:

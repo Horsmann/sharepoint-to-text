@@ -125,8 +125,8 @@ def _deserialize_value(value: typing.Any, expected_type: typing.Any) -> typing.A
     origin = typing.get_origin(expected_type)
 
     if origin is list:
-        item_type = typing.get_args(expected_type)
-        item_type = item_type[0] if item_type else typing.Any
+        args = typing.get_args(expected_type)
+        item_type: type[typing.Any] = args[0] if args else typing.Any
         if isinstance(value, list):
             return [_deserialize_value(item, item_type) for item in value]
         return value

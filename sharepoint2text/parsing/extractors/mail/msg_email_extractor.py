@@ -104,8 +104,8 @@ import re
 from email.utils import parsedate_to_datetime
 from typing import Any, Generator
 
-from msg_parser import MsOxMessage
-from olefile import OleFileIO
+from msg_parser import MsOxMessage  # type: ignore[import-untyped]
+from olefile import OleFileIO  # type: ignore[import-untyped]
 
 from sharepoint2text.parsing.exceptions import ExtractionError, ExtractionFailedError
 from sharepoint2text.parsing.extractors.data_types import (
@@ -156,7 +156,8 @@ def _read_ole_string(ole: OleFileIO, storage: str, stream_name: str) -> str:
     except (OSError, IOError):
         return ""
     try:
-        return raw.decode("utf-16-le", errors="ignore").rstrip("\x00")
+        raw_str: str = raw.decode("utf-16-le", errors="ignore").rstrip("\x00")
+        return raw_str
     except (UnicodeDecodeError, ValueError):
         return ""
 

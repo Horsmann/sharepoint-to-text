@@ -13,8 +13,8 @@ import logging
 import struct
 from typing import Any, Generator
 
-import olefile
-import xlrd
+import olefile  # type: ignore[import-untyped]
+import xlrd  # type: ignore[import-untyped]
 
 from sharepoint2text.parsing.exceptions import (
     ExtractionError,
