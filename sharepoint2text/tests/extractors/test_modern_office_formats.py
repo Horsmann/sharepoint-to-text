@@ -852,3 +852,20 @@ def test_read_macro_enabled_pptm() -> None:
     # Verify it extracts as PptxContent (same as .pptx)
     tc.assertIsInstance(result, PptxContent)
     tc.assertTrue(len(result.slides) > 0)
+
+
+def test_markdown_export():
+    """Test markdown export functionality."""
+
+    path = (
+        "sharepoint2text/tests/resources/modern_ms/sample_with_comment_and_table.docx"
+    )
+
+    docx: DocxContent = next(read_docx(read_file_to_file_like(path=path)))
+
+    tc.assertEqual(
+        "Hello World!\nAn image of space\nIncome\ntax\n119\n19\n"
+        "Another sentence after the table.\n$$\\frac{3}{4}\\times4=\\sqrt{9}$$\n\n"
+        "## Tables\n\n| Income | tax |\n|--------|-----|\n| 119    | 19  |",
+        docx.get_full_markdown(),
+    )
