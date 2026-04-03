@@ -235,6 +235,12 @@ class ExtractionInterface(Protocol):
 
 
 @dataclass
+class ApplePagesContent(ExtractionInterface):
+    tables: List[List[List[str]]] = field(default_factory=list)
+    full_text: str = ""  # Full text including formulas
+
+
+@dataclass
 class FileMetadataInterface:
     filename: str | None = None
     file_extension: str | None = None

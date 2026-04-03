@@ -6,6 +6,8 @@ import typing
 import zipfile
 from unittest import TestCase
 
+from parsing.extractors.apple.pages_extractor import read_apple_pages
+
 import sharepoint2text.parsing.extractors.archive_extractor as archive_module
 from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
@@ -16,6 +18,7 @@ from sharepoint2text.parsing.exceptions import (
 from sharepoint2text.parsing.extractors.archive_extractor import read_archive
 from sharepoint2text.parsing.extractors.csv_extractor import read_csv
 from sharepoint2text.parsing.extractors.data_types import (
+    ApplePagesContent,
     DocContent,
     DocImage,
     DocxComment,
@@ -3342,4 +3345,50 @@ def test_markdown_export():
         "Another sentence after the table.\n$$\\frac{3}{4}\\times4=\\sqrt{9}$$\n\n"
         "## Tables\n\n| Income | tax |\n|--------|-----|\n| 119    | 19  |",
         docx.get_full_markdown(),
+    )
+
+
+def test_apple_pages_1():
+    """Test apple pages extractor."""
+
+    path = "sharepoint2text/tests/resources/apple/mwe.pages"
+
+    page_obj: ApplePagesContent = next(
+        read_apple_pages(_read_file_to_file_like(path=path))
+    )
+
+    tc.assertEqual(0, len(page_obj.tables))
+    tc.assertEqual("This is a test document.", page_obj.get_full_text())
+
+
+def test_apple_pages_2():
+    """Test apple pages extractor."""
+
+    path = "sharepoint2text/tests/resources/apple/with_tables.pages"
+
+    page_obj: ApplePagesContent = next(
+        read_apple_pages(_read_file_to_file_like(path=path))
+    )
+
+    tc.assertEqual(2, len(page_obj.tables))
+    tc.assertEqual(
+        (
+            "This is a test document. A new journey!",
+            "",
+            "A | B | C | D | Z",
+            "1 | 2 | 3 | 4 |",
+            "5 | 6 | 7 | 8 |",
+            "9 | 10 | 11 | 12 | Ü",
+            "13 | 14 | 15 | 16 |",
+            "",
+            "A | B",
+            "John | long",
+            "White | Gray",
+            "Red | Blue",
+            "8 | 9",
+            "",
+            "Headerline",
+            "^^ okay, das ist jetzt mal etwas mehr Text :P",
+        ),
+        page_obj.get_full_text(),
     )
