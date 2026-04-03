@@ -411,7 +411,7 @@ def _extract_images_from_workbook(file_like: io.BytesIO) -> list[XlsImage]:
             continue
 
         # Deduplicate
-        digest = hashlib.sha1(image_data).hexdigest()
+        digest = hashlib.sha256(image_data).hexdigest()
         if digest not in seen_hashes:
             seen_hashes.add(digest)
             image_index += 1
