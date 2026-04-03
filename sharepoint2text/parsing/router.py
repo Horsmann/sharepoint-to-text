@@ -2,7 +2,7 @@ import functools
 import logging
 import mimetypes
 import os
-from typing import Any, BinaryIO, Callable, Generator
+from typing import Any, BinaryIO, Callable, Generator, cast
 
 from sharepoint2text.parsing.exceptions import ExtractionFileFormatNotSupportedError
 from sharepoint2text.parsing.extractors.data_types import ExtractionInterface
@@ -12,94 +12,61 @@ logger = logging.getLogger(__name__)
 
 _ATTACHMENT_AWARE_FILE_TYPES = frozenset({"msg", "eml", "mbox"})
 
-# Mapping from file type identifiers to their extractor module paths and function names
-# Format: file_type -> (module_path, function_name)
-_EXTRACTOR_REGISTRY: dict[str, tuple[str, str]] = {
+# Mapping from file type identifiers to allowlisted extractor keys.
+# Format: file_type -> extractor_key
+_EXTRACTOR_REGISTRY: dict[str, str] = {
     # Modern MS Office
-    "xlsx": (
-        "sharepoint2text.parsing.extractors.ms_modern.xlsx_extractor",
-        "read_xlsx",
-    ),
-    "xlsb": (
-        "sharepoint2text.parsing.extractors.ms_modern.xlsx_extractor",
-        "read_xlsx",
-    ),
-    "docx": (
-        "sharepoint2text.parsing.extractors.ms_modern.docx_extractor",
-        "read_docx",
-    ),
-    "pptx": (
-        "sharepoint2text.parsing.extractors.ms_modern.pptx_extractor",
-        "read_pptx",
-    ),
+    "xlsx": "xlsx",
+    "xlsb": "xlsx",
+    "docx": "docx",
+    "pptx": "pptx",
     # Macro-enabled variants (same OOXML structure)
-    "xlsm": (
-        "sharepoint2text.parsing.extractors.ms_modern.xlsx_extractor",
-        "read_xlsx",
-    ),
-    "docm": (
-        "sharepoint2text.parsing.extractors.ms_modern.docx_extractor",
-        "read_docx",
-    ),
-    "pptm": (
-        "sharepoint2text.parsing.extractors.ms_modern.pptx_extractor",
-        "read_pptx",
-    ),
+    "xlsm": "xlsx",
+    "docm": "docx",
+    "pptm": "pptx",
     # Legacy MS Office
-    "xls": ("sharepoint2text.parsing.extractors.ms_legacy.xls_extractor", "read_xls"),
-    "doc": ("sharepoint2text.parsing.extractors.ms_legacy.doc_extractor", "read_doc"),
-    "ppt": ("sharepoint2text.parsing.extractors.ms_legacy.ppt_extractor", "read_ppt"),
-    "rtf": ("sharepoint2text.parsing.extractors.ms_legacy.rtf_extractor", "read_rtf"),
+    "xls": "xls",
+    "doc": "doc",
+    "ppt": "ppt",
+    "rtf": "rtf",
     # OpenDocument formats
-    "odt": ("sharepoint2text.parsing.extractors.open_office.odt_extractor", "read_odt"),
-    "odp": ("sharepoint2text.parsing.extractors.open_office.odp_extractor", "read_odp"),
-    "ods": ("sharepoint2text.parsing.extractors.open_office.ods_extractor", "read_ods"),
-    "odg": ("sharepoint2text.parsing.extractors.open_office.odg_extractor", "read_odg"),
-    "odf": ("sharepoint2text.parsing.extractors.open_office.odf_extractor", "read_odf"),
+    "odt": "odt",
+    "odp": "odp",
+    "ods": "ods",
+    "odg": "odg",
+    "odf": "odf",
     # Email formats
-    "msg": (
-        "sharepoint2text.parsing.extractors.mail.msg_email_extractor",
-        "read_msg_format_mail",
-    ),
-    "mbox": (
-        "sharepoint2text.parsing.extractors.mail.mbox_email_extractor",
-        "read_mbox_format_mail",
-    ),
-    "eml": (
-        "sharepoint2text.parsing.extractors.mail.eml_email_extractor",
-        "read_eml_format_mail",
-    ),
+    "msg": "msg",
+    "mbox": "mbox",
+    "eml": "eml",
     # Structured delimited formats
-    "csv": ("sharepoint2text.parsing.extractors.csv_extractor", "read_csv"),
-    "tsv": ("sharepoint2text.parsing.extractors.csv_extractor", "read_csv"),
+    "csv": "csv",
+    "tsv": "csv",
     # Plain text variants (all use the same extractor)
-    "json": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
-    "txt": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
-    "md": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
+    "json": "plain_text",
+    "txt": "plain_text",
+    "md": "plain_text",
     # Configuration and data formats
-    "yaml": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
-    "yml": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
-    "xml": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
-    "log": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
-    "ini": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
-    "cfg": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
-    "conf": ("sharepoint2text.parsing.extractors.plain_extractor", "read_plain_text"),
-    "properties": (
-        "sharepoint2text.parsing.extractors.plain_extractor",
-        "read_plain_text",
-    ),
+    "yaml": "plain_text",
+    "yml": "plain_text",
+    "xml": "plain_text",
+    "log": "plain_text",
+    "ini": "plain_text",
+    "cfg": "plain_text",
+    "conf": "plain_text",
+    "properties": "plain_text",
     # Other formats
-    "pdf": ("sharepoint2text.parsing.extractors.pdf.pdf_extractor", "read_pdf"),
-    "html": ("sharepoint2text.parsing.extractors.html_extractor", "read_html"),
-    "epub": ("sharepoint2text.parsing.extractors.epub_extractor", "read_epub"),
-    "mhtml": ("sharepoint2text.parsing.extractors.mhtml_extractor", "read_mhtml"),
+    "pdf": "pdf",
+    "html": "html",
+    "epub": "epub",
+    "mhtml": "mhtml",
     # Archive formats
-    "zip": ("sharepoint2text.parsing.extractors.archive_extractor", "read_archive"),
-    "tar": ("sharepoint2text.parsing.extractors.archive_extractor", "read_archive"),
-    "tgz": ("sharepoint2text.parsing.extractors.archive_extractor", "read_archive"),
-    "tbz2": ("sharepoint2text.parsing.extractors.archive_extractor", "read_archive"),
-    "txz": ("sharepoint2text.parsing.extractors.archive_extractor", "read_archive"),
-    "7z": ("sharepoint2text.parsing.extractors.archive_extractor", "read_archive"),
+    "zip": "archive",
+    "tar": "archive",
+    "tgz": "archive",
+    "tbz2": "archive",
+    "txz": "archive",
+    "7z": "archive",
 }
 
 _EXTENSION_ALIASES: dict[str, str] = {
@@ -137,6 +104,152 @@ _SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
     | set(_COMPOUND_EXTENSIONS.keys())
 )
 
+ExtractorFunction = Callable[
+    [BinaryIO, str | None], Generator[ExtractionInterface, Any, None]
+]
+
+
+@functools.lru_cache(maxsize=None)
+def _load_registered_extractor(extractor_key: str) -> Any:
+    """Return an allowlisted extractor function for a registered key.
+
+    Args:
+        extractor_key: Internal extractor key from ``_EXTRACTOR_REGISTRY``.
+
+    Returns:
+        Extractor callable associated with the approved key.
+
+    Raises:
+        ExtractionFileFormatNotSupportedError: If the key is not allowlisted.
+    """
+    match extractor_key:
+        case "xlsx":
+            from sharepoint2text.parsing.extractors.ms_modern.xlsx_extractor import (
+                read_xlsx,
+            )
+
+            return read_xlsx
+        case "docx":
+            from sharepoint2text.parsing.extractors.ms_modern.docx_extractor import (
+                read_docx,
+            )
+
+            return read_docx
+        case "pptx":
+            from sharepoint2text.parsing.extractors.ms_modern.pptx_extractor import (
+                read_pptx,
+            )
+
+            return read_pptx
+        case "xls":
+            from sharepoint2text.parsing.extractors.ms_legacy.xls_extractor import (
+                read_xls,
+            )
+
+            return read_xls
+        case "doc":
+            from sharepoint2text.parsing.extractors.ms_legacy.doc_extractor import (
+                read_doc,
+            )
+
+            return read_doc
+        case "ppt":
+            from sharepoint2text.parsing.extractors.ms_legacy.ppt_extractor import (
+                read_ppt,
+            )
+
+            return read_ppt
+        case "rtf":
+            from sharepoint2text.parsing.extractors.ms_legacy.rtf_extractor import (
+                read_rtf,
+            )
+
+            return read_rtf
+        case "odt":
+            from sharepoint2text.parsing.extractors.open_office.odt_extractor import (
+                read_odt,
+            )
+
+            return read_odt
+        case "odp":
+            from sharepoint2text.parsing.extractors.open_office.odp_extractor import (
+                read_odp,
+            )
+
+            return read_odp
+        case "ods":
+            from sharepoint2text.parsing.extractors.open_office.ods_extractor import (
+                read_ods,
+            )
+
+            return read_ods
+        case "odg":
+            from sharepoint2text.parsing.extractors.open_office.odg_extractor import (
+                read_odg,
+            )
+
+            return read_odg
+        case "odf":
+            from sharepoint2text.parsing.extractors.open_office.odf_extractor import (
+                read_odf,
+            )
+
+            return read_odf
+        case "msg":
+            from sharepoint2text.parsing.extractors.mail.msg_email_extractor import (
+                read_msg_format_mail,
+            )
+
+            return read_msg_format_mail
+        case "mbox":
+            from sharepoint2text.parsing.extractors.mail.mbox_email_extractor import (
+                read_mbox_format_mail,
+            )
+
+            return read_mbox_format_mail
+        case "eml":
+            from sharepoint2text.parsing.extractors.mail.eml_email_extractor import (
+                read_eml_format_mail,
+            )
+
+            return read_eml_format_mail
+        case "csv":
+            from sharepoint2text.parsing.extractors.csv_extractor import read_csv
+
+            return read_csv
+        case "plain_text":
+            from sharepoint2text.parsing.extractors.plain_extractor import (
+                read_plain_text,
+            )
+
+            return read_plain_text
+        case "pdf":
+            from sharepoint2text.parsing.extractors.pdf.pdf_extractor import read_pdf
+
+            return read_pdf
+        case "html":
+            from sharepoint2text.parsing.extractors.html_extractor import read_html
+
+            return read_html
+        case "epub":
+            from sharepoint2text.parsing.extractors.epub_extractor import read_epub
+
+            return read_epub
+        case "mhtml":
+            from sharepoint2text.parsing.extractors.mhtml_extractor import read_mhtml
+
+            return read_mhtml
+        case "archive":
+            from sharepoint2text.parsing.extractors.archive_extractor import (
+                read_archive,
+            )
+
+            return read_archive
+        case _:
+            raise ExtractionFileFormatNotSupportedError(
+                f"No allowlisted extractor for key: {extractor_key}"
+            )
+
 
 def _get_extractor(
     file_type: str,
@@ -146,9 +259,10 @@ def _get_extractor(
     """
     Return the extractor function for a file type using lazy import.
 
-    Uses a registry-based lookup pattern to map file types to their
-    corresponding extractor modules and functions. Imports are performed
-    lazily to minimize startup time and memory usage.
+    Uses a registry-based lookup pattern to map file types to a fixed
+    allowlist of extractor implementations. Imports are performed lazily
+    through literal import statements to minimize startup time while
+    preventing untrusted module loading.
 
     Args:
         file_type: File type identifier (e.g., "docx", "pdf", "xlsx").
@@ -165,13 +279,8 @@ def _get_extractor(
             f"No extractor for file type: {file_type}"
         )
 
-    module_path, function_name = _EXTRACTOR_REGISTRY[file_type]
-
-    # Lazy import of the extractor module
-    import importlib
-
-    module = importlib.import_module(module_path)
-    extractor: Any = getattr(module, function_name)
+    extractor_key = _EXTRACTOR_REGISTRY[file_type]
+    extractor = cast(ExtractorFunction, _load_registered_extractor(extractor_key))
 
     if ignore_images or (
         file_type in _ATTACHMENT_AWARE_FILE_TYPES and not include_attachments
@@ -181,8 +290,8 @@ def _get_extractor(
             partial_kwargs["ignore_images"] = True
         if file_type in _ATTACHMENT_AWARE_FILE_TYPES and not include_attachments:
             partial_kwargs["include_attachments"] = False
-        return functools.partial(extractor, **partial_kwargs)
-    return extractor  # type: ignore[no-any-return]
+        return cast(ExtractorFunction, functools.partial(extractor, **partial_kwargs))
+    return extractor
 
 
 def _file_type_from_extension(path_lower: str) -> str | None:
