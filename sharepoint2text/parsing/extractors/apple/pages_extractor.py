@@ -1297,9 +1297,26 @@ def read_apple_pages(
             temp_path = Path(tmp_path)
 
             # ApplePagesContent stores tables as the full rendered grid, including
-            # the header row. The textual renderer still treats headers separately.
+            # the header row. Preserve declared trailing empty rows in table data,
+            # but keep the textual renderer based on the unpadded decoded rows.
             tables_data = extract_tables_from_pages(temp_path)
-            tables = [[table.headers, *table.rows] for table in tables_data]
+            tables: list[list[list[str]]] = []
+            for table in tables_data:
+                declared_row_count = table.metadata.get("declared_row_count")
+                target_body_rows = (
+                    max(int(declared_row_count) - 1, 0)
+                    if isinstance(declared_row_count, int)
+                    else len(table.rows)
+                )
+                padded_rows = list(table.rows)
+                if target_body_rows > len(padded_rows):
+                    padded_rows.extend(
+                        [
+                            [""] * len(table.headers)
+                            for _ in range(target_body_rows - len(padded_rows))
+                        ]
+                    )
+                tables.append([table.headers, *padded_rows])
 
             # Extract text candidates and build document
             candidates = extract_candidates(temp_path)
