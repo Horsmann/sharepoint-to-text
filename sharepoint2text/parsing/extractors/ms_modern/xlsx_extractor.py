@@ -29,6 +29,18 @@ from sharepoint2text.parsing.extractors.data_types import (
     XlsxMetadata,
     XlsxSheet,
 )
+from sharepoint2text.parsing.extractors.ms_modern.ooxml_namespaces import (
+    A_BLIP_XLSX,
+    ANCHOR_TYPES,
+    EMU_PER_PIXEL,
+    R_EMBED_XLSX,
+    XDR_BLIPFILL,
+    XDR_CNVPR,
+    XDR_EXT,
+    XDR_NVPICPR,
+    XDR_PIC,
+    XLSB_SST_ITEM_RECORD,
+)
 from sharepoint2text.parsing.extractors.ms_modern.ooxml_shared import (
     OOXMLZipContext,
     get_image_content_type,
@@ -39,36 +51,8 @@ from sharepoint2text.parsing.extractors.util.zip_bomb import validate_zip_bytesi
 
 logger = logging.getLogger(__name__)
 
-# =============================================================================
-# XML Namespaces and pre-computed tag names
-# =============================================================================
-
-XDR_NS = "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
-A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
-R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-
-XDR_ONE_CELL_ANCHOR = f"{{{XDR_NS}}}oneCellAnchor"
-XDR_TWO_CELL_ANCHOR = f"{{{XDR_NS}}}twoCellAnchor"
-XDR_ABSOLUTE_ANCHOR = f"{{{XDR_NS}}}absoluteAnchor"
-XDR_PIC = f"{{{XDR_NS}}}pic"
-XDR_EXT = f"{{{XDR_NS}}}ext"
-XDR_NVPICPR = f"{{{XDR_NS}}}nvPicPr"
-XDR_CNVPR = f"{{{XDR_NS}}}cNvPr"
-XDR_BLIPFILL = f"{{{XDR_NS}}}blipFill"
-A_BLIP = f"{{{A_NS}}}blip"
-R_EMBED = f"{{{R_NS}}}embed"
-
-ANCHOR_TYPES = (XDR_ONE_CELL_ANCHOR, XDR_TWO_CELL_ANCHOR, XDR_ABSOLUTE_ANCHOR)
-
-# =============================================================================
-# Constants
-# =============================================================================
-
-EMU_PER_PIXEL = 9525
-
 # Datetime types for isinstance check
 _DATETIME_TYPES = (datetime.datetime, datetime.date, datetime.time)
-_XLSB_SST_ITEM_RECORD = 19
 
 
 def _is_xlsb_path(path: str | None) -> bool:
@@ -124,7 +108,7 @@ def _extract_xlsb_shared_strings(zf: zipfile.ZipFile) -> list[str]:
 
     out: list[str] = []
     for record_type, payload in _iter_xlsb_records(sst_data):
-        if record_type != _XLSB_SST_ITEM_RECORD or len(payload) < 5:
+        if record_type != XLSB_SST_ITEM_RECORD or len(payload) < 5:
             continue
         # XLWideString in BrtSSTItem: 1-byte flags + 4-byte char count + UTF-16LE chars
         cch = int.from_bytes(payload[1:5], "little", signed=False)
@@ -415,11 +399,11 @@ def _extract_images_from_zip(
                         if blipFill is None:
                             continue
 
-                        blip = blipFill.find(A_BLIP)
+                        blip = blipFill.find(A_BLIP_XLSX)
                         if blip is None:
                             continue
 
-                        embed_rid = blip.get(R_EMBED, "")
+                        embed_rid = blip.get(R_EMBED_XLSX, "")
                         if not embed_rid or embed_rid not in rid_to_image:
                             continue
 
