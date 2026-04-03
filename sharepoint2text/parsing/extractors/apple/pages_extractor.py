@@ -13,6 +13,7 @@ from typing import Any, Generator
 from sharepoint2text.parsing.extractors.data_types import (
     ApplePagesContent,
     ApplePagesImage,
+    ApplePagesParagraph,
     FileMetadataInterface,
 )
 from sharepoint2text.parsing.extractors.util.image_utils import (
@@ -26,6 +27,8 @@ from sharepoint2text.parsing.extractors.util.image_utils import (
 
 
 PRINTABLE_ASCII = set(string.printable) - {"\x0b", "\x0c"}
+MAX_HEADING_WORDS = 12
+MAX_HEADING_TEXT_LENGTH = 160
 
 
 @dataclass(frozen=True)
@@ -66,6 +69,12 @@ class DocumentFlow:
     segments: list[str]
     placeholder_count: int
     source_object_id: int
+
+
+@dataclass(frozen=True)
+class StyledTextRun:
+    offset: int
+    style_id: int | None
 
 
 def guess_caption_from_filename(filename: str) -> str:
@@ -1017,29 +1026,214 @@ def extract_document_flow(pages_path: Path) -> DocumentFlow | None:
 
 def extract_primary_document_text(pages_path: Path) -> str | None:
     """Extract the primary document text blob from Index/Document.iwa."""
+    message = extract_primary_text_message(pages_path)
+    if message is None:
+        return None
+    return _extract_message_text(message)
+
+
+def _extract_message_text(message: DecodedMessage) -> str | None:
+    """Extract normalized UTF-8 text from a decoded Pages message."""
+    best_text = ""
+    for field, wire, value in parse_proto_fields(message.body):
+        if field != 3 or wire != 2 or not isinstance(value, bytes):
+            continue
+        try:
+            text = value.decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+        alpha_count = sum(ch.isalpha() for ch in text)
+        if alpha_count < 40:
+            continue
+        cleaned = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+        if len(cleaned) > len(best_text):
+            best_text = cleaned
+
+    return best_text or None
+
+
+def extract_primary_text_message(pages_path: Path) -> DecodedMessage | None:
+    """Return the best Pages message containing the primary document text."""
     with zipfile.ZipFile(pages_path) as archive:
         raw = archive.read("Index/Document.iwa")
         messages = decode_iwa_messages(raw, source="Index/Document.iwa")
 
-    best_text = ""
+    best_message: DecodedMessage | None = None
+    best_score = -1
     for message in messages:
-        for field, wire, value in parse_proto_fields(message.body):
-            if field != 3 or wire != 2 or not isinstance(value, bytes):
-                continue
-            try:
-                text = value.decode("utf-8")
-            except UnicodeDecodeError:
-                continue
-            if "\ufffc" in text:
-                continue
-            alpha_count = sum(ch.isalpha() for ch in text)
-            if alpha_count < 40:
-                continue
-            cleaned = text.replace("\r\n", "\n").replace("\r", "\n").strip()
-            if len(cleaned) > len(best_text):
-                best_text = cleaned
+        text = _extract_message_text(message)
+        if text is None:
+            continue
+        score = len(text.replace("\ufffc", ""))
+        if score > best_score:
+            best_score = score
+            best_message = message
 
-    return best_text or None
+    return best_message
+
+
+def extract_text_style_runs(message: DecodedMessage) -> list[StyledTextRun]:
+    """Extract text style boundaries from a Pages text message."""
+    runs: list[StyledTextRun] = []
+    for field, wire, value in parse_proto_fields(message.body):
+        if field != 5 or wire != 2 or not isinstance(value, bytes):
+            continue
+        for item_field, item_wire, item_value in parse_proto_fields(value):
+            if item_field != 1 or item_wire != 2 or not isinstance(item_value, bytes):
+                continue
+            offset: int | None = None
+            style_id: int | None = None
+            for subfield, subwire, subvalue in parse_proto_fields(item_value):
+                if subfield == 1 and subwire == 0 and isinstance(subvalue, int):
+                    offset = subvalue
+                    continue
+                if subfield == 2 and subwire == 2 and isinstance(subvalue, bytes):
+                    nested = parse_proto_fields(subvalue)
+                    style_id = next(
+                        (
+                            nested_value
+                            for nested_field, nested_wire, nested_value in nested
+                            if (
+                                nested_field == 1
+                                and nested_wire == 0
+                                and isinstance(nested_value, int)
+                            )
+                        ),
+                        None,
+                    )
+            if offset is not None:
+                runs.append(StyledTextRun(offset=offset, style_id=style_id))
+
+    runs.sort(key=lambda run: run.offset)
+    return runs
+
+
+def _clean_paragraph_text(text: str) -> str:
+    """Normalize a paragraph while preserving paragraph-level boundaries."""
+    cleaned = text.replace("\ufffc", " ").replace("\r\n", "\n").replace("\r", "\n")
+    lines = [" ".join(line.split()) for line in cleaned.split("\n")]
+    return "\n".join(line for line in lines if line).strip()
+
+
+def _style_at_offset(style_runs: list[StyledTextRun], offset: int) -> int | None:
+    """Resolve the active style identifier for a text offset."""
+    current_style: int | None = None
+    for run in style_runs:
+        if run.offset > offset:
+            break
+        current_style = run.style_id
+    return current_style
+
+
+def _is_heading_candidate(text: str) -> bool:
+    """Return whether a paragraph text looks like a heading/title line."""
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if stripped[-1] in ".!?;:":
+        return False
+    if len(stripped) > MAX_HEADING_TEXT_LENGTH:
+        return False
+    return len(stripped.split()) <= MAX_HEADING_WORDS
+
+
+def _heading_family_key(text: str) -> str:
+    """Build a normalized family key so repeated headings keep a stable depth."""
+    lowered = text.strip().lower()
+    lowered = re.sub(r"\s+\d+(?:[.:]\d+)*\s*$", "", lowered)
+    lowered = re.sub(r"\s+", " ", lowered)
+    return lowered.strip()
+
+
+def extract_primary_document_paragraphs(pages_path: Path) -> list[ApplePagesParagraph]:
+    """Extract paragraph structure and inferred heading levels from a Pages file."""
+    message = extract_primary_text_message(pages_path)
+    if message is None:
+        return []
+
+    text = _extract_message_text(message)
+    if text is None:
+        return []
+
+    style_runs = extract_text_style_runs(message)
+    line_entries: list[tuple[str, int, int | None, bool]] = []
+    position = 0
+    pending_blank = False
+    for raw_line in text.splitlines(keepends=True):
+        line = raw_line.rstrip("\n")
+        stripped = _clean_paragraph_text(line)
+        if stripped:
+            line_entries.append(
+                (
+                    stripped,
+                    position,
+                    _style_at_offset(style_runs, position),
+                    pending_blank,
+                )
+            )
+            pending_blank = False
+        else:
+            pending_blank = True
+        position += len(raw_line)
+
+    merged_paragraphs: list[tuple[str, int | None]] = []
+    current_parts: list[str] = []
+    current_style: int | None = None
+    for text_part, _, style_id, had_blank_before in line_entries:
+        if current_parts and not had_blank_before and style_id == current_style:
+            current_parts.append(text_part)
+            continue
+        if current_parts:
+            merged_paragraphs.append(("\n".join(current_parts), current_style))
+        current_parts = [text_part]
+        current_style = style_id
+    if current_parts:
+        merged_paragraphs.append(("\n".join(current_parts), current_style))
+
+    heading_levels: OrderedDict[int, int] = OrderedDict()
+    heading_levels_by_family: dict[str, int] = {}
+    paragraph_levels: list[int | None] = []
+    for paragraph_text, style_id in merged_paragraphs:
+        if not _is_heading_candidate(paragraph_text):
+            paragraph_levels.append(None)
+            continue
+        family_key = _heading_family_key(paragraph_text)
+        if family_key and family_key in heading_levels_by_family:
+            paragraph_levels.append(heading_levels_by_family[family_key])
+            continue
+
+        if style_id is not None and style_id in heading_levels:
+            level = heading_levels[style_id]
+            paragraph_levels.append(level)
+            if family_key:
+                heading_levels_by_family[family_key] = level
+            continue
+
+        level = min(len(heading_levels) + 1, 6)
+        if style_id is not None:
+            heading_levels[style_id] = level
+        if family_key:
+            heading_levels_by_family[family_key] = level
+        paragraph_levels.append(level)
+
+    paragraphs: list[ApplePagesParagraph] = []
+    for (paragraph_text, style_id), outline_level in zip(
+        merged_paragraphs, paragraph_levels
+    ):
+        style_name = None
+        if outline_level is not None:
+            style_name = "Title" if outline_level == 1 else f"Heading {outline_level}"
+        elif style_id is not None:
+            style_name = f"Style {style_id}"
+        paragraphs.append(
+            ApplePagesParagraph(
+                text=paragraph_text,
+                style_name=style_name,
+                outline_level=outline_level,
+            )
+        )
+
+    return paragraphs
 
 
 def extract_image_captions_from_pages(pages_path: Path) -> list[str]:
@@ -1508,6 +1702,7 @@ def read_apple_pages(
             content = ApplePagesContent(
                 tables=tables,
                 images=images,
+                paragraphs=extract_primary_document_paragraphs(temp_path),
                 full_text=full_text,
                 metadata=metadata,
             )

@@ -1490,14 +1490,67 @@ class ApplePagesContent(ExtractionInterface):
 
     tables: List[List[List[str]]] = field(default_factory=list)
     images: List["ApplePagesImage"] = field(default_factory=list)
+    paragraphs: List["ApplePagesParagraph"] = field(default_factory=list)
     full_text: str = ""  # Full text including tables rendered as text
     metadata: FileMetadataInterface = field(default_factory=FileMetadataInterface)
 
     def iterate_units(
         self, *, ignore_images: bool = False
     ) -> typing.Iterator[UnitInterface]:
-        """Yield the document as a single unit."""
-        yield PlainTextUnit(text=self.full_text.strip())
+        """Yield heading-aware text units when paragraph structure is available."""
+        if not self.paragraphs:
+            yield PlainTextUnit(text=self.full_text.strip())
+            return
+
+        heading_stack: list[tuple[int, str]] = []
+        current_heading_level: int | None = None
+        current_heading_path: list[str] = []
+        current_lines: list[str] = []
+        unit_index = 1
+
+        def flush_current() -> typing.Iterator[ApplePagesUnit]:
+            nonlocal unit_index, current_lines
+            text = "\n".join(line for line in current_lines if line).strip()
+            if not text:
+                current_lines = []
+                return
+
+            yield ApplePagesUnit(
+                text=text,
+                unit_number=unit_index,
+                heading_level=current_heading_level,
+                heading_path=list(current_heading_path),
+                images=(
+                    []
+                    if ignore_images
+                    else list(self.images) if unit_index == 1 else []
+                ),
+                tables=(
+                    [TableData(data=table) for table in self.tables]
+                    if unit_index == 1
+                    else []
+                ),
+            )
+            unit_index += 1
+            current_lines = []
+
+        for paragraph in self.paragraphs:
+            text = paragraph.text.strip()
+            if not text:
+                continue
+
+            if paragraph.outline_level is not None:
+                yield from flush_current()
+                while heading_stack and heading_stack[-1][0] >= paragraph.outline_level:
+                    heading_stack.pop()
+                heading_stack.append((paragraph.outline_level, text))
+                current_heading_level = paragraph.outline_level
+                current_heading_path = [token for _, token in heading_stack if token]
+                continue
+
+            current_lines.append(text)
+
+        yield from flush_current()
 
     def get_full_text(self) -> str:
         """Get full text of the document."""
@@ -1517,8 +1570,97 @@ class ApplePagesContent(ExtractionInterface):
         for table in self.tables:
             yield TableData(data=table)
 
+    def get_full_markdown(self) -> str:
+        """Render Apple Pages content as Markdown with heading paragraphs preserved."""
+        if not self.paragraphs:
+            markdown_parts = [self.full_text.strip()] if self.full_text.strip() else []
+            tables = list(self.iterate_tables())
+            if tables:
+                markdown_parts.append("## Tables")
+                for table in tables:
+                    md = _render_markdown_table(table.get_table())
+                    if md:
+                        markdown_parts.append(md)
+            return "\n\n".join(markdown_parts).strip()
+
+        parts: list[str] = []
+        for paragraph in self.paragraphs:
+            text = paragraph.text.strip()
+            if not text:
+                continue
+
+            if paragraph.outline_level is not None:
+                prefix = "#" * min(max(paragraph.outline_level, 1), 6)
+                parts.append(f"{prefix} {text}")
+            else:
+                parts.append(text)
+
+        tables = list(self.iterate_tables())
+        if tables:
+            parts.append("## Tables")
+            for table in tables:
+                md = _render_markdown_table(table.get_table())
+                if md:
+                    parts.append(md)
+
+        return "\n\n".join(parts).strip()
+
     def to_json(self) -> dict:
         """Returns a JSON-serializable dictionary representation."""
+        return serialize_extraction(self)
+
+
+@dataclass
+class ApplePagesParagraph:
+    """Represents a paragraph extracted from an Apple Pages document."""
+
+    text: str = ""
+    style_name: Optional[str] = None
+    outline_level: Optional[int] = None
+
+
+@dataclass
+class ApplePagesUnitMetadata(UnitMetadataInterface):
+    """Metadata for a logical Apple Pages text unit."""
+
+    unit_number: int
+    heading_level: int | None = None
+    heading_path: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ApplePagesUnit(UnitInterface):
+    """A logical Apple Pages text unit grouped by heading structure."""
+
+    text: str = ""
+    unit_number: int = 1
+    heading_level: int | None = None
+    heading_path: list[str] = field(default_factory=list)
+    images: list["ApplePagesImage"] = field(default_factory=list)
+    tables: list[TableData] = field(default_factory=list)
+
+    def get_text(self) -> str:
+        """Return the unit text."""
+        return self.text
+
+    def get_images(self) -> list[ImageInterface]:
+        """Return images attached to the unit."""
+        return typing.cast(list[ImageInterface], self.images)
+
+    def get_tables(self) -> list[TableData]:
+        """Return tables attached to the unit."""
+        return self.tables
+
+    def get_metadata(self) -> ApplePagesUnitMetadata:
+        """Return unit metadata including heading information."""
+        return ApplePagesUnitMetadata(
+            unit_number=self.unit_number,
+            heading_level=self.heading_level,
+            heading_path=list(self.heading_path),
+        )
+
+    def to_json(self) -> dict:
+        """Return a JSON-serializable representation of the unit."""
         return serialize_extraction(self)
 
 
