@@ -117,6 +117,55 @@ from sharepoint2text.parsing.extractors.data_types import (
     PptxSlide,
 )
 from sharepoint2text.parsing.extractors.ms_modern.omml_to_latex import omml_to_latex
+from sharepoint2text.parsing.extractors.ms_modern.ooxml_namespaces import (
+    _CP_CATEGORY,
+    _CP_KEYWORDS,
+    _CP_LASTMODIFIEDBY,
+    _CP_REVISION,
+    _DC_CREATOR,
+    _DC_DESCRIPTION,
+    _DC_SUBJECT,
+    _DC_TITLE,
+    _DCTERMS_CREATED,
+    _DCTERMS_MODIFIED,
+    A_BLIP,
+    A_BR,
+    A_FLD,
+    A_GRAPHICDATA,
+    A_OFF,
+    A_P,
+    A_R,
+    A_T,
+    A_TBL,
+    A_TC,
+    A_TR,
+    A_TXBODY,
+    A_XFRM,
+    BODY_TYPES,
+    FOOTER_TYPES,
+    M_OMATH,
+    M_OMATHPARA,
+    P_CM,
+    P_CNVPR,
+    P_GRAPHICFRAME,
+    P_NVPR,
+    P_NVSPPR,
+    P_PH,
+    P_PIC,
+    P_SLDID,
+    P_SLDIDLST,
+    P_SP,
+    P_SPPR,
+    P_SPTREE,
+    P_TEXT,
+    P_TXBODY,
+    P_XFRM,
+    R_EMBED,
+    R_ID,
+    SKIP_TYPES,
+    TABLE_URI,
+    TITLE_TYPES,
+)
 from sharepoint2text.parsing.extractors.ms_modern.ooxml_shared import (
     OOXMLZipContext,
     extract_omml_formulas,
@@ -127,81 +176,6 @@ from sharepoint2text.parsing.extractors.ms_modern.ooxml_shared import (
 from sharepoint2text.parsing.extractors.util.encryption import is_ooxml_encrypted
 
 logger = logging.getLogger(__name__)
-
-# XML Namespaces used in PPTX documents
-P_NS = "{http://schemas.openxmlformats.org/presentationml/2006/main}"
-A_NS = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
-R_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
-M_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/math}"
-REL_NS = "{http://schemas.openxmlformats.org/package/2006/relationships}"
-CP_NS = "{http://schemas.openxmlformats.org/package/2006/metadata/core-properties}"
-DC_NS = "{http://purl.org/dc/elements/1.1/}"
-DCTERMS_NS = "{http://purl.org/dc/terms/}"
-
-# Pre-computed tag names for hot paths (avoid repeated string concatenation)
-P_SP = f"{P_NS}sp"
-P_PIC = f"{P_NS}pic"
-P_SPTREE = f"{P_NS}spTree"
-P_NVSPPR = f"{P_NS}nvSpPr"
-P_NVPR = f"{P_NS}nvPr"
-P_PH = f"{P_NS}ph"
-P_TXBODY = f"{P_NS}txBody"
-P_GRAPHICFRAME = f"{P_NS}graphicFrame"
-P_CNVPR = f"{P_NS}cNvPr"
-P_CM = f"{P_NS}cm"
-P_TEXT = f"{P_NS}text"
-P_SPPR = f"{P_NS}spPr"
-P_XFRM = f"{P_NS}xfrm"
-P_SLDID = f"{P_NS}sldId"
-P_SLDIDLST = f"{P_NS}sldIdLst"
-
-A_P = f"{A_NS}p"
-A_R = f"{A_NS}r"
-A_T = f"{A_NS}t"
-A_BR = f"{A_NS}br"
-A_FLD = f"{A_NS}fld"
-A_BLIP = f"{A_NS}blip"
-A_XFRM = f"{A_NS}xfrm"
-A_OFF = f"{A_NS}off"
-A_TBL = f"{A_NS}tbl"
-A_TR = f"{A_NS}tr"
-A_TC = f"{A_NS}tc"
-A_TXBODY = f"{A_NS}txBody"
-A_GRAPHICDATA = f"{A_NS}graphicData"
-
-M_OMATH = f"{M_NS}oMath"
-M_OMATHPARA = f"{M_NS}oMathPara"
-
-R_ID = f"{R_NS}id"
-R_EMBED = f"{R_NS}embed"
-
-# Pre-computed metadata tag names
-_DC_TITLE = f"{DC_NS}title"
-_DC_CREATOR = f"{DC_NS}creator"
-_DC_SUBJECT = f"{DC_NS}subject"
-_DC_DESCRIPTION = f"{DC_NS}description"
-_CP_KEYWORDS = f"{CP_NS}keywords"
-_CP_CATEGORY = f"{CP_NS}category"
-_CP_LASTMODIFIEDBY = f"{CP_NS}lastModifiedBy"
-_CP_REVISION = f"{CP_NS}revision"
-_DCTERMS_CREATED = f"{DCTERMS_NS}created"
-_DCTERMS_MODIFIED = f"{DCTERMS_NS}modified"
-
-# Table graphic data URI for PPTX
-TABLE_URI = "http://schemas.openxmlformats.org/drawingml/2006/table"
-
-# Title placeholder types
-TITLE_TYPES = frozenset({"title", "ctrTitle"})
-
-# Body/content placeholder types
-BODY_TYPES = frozenset({"body", "subTitle", "obj", "tbl"})
-
-# Footer-related placeholder types
-FOOTER_TYPES = frozenset({"ftr"})
-
-# Placeholder types to skip (not useful for text extraction)
-# Note: sldNum (slide number) is NOT skipped - it goes to other_textboxes
-SKIP_TYPES = frozenset({"dt", "sldImg", "hdr"})
 
 
 class _PptxContext(OOXMLZipContext):

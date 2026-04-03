@@ -33,6 +33,74 @@ from sharepoint2text.parsing.extractors.data_types import (
     DocxSection,
 )
 from sharepoint2text.parsing.extractors.ms_modern.omml_to_latex import omml_to_latex
+from sharepoint2text.parsing.extractors.ms_modern.ooxml_namespaces import (
+    _CP_CATEGORY,
+    _CP_KEYWORDS,
+    _CP_LASTMODIFIEDBY,
+    _CP_REVISION,
+    _DC_CREATOR,
+    _DC_DESCRIPTION,
+    _DC_SUBJECT,
+    _DC_TITLE,
+    _DCTERMS_CREATED,
+    _DCTERMS_MODIFIED,
+    A_BLIP,
+    CAPTION_STYLE_KEYWORDS,
+    DOCX_NAMESPACES,
+    M_OMATH,
+    M_OMATHPARA,
+    PIC_CNVPR,
+    R_EMBED,
+    R_ID,
+    SKIP_NOTE_IDS,
+    W_ASCII,
+    W_AUTHOR,
+    W_B,
+    W_BODY,
+    W_BOTTOM,
+    W_BR,
+    W_COLOR,
+    W_COMMENT,
+    W_CS,
+    W_DATE,
+    W_DRAWING,
+    W_ENDNOTE,
+    W_FOOTNOTE,
+    W_H,
+    W_HANSI,
+    W_HYPERLINK,
+    W_I,
+    W_ID,
+    W_JC,
+    W_KEEPNEXT,
+    W_LAST_RENDERED_PAGE_BREAK,
+    W_LEFT,
+    W_NAME,
+    W_ORIENT,
+    W_P,
+    W_PGMAR,
+    W_PGSZ,
+    W_PPR,
+    W_PSTYLE,
+    W_R,
+    W_RFONTS,
+    W_RIGHT,
+    W_RPR,
+    W_SECTPR,
+    W_STYLE,
+    W_STYLEID,
+    W_SZ,
+    W_TBL,
+    W_TC,
+    W_TOP,
+    W_TR,
+    W_TYPE,
+    W_U,
+    W_VAL,
+    W_W,
+    WPS_TXBX,
+    WPS_WSP,
+)
 from sharepoint2text.parsing.extractors.ms_modern.ooxml_shared import (
     OOXMLZipContext,
     extract_omml_formulas,
@@ -40,126 +108,20 @@ from sharepoint2text.parsing.extractors.ms_modern.ooxml_shared import (
     get_image_content_type,
     get_image_pixel_dimensions,
 )
+from sharepoint2text.parsing.extractors.ms_modern.ooxml_text_processing import (
+    collect_text_from_element,
+    extract_text_with_formulas,
+    get_first_attribute,
+    half_points_to_points,
+    parse_boolean_element,
+    twips_to_inches,
+)
 from sharepoint2text.parsing.extractors.util.encryption import is_ooxml_encrypted
 
 logger = logging.getLogger(__name__)
 
-# =============================================================================
-# XML Namespaces
-# =============================================================================
-
-NAMESPACES = {
-    "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
-    "m": "http://schemas.openxmlformats.org/officeDocument/2006/math",
-    "mc": "http://schemas.openxmlformats.org/markup-compatibility/2006",
-    "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
-    "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
-    "wp": "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",
-    "cp": "http://schemas.openxmlformats.org/package/2006/metadata/core-properties",
-    "dc": "http://purl.org/dc/elements/1.1/",
-    "dcterms": "http://purl.org/dc/terms/",
-    "rel": "http://schemas.openxmlformats.org/package/2006/relationships",
-    "ct": "http://schemas.openxmlformats.org/package/2006/content-types",
-}
-
-# Namespace prefixes for element access
-W_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
-M_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/math}"
-MC_NS = "{http://schemas.openxmlformats.org/markup-compatibility/2006}"
-R_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
-A_NS = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
-CP_NS = "{http://schemas.openxmlformats.org/package/2006/metadata/core-properties}"
-DC_NS = "{http://purl.org/dc/elements/1.1/}"
-DCTERMS_NS = "{http://purl.org/dc/terms/}"
-PIC_NS = "{http://schemas.openxmlformats.org/drawingml/2006/picture}"
-WPS_NS = "{http://schemas.microsoft.com/office/word/2010/wordprocessingShape}"
-
-# =============================================================================
-# Pre-computed tag names (performance optimization)
-# =============================================================================
-
-W_T = f"{W_NS}t"
-W_P = f"{W_NS}p"
-W_R = f"{W_NS}r"
-W_TBL = f"{W_NS}tbl"
-W_TR = f"{W_NS}tr"
-W_TC = f"{W_NS}tc"
-W_PPR = f"{W_NS}pPr"
-W_RPR = f"{W_NS}rPr"
-W_PSTYLE = f"{W_NS}pStyle"
-W_JC = f"{W_NS}jc"
-W_VAL = f"{W_NS}val"
-W_B = f"{W_NS}b"
-W_I = f"{W_NS}i"
-W_U = f"{W_NS}u"
-W_SZ = f"{W_NS}sz"
-W_COLOR = f"{W_NS}color"
-W_RFONTS = f"{W_NS}rFonts"
-W_DRAWING = f"{W_NS}drawing"
-W_HYPERLINK = f"{W_NS}hyperlink"
-W_FOOTNOTE = f"{W_NS}footnote"
-W_ENDNOTE = f"{W_NS}endnote"
-W_COMMENT = f"{W_NS}comment"
-W_BODY = f"{W_NS}body"
-W_SECTPR = f"{W_NS}sectPr"
-W_BR = f"{W_NS}br"
-W_TYPE = f"{W_NS}type"
-W_LAST_RENDERED_PAGE_BREAK = f"{W_NS}lastRenderedPageBreak"
-W_PGSZ = f"{W_NS}pgSz"
-W_PGMAR = f"{W_NS}pgMar"
-W_KEEPNEXT = f"{W_NS}keepNext"
-W_STYLE = f"{W_NS}style"
-W_STYLEID = f"{W_NS}styleId"
-W_NAME = f"{W_NS}name"
-W_ID = f"{W_NS}id"
-W_AUTHOR = f"{W_NS}author"
-W_DATE = f"{W_NS}date"
-W_W = f"{W_NS}w"
-W_H = f"{W_NS}h"
-W_ORIENT = f"{W_NS}orient"
-W_LEFT = f"{W_NS}left"
-W_RIGHT = f"{W_NS}right"
-W_TOP = f"{W_NS}top"
-W_BOTTOM = f"{W_NS}bottom"
-W_ASCII = f"{W_NS}ascii"
-W_HANSI = f"{W_NS}hAnsi"
-W_CS = f"{W_NS}cs"
-
-M_OMATH = f"{M_NS}oMath"
-M_OMATHPARA = f"{M_NS}oMathPara"
-MC_CHOICE = f"{MC_NS}Choice"
-R_ID = f"{R_NS}id"
-R_EMBED = f"{R_NS}embed"
-A_BLIP = f"{A_NS}blip"
-PIC_CNVPR = f"{PIC_NS}cNvPr"
-WPS_WSP = f"{WPS_NS}wsp"
-WPS_TXBX = f"{WPS_NS}txbx"
-
-# Metadata tag names
-_DC_TITLE = f"{DC_NS}title"
-_DC_CREATOR = f"{DC_NS}creator"
-_DC_SUBJECT = f"{DC_NS}subject"
-_DC_DESCRIPTION = f"{DC_NS}description"
-_CP_KEYWORDS = f"{CP_NS}keywords"
-_CP_CATEGORY = f"{CP_NS}category"
-_CP_LASTMODIFIEDBY = f"{CP_NS}lastModifiedBy"
-_CP_REVISION = f"{CP_NS}revision"
-_DCTERMS_CREATED = f"{DCTERMS_NS}created"
-_DCTERMS_MODIFIED = f"{DCTERMS_NS}modified"
-
-# =============================================================================
-# Constants
-# =============================================================================
-
-# Unit conversions
-EMU_PER_INCH = 914400
-TWIPS_PER_INCH = 1440
-
-# Caption style keywords
-CAPTION_STYLE_KEYWORDS = ("caption", "bildunterschrift", "abbildung", "figure")
-
-# Skip IDs for separator/continuation notes
-_SKIP_NOTE_IDS = frozenset({"-1", "0"})
+# Re-export NAMESPACES for any code that might import it from here
+NAMESPACES = DOCX_NAMESPACES
 
 
 # =============================================================================
@@ -167,9 +129,15 @@ _SKIP_NOTE_IDS = frozenset({"-1", "0"})
 # =============================================================================
 
 
-def _collect_text_from_element(element: ET.Element) -> str:
-    """Extract all text from w:t elements within an element."""
-    return "".join(t.text for t in element.iter(W_T) if t.text)
+def _extract_paragraph_content(paragraph: ET.Element, include_formulas: bool) -> str:
+    """Extract text from a paragraph, including inline and display equations."""
+    return extract_text_with_formulas(
+        paragraph,
+        include_formulas=include_formulas,
+        omath_tag=M_OMATH,
+        omath_para_tag=M_OMATHPARA,
+        formula_formatter=omml_to_latex,
+    )
 
 
 def _get_paragraph_style(para: ET.Element) -> str:
@@ -200,61 +168,6 @@ def _is_caption_style(style_name: str) -> bool:
     return any(kw in style_lower for kw in CAPTION_STYLE_KEYWORDS)
 
 
-def _process_text_element(
-    elem: ET.Element,
-    parts: list[str],
-    include_formulas: bool,
-) -> None:
-    """Append extracted text from a node, respecting AlternateContent and formulas."""
-    tag = elem.tag
-
-    if tag.endswith("}AlternateContent"):
-        choice = elem.find(MC_CHOICE)
-        if choice is not None:
-            for child in choice:
-                _process_text_element(child, parts, include_formulas)
-        return
-
-    if tag.endswith("}Fallback"):
-        return
-
-    if tag == W_R:
-        for child in elem:
-            if child.tag == W_T:
-                if child.text:
-                    parts.append(child.text)
-            elif child.tag.endswith("}AlternateContent"):
-                _process_text_element(child, parts, include_formulas)
-        return
-
-    if tag == M_OMATH:
-        if include_formulas:
-            latex = omml_to_latex(elem)
-            if latex.strip():
-                parts.append(f"${latex}$")
-        return
-
-    if tag == M_OMATHPARA:
-        if include_formulas:
-            omath = elem.find(M_OMATH)
-            if omath is not None:
-                latex = omml_to_latex(omath)
-                if latex.strip():
-                    parts.append(f"$${latex}$$")
-        return
-
-    for child in elem:
-        _process_text_element(child, parts, include_formulas)
-
-
-def _extract_paragraph_content(paragraph: ET.Element, include_formulas: bool) -> str:
-    """Extract text from a paragraph, including inline and display equations."""
-    parts: list[str] = []
-    for child in paragraph:
-        _process_text_element(child, parts, include_formulas)
-    return "".join(parts)
-
-
 def _extract_table_text(table: ET.Element, include_formulas: bool) -> list[str]:
     """Extract table text in row order, concatenating cell content."""
     texts: list[str] = []
@@ -267,7 +180,7 @@ def _extract_table_text(table: ET.Element, include_formulas: bool) -> list[str]:
                     cell_parts.append(text)
             if cell_parts:
                 texts.append(" ".join(cell_parts))
-    return texts
+    return texts  # pragma: no cover
 
 
 def _extract_full_text_from_body(
@@ -426,7 +339,7 @@ def _build_paragraph(
     runs: list[DocxRun] = []
     paragraph_text_parts: list[str] = []
     for run in paragraph.iter(W_R):
-        run_text = _collect_text_from_element(run)
+        run_text = collect_text_from_element(run)
         if not run_text:
             continue
         paragraph_text_parts.append(run_text)
@@ -462,7 +375,7 @@ def _extract_table_data(table: ET.Element) -> list[list[str]]:
     for tr in table.findall(W_TR):
         row_data: list[str] = []
         for tc in tr.findall(W_TC):
-            cell_paragraphs = [_collect_text_from_element(p) for p in tc.iter(W_P)]
+            cell_paragraphs = [collect_text_from_element(p) for p in tc.iter(W_P)]
             row_data.append("\n".join(cell_paragraphs))
         table_data.append(row_data)
     return table_data
@@ -481,7 +394,7 @@ def _extract_hyperlinks_from_element(
             if "hyperlink" in rel_info.get("type", "").lower():
                 hyperlinks.append(
                     DocxHyperlink(
-                        text=_collect_text_from_element(hyperlink),
+                        text=collect_text_from_element(hyperlink),
                         url=rel_info.get("target", ""),
                     )
                 )
@@ -664,9 +577,9 @@ def _extract_notes_from_root(root: ET.Element | None, note_tag: str) -> list[Doc
         return []
 
     return [
-        DocxNote(id=note.get(W_ID) or "", text=_collect_text_from_element(note))
+        DocxNote(id=note.get(W_ID) or "", text=collect_text_from_element(note))
         for note in root.iter(note_tag)
-        if (note.get(W_ID) or "") not in _SKIP_NOTE_IDS
+        if (note.get(W_ID) or "") not in SKIP_NOTE_IDS
     ]
 
 
@@ -691,7 +604,7 @@ def _extract_comments_from_context(ctx: _DocxContext) -> list[DocxComment]:
             id=comment.get(W_ID) or "",
             author=comment.get(W_AUTHOR) or "",
             date=comment.get(W_DATE) or "",
-            text=_collect_text_from_element(comment),
+            text=collect_text_from_element(comment),
         )
         for comment in root.iter(W_COMMENT)
     ]
@@ -699,12 +612,7 @@ def _extract_comments_from_context(ctx: _DocxContext) -> list[DocxComment]:
 
 def _parse_twips_to_inches(value: str | None) -> float | None:
     """Convert twips string to inches, returning None on failure."""
-    if not value:
-        return None
-    try:
-        return int(value) / TWIPS_PER_INCH
-    except ValueError:
-        return None
+    return twips_to_inches(value)
 
 
 def _extract_sections_from_context(ctx: _DocxContext) -> list[DocxSection]:
@@ -791,7 +699,7 @@ def _extract_header_footers_from_context(
         if root is None:
             continue
 
-        text = _collect_text_from_element(root)
+        text = collect_text_from_element(root)
         if not text:
             continue
 
@@ -812,48 +720,29 @@ def _parse_run_properties(
         return None, None, None, None, None, None
 
     # Bold
-    bold = None
-    bold_elem = rpr.find(W_B)
-    if bold_elem is not None:
-        bold_val = bold_elem.get(W_VAL)
-        bold = bold_val != "0" if bold_val else True
+    bold = parse_boolean_element(rpr.find(W_B), W_VAL)
 
     # Italic
-    italic = None
-    italic_elem = rpr.find(W_I)
-    if italic_elem is not None:
-        italic_val = italic_elem.get(W_VAL)
-        italic = italic_val != "0" if italic_val else True
+    italic = parse_boolean_element(rpr.find(W_I), W_VAL)
 
     # Underline
     underline = None
-    underline_elem = rpr.find(W_U)
-    if underline_elem is not None:
-        u_val = underline_elem.get(W_VAL)
+    u_elem = rpr.find(W_U)
+    if u_elem is not None:
+        u_val = u_elem.get(W_VAL)
         underline = bool(u_val and u_val != "none")
 
-    # Font name
-    font_name = None
+    # Font name (with fallback chain: ascii -> hAnsi -> cs)
     rfonts = rpr.find(W_RFONTS)
-    if rfonts is not None:
-        font_name = rfonts.get(W_ASCII) or rfonts.get(W_HANSI) or rfonts.get(W_CS)
+    font_name = get_first_attribute(rfonts, W_ASCII, W_HANSI, W_CS)
 
     # Font size (half-points to points)
-    font_size = None
     sz = rpr.find(W_SZ)
-    if sz is not None:
-        sz_val = sz.get(W_VAL)
-        if sz_val:
-            try:
-                font_size = int(sz_val) / 2
-            except ValueError:
-                pass
+    font_size = half_points_to_points(sz.get(W_VAL) if sz is not None else None)
 
     # Font color
-    font_color = None
     color = rpr.find(W_COLOR)
-    if color is not None:
-        font_color = color.get(W_VAL)
+    font_color = color.get(W_VAL) if color is not None else None
 
     return (bold, italic, underline, font_name, font_size, font_color)
 
@@ -891,7 +780,7 @@ def _extract_paragraphs_from_context(ctx: _DocxContext) -> list[DocxParagraph]:
         runs: list[DocxRun] = []
         paragraph_text_parts: list[str] = []
         for r in p.iter(W_R):
-            run_text = _collect_text_from_element(r)
+            run_text = collect_text_from_element(r)
             if not run_text:
                 continue
             paragraph_text_parts.append(run_text)
@@ -952,7 +841,7 @@ def _extract_tables_from_context(
                 row_data: list[str] = []
                 for tc in tr.findall(W_TC):
                     cell_paragraphs = [
-                        _collect_text_from_element(p) for p in tc.iter(W_P)
+                        collect_text_from_element(p) for p in tc.iter(W_P)
                     ]
                     row_data.append("\n".join(cell_paragraphs))
                 table_data.append(row_data)
@@ -992,7 +881,7 @@ def _extract_images_from_context(
                 for wsp in drawing.iter(WPS_WSP):
                     txbx = wsp.find(WPS_TXBX)
                     if txbx is not None:
-                        if text := _collect_text_from_element(txbx):
+                        if text := collect_text_from_element(txbx):
                             caption = text
                             break
 
@@ -1002,14 +891,14 @@ def _extract_images_from_context(
                     prev_para = paragraphs[para_idx - 1]
                     prev_style = _get_paragraph_style(prev_para)
                     if _is_caption_style(prev_style) and _has_keep_next(prev_para):
-                        if text := _collect_text_from_element(prev_para):
+                        if text := collect_text_from_element(prev_para):
                             preceding_caption = text
 
                 following_caption = None
                 if para_idx + 1 < len(paragraphs):
                     next_para = paragraphs[para_idx + 1]
                     if _is_caption_style(_get_paragraph_style(next_para)):
-                        if text := _collect_text_from_element(next_para):
+                        if text := collect_text_from_element(next_para):
                             following_caption = text
 
                 if preceding_caption:
@@ -1092,7 +981,7 @@ def _extract_hyperlinks_from_context(ctx: _DocxContext) -> list[DocxHyperlink]:
             if "hyperlink" in rel_info.get("type", "").lower():
                 hyperlinks.append(
                     DocxHyperlink(
-                        text=_collect_text_from_element(hyperlink),
+                        text=collect_text_from_element(hyperlink),
                         url=rel_info.get("target", ""),
                     )
                 )
