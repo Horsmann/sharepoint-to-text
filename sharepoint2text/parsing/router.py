@@ -122,9 +122,6 @@ _EXTENSION_ALIASES: dict[str, str] = {
     "ott": "odt",
     "ots": "ods",
     "otp": "odp",
-    "gz": "tgz",  # .gz alone treated as gzip-compressed tar
-    "bz2": "tbz2",  # .bz2 alone treated as bzip2-compressed tar
-    "xz": "txz",  # .xz alone treated as xz-compressed tar
 }
 
 # Compound extensions that need special handling (checked before single extension)

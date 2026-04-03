@@ -43,12 +43,6 @@ It also includes an optional SharePoint Graph client (`sharepoint_io`) for listi
 uv add sharepoint-to-text
 ```
 
-Optional PDF crypto acceleration:
-
-```bash
-uv add "sharepoint-to-text[pdf-crypto]"
-```
-
 From source:
 
 ```bash
@@ -257,7 +251,7 @@ Setup details: [`sharepoint2text/sharepoint_io/SETUP.md`](sharepoint2text/sharep
 ### Archives
 
 - `.zip`, `.tar`, `.7z`
-- Compressed tar aliases: `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz2`, `.tar.xz`/`.txz`
+- Compressed tar archives: `.tar.gz`/`.tgz`, `.tar.bz2`/`.tbz2`, `.tar.xz`/`.txz`
 - `.gz`, `.bz2`, `.xz` are routed as compressed tar variants
 
 ## Archive Processing and Security

@@ -109,6 +109,9 @@ def test_is_supported():
     tc.assertTrue(is_supported_file("archive.tar.xz"))
     tc.assertTrue(is_supported_file("archive.txz"))
     tc.assertTrue(is_supported_file("myfile.7z"))
+    tc.assertFalse(is_supported_file("archive.gz"))
+    tc.assertFalse(is_supported_file("archive.bz2"))
+    tc.assertFalse(is_supported_file("archive.xz"))
     # not supported
     tc.assertFalse(is_supported_file("myfile.rar"))
     tc.assertFalse(is_supported_file("myfile.exe"))

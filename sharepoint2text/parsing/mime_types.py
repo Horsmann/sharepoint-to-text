@@ -43,10 +43,6 @@ MIME_TYPE_MAPPING = {
     "application/zip": "zip",
     "application/x-zip-compressed": "zip",
     "application/x-tar": "tar",
-    "application/x-gzip": "tgz",
-    "application/gzip": "tgz",
-    "application/x-bzip2": "tbz2",
-    "application/x-xz": "txz",
 }
 
 
