@@ -3363,7 +3363,7 @@ def test_apple_pages_1():
 def test_apple_pages_2():
     """Test apple pages extractor."""
 
-    path = "sharepoint2text/tests/resources/apple/with_tables.pages"
+    path = "sharepoint2text/tests/resources/apple/with_tables_image.pages"
 
     page_obj: ApplePagesContent = next(
         read_apple_pages(_read_file_to_file_like(path=path))

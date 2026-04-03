@@ -999,6 +999,48 @@ def extract_document_flow(pages_path: Path) -> DocumentFlow | None:
     return best
 
 
+def merge_document_segments(left: str, right: str) -> str:
+    """Merge two cleaned document-flow segments split by a non-table placeholder."""
+    left = left.strip()
+    right = right.strip()
+    if not left:
+        return right
+    if not right:
+        return left
+    return f"{left} {right}"
+
+
+def align_document_flow_to_tables(
+    document_flow: DocumentFlow | None, table_count: int
+) -> DocumentFlow | None:
+    """Collapse non-table placeholders so document flow matches extracted tables."""
+    if document_flow is None or document_flow.placeholder_count <= table_count:
+        return document_flow
+
+    segments = list(document_flow.segments)
+    placeholder_count = document_flow.placeholder_count
+
+    while placeholder_count > table_count and len(segments) >= 2:
+        merge_index = next(
+            (
+                index
+                for index in range(len(segments) - 1)
+                if segments[index].strip() and segments[index + 1].strip()
+            ),
+            len(segments) - 2,
+        )
+        segments[merge_index : merge_index + 2] = [
+            merge_document_segments(segments[merge_index], segments[merge_index + 1])
+        ]
+        placeholder_count -= 1
+
+    return DocumentFlow(
+        segments=segments,
+        placeholder_count=placeholder_count,
+        source_object_id=document_flow.source_object_id,
+    )
+
+
 def extract_candidates(pages_path: Path) -> list[Candidate]:
     candidates: list[Candidate] = []
 
@@ -1321,7 +1363,9 @@ def read_apple_pages(
             # Extract text candidates and build document
             candidates = extract_candidates(temp_path)
             ranked = dedupe_preserve_best(candidates)
-            document_flow = extract_document_flow(temp_path)
+            document_flow = align_document_flow_to_tables(
+                extract_document_flow(temp_path), len(tables_data)
+            )
 
             # Render the full text output
             full_text = render_output(
