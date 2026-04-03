@@ -176,15 +176,15 @@ class SevenZipReader:
 
     def _read_uint8(self) -> int:
         """Read an unsigned 8-bit integer in little-endian format."""
-        return struct.unpack("<B", self._read_bytes(1))[0]
+        return int(struct.unpack("<B", self._read_bytes(1))[0])
 
     def _read_uint32(self) -> int:
         """Read an unsigned 32-bit integer in little-endian format."""
-        return struct.unpack("<I", self._read_bytes(4))[0]
+        return int(struct.unpack("<I", self._read_bytes(4))[0])
 
     def _read_uint64(self) -> int:
         """Read an unsigned 64-bit integer in little-endian format."""
-        return struct.unpack("<Q", self._read_bytes(8))[0]
+        return int(struct.unpack("<Q", self._read_bytes(8))[0])
 
     def _read_number(self) -> int:
         """Read a 7z variable-length encoded number.
@@ -988,7 +988,12 @@ class SevenZipFile:
         self._reader = SevenZipReader(self._file)
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> None:
         """Exit the context manager and cleanup resources."""
         self._reader = None
 

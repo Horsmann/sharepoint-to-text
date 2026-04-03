@@ -859,12 +859,12 @@ def patch_pypdf_fallback_aes() -> bool:
     providers.aes_ecb_decrypt = aes_ecb_decrypt
     providers.aes_cbc_encrypt = aes_cbc_encrypt
     providers.aes_cbc_decrypt = aes_cbc_decrypt
-    providers.CryptAES = fb.CryptAES  # type: ignore[assignment]
+    providers.CryptAES = fb.CryptAES  # type: ignore
 
     enc.aes_ecb_encrypt = aes_ecb_encrypt
     enc.aes_ecb_decrypt = aes_ecb_decrypt
     enc.aes_cbc_encrypt = aes_cbc_encrypt
     enc.aes_cbc_decrypt = aes_cbc_decrypt
-    enc.CryptAES = fb.CryptAES  # type: ignore[assignment]
+    enc.CryptAES = fb.CryptAES  # type: ignore
 
     return True

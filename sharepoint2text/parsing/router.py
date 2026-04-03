@@ -171,12 +171,12 @@ def _get_extractor(
     import importlib
 
     module = importlib.import_module(module_path)
-    extractor = getattr(module, function_name)
+    extractor: Any = getattr(module, function_name)
 
     # If ignore_images is True, wrap the extractor with the flag
     if ignore_images:
         return functools.partial(extractor, ignore_images=True)
-    return extractor
+    return extractor  # type: ignore[no-any-return]
 
 
 def _file_type_from_extension(path_lower: str) -> str | None:

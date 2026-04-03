@@ -190,7 +190,7 @@ class _HtmlTreeBuilder(HTMLParser):
         - tail: text content after this element (before next sibling)
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         # Root node
         self.root: Dict = {
@@ -207,7 +207,7 @@ class _HtmlTreeBuilder(HTMLParser):
         # Track the last closed element for tail text
         self.last_closed: Optional[Dict] = None
 
-    def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]):
+    def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]) -> None:
         tag = tag.lower()
         attrs_dict = {k: v for k, v in attrs if v is not None}
 
@@ -233,7 +233,7 @@ class _HtmlTreeBuilder(HTMLParser):
             # For void elements, they become the "last closed" element
             self.last_closed = node
 
-    def handle_endtag(self, tag: str):
+    def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
 
         if self.skip_depth > 0:
@@ -244,7 +244,7 @@ class _HtmlTreeBuilder(HTMLParser):
         if len(self.stack) > 1 and self.stack[-1]["tag"] == tag:
             self.last_closed = self.stack.pop()
 
-    def handle_data(self, data: str):
+    def handle_data(self, data: str) -> None:
         if self.skip_depth > 0:
             return
 
@@ -255,7 +255,7 @@ class _HtmlTreeBuilder(HTMLParser):
             # Text inside an element goes to its text
             self.stack[-1]["text"] += data
 
-    def handle_comment(self, data: str):
+    def handle_comment(self, data: str) -> None:
         # Ignore comments
         pass
 
@@ -373,7 +373,7 @@ class _HtmlTextExtractor:
     def _extract_headings(self) -> None:
         """Extract all headings with their level, optimized to avoid repeated tree walks."""
         # Collect all headings in a single tree traversal
-        all_headings = []
+        all_headings: List[Tuple[Dict, int]] = []
         self._collect_headings_recursive(self.root, all_headings)
 
         # Process collected headings
@@ -396,7 +396,7 @@ class _HtmlTextExtractor:
     def _extract_links(self) -> None:
         """Extract all links with their text and href, optimized to avoid repeated tree walks."""
         # Collect all links in a single tree traversal
-        all_links = []
+        all_links: List[Dict] = []
         self._collect_links_recursive(self.root, all_links)
 
         # Process collected links
@@ -433,7 +433,7 @@ class _HtmlTextExtractor:
                 self.metadata.language = lang
 
         # Extract from meta tags using optimized collection
-        meta_nodes = []
+        meta_nodes: List[Dict] = []
         self._collect_nodes_by_tag(self.root, "meta", meta_nodes)
 
         for meta in meta_nodes:

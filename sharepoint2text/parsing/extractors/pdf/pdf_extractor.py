@@ -274,16 +274,15 @@ def _ttf_read_head(
     return units_per_em, index_to_loc_format
 
 
-def _ttf_read_maxp(
-    font_data: bytes, tables: dict[str, tuple[int, int]]
-) -> Optional[int]:
+def _ttf_read_maxp(font_data: bytes, tables: dict[str, tuple[int, int]]) -> int | None:
     if "maxp" not in tables:
         return None
     offset, length = tables["maxp"]
     if offset + 6 > len(font_data):
         return None
     maxp = font_data[offset : offset + length]
-    return struct.unpack(">H", maxp[4:6])[0]
+    num_glyphs: int = struct.unpack(">H", maxp[4:6])[0]
+    return num_glyphs
 
 
 def _ttf_read_loca(
@@ -484,7 +483,7 @@ def _get_pypdf_char_map_patcher() -> (
             "pypdf version not supported: neither get_encoding nor build_char_map found"
         )
 
-    def make_wrapper(original: Callable[..., Any]) -> Callable[..., Any]:
+    def make_wrapper_legacy(original: Callable[..., Any]) -> Callable[..., Any]:
         def patched(font_name: str, space_width: float, obj: Any) -> Any:
             font_subtype, font_halfspace, font_encoding, font_map, font = original(
                 font_name, space_width, obj
@@ -494,11 +493,11 @@ def _get_pypdf_char_map_patcher() -> (
 
         return patched
 
-    return [(pypdf_page, "build_char_map")], make_wrapper
+    return [(pypdf_page, "build_char_map")], make_wrapper_legacy
 
 
 @contextlib.contextmanager
-def _patched_build_char_map() -> Iterable[None]:
+def _patched_build_char_map() -> Generator[None, None, None]:
     """
     Context manager that patches pypdf's character map building function.
 
@@ -577,9 +576,10 @@ def read_pdf(
         reader = _open_pdf_reader(file_like)
         if reader.is_encrypted:
             try:
-                decrypt_result = reader.decrypt("")
+                decrypt_result = int(reader.decrypt(""))
             except (ValueError, TypeError, NotImplementedError):
                 decrypt_result = 0
+            # decrypt returns int (PasswordType enum) but we need to compare to int
             if decrypt_result == 0:
                 raise ExtractionFileEncryptedError(
                     "PDF is encrypted or password-protected"

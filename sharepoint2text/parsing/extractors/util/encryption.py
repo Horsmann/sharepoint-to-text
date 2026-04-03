@@ -1,7 +1,7 @@
 import io
 import zipfile
 
-import olefile
+import olefile  # type: ignore[import-untyped]
 
 from sharepoint2text.parsing.extractors.util.zip_bomb import open_zipfile
 
@@ -91,8 +91,8 @@ def is_ppt_encrypted(file_like: io.BytesIO) -> bool:
         if _has_ole_encryption_stream(ole):
             file_like.seek(0)
             return True
-        encrypted = ole.exists("EncryptedSummary") or ole.exists(
-            "EncryptedSummaryInformation"
+        encrypted = bool(
+            ole.exists("EncryptedSummary") or ole.exists("EncryptedSummaryInformation")
         )
     file_like.seek(0)
     return encrypted

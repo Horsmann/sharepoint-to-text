@@ -473,9 +473,9 @@ def _extract_sheet(
     if raw_rows:
         # Find the last column with any data
         last_data_col = 0
-        for row in raw_rows:
-            for i in range(len(row) - 1, -1, -1):
-                if row[i][0] is not None:
+        for row_items in raw_rows:
+            for i in range(len(row_items) - 1, -1, -1):
+                if row_items[i][0] is not None:
                     last_data_col = max(last_data_col, i + 1)
                     break
         max_cols = last_data_col

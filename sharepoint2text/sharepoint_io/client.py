@@ -311,8 +311,9 @@ class SharePointRestClient:
         access_token = data.get("access_token")
         if not access_token:
             raise SharePointAuthError("Token response missing access_token")
-        self._access_token = access_token
-        return access_token
+        access_token_str: str = str(access_token)
+        self._access_token = access_token_str
+        return access_token_str
 
     def _ensure_token(self) -> str:
         """Ensure we have a valid access token."""
@@ -609,7 +610,8 @@ class SharePointRestClient:
         site_id = self.get_site_id()
         url = f"{_GRAPH_API_BASE}/sites/{site_id}/drives"
         data = self._get_json(url)
-        return data.get("value", [])
+        drives: list[Any] = data.get("value", [])
+        return drives
 
     def list_files_in_folder(
         self,
@@ -745,9 +747,10 @@ class SharePointRestClient:
             yield item
 
         # We need to get the folders separately to recurse into them
-        for item in self._get_folders_from_url(url):
-            folder_name = item.get("name", "")
-            folder_id = item.get("id")
+        folder_items: list[dict[str, Any]] = self._get_folders_from_url(url)
+        for folder_item in folder_items:
+            folder_name: str = str(folder_item.get("name", ""))
+            folder_id: str | None = folder_item.get("id")
             new_parent_path = (
                 f"{parent_path}/{folder_name}" if parent_path else folder_name
             )
@@ -810,7 +813,7 @@ class SharePointRestClient:
         # Extract custom fields from listItem.fields
         custom_fields = self._extract_custom_fields(item)
 
-        return SharePointFileMetadata(
+        metadata = SharePointFileMetadata(
             name=item.get("name", ""),
             id=item.get("id", ""),
             web_url=item.get("webUrl", ""),
@@ -824,6 +827,7 @@ class SharePointRestClient:
             parent_path=parent_path or None,
             custom_fields=custom_fields if custom_fields else None,
         )
+        return metadata
 
     def _extract_custom_fields(self, item: dict[str, Any]) -> dict[str, Any]:
         """Extract custom column values from listItem.fields."""
@@ -849,7 +853,7 @@ class SharePointRestClient:
         _, body = self._send(request, request_kind="API")
         text = body.decode("utf-8", errors="replace")
         try:
-            return json.loads(text)
+            return json.loads(text)  # type: ignore[no-any-return]
         except json.JSONDecodeError as exc:
             raise SharePointRequestError(
                 "Invalid JSON response from Graph API",
@@ -880,14 +884,16 @@ class SharePointRestClient:
             ) from exc
 
         try:
-            status = getattr(response, "status", None)
+            status: int | None = getattr(response, "status", None)
             if status is None:
-                status = response.getcode()
-            body = response.read()
+                status_code: int = response.getcode()  # type: ignore[union-attr]
+                status = status_code
+            body_bytes: bytes = response.read()  # type: ignore[union-attr]
+            body = body_bytes
         finally:
             if response is not None:
                 try:
-                    response.close()
+                    response.close()  # type: ignore[union-attr]
                 except (OSError, ValueError):
                     pass
 

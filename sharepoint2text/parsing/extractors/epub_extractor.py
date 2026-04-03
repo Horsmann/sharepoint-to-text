@@ -172,7 +172,7 @@ class _XhtmlTextExtractor(HTMLParser):
     (paragraphs, headings, lists) and also extracts tables.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.text_parts: List[str] = []
         self.skip_depth = 0
@@ -190,7 +190,7 @@ class _XhtmlTextExtractor(HTMLParser):
     def _normalize_ws(value: str) -> str:
         return " ".join(value.split()).strip()
 
-    def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]):
+    def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]) -> None:
         tag = tag.lower()
 
         if self.skip_depth > 0:
@@ -224,7 +224,7 @@ class _XhtmlTextExtractor(HTMLParser):
         if tag == "br":
             self.text_parts.append("\n")
 
-    def handle_endtag(self, tag: str):
+    def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
 
         if self.skip_depth > 0:
@@ -258,7 +258,7 @@ class _XhtmlTextExtractor(HTMLParser):
             self.text_parts.append("\n")
             self.in_block = False
 
-    def handle_data(self, data: str):
+    def handle_data(self, data: str) -> None:
         if self.skip_depth > 0:
             return
 

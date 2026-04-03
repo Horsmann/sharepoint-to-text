@@ -592,7 +592,7 @@ def _parse_run_properties(
     underline_elem = rpr.find(W_U)
     if underline_elem is not None:
         u_val = underline_elem.get(W_VAL)
-        underline = u_val and u_val != "none"
+        underline = bool(u_val and u_val != "none")
 
     # Font name
     font_name = None
@@ -617,7 +617,7 @@ def _parse_run_properties(
     if color is not None:
         font_color = color.get(W_VAL)
 
-    return bold, italic, underline, font_name, font_size, font_color
+    return (bold, italic, underline, font_name, font_size, font_color)
 
 
 def _extract_paragraphs_from_context(ctx: _DocxContext) -> list[DocxParagraph]:
