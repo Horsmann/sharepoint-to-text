@@ -10,10 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - CSV reader added to treat csv like tables
 - Allow a `get_full_markdown()` export
+- `pycryptodome` is no longer optional
 
 ### Improvements
 - Prevent XML External Entity attacks for .xml-based formats
 - Archive extraction respects ignore_images flag now
+- Minor speed-tweaks
 
 ## [Released]
 

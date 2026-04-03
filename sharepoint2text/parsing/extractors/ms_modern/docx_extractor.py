@@ -10,6 +10,7 @@ extraction, without requiring the python-docx library.
 
 import io
 import logging
+from dataclasses import dataclass
 from typing import Any, Generator
 
 from sharepoint2text.parsing import _defused_xml as ET
@@ -382,6 +383,243 @@ class _DocxContext(OOXMLZipContext):
 
 
 # =============================================================================
+# Shared body analysis
+# =============================================================================
+
+
+@dataclass
+class _DocxBodyAnalysis:
+    paragraph_elements: list[ET.Element]
+    paragraphs: list[DocxParagraph]
+    tables: list[list[list[str]]]
+    table_anchor_paragraph_indices: list[int]
+    hyperlinks: list[DocxHyperlink]
+    formulas: list[DocxFormula]
+    sections: list[DocxSection]
+    full_text: str
+
+
+def _build_paragraph(
+    paragraph: ET.Element,
+    style_map: dict[str, str],
+) -> DocxParagraph:
+    """Extract a top-level paragraph with formatting and run information."""
+    ppr = paragraph.find(W_PPR)
+    style_id = None
+    alignment = None
+
+    if ppr is not None:
+        style_elem = ppr.find(W_PSTYLE)
+        if style_elem is not None:
+            style_id = style_elem.get(W_VAL)
+
+        jc_elem = ppr.find(W_JC)
+        if jc_elem is not None:
+            alignment = jc_elem.get(W_VAL)
+
+    style_name = style_map.get(style_id, style_id) if style_id else None
+
+    has_page_break = any(br.get(W_TYPE) == "page" for br in paragraph.iter(W_BR)) or (
+        next(paragraph.iter(W_LAST_RENDERED_PAGE_BREAK), None) is not None
+    )
+
+    runs: list[DocxRun] = []
+    paragraph_text_parts: list[str] = []
+    for run in paragraph.iter(W_R):
+        run_text = _collect_text_from_element(run)
+        if not run_text:
+            continue
+        paragraph_text_parts.append(run_text)
+
+        bold, italic, underline, font_name, font_size, font_color = (
+            _parse_run_properties(run.find(W_RPR))
+        )
+
+        runs.append(
+            DocxRun(
+                text=run_text,
+                bold=bold,
+                italic=italic,
+                underline=underline,
+                font_name=font_name,
+                font_size=font_size,
+                font_color=font_color,
+            )
+        )
+
+    return DocxParagraph(
+        text="".join(paragraph_text_parts),
+        style=style_name,
+        alignment=alignment,
+        runs=runs,
+        has_page_break=has_page_break,
+    )
+
+
+def _extract_table_data(table: ET.Element) -> list[list[str]]:
+    """Extract table data while preserving the existing cell-text semantics."""
+    table_data: list[list[str]] = []
+    for tr in table.findall(W_TR):
+        row_data: list[str] = []
+        for tc in tr.findall(W_TC):
+            cell_paragraphs = [_collect_text_from_element(p) for p in tc.iter(W_P)]
+            row_data.append("\n".join(cell_paragraphs))
+        table_data.append(row_data)
+    return table_data
+
+
+def _extract_hyperlinks_from_element(
+    element: ET.Element,
+    rels: dict[str, dict],
+) -> list[DocxHyperlink]:
+    """Extract hyperlinks from a body subtree."""
+    hyperlinks: list[DocxHyperlink] = []
+    for hyperlink in element.iter(W_HYPERLINK):
+        r_id = hyperlink.get(R_ID)
+        if r_id and r_id in rels:
+            rel_info = rels[r_id]
+            if "hyperlink" in rel_info.get("type", "").lower():
+                hyperlinks.append(
+                    DocxHyperlink(
+                        text=_collect_text_from_element(hyperlink),
+                        url=rel_info.get("target", ""),
+                    )
+                )
+    return hyperlinks
+
+
+def _extract_formulas_from_element(element: ET.Element) -> list[DocxFormula]:
+    """Extract formulas from a body subtree."""
+    return [
+        DocxFormula(latex=latex, is_display=is_display)
+        for latex, is_display in extract_omml_formulas(
+            element,
+            omath_para_tag=M_OMATHPARA,
+            omath_tag=M_OMATH,
+            converter=omml_to_latex,
+        )
+    ]
+
+
+def _collect_section_properties(
+    element: ET.Element,
+    section_properties: list[ET.Element],
+) -> None:
+    """Collect section property elements from a body subtree."""
+    for paragraph in element.iter(W_P):
+        ppr = paragraph.find(W_PPR)
+        if ppr is None:
+            continue
+        sect_pr = ppr.find(W_SECTPR)
+        if sect_pr is not None:
+            section_properties.append(sect_pr)
+
+
+def _build_sections(section_properties: list[ET.Element]) -> list[DocxSection]:
+    """Build section objects from collected section property elements."""
+    sections: list[DocxSection] = []
+    for sect_pr in section_properties:
+        section = DocxSection()
+
+        pg_sz = sect_pr.find(W_PGSZ)
+        if pg_sz is not None:
+            if inches := _parse_twips_to_inches(pg_sz.get(W_W)):
+                section.page_width_inches = inches
+            if inches := _parse_twips_to_inches(pg_sz.get(W_H)):
+                section.page_height_inches = inches
+            orient = pg_sz.get(W_ORIENT)
+            if orient and orient != "portrait":
+                section.orientation = orient
+
+        pg_mar = sect_pr.find(W_PGMAR)
+        if pg_mar is not None:
+            for attr, tag in [
+                ("left_margin_inches", W_LEFT),
+                ("right_margin_inches", W_RIGHT),
+                ("top_margin_inches", W_TOP),
+                ("bottom_margin_inches", W_BOTTOM),
+            ]:
+                if inches := _parse_twips_to_inches(pg_mar.get(tag)):
+                    setattr(section, attr, inches)
+
+        sections.append(section)
+    return sections
+
+
+def _analyze_document_body(ctx: _DocxContext) -> _DocxBodyAnalysis:
+    """Walk the document body once and reuse the extracted structures downstream."""
+    body = ctx.document_body
+    if body is None:
+        return _DocxBodyAnalysis(
+            paragraph_elements=[],
+            paragraphs=[],
+            tables=[],
+            table_anchor_paragraph_indices=[],
+            hyperlinks=[],
+            formulas=[],
+            sections=[],
+            full_text="",
+        )
+
+    style_map = ctx.styles
+    rels = ctx.relationships
+
+    paragraph_elements: list[ET.Element] = []
+    paragraphs: list[DocxParagraph] = []
+    tables: list[list[list[str]]] = []
+    table_anchor_paragraph_indices: list[int] = []
+    hyperlinks: list[DocxHyperlink] = []
+    formulas: list[DocxFormula] = []
+    full_text_parts: list[str] = []
+    section_properties: list[ET.Element] = []
+
+    current_paragraph_index = -1
+
+    for child in body:
+        if child.tag == W_P:
+            paragraph_elements.append(child)
+            paragraphs.append(_build_paragraph(child, style_map))
+            current_paragraph_index += 1
+
+            text = _extract_paragraph_content(child, include_formulas=True)
+            if text.strip():
+                full_text_parts.append(text)
+
+            hyperlinks.extend(_extract_hyperlinks_from_element(child, rels))
+            formulas.extend(_extract_formulas_from_element(child))
+            _collect_section_properties(child, section_properties)
+            continue
+
+        if child.tag != W_TBL:
+            continue
+
+        anchor = max(0, current_paragraph_index)
+        for table in child.iter(W_TBL):
+            tables.append(_extract_table_data(table))
+            table_anchor_paragraph_indices.append(anchor)
+
+        full_text_parts.extend(_extract_table_text(child, include_formulas=True))
+        hyperlinks.extend(_extract_hyperlinks_from_element(child, rels))
+        formulas.extend(_extract_formulas_from_element(child))
+        _collect_section_properties(child, section_properties)
+
+    final_sect_pr = body.find(W_SECTPR)
+    if final_sect_pr is not None:
+        section_properties.append(final_sect_pr)
+
+    return _DocxBodyAnalysis(
+        paragraph_elements=paragraph_elements,
+        paragraphs=paragraphs,
+        tables=tables,
+        table_anchor_paragraph_indices=table_anchor_paragraph_indices,
+        hyperlinks=hyperlinks,
+        formulas=formulas,
+        sections=_build_sections(section_properties),
+        full_text="\n".join(full_text_parts),
+    )
+
+
+# =============================================================================
 # Extraction functions
 # =============================================================================
 
@@ -724,7 +962,10 @@ def _extract_tables_from_context(
     return tables, table_anchor_paragraph_indices
 
 
-def _extract_images_from_context(ctx: _DocxContext) -> list[DocxImage]:
+def _extract_images_from_context(
+    ctx: _DocxContext,
+    paragraphs: list[ET.Element] | None = None,
+) -> list[DocxImage]:
     """Extract images with captions and descriptions."""
     rels = ctx.relationships
     body = ctx.document_body
@@ -733,7 +974,8 @@ def _extract_images_from_context(ctx: _DocxContext) -> list[DocxImage]:
     image_anchor_paragraph_indices: dict[str, set[int]] = {}
 
     if body is not None:
-        paragraphs = list(body.findall(W_P))
+        if paragraphs is None:
+            paragraphs = list(body.findall(W_P))
 
         for para_idx, para in enumerate(paragraphs):
             for drawing in para.iter(W_DRAWING):
@@ -906,20 +1148,28 @@ def read_docx(
         ctx = _DocxContext(file_like)
         try:
             metadata = _extract_metadata_from_context(ctx)
-            paragraphs = _extract_paragraphs_from_context(ctx)
-            tables, table_anchor_paragraph_indices = _extract_tables_from_context(ctx)
+            body_analysis = _analyze_document_body(ctx)
+            paragraphs = body_analysis.paragraphs
+            tables = body_analysis.tables
+            table_anchor_paragraph_indices = (
+                body_analysis.table_anchor_paragraph_indices
+            )
             headers, footers = _extract_header_footers_from_context(ctx)
-            images = [] if ignore_images else _extract_images_from_context(ctx)
-            hyperlinks = _extract_hyperlinks_from_context(ctx)
+            images = (
+                []
+                if ignore_images
+                else _extract_images_from_context(
+                    ctx, paragraphs=body_analysis.paragraph_elements
+                )
+            )
+            hyperlinks = body_analysis.hyperlinks
             footnotes = _extract_footnotes_from_context(ctx)
             endnotes = _extract_endnotes_from_context(ctx)
-            formulas = _extract_formulas_from_context(ctx)
+            formulas = body_analysis.formulas
             comments = _extract_comments_from_context(ctx)
-            sections = _extract_sections_from_context(ctx)
+            sections = body_analysis.sections
             styles = list({para.style for para in paragraphs if para.style})
-            full_text = _extract_full_text_from_body(
-                ctx.document_body, include_formulas=True
-            )
+            full_text = body_analysis.full_text
 
             metadata.populate_from_path(path)
 

@@ -600,10 +600,16 @@ def _extract_from_7z_optimized(
 
                 files_to_process.append((file_info, filename, basename))
 
-            # Extract all files at once for better performance
+            if not files_to_process:
+                return
+
+            # Extract only the filtered files to avoid materializing the whole archive.
             with tempfile.TemporaryDirectory() as temp_dir:
                 try:
-                    szf.extractall(path=temp_dir)
+                    szf.extract(
+                        path=temp_dir,
+                        targets=[filename for _, filename, _ in files_to_process],
+                    )
                 except (Bad7zFile, OSError, ValueError) as extract_error:
                     raise ExtractionFailedError(
                         f"Failed to extract 7z archive: {extract_error}",

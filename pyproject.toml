@@ -68,19 +68,15 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "charset-normalizer>=3.3.0",
-    "defusedxml>=0.7.1",
-    "mail-parser>=4.1.4",
+    "charset-normalizer>=3.3.0,<4",
+    "defusedxml>=0.7.1, <1",
+    "mail-parser>=4.1.4,<5",
     "msg-parser>=1.2.0",
     "olefile>=0.47",
-    "openpyxl>=3.1.5",
-    "pypdf>=6.6.0",
-    "xlrd>=2.0.2",
-]
-
-[project.optional-dependencies]
-pdf-crypto = [
+    "openpyxl>=3.1.5,<4",
+    "pypdf>=6.6.0,<7",
     "pycryptodome>=3.20.0",
+    "xlrd>=2.0.2,<3",
 ]
 
 [project.urls]

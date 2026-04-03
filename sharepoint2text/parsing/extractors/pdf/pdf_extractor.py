@@ -102,13 +102,11 @@ Maintenance Notes
 - Format detection based on compression filter type
 """
 
-import contextlib
 import io
 import logging
 import re
 import statistics
-import struct
-from typing import Any, Callable, Generator, Iterable, Optional, Protocol
+from typing import Any, Generator, Iterable, Optional, Protocol
 
 from pypdf import PdfReader
 from pypdf.errors import DependencyError, LimitReachedError
@@ -132,9 +130,6 @@ from sharepoint2text.parsing.extractors.pdf._pypdf_aes_fallback import (
 
 logger = logging.getLogger(__name__)
 
-# PERFORMANCE OPTIMIZATION: Font analysis cache to avoid repeated TTF parsing
-_FONT_CACHE: dict[bytes, Optional[tuple[int, dict[int, tuple[int, int]]]]] = {}
-
 # PERFORMANCE OPTIMIZATION: Pre-compiled regex patterns for better performance
 _DATE_HEADER_PATTERN = re.compile(r"\d{2}/\d{2}/\d{4}")
 _MONTH_PATTERN = re.compile(
@@ -155,22 +150,6 @@ _WHITESPACE_RE = re.compile(r"\s+")
 # Type Aliases
 # =============================================================================
 TextSegment = tuple[float, float, str, float]  # (y, x, text, font_size)
-
-# Reference digit bounding boxes (width, height) for a common sans font.
-# Values are in font units (units-per-em = 2048).
-_REFERENCE_DIGIT_UNITS_PER_EM = 2048
-_REFERENCE_DIGIT_FEATURES: dict[int, tuple[int, int]] = {
-    0: (956, 1497),
-    1: (540, 1472),
-    2: (971, 1472),
-    3: (960, 1498),
-    4: (1014, 1466),
-    5: (972, 1471),
-    6: (968, 1497),
-    7: (949, 1447),
-    8: (966, 1497),
-    9: (964, 1497),
-}
 
 # =============================================================================
 # PDF Filter to Image Format Mapping
@@ -242,290 +221,6 @@ def _should_skip_images(reader: PdfReader, file_like: io.BytesIO) -> bool:
     except (AttributeError, BufferError, OSError, ValueError):
         return False
     return data_size >= _AES_FALLBACK_IMAGE_SKIP_THRESHOLD_BYTES
-
-
-def _ttf_read_table_directory(
-    font_data: bytes,
-) -> dict[str, tuple[int, int]]:
-    if len(font_data) < 12:
-        return {}
-    num_tables = struct.unpack(">H", font_data[4:6])[0]
-    tables: dict[str, tuple[int, int]] = {}
-    for idx in range(num_tables):
-        entry = font_data[12 + idx * 16 : 12 + (idx + 1) * 16]
-        if len(entry) < 16:
-            break
-        tag, _check, offset, length = struct.unpack(">4sIII", entry)
-        tables[tag.decode("ascii", errors="ignore")] = (offset, length)
-    return tables
-
-
-def _ttf_read_head(
-    font_data: bytes, tables: dict[str, tuple[int, int]]
-) -> Optional[tuple[int, int]]:
-    if "head" not in tables:
-        return None
-    offset, length = tables["head"]
-    if offset + 52 > len(font_data):
-        return None
-    head = font_data[offset : offset + length]
-    units_per_em = struct.unpack(">H", head[18:20])[0]
-    index_to_loc_format = struct.unpack(">h", head[50:52])[0]
-    return units_per_em, index_to_loc_format
-
-
-def _ttf_read_maxp(font_data: bytes, tables: dict[str, tuple[int, int]]) -> int | None:
-    if "maxp" not in tables:
-        return None
-    offset, length = tables["maxp"]
-    if offset + 6 > len(font_data):
-        return None
-    maxp = font_data[offset : offset + length]
-    num_glyphs: int = struct.unpack(">H", maxp[4:6])[0]
-    return num_glyphs
-
-
-def _ttf_read_loca(
-    font_data: bytes,
-    tables: dict[str, tuple[int, int]],
-    index_to_loc_format: int,
-    num_glyphs: int,
-) -> Optional[list[int]]:
-    if "loca" not in tables:
-        return None
-    offset, length = tables["loca"]
-    if offset >= len(font_data):
-        return None
-    loca = font_data[offset : offset + length]
-    offsets: list[int] = []
-    if index_to_loc_format == 0:
-        for idx in range(num_glyphs + 1):
-            start = idx * 2
-            end = start + 2
-            if end > len(loca):
-                return None
-            val = struct.unpack(">H", loca[start:end])[0]
-            offsets.append(val * 2)
-    else:
-        for idx in range(num_glyphs + 1):
-            start = idx * 4
-            end = start + 4
-            if end > len(loca):
-                return None
-            val = struct.unpack(">I", loca[start:end])[0]
-            offsets.append(val)
-    return offsets
-
-
-def _ttf_read_glyph_dimensions(
-    font_data: bytes, tables: dict[str, tuple[int, int]], glyph_offset: int
-) -> Optional[tuple[int, int]]:
-    if "glyf" not in tables:
-        return None
-    offset, length = tables["glyf"]
-    start = offset + glyph_offset
-    if start + 10 > offset + length or start + 10 > len(font_data):
-        return None
-    header = font_data[start : start + 10]
-    if len(header) < 10:
-        return None
-    _contours, x_min, y_min, x_max, y_max = struct.unpack(">hhhhh", header)
-    return x_max - x_min, y_max - y_min
-
-
-def _ttf_get_glyph_features(
-    font_data: bytes, glyph_ids: list[int]
-) -> Optional[tuple[int, dict[int, tuple[int, int]]]]:
-    # PERFORMANCE OPTIMIZATION: Use cached font analysis
-    if font_data in _FONT_CACHE:
-        return _FONT_CACHE[font_data]
-
-    tables = _ttf_read_table_directory(font_data)
-    head = _ttf_read_head(font_data, tables)
-    num_glyphs = _ttf_read_maxp(font_data, tables)
-    if head is None or num_glyphs is None:
-        _FONT_CACHE[font_data] = None
-        return None
-    units_per_em, index_to_loc_format = head
-    offsets = _ttf_read_loca(font_data, tables, index_to_loc_format, num_glyphs)
-    if offsets is None:
-        _FONT_CACHE[font_data] = None
-        return None
-    features: dict[int, tuple[int, int]] = {}
-    for gid in glyph_ids:
-        if gid < 0 or gid >= len(offsets) - 1:
-            continue
-        dims = _ttf_read_glyph_dimensions(font_data, tables, offsets[gid])
-        if dims is None:
-            continue
-        features[gid] = dims
-
-    result = (units_per_em, features)
-    _FONT_CACHE[font_data] = result
-    return result
-
-
-def _assign_digit_glyphs(
-    features: dict[int, tuple[int, int]], units_per_em: int
-) -> dict[int, int]:
-    if not features:
-        return {}
-    scale = units_per_em / _REFERENCE_DIGIT_UNITS_PER_EM
-    ref_scaled = {
-        digit: (width * scale, height * scale)
-        for digit, (width, height) in _REFERENCE_DIGIT_FEATURES.items()
-    }
-    candidates: list[tuple[float, int, int]] = []
-    for gid, (width, height) in features.items():
-        for digit, (ref_width, ref_height) in ref_scaled.items():
-            cost = abs(width - ref_width) + abs(height - ref_height)
-            candidates.append((cost, gid, digit))
-    candidates.sort()
-    assigned: dict[int, int] = {}
-    used_digits: set[int] = set()
-    for _cost, gid, digit in candidates:
-        if gid in assigned or digit in used_digits:
-            continue
-        assigned[gid] = digit
-        used_digits.add(digit)
-        if len(assigned) == len(features):
-            break
-    return assigned
-
-
-def _patch_font_digit_map(
-    font_map: dict[Any, Any], font_dict: Optional[dict[str, Any]]
-) -> None:
-    if not font_dict:
-        return
-    null_char = chr(0)
-    null_keys = [
-        ord(key)
-        for key, value in font_map.items()
-        if isinstance(key, str)
-        and isinstance(value, str)
-        and value == null_char
-        and len(key) == 1
-    ]
-    if not null_keys:
-        return
-    font_data: Optional[bytes] = None
-    try:
-        desc = font_dict["/DescendantFonts"][0].get_object()
-        font_desc = desc["/FontDescriptor"].get_object()
-        font_data = font_desc["/FontFile2"].get_object().get_data()
-    except (KeyError, IndexError, AttributeError, TypeError):
-        font_data = None
-    if not font_data:
-        return
-    glyph_info = _ttf_get_glyph_features(font_data, null_keys)
-    if glyph_info is None:
-        return
-    units_per_em, features = glyph_info
-    digit_map = _assign_digit_glyphs(features, units_per_em)
-    if not digit_map:
-        return
-    for gid, digit in digit_map.items():
-        try:
-            font_map[chr(gid)] = str(digit)
-        except ValueError:
-            continue
-
-
-def _get_pypdf_char_map_patcher() -> (
-    tuple[list[tuple[Any, str]], "Callable[[Any], Callable[..., Any]]"]
-):
-    """
-    Get the appropriate pypdf module(s) and patcher for character map building.
-
-    pypdf 6.6.0+ removed build_char_map from _page and uses get_encoding from _cmap.
-    This function detects the API version and returns the appropriate patching targets.
-
-    Note: In pypdf 6.6.0+, get_encoding is imported into _font module, so we need
-    to patch both _cmap and _font to ensure the patch takes effect.
-
-    Returns:
-        Tuple of ([(module, function_name), ...], wrapper_factory) for patching.
-    """
-    # Try pypdf 6.6.0+ API first (get_encoding in _cmap and _font)
-    try:
-        import pypdf._cmap as pypdf_cmap
-        import pypdf._font as pypdf_font
-
-        if hasattr(pypdf_cmap, "get_encoding") and hasattr(pypdf_font, "get_encoding"):
-
-            def make_wrapper(
-                original: Callable[..., Any],
-            ) -> Callable[..., Any]:
-                def patched(ft: Any) -> Any:
-                    encoding, char_map = original(ft)
-                    # In the new API, we get the font dict directly
-                    _patch_font_digit_map(
-                        char_map, ft if isinstance(ft, dict) else None
-                    )
-                    return encoding, char_map
-
-                return patched
-
-            # Need to patch both modules since _font imports get_encoding
-            return [
-                (pypdf_cmap, "get_encoding"),
-                (pypdf_font, "get_encoding"),
-            ], make_wrapper
-    except (ImportError, AttributeError):
-        pass
-
-    # Fall back to pypdf < 6.6.0 API (build_char_map in _page)
-    import pypdf._page as pypdf_page
-
-    if not hasattr(pypdf_page, "build_char_map"):
-        raise AttributeError(
-            "pypdf version not supported: neither get_encoding nor build_char_map found"
-        )
-
-    def make_wrapper_legacy(original: Callable[..., Any]) -> Callable[..., Any]:
-        def patched(font_name: str, space_width: float, obj: Any) -> Any:
-            font_subtype, font_halfspace, font_encoding, font_map, font = original(
-                font_name, space_width, obj
-            )
-            _patch_font_digit_map(font_map, font)
-            return font_subtype, font_halfspace, font_encoding, font_map, font
-
-        return patched
-
-    return [(pypdf_page, "build_char_map")], make_wrapper_legacy
-
-
-@contextlib.contextmanager
-def _patched_build_char_map() -> Generator[None, None, None]:
-    """
-    Context manager that patches pypdf's character map building function.
-
-    This patches the font character map building to fix digit mappings in
-    fonts that use null characters for digits. Supports both pypdf < 6.6.0
-    (build_char_map) and pypdf >= 6.6.0 (get_encoding).
-    """
-    try:
-        patch_targets, make_wrapper = _get_pypdf_char_map_patcher()
-    except AttributeError as e:
-        logger.warning("Cannot patch pypdf char map: %s", e)
-        yield
-        return
-
-    # Store originals and apply patches
-    originals: list[tuple[Any, str, Any]] = []
-    for module, func_name in patch_targets:
-        original = getattr(module, func_name)
-        originals.append((module, func_name, original))
-        patched = make_wrapper(original)
-        setattr(module, func_name, patched)
-
-    try:
-        yield
-    finally:
-        # Restore all originals
-        for module, func_name, original in originals:
-            setattr(module, func_name, original)
 
 
 def read_pdf(
@@ -655,7 +350,21 @@ def _extract_image_bytes(page: PageLike, page_num: int) -> list[PdfImage]:
         return []
 
     x_objects = resources["/XObject"].get_object()
-    image_occurrences, mcid_order, mcid_text = _extract_page_mcid_data(page)
+    image_objects = [
+        (obj_name, x_objects[obj_name])
+        for obj_name in x_objects
+        if x_objects[obj_name].get("/Subtype") == "/Image"
+    ]
+    if not image_objects:
+        return []
+
+    needs_mcid_lookup = any(
+        not _extract_image_alt_text(image_obj) for _, image_obj in image_objects
+    )
+    if needs_mcid_lookup:
+        image_occurrences, mcid_order, mcid_text = _extract_page_mcid_data(page)
+    else:
+        image_occurrences, mcid_order, mcid_text = [], [], {}
 
     # Build list of (obj_name, obj, caption) tuples to extract
     candidates: list[tuple[Any, Any, str]] = []
@@ -671,10 +380,8 @@ def _extract_image_bytes(page: PageLike, page_num: int) -> list[PdfImage]:
             candidates.append((obj_name, obj, caption))
     else:
         # Fall back to XObject dictionary order
-        for obj_name in x_objects:
-            obj = x_objects[obj_name]
-            if obj.get("/Subtype") == "/Image":
-                candidates.append((obj_name, obj, ""))
+        for obj_name, obj in image_objects:
+            candidates.append((obj_name, obj, _extract_image_alt_text(obj)))
 
     # Extract images from candidates
     found_images: list[PdfImage] = []
@@ -731,12 +438,11 @@ def _extract_text_with_spacing(page: PageLike) -> tuple[str, list[str]]:
         segments.append((y, x, text, size))
 
     # Try spatial extraction, fall back to simple extraction on failure
-    with _patched_build_char_map():
-        try:
-            page_text = page.extract_text(visitor_text=visitor) or ""
-        except (TypeError, ValueError, KeyError):
-            page_text = page.extract_text() or ""
-            return page_text, page_text.splitlines()
+    try:
+        page_text = page.extract_text(visitor_text=visitor) or ""
+    except (TypeError, ValueError, KeyError):
+        page_text = page.extract_text() or ""
+        return page_text, page_text.splitlines()
 
     if not segments:
         return page_text, page_text.splitlines()

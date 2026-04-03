@@ -27,7 +27,7 @@ import os
 import struct
 import zlib
 from dataclasses import dataclass
-from typing import BinaryIO, Dict, List, Optional, Tuple
+from typing import BinaryIO, Dict, List, Optional, Set, Tuple
 
 __all__ = [
     "Bad7zFile",
@@ -859,8 +859,69 @@ class SevenZipReader:
 
             self._extract_files_from_folder(path, folder_idx, decompressed)
 
+    def extract(
+        self,
+        path: str,
+        targets: List[str],
+        source_file: Optional[BinaryIO] = None,
+    ) -> None:
+        """Extract only the requested files to the specified directory."""
+        if not path or not isinstance(path, str):
+            raise ValueError("Path must be a non-empty string")
+
+        try:
+            os.makedirs(path, exist_ok=True)
+        except OSError as e:
+            raise Bad7zFile(
+                f"Failed to create extraction directory '{path}': {e}"
+            ) from e
+
+        target_names = {name for name in targets if name}
+        if not target_names:
+            return
+
+        selected_by_folder: Dict[int, Set[int]] = {}
+        for file_idx, file_info in enumerate(self._files):
+            if file_info.filename not in target_names:
+                continue
+            selected_by_folder.setdefault(file_info.folder_index, set()).add(file_idx)
+
+        if not selected_by_folder:
+            return
+
+        pack_pos = (
+            self._pack_positions[0] if self._pack_positions else self._header_offset
+        )
+
+        for folder_idx, folder in enumerate(self._folders):
+            selected_file_indices = selected_by_folder.get(folder_idx)
+            if not selected_file_indices:
+                continue
+
+            try:
+                decompressed = self._decompress_folder(
+                    folder,
+                    pack_pos,
+                    self._pack_sizes,
+                    source_file=source_file,
+                )
+            except Bad7zFile as e:
+                raise Bad7zFile(f"Failed to decompress folder {folder_idx}: {e}") from e
+
+            self._extract_files_from_folder(
+                path,
+                folder_idx,
+                decompressed,
+                selected_file_indices=selected_file_indices,
+            )
+
     def _extract_files_from_folder(
-        self, base_path: str, folder_idx: int, decompressed: bytes
+        self,
+        base_path: str,
+        folder_idx: int,
+        decompressed: bytes,
+        *,
+        selected_file_indices: Optional[Set[int]] = None,
     ) -> None:
         """Extract individual files from decompressed folder data."""
         offset = 0
@@ -890,6 +951,12 @@ class SevenZipReader:
 
             file_data = decompressed[offset : offset + file_info.uncompressed]
             offset += file_info.uncompressed
+
+            if (
+                selected_file_indices is not None
+                and file_idx not in selected_file_indices
+            ):
+                continue
 
             try:
                 with open(file_path, "wb") as f:
@@ -1023,6 +1090,12 @@ class SevenZipFile:
         if self._reader is None:
             raise Bad7zFile("Archive not opened")
         self._reader.extractall(path, source_file=self._file)
+
+    def extract(self, path: str, targets: List[str]) -> None:
+        """Extract only the requested files to the specified directory."""
+        if self._reader is None:
+            raise Bad7zFile("Archive not opened")
+        self._reader.extract(path, targets, source_file=self._file)
 
     def needs_password(self) -> bool:
         """Check if the archive requires a password.

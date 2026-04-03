@@ -6,6 +6,7 @@ import typing
 import zipfile
 from unittest import TestCase
 
+import sharepoint2text.parsing.extractors.archive_extractor as archive_module
 from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
     ExtractionFileEncryptedError,
@@ -87,11 +88,7 @@ from sharepoint2text.parsing.extractors.open_office.odg_extractor import read_od
 from sharepoint2text.parsing.extractors.open_office.odp_extractor import read_odp
 from sharepoint2text.parsing.extractors.open_office.ods_extractor import read_ods
 from sharepoint2text.parsing.extractors.open_office.odt_extractor import read_odt
-from sharepoint2text.parsing.extractors.pdf.pdf_extractor import (
-    _get_pypdf_char_map_patcher,
-    _patched_build_char_map,
-    read_pdf,
-)
+from sharepoint2text.parsing.extractors.pdf.pdf_extractor import read_pdf
 from sharepoint2text.parsing.extractors.plain_extractor import read_plain_text
 
 logger = logging.getLogger(__name__)
@@ -2593,50 +2590,6 @@ def test_pdf__3() -> None:
     tc.assertIn("Supplier Registration Form", full_text)
 
 
-def test_pdf__pypdf_char_map_patcher_detection() -> None:
-    """Test that the pypdf API detection works across pypdf versions."""
-
-    # Should not raise an exception for supported pypdf versions
-    patch_targets, make_wrapper = _get_pypdf_char_map_patcher()
-
-    # Should return at least one patch target
-    tc.assertGreater(len(patch_targets), 0)
-
-    # Each patch target should be a (module, function_name) tuple
-    for module, func_name in patch_targets:
-        tc.assertTrue(hasattr(module, func_name))
-        tc.assertTrue(callable(getattr(module, func_name)))
-
-    # The wrapper factory should be callable
-    tc.assertTrue(callable(make_wrapper))
-
-
-def test_pdf__pypdf_patched_build_char_map_context_manager() -> None:
-    """Test that the patched_build_char_map context manager works correctly."""
-
-    patch_targets, _ = _get_pypdf_char_map_patcher()
-
-    # Store original functions
-    originals = {
-        (module.__name__, func_name): getattr(module, func_name)
-        for module, func_name in patch_targets
-    }
-
-    # Apply patch and verify functions are modified
-    with _patched_build_char_map():
-        for module, func_name in patch_targets:
-            current = getattr(module, func_name)
-            original = originals[(module.__name__, func_name)]
-            # The function should be wrapped (different object)
-            tc.assertIsNot(current, original)
-
-    # After context manager, functions should be restored
-    for module, func_name in patch_targets:
-        current = getattr(module, func_name)
-        original = originals[(module.__name__, func_name)]
-        tc.assertIs(current, original)
-
-
 def test_read_html__1() -> None:
     path = "sharepoint2text/tests/resources/html/sample.html"
     html: HtmlContent = next(
@@ -3256,9 +3209,6 @@ def test_read_7zip_archive() -> None:
 def test_7zip_file_size_limit() -> None:
     """Test that 7z archives exceeding size limit raise appropriate exception."""
     test_max_size = 1024  # 1KB for testing
-
-    # Monkey patch the max size constant
-    import sharepoint2text.parsing.extractors.archive_extractor as archive_module
 
     original_max_7z_file_size = archive_module.MAX_7Z_FILE_SIZE
     archive_module.MAX_7Z_FILE_SIZE = test_max_size
