@@ -1035,6 +1035,73 @@ def extract_document_flow(pages_path: Path) -> DocumentFlow | None:
     return best
 
 
+def extract_document_text_messages(pages_path: Path) -> list[DecodedMessage]:
+    """Return visible text messages from the main Pages document graph.
+
+    Args:
+        pages_path: Path to the Apple Pages archive on disk.
+
+    Returns:
+        Decoded `Index/Document.iwa` messages that look like user-visible text
+        content, in archive order.
+
+    Raises:
+        zipfile.BadZipFile: If the Pages archive is invalid.
+        KeyError: If the expected document payload is missing from the archive.
+    """
+    with zipfile.ZipFile(pages_path) as archive:
+        raw = archive.read("Index/Document.iwa")
+        messages = decode_iwa_messages(raw, source="Index/Document.iwa")
+
+    return [
+        message
+        for message in messages
+        if message.message_type == 2001 and _extract_message_text(message) is not None
+    ]
+
+
+def _normalized_block_key(text: str) -> str:
+    """Normalize a text block for overlap and duplicate detection."""
+    return " ".join(text.split()).strip().lower()
+
+
+def extract_document_text_blocks(pages_path: Path) -> list[str]:
+    """Return non-overlapping visible text blocks from the document graph.
+
+    Args:
+        pages_path: Path to the Apple Pages archive on disk.
+
+    Returns:
+        Text blocks in document order, excluding duplicates and blocks that are
+        fully contained within a longer extracted block.
+
+    Raises:
+        zipfile.BadZipFile: If the Pages archive is invalid.
+        KeyError: If the expected document payload is missing from the archive.
+    """
+    blocks: list[str] = []
+    normalized_blocks: list[str] = []
+    for message in extract_document_text_messages(pages_path):
+        text = _extract_message_text(message)
+        if text is None:
+            continue
+        normalized = _normalized_block_key(text)
+        if not normalized:
+            continue
+        if normalized in normalized_blocks:
+            continue
+        if any(
+            normalized in existing or existing in normalized
+            for existing in normalized_blocks
+        ):
+            if any(existing in normalized for existing in normalized_blocks):
+                continue
+        blocks.append(text)
+        normalized_blocks.append(normalized)
+
+    return blocks
+
+
 def extract_primary_document_text(pages_path: Path) -> str | None:
     """Extract the primary document text blob from Index/Document.iwa."""
     message = extract_primary_text_message(pages_path)
@@ -1065,13 +1132,9 @@ def _extract_message_text(message: DecodedMessage) -> str | None:
 
 def extract_primary_text_message(pages_path: Path) -> DecodedMessage | None:
     """Return the best Pages message containing the primary document text."""
-    with zipfile.ZipFile(pages_path) as archive:
-        raw = archive.read("Index/Document.iwa")
-        messages = decode_iwa_messages(raw, source="Index/Document.iwa")
-
     best_message: DecodedMessage | None = None
     best_score = -1
-    for message in messages:
+    for message in extract_document_text_messages(pages_path):
         text = _extract_message_text(message)
         if text is None:
             continue
@@ -1291,6 +1354,52 @@ def _infer_outline_levels(
     return paragraph_levels
 
 
+def _paragraphs_from_text_message(
+    message: DecodedMessage, *, infer_headings: bool
+) -> list[ApplePagesParagraph]:
+    """Convert a Pages text message into paragraph records.
+
+    Args:
+        message: Decoded Pages text message.
+        infer_headings: Whether to infer outline levels from paragraph and style
+            evidence for this message.
+
+    Returns:
+        Parsed paragraphs from the message. Supplemental text boxes can disable
+        heading inference so they remain plain content.
+    """
+    text = _extract_message_text(message)
+    if text is None:
+        return []
+
+    style_runs = extract_text_style_runs(message)
+    merged_paragraphs = _merge_styled_paragraphs(text, style_runs)
+    paragraph_levels = (
+        _infer_outline_levels(merged_paragraphs)
+        if infer_headings
+        else [None] * len(merged_paragraphs)
+    )
+
+    paragraphs: list[ApplePagesParagraph] = []
+    for (paragraph_text, style_id), outline_level in zip(
+        merged_paragraphs, paragraph_levels
+    ):
+        style_name = None
+        if outline_level is not None:
+            style_name = "Title" if outline_level == 1 else f"Heading {outline_level}"
+        elif style_id is not None:
+            style_name = f"Style {style_id}"
+        paragraphs.append(
+            ApplePagesParagraph(
+                text=paragraph_text,
+                style_name=style_name,
+                outline_level=outline_level,
+            )
+        )
+
+    return paragraphs
+
+
 def extract_primary_document_paragraphs(pages_path: Path) -> list[ApplePagesParagraph]:
     """Extract paragraph structure and inferred heading levels from a Pages file.
 
@@ -1309,32 +1418,26 @@ def extract_primary_document_paragraphs(pages_path: Path) -> list[ApplePagesPara
         >>> extract_primary_document_paragraphs(Path("document.pages"))
         [ApplePagesParagraph(text="Title", style_name="Title", outline_level=1)]
     """
-    message = extract_primary_text_message(pages_path)
-    if message is None:
+    messages = extract_document_text_messages(pages_path)
+    if not messages:
         return []
 
-    text = _extract_message_text(message)
-    if text is None:
+    primary_message = max(
+        messages,
+        key=lambda message: len(
+            (_extract_message_text(message) or "").replace("\ufffc", "")
+        ),
+        default=None,
+    )
+    if primary_message is None:
         return []
-
-    style_runs = extract_text_style_runs(message)
-    merged_paragraphs = _merge_styled_paragraphs(text, style_runs)
-    paragraph_levels = _infer_outline_levels(merged_paragraphs)
 
     paragraphs: list[ApplePagesParagraph] = []
-    for (paragraph_text, style_id), outline_level in zip(
-        merged_paragraphs, paragraph_levels
-    ):
-        style_name = None
-        if outline_level is not None:
-            style_name = "Title" if outline_level == 1 else f"Heading {outline_level}"
-        elif style_id is not None:
-            style_name = f"Style {style_id}"
-        paragraphs.append(
-            ApplePagesParagraph(
-                text=paragraph_text,
-                style_name=style_name,
-                outline_level=outline_level,
+    for message in messages:
+        paragraphs.extend(
+            _paragraphs_from_text_message(
+                message,
+                infer_headings=message == primary_message,
             )
         )
 
@@ -1887,9 +1990,16 @@ def read_apple_pages(
 
             # Render the full text output
             if document_flow is None and not tables_data:
-                full_text = extract_primary_document_text(temp_path) or render_output(
-                    ranked, tables_data, show_source=False, document_flow=document_flow
-                )
+                full_text = "\n".join(extract_document_text_blocks(temp_path)).strip()
+                if not full_text:
+                    full_text = extract_primary_document_text(
+                        temp_path
+                    ) or render_output(
+                        ranked,
+                        tables_data,
+                        show_source=False,
+                        document_flow=document_flow,
+                    )
             else:
                 full_text = render_output(
                     ranked, tables_data, show_source=False, document_flow=document_flow

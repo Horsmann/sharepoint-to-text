@@ -13,7 +13,7 @@ tc = TestCase()
 tc.maxDiff = None
 
 
-def test_apple_pages_1():
+def test_apple_pages_1() -> None:
     """Test apple pages extractor."""
 
     path = "sharepoint2text/tests/resources/apple/mwe.pages"
@@ -26,7 +26,7 @@ def test_apple_pages_1():
     tc.assertEqual("This is a test document.", page_obj.get_full_text())
 
 
-def test_apple_pages_2():
+def test_apple_pages_2() -> None:
     """Test apple pages extractor."""
 
     path = "sharepoint2text/tests/resources/apple/with_tables_image.pages"
@@ -89,7 +89,7 @@ def test_apple_pages_2():
     )
 
 
-def test_apple_pages_3():
+def test_apple_pages_3() -> None:
     """Test apple pages extractor."""
 
     path = "sharepoint2text/tests/resources/apple/pages_text_only.pages"
@@ -132,7 +132,46 @@ def test_apple_pages_3():
     tc.assertEqual(expected_markdown, page_obj.get_full_markdown())
 
 
-def test_apple_pages_heading_inference_reuses_family_across_style_mismatch():
+def test_apple_pages_4() -> None:
+    """Test apple pages extractor."""
+
+    path = "sharepoint2text/tests/resources/apple/classic-pages-resume-template.pages"
+    expected_text = "\n".join(
+        (
+            "Your Name",
+            "Job Title",
+            "",
+            "PROFILE",
+            "To get started, just tap or click this placeholder text and begin typing. Include a short introduction about yourself and your career goals.",
+            "EXPERIENCE",
+            "Job Title, Company Name; City, State — 2022–Present",
+            "Summarize your key responsibilities and achievements.",
+            "Job Title, Company Name; City, State — 2019–2021",
+            "Add measurable accomplishments, such as sales growth, customer satisfaction, profitability increase, or others.",
+            "Job Title, Company Name; City, State — 2016–2018",
+            "Highlight what you’ve learned and how you’ve grown in each job.",
+            "Job Title, Company Name; City, State — 2013–2015",
+            "Use lists, indentation, and character styles to organize and format this information.",
+            "Job Title, Company Name; City, State — 2010–2012",
+            "Keep these descriptions of experience clear, concise, and relevant to the position you’re applying for.",
+            "EDUCATION",
+            "University Name, City, State — Degree, Year",
+            "SKILLS",
+            "Highlight your skills that are relevant to the role you’re applying for.",
+            "Awards",
+            "If you’ve received any awards, mention them here.",
+            "1234 Main Street Anytown, State ZIP   123-456-7890",
+            "no_reply@example.com",
+        )
+    )
+
+    page_obj: ApplePagesContent = next(
+        read_apple_pages(read_file_to_file_like(path=path))
+    )
+    tc.assertEqual(expected_text, page_obj.get_full_text())
+
+
+def test_apple_pages_heading_inference_reuses_family_across_style_mismatch() -> None:
     """Keep repeated heading families stable even when Pages style ids drift."""
 
     levels = _infer_outline_levels(
@@ -157,7 +196,9 @@ def test_apple_pages_heading_inference_reuses_family_across_style_mismatch():
     tc.assertEqual([1, 2, 3, None, 3, None], levels)
 
 
-def test_apple_pages_heading_inference_ignores_unstyled_short_labels_after_body():
+def test_apple_pages_heading_inference_ignores_unstyled_short_labels_after_body() -> (
+    None
+):
     """Avoid promoting arbitrary short labels to headings once body prose has started."""
 
     levels = _infer_outline_levels(
@@ -180,7 +221,7 @@ def test_apple_pages_heading_inference_ignores_unstyled_short_labels_after_body(
     tc.assertEqual([1, None, None, None], levels)
 
 
-def test_apple_pages_heading_inference_supports_unstyled_front_matter():
+def test_apple_pages_heading_inference_supports_unstyled_front_matter() -> None:
     """Infer a simple heading ladder from unstyled front matter before body prose."""
 
     levels = _infer_outline_levels(
@@ -204,7 +245,7 @@ def test_apple_pages_heading_inference_supports_unstyled_front_matter():
     tc.assertEqual([1, 2, None, 2, None], levels)
 
 
-def test_apple_pages_flow_alignment_uses_paragraph_evidence():
+def test_apple_pages_flow_alignment_uses_paragraph_evidence() -> None:
     """Prefer merges that recreate known paragraph text when placeholders exceed tables."""
 
     flow = DocumentFlow(
@@ -241,7 +282,7 @@ def test_apple_pages_flow_alignment_uses_paragraph_evidence():
     )
 
 
-def test_apple_pages_flow_alignment_keeps_ambiguous_boundaries():
+def test_apple_pages_flow_alignment_keeps_ambiguous_boundaries() -> None:
     """Avoid collapsing extra placeholders when no merge looks like real prose."""
 
     flow = DocumentFlow(
