@@ -1,11 +1,10 @@
 import io
-import math
 import os
 import re
 import string
 import struct
 import zipfile
-from collections import Counter, OrderedDict
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Generator
@@ -31,13 +30,11 @@ MAX_HEADING_WORDS = 12
 MAX_HEADING_TEXT_LENGTH = 160
 MIN_BODY_WORDS = 14
 MIN_SEGMENT_MERGE_SCORE = 20
-
-
-@dataclass(frozen=True)
-class Candidate:
-    source: str
-    kind: str
-    text: str
+MIN_PRIMARY_TEXT_ALPHA_CHARS = 6
+MIN_SUPPLEMENTAL_TEXT_WORDS = 6
+MIN_SUPPLEMENTAL_TEXT_LENGTH = 40
+MAX_IMAGE_CAPTION_WORDS = 12
+MAX_IMAGE_CAPTION_TEXT_LENGTH = 120
 
 
 @dataclass(frozen=True)
@@ -86,6 +83,18 @@ class ParagraphStyleProfile:
     paragraph_count: int
     heading_like_count: int
     body_like_count: int
+
+
+@dataclass(frozen=True)
+class MessageTextSummary:
+    message: DecodedMessage
+    text: str
+    alpha_count: int
+    word_count: int
+    line_count: int
+    style_run_count: int
+    placeholder_count: int
+    score: int
 
 
 def guess_caption_from_filename(filename: str) -> str:
@@ -272,23 +281,6 @@ def looks_like_text(text: str, min_chars: int = 1) -> bool:
     return visible / max(len(text), 1) >= 0.95
 
 
-def iter_iwa_payloads(blob: bytes) -> list[bytes]:
-    payloads: list[bytes] = []
-    pos = 0
-
-    while pos + 8 <= len(blob):
-        chunk_len = int.from_bytes(blob[pos + 1 : pos + 4], "little")
-        chunk_end = pos + 4 + chunk_len
-        if chunk_len < 4 or chunk_end > len(blob):
-            break
-
-        payload_start = pos + 8
-        payloads.append(blob[payload_start:chunk_end])
-        pos = chunk_end
-
-    return payloads or [blob]
-
-
 def consume_utf8_char(data: bytes, pos: int) -> tuple[str, int] | None:
     first = data[pos]
 
@@ -345,162 +337,6 @@ def iter_visible_strings(data: bytes, min_chars: int = 4) -> list[str]:
         pos = next_pos if next_pos > pos else pos + 1
 
     return found
-
-
-def parse_top_level_message(
-    payload: bytes,
-) -> tuple[int | None, list[tuple[int, int, object]]]:
-    try:
-        object_id, pos = read_varint(payload, 0)
-    except ValueError:
-        return None, []
-
-    fields: list[tuple[int, int, object]] = []
-    while pos < len(payload):
-        try:
-            tag, pos = read_varint(payload, pos)
-        except ValueError:
-            break
-
-        field_number = tag >> 3
-        wire_type = tag & 0x07
-        if field_number == 0:
-            break
-
-        if wire_type == 0:
-            value, pos = read_varint(payload, pos)
-            fields.append((field_number, wire_type, value))
-        elif wire_type == 1:
-            if pos + 8 > len(payload):
-                break
-            fields.append((field_number, wire_type, payload[pos : pos + 8]))
-            pos += 8
-        elif wire_type == 2:
-            try:
-                size, pos = read_varint(payload, pos)
-            except ValueError:
-                break
-            blob = payload[pos : pos + size]
-            if len(blob) != size:
-                break
-            pos += size
-            fields.append((field_number, wire_type, blob))
-        elif wire_type == 5:
-            if pos + 4 > len(payload):
-                break
-            fields.append((field_number, wire_type, payload[pos : pos + 4]))
-            pos += 4
-        else:
-            break
-
-    return object_id, fields
-
-
-def extract_table_record_text(blob: bytes) -> list[str]:
-    texts: list[str] = []
-    pos = 0
-    while pos < len(blob):
-        try:
-            tag, pos = read_varint(blob, pos)
-        except ValueError:
-            break
-        field_number = tag >> 3
-        wire_type = tag & 0x07
-        if field_number == 0:
-            break
-
-        if wire_type == 0:
-            _, pos = read_varint(blob, pos)
-        elif wire_type == 2:
-            size, pos = read_varint(blob, pos)
-            nested = blob[pos : pos + size]
-            pos += size
-            text = normalize_text(nested.decode("utf-8", errors="ignore"))
-            if looks_like_text(text):
-                texts.append(text)
-        elif wire_type == 1:
-            pos += 8
-        elif wire_type == 5:
-            pos += 4
-        else:
-            break
-
-    return texts
-
-
-def extract_table_scalar(fields: list[tuple[int, int, object]]) -> int | None:
-    scalars = [
-        (field, value)
-        for field, wire, value in fields
-        if wire == 0 and isinstance(value, int)
-    ]
-    if not scalars:
-        return None
-
-    # Pages table cell records consistently expose the displayed scalar as field 1.
-    # Other small varints are flags and formatting markers.
-    for field, value in scalars:
-        if field == 1:
-            return value
-
-    return None
-
-
-def extract_table_width(fields: list[tuple[int, int, object]]) -> int | None:
-    numeric_fields = [
-        (field, value)
-        for field, wire, value in fields
-        if wire == 0 and isinstance(value, int)
-    ]
-    for field, value in numeric_fields:
-        if field == 2 and value > 0:
-            return value
-    return None
-
-
-def normalize_header_tokens(tokens: list[str]) -> list[str]:
-    normalized: list[str] = []
-    prev_ascii: str | None = None
-
-    for token in tokens:
-        if len(token) == 1 and token in string.ascii_uppercase:
-            normalized.append(token)
-            prev_ascii = token
-            continue
-
-        if len(token) == 1 and token.isalpha():
-            # Prefer ASCII header sequences when available and ignore stray non-ASCII
-            # glyphs that appear next to encoded text boundaries.
-            continue
-
-        ascii_letters = [char for char in token if char in string.ascii_uppercase]
-        if not ascii_letters:
-            continue
-
-        if prev_ascii is not None:
-            target = ord(prev_ascii) + 1
-            chosen = min(
-                ascii_letters,
-                key=lambda char: (abs(ord(char) - target), -ord(char)),
-            )
-        else:
-            chosen = ascii_letters[-1]
-
-        normalized.append(chosen)
-        prev_ascii = chosen
-
-    return list(OrderedDict.fromkeys(normalized))
-
-
-def extract_table_headers(payload: bytes) -> list[str]:
-    tokens = [
-        text
-        for text in iter_visible_strings(payload, min_chars=1)
-        if text.isalpha() and len(text) <= 8
-    ]
-
-    filtered = [token for token in tokens if not (len(token) == 1 and token.islower())]
-    return normalize_header_tokens(filtered)
 
 
 def decode_table_string_table(messages: list[DecodedMessage]) -> dict[int, str]:
@@ -890,94 +726,13 @@ def extract_tables_from_pages(pages_path: Path) -> list[Table]:
     return tables
 
 
-def extract_row_count_hint(
-    candidates: list[Candidate], width: int, value_count: int
-) -> int | None:
-    if width <= 0 or value_count <= 0:
-        return None
-
-    minimum_rows = math.ceil(value_count / width)
-    hints = sorted(
-        {
-            int(candidate.text)
-            for candidate in candidates
-            if candidate.kind == "table_text" and candidate.text.isdigit()
-        }
-    )
-    for hint in hints:
-        if minimum_rows <= hint <= minimum_rows + 2:
-            return hint
-    return None
-
-
-def score_candidate(candidate: Candidate) -> tuple[int, int, int]:
-    text = candidate.text
-    words = text.split()
-    metadata_penalty = any(
-        marker in text
-        for marker in (
-            "Application/Blank",
-            "DocumentMetadata",
-            "CalculationEngine",
-            "gregorian",
-            "HelveticaNeue",
-            "paragraphStyle",
-            "Stylesheet",
-        )
-    )
-    return (
-        20 if candidate.kind == "document" and len(words) >= 4 else 0,
-        10 if candidate.kind == "table_header" else 0,
-        len(words) * 3 + len(text) - (30 if metadata_penalty else 0),
-    )
-
-
-def is_plain_document_line(candidate: Candidate) -> bool:
-    if candidate.kind != "document":
-        return False
-    if candidate.source != "Index/Document.iwa":
-        return False
-
-    text = candidate.text
-    words = text.split()
-    alpha = sum(ch.isalpha() for ch in text)
-    bad_markers = (
-        "/",
-        "\\",
-        "_",
-        ".jpg",
-        ".pdf",
-        "Stylesheet",
-        "paragraphStyle",
-        "HeaderStorageBucket",
-        "CalculationEngine",
-        "DocumentMetadata",
-        "Europe/Berlin",
-    )
-    if any(marker in text for marker in bad_markers):
-        return False
-    if len(words) < 3:
-        return False
-    if alpha < 12:
-        return False
-
-    punctuation = sum(ch in ".,;:!?" for ch in text)
-    uppercase_words = sum(word[:1].isupper() for word in words if word)
-    digits = sum(ch.isdigit() for ch in text)
-
-    # Prefer prose-like text and reject formatter fragments or locale snippets.
-    return punctuation > 0 or (
-        len(words) >= 5 and digits == 0 and uppercase_words < len(words)
-    )
-
-
 def clean_document_line(text: str) -> str:
-    # Pages sometimes leaks a small numeric run directly into the prose payload.
-    # Strip only a short digit prefix when it is glued to a normal sentence start.
-    return re.sub(r"^\d{1,3}(?=[A-ZÄÖÜ])", "", text)
+    """Normalize one rendered document-flow line without sample-specific fixes."""
+    return " ".join(text.split())
 
 
 def clean_document_segment(text: str) -> str:
+    """Normalize a document-flow segment while preserving paragraph breaks."""
     cleaned = text.replace("\r\n", "\n").replace("\r", "\n")
     cleaned = cleaned.replace("\ufffc", "")
     cleaned = cleaned.strip("\n")
@@ -987,14 +742,18 @@ def clean_document_segment(text: str) -> str:
     return "\n".join(lines).strip()
 
 
-def extract_document_flow(pages_path: Path) -> DocumentFlow | None:
-    best: DocumentFlow | None = None
-
+def _load_document_iwa_messages(pages_path: Path) -> list[DecodedMessage]:
+    """Decode all messages from `Index/Document.iwa`."""
     with zipfile.ZipFile(pages_path) as archive:
         raw = archive.read("Index/Document.iwa")
-        messages = decode_iwa_messages(raw, source="Index/Document.iwa")
+    return decode_iwa_messages(raw, source="Index/Document.iwa")
 
-    for message in messages:
+
+def extract_document_flow(pages_path: Path) -> DocumentFlow | None:
+    """Extract the placeholder-delimited text flow from the primary document graph."""
+    best: DocumentFlow | None = None
+
+    for message in _load_document_iwa_messages(pages_path):
         for field, wire, value in parse_proto_fields(message.body):
             if field != 3 or wire != 2 or not isinstance(value, bytes):
                 continue
@@ -1009,7 +768,7 @@ def extract_document_flow(pages_path: Path) -> DocumentFlow | None:
 
             segments = [clean_document_segment(part) for part in text.split("\ufffc")]
             alpha_count = sum(ch.isalpha() for ch in text)
-            if alpha_count < 12:
+            if alpha_count < MIN_PRIMARY_TEXT_ALPHA_CHARS:
                 continue
 
             candidate = DocumentFlow(
@@ -1035,6 +794,159 @@ def extract_document_flow(pages_path: Path) -> DocumentFlow | None:
     return best
 
 
+def _clean_message_text(text: str) -> str:
+    """Normalize decoded message text while preserving line and placeholder markers."""
+    cleaned = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    return re.sub(r"\n{3,}", "\n\n", cleaned)
+
+
+def _score_message_text(text: str, style_run_count: int) -> int:
+    """Score whether a decoded text blob looks like user-authored document content."""
+    cleaned = _clean_message_text(text)
+    normalized = normalize_text(cleaned)
+    if not normalized or not looks_like_text(normalized):
+        return -1
+
+    alpha_count = sum(ch.isalpha() for ch in cleaned)
+    if alpha_count <= 0:
+        return -1
+
+    word_count = len(normalized.split())
+    line_count = sum(1 for line in cleaned.splitlines() if line.strip()) or 1
+    placeholder_count = cleaned.count("\ufffc")
+    punctuation_count = sum(ch in ".,;:!?" for ch in cleaned)
+
+    score = alpha_count
+    score += word_count * 4
+    score += line_count * 8
+    score += min(style_run_count, 12) * 2
+    score += placeholder_count * 10
+    score += min(punctuation_count, 6) * 2
+
+    if line_count > 1:
+        score += 12
+    if word_count <= 3 and line_count == 1 and placeholder_count == 0:
+        score -= 24
+
+    return score
+
+
+def _summarize_message_text(message: DecodedMessage) -> MessageTextSummary | None:
+    """Extract the best text payload from a decoded Pages message."""
+    style_run_count = len(extract_text_style_runs(message))
+    best_summary: MessageTextSummary | None = None
+
+    for field, wire, value in parse_proto_fields(message.body):
+        if field != 3 or wire != 2 or not isinstance(value, bytes):
+            continue
+        try:
+            text = value.decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+
+        cleaned = _clean_message_text(text)
+        score = _score_message_text(cleaned, style_run_count)
+        if score < 0:
+            continue
+
+        normalized = normalize_text(cleaned)
+        alpha_count = sum(ch.isalpha() for ch in cleaned)
+        if alpha_count < MIN_PRIMARY_TEXT_ALPHA_CHARS and len(normalized.split()) < 2:
+            continue
+
+        summary = MessageTextSummary(
+            message=message,
+            text=cleaned,
+            alpha_count=alpha_count,
+            word_count=len(normalized.split()),
+            line_count=sum(1 for line in cleaned.splitlines() if line.strip()) or 1,
+            style_run_count=style_run_count,
+            placeholder_count=cleaned.count("\ufffc"),
+            score=score,
+        )
+        if best_summary is None or (
+            summary.score,
+            len(summary.text),
+            summary.alpha_count,
+        ) > (
+            best_summary.score,
+            len(best_summary.text),
+            best_summary.alpha_count,
+        ):
+            best_summary = summary
+
+    return best_summary
+
+
+def _summaries_from_document_messages(
+    messages: list[DecodedMessage],
+) -> list[MessageTextSummary]:
+    """Build text summaries for candidate document messages in archive order."""
+    summaries: list[MessageTextSummary] = []
+    for message in messages:
+        if message.message_type != 2001:
+            continue
+        summary = _summarize_message_text(message)
+        if summary is not None:
+            summaries.append(summary)
+    return summaries
+
+
+def _is_supplemental_text_summary(summary: MessageTextSummary) -> bool:
+    """Return whether a non-primary message still looks like document content."""
+    if summary.placeholder_count > 0:
+        return True
+    if summary.line_count >= 2:
+        return True
+    return (
+        summary.word_count >= MIN_SUPPLEMENTAL_TEXT_WORDS
+        and len(summary.text) >= MIN_SUPPLEMENTAL_TEXT_LENGTH
+    )
+
+
+def _select_document_text_summaries(
+    summaries: list[MessageTextSummary],
+) -> list[MessageTextSummary]:
+    """Keep the primary text message and non-overlapping supplemental text blocks."""
+    if not summaries:
+        return []
+
+    primary_summary = max(
+        summaries,
+        key=lambda summary: (
+            summary.score,
+            summary.placeholder_count,
+            summary.alpha_count,
+            len(summary.text),
+        ),
+    )
+
+    selected: list[MessageTextSummary] = []
+    normalized_blocks: list[str] = []
+    for summary in summaries:
+        normalized = _normalized_block_key(summary.text)
+        if not normalized:
+            continue
+
+        if summary.message.object_id == primary_summary.message.object_id:
+            selected.append(summary)
+            normalized_blocks.append(normalized)
+            continue
+
+        if not _is_supplemental_text_summary(summary):
+            continue
+        if any(
+            normalized == existing or normalized in existing or existing in normalized
+            for existing in normalized_blocks
+        ):
+            continue
+
+        selected.append(summary)
+        normalized_blocks.append(normalized)
+
+    return selected
+
+
 def extract_document_text_messages(pages_path: Path) -> list[DecodedMessage]:
     """Return visible text messages from the main Pages document graph.
 
@@ -1049,14 +961,11 @@ def extract_document_text_messages(pages_path: Path) -> list[DecodedMessage]:
         zipfile.BadZipFile: If the Pages archive is invalid.
         KeyError: If the expected document payload is missing from the archive.
     """
-    with zipfile.ZipFile(pages_path) as archive:
-        raw = archive.read("Index/Document.iwa")
-        messages = decode_iwa_messages(raw, source="Index/Document.iwa")
-
     return [
-        message
-        for message in messages
-        if message.message_type == 2001 and _extract_message_text(message) is not None
+        summary.message
+        for summary in _select_document_text_summaries(
+            _summaries_from_document_messages(_load_document_iwa_messages(pages_path))
+        )
     ]
 
 
@@ -1090,12 +999,13 @@ def extract_document_text_blocks(pages_path: Path) -> list[str]:
             continue
         if normalized in normalized_blocks:
             continue
-        if any(
-            normalized in existing or existing in normalized
-            for existing in normalized_blocks
-        ):
-            if any(existing in normalized for existing in normalized_blocks):
-                continue
+        if any(normalized in existing for existing in normalized_blocks):
+            continue
+        for index, existing in enumerate(list(normalized_blocks)):
+            if existing in normalized:
+                del normalized_blocks[index]
+                del blocks[index]
+                break
         blocks.append(text)
         normalized_blocks.append(normalized)
 
@@ -1112,38 +1022,28 @@ def extract_primary_document_text(pages_path: Path) -> str | None:
 
 def _extract_message_text(message: DecodedMessage) -> str | None:
     """Extract normalized UTF-8 text from a decoded Pages message."""
-    best_text = ""
-    for field, wire, value in parse_proto_fields(message.body):
-        if field != 3 or wire != 2 or not isinstance(value, bytes):
-            continue
-        try:
-            text = value.decode("utf-8")
-        except UnicodeDecodeError:
-            continue
-        alpha_count = sum(ch.isalpha() for ch in text)
-        if alpha_count < 40:
-            continue
-        cleaned = text.replace("\r\n", "\n").replace("\r", "\n").strip()
-        if len(cleaned) > len(best_text):
-            best_text = cleaned
-
-    return best_text or None
+    summary = _summarize_message_text(message)
+    return None if summary is None else summary.text
 
 
 def extract_primary_text_message(pages_path: Path) -> DecodedMessage | None:
     """Return the best Pages message containing the primary document text."""
-    best_message: DecodedMessage | None = None
-    best_score = -1
-    for message in extract_document_text_messages(pages_path):
-        text = _extract_message_text(message)
-        if text is None:
-            continue
-        score = len(text.replace("\ufffc", ""))
-        if score > best_score:
-            best_score = score
-            best_message = message
+    summaries = _select_document_text_summaries(
+        _summaries_from_document_messages(_load_document_iwa_messages(pages_path))
+    )
+    if not summaries:
+        return None
 
-    return best_message
+    primary_summary = max(
+        summaries,
+        key=lambda summary: (
+            summary.score,
+            summary.placeholder_count,
+            summary.alpha_count,
+            len(summary.text),
+        ),
+    )
+    return primary_summary.message
 
 
 def extract_text_style_runs(message: DecodedMessage) -> list[StyledTextRun]:
@@ -1422,13 +1322,7 @@ def extract_primary_document_paragraphs(pages_path: Path) -> list[ApplePagesPara
     if not messages:
         return []
 
-    primary_message = max(
-        messages,
-        key=lambda message: len(
-            (_extract_message_text(message) or "").replace("\ufffc", "")
-        ),
-        default=None,
-    )
+    primary_message = extract_primary_text_message(pages_path)
     if primary_message is None:
         return []
 
@@ -1444,45 +1338,61 @@ def extract_primary_document_paragraphs(pages_path: Path) -> list[ApplePagesPara
     return paragraphs
 
 
+def _looks_like_image_caption(text: str) -> bool:
+    """Return whether a short text snippet is a plausible image caption."""
+    normalized = normalize_text(text)
+    if not normalized or "\ufffc" in text:
+        return False
+    if len(normalized) > MAX_IMAGE_CAPTION_TEXT_LENGTH:
+        return False
+
+    words = normalized.split()
+    if not 1 <= len(words) <= MAX_IMAGE_CAPTION_WORDS:
+        return False
+
+    return sum(ch.isalpha() for ch in normalized) >= 3
+
+
 def extract_image_captions_from_pages(pages_path: Path) -> list[str]:
     """Extract image caption strings from the Pages document graph."""
     with zipfile.ZipFile(pages_path) as archive:
-        raw = archive.read("Index/Document.iwa")
-        messages = decode_iwa_messages(raw, source="Index/Document.iwa")
+        image_count = sum(
+            1
+            for name in archive.namelist()
+            if name.startswith("Data/") and not name.endswith("/")
+        )
+    if image_count <= 0:
+        return []
 
-    direct_captions: list[str] = []
+    messages = _load_document_iwa_messages(pages_path)
+    document_message_ids = {
+        message.object_id for message in extract_document_text_messages(pages_path)
+    }
+
+    captions: list[str] = []
+    for message in messages:
+        if message.message_type != 2001 or message.object_id in document_message_ids:
+            continue
+        summary = _summarize_message_text(message)
+        if summary is None or not _looks_like_image_caption(summary.text):
+            continue
+        if summary.text not in captions:
+            captions.append(summary.text)
+
+    if captions:
+        return captions[:image_count]
+
     fallback_captions: list[str] = []
     for message in messages:
-        if message.message_type != 2001:
+        if message.object_id in document_message_ids:
             continue
-        fields = parse_proto_fields(message.body)
-        direct_caption = next(
-            (
-                value.decode("utf-8", errors="replace").strip()
-                for field, wire, value in fields
-                if field == 3 and wire == 2 and isinstance(value, bytes)
-            ),
-            "",
-        )
-        if (
-            direct_caption
-            and "\n" not in direct_caption
-            and "\ufffc" not in direct_caption
-            and len(direct_caption) <= 120
-        ):
-            if direct_caption not in direct_captions:
-                direct_captions.append(direct_caption)
-            continue
-
         for text in iter_visible_strings(message.body, min_chars=3):
             cleaned = normalize_text(text)
-            if not cleaned or len(cleaned) < 3:
-                continue
-            if cleaned.lower() in {"de", "en", "fr"}:
+            if not _looks_like_image_caption(cleaned):
                 continue
             if cleaned not in fallback_captions:
                 fallback_captions.append(cleaned)
-    return direct_captions or fallback_captions
+    return fallback_captions[:image_count]
 
 
 def extract_images_from_pages(pages_path: Path) -> list[ApplePagesImage]:
@@ -1660,66 +1570,7 @@ def align_document_flow_to_tables(
     )
 
 
-def extract_candidates(pages_path: Path) -> list[Candidate]:
-    candidates: list[Candidate] = []
-
-    with zipfile.ZipFile(pages_path) as archive:
-        for name in archive.namelist():
-            if not name.startswith("Index/") or not name.endswith(".iwa"):
-                continue
-
-            raw = archive.read(name)
-            for payload in iter_iwa_payloads(raw):
-                if name.startswith("Index/Tables/"):
-                    object_id, fields = parse_top_level_message(payload)
-                    if fields:
-                        width = extract_table_width(fields)
-                        if width is not None and name.endswith("DataList.iwa"):
-                            candidates.append(
-                                Candidate(name, "table_width", str(width))
-                            )
-
-                        if name.endswith("DataList.iwa"):
-                            for header in extract_table_headers(payload):
-                                candidates.append(
-                                    Candidate(name, "table_header", header)
-                                )
-
-                        scalar = extract_table_scalar(fields)
-                        if (
-                            scalar is not None
-                            and "DataList-" in name
-                            and name.endswith("-2.iwa")
-                        ):
-                            candidates.append(
-                                Candidate(name, "table_scalar", str(scalar))
-                            )
-
-                    if "HeaderStorageBucket" in name:
-                        for text in iter_visible_strings(payload, min_chars=1):
-                            if text.isdigit():
-                                candidates.append(Candidate(name, "table_text", text))
-                    continue
-
-                for text in iter_visible_strings(payload, min_chars=4):
-                    candidates.append(Candidate(name, "document", text))
-
-    return candidates
-
-
-def dedupe_preserve_best(candidates: list[Candidate]) -> list[Candidate]:
-    best: OrderedDict[tuple[str, str], Candidate] = OrderedDict()
-    for candidate in candidates:
-        key = (candidate.kind, candidate.text)
-        current = best.get(key)
-        if current is None or score_candidate(candidate) > score_candidate(current):
-            best[key] = candidate
-
-    return list(best.values())
-
-
 def render_output(
-    candidates: list[Candidate],
     tables: list[Table],
     show_source: bool,
     document_flow: DocumentFlow | None = None,
@@ -1773,157 +1624,37 @@ def render_output(
 
         return buffer.getvalue()
 
-    document_lines = [c for c in candidates if is_plain_document_line(c)]
-    if not document_lines:
-        document_lines = [
-            c
-            for c in candidates
-            if c.kind == "document" and c.source == "Index/Document.iwa"
-        ][:1]
-
-    if document_lines:
-        for item in document_lines:
-            cleaned = clean_document_line(item.text)
-            if show_source:
-                write(f"[{item.source}] {cleaned}")
-            else:
-                write(cleaned)
-
-    for index, table in enumerate(tables, start=1):
-        if (document_lines and index == 1) or index > 1:
-            write("")
-        write_table(table)
-
     return buffer.getvalue()
 
 
-def build_tables(candidates: list[Candidate]) -> list[Table]:
-    headers = [
-        c.text
-        for c in candidates
-        if c.kind == "table_header" and len(c.text) <= 16 and looks_like_text(c.text)
-    ]
-    if not headers:
-        return []
+def render_text_blocks_and_tables(text_blocks: list[str], tables: list[Table]) -> str:
+    """Render extracted text blocks followed by any tables."""
+    buffer = io.StringIO()
+    wrote_any = False
 
-    scalar_values = [
-        int(c.text) for c in candidates if c.kind == "table_scalar" and c.text.isdigit()
-    ]
-    extra_numeric_text = [
-        int(c.text)
-        for c in candidates
-        if c.kind in {"table_text", "document"} and c.text.isdigit()
-    ]
+    def write(line: str) -> None:
+        buffer.write(line)
+        buffer.write("\n")
 
-    ordered_unique_headers = list(OrderedDict.fromkeys(headers))
-    ordered_unique_values = list(
-        OrderedDict.fromkeys(scalar_values + extra_numeric_text)
-    )
-    numeric_values = sorted(
-        value for value in ordered_unique_values if isinstance(value, int)
-    )
+    def write_table(table: Table) -> None:
+        write(" | ".join(table.headers))
+        for row in table.rows:
+            write(" | ".join(row))
 
-    width = len(ordered_unique_headers)
-    if width <= 0:
-        return []
+    for block in text_blocks:
+        if not block.strip():
+            continue
+        for line in block.split("\n"):
+            write(line)
+        wrote_any = True
 
-    row_count_hint = extract_row_count_hint(candidates, width, len(numeric_values))
-    rows, reconstruction = infer_table_rows(
-        ordered_unique_headers,
-        numeric_values,
-        row_count_hint=row_count_hint,
-    )
-    raw_values = [str(value) for value in numeric_values]
-    # "Pages appears to store table cells sparsely: table headers and dimensions live "
-    # "in Index/Tables/DataList.iwa, populated cell values in DataList-*-2.iwa, and "
-    # "empty cells are omitted from the scalar stream. When numeric values form an "
-    # "almost contiguous ascending sequence, missing integers are treated as blank cells."
-    metadata = {
-        "width": width,
-        "row_count_hint": row_count_hint,
-        "raw_values": numeric_values,
-        "reconstruction": reconstruction,
-    }
-    return [
-        Table(
-            headers=ordered_unique_headers,
-            rows=rows,
-            raw_values=raw_values,
-            metadata=metadata,  # type: ignore[arg-type]
-        )
-    ]
+    for table in tables:
+        if wrote_any:
+            write("")
+        write_table(table)
+        wrote_any = True
 
-
-def infer_table_rows(
-    headers: list[str],
-    values: list[int],
-    row_count_hint: int | None = None,
-) -> tuple[list[list[str]], dict[str, object]]:
-    if not headers or not values:
-        return [], {"mode": "empty"}
-
-    width = len(headers)
-    if width <= 0:
-        return [], {"mode": "empty"}
-
-    # Common Pages numeric tables often serialize cell values as a mostly complete
-    # integer sequence. Prefer a contiguous range when one can be inferred.
-    value_set = set(values)
-    if values and min(value_set) == 1:
-        contiguous = []
-        current = 1
-        while current in value_set:
-            contiguous.append(current)
-            current += 1
-        if len(contiguous) >= max(width, len(values) - 2):
-            values = contiguous
-
-    target_rows = max(math.ceil(len(values) / width), row_count_hint or 0)
-    if target_rows <= 0:
-        target_rows = math.ceil(len(values) / width)
-
-    expanded_values: list[str] = [str(value) for value in values]
-    reconstruction: dict[str, object] = {
-        "mode": "dense_row_major",
-        "target_rows": target_rows,
-        "width": width,
-    }
-
-    if values == sorted(values) and len(values) >= 3:
-        minimum = values[0]
-        maximum = values[-1]
-        missing_count = (maximum - minimum + 1) - len(values)
-        if minimum == 1 and 0 < missing_count <= width:
-            present = set(values)
-            expanded_values = [
-                str(number) if number in present else ""
-                for number in range(minimum, maximum + 1)
-            ]
-            reconstruction = {
-                "mode": "sparse_sequence_with_blanks",
-                "target_rows": target_rows,
-                "width": width,
-                "sequence_start": minimum,
-                "sequence_end": maximum,
-                "missing_numbers": [
-                    number
-                    for number in range(minimum, maximum + 1)
-                    if number not in present
-                ],
-            }
-
-    rows: list[list[str]] = []
-    position = 0
-    for _ in range(target_rows):
-        row: list[str] = []
-        for _ in range(width):
-            if position < len(expanded_values):
-                row.append(expanded_values[position])
-                position += 1
-            else:
-                row.append("")
-        rows.append(row)
-    return rows, reconstruction
+    return buffer.getvalue()
 
 
 def read_apple_pages(
@@ -1940,14 +1671,10 @@ def read_apple_pages(
         ApplePagesContent: Extracted content with tables and text
     """
     try:
-        # Create a temporary file-like object that supports seeking and random access
         file_like.seek(0)
 
-        # Extract document structure
         import tempfile
-        from pathlib import Path
 
-        # Write to temporary file since extract_tables_from_pages expects a Path
         with tempfile.NamedTemporaryFile(suffix=".pages", delete=False) as tmp:
             tmp.write(file_like.read())
             tmp_path = tmp.name
@@ -1955,9 +1682,6 @@ def read_apple_pages(
         try:
             temp_path = Path(tmp_path)
 
-            # ApplePagesContent stores tables as the full rendered grid, including
-            # the header row. Preserve declared trailing empty rows in table data,
-            # but keep the textual renderer based on the unpadded decoded rows.
             tables_data = extract_tables_from_pages(temp_path)
             images = [] if ignore_images else extract_images_from_pages(temp_path)
             paragraphs = extract_primary_document_paragraphs(temp_path)
@@ -1979,33 +1703,24 @@ def read_apple_pages(
                     )
                 tables.append([table.headers, *padded_rows])
 
-            # Extract text candidates and build document
-            candidates = extract_candidates(temp_path)
-            ranked = dedupe_preserve_best(candidates)
+            text_blocks = extract_document_text_blocks(temp_path)
             document_flow = align_document_flow_to_tables(
                 extract_document_flow(temp_path),
                 len(tables_data),
                 [paragraph.text for paragraph in paragraphs if paragraph.text.strip()],
             )
 
-            # Render the full text output
-            if document_flow is None and not tables_data:
-                full_text = "\n".join(extract_document_text_blocks(temp_path)).strip()
+            if document_flow is None:
+                full_text = render_text_blocks_and_tables(
+                    text_blocks, tables_data
+                ).strip()
                 if not full_text:
-                    full_text = extract_primary_document_text(
-                        temp_path
-                    ) or render_output(
-                        ranked,
-                        tables_data,
-                        show_source=False,
-                        document_flow=document_flow,
-                    )
+                    full_text = extract_primary_document_text(temp_path) or ""
             else:
                 full_text = render_output(
-                    ranked, tables_data, show_source=False, document_flow=document_flow
-                )
+                    tables_data, show_source=False, document_flow=document_flow
+                ).strip()
 
-            # Create the ApplePagesContent object
             metadata = FileMetadataInterface()
             metadata.populate_from_path(path)
             content = ApplePagesContent(
@@ -2019,12 +1734,9 @@ def read_apple_pages(
             yield content
 
         finally:
-            # Clean up temporary file
-            import os
-
             try:
                 os.unlink(tmp_path)
-            except Exception:
+            except OSError:
                 pass
 
     except Exception as e:

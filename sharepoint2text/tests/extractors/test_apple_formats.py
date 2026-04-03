@@ -1,9 +1,14 @@
+from pathlib import Path
 from unittest import TestCase
 
 from sharepoint2text.parsing.extractors.apple.pages_extractor import (
     DocumentFlow,
+    _extract_message_text,
     _infer_outline_levels,
     align_document_flow_to_tables,
+    extract_document_text_messages,
+    extract_image_captions_from_pages,
+    extract_primary_document_text,
     read_apple_pages,
 )
 from sharepoint2text.parsing.extractors.data_types import ApplePagesContent
@@ -169,6 +174,49 @@ def test_apple_pages_4() -> None:
         read_apple_pages(read_file_to_file_like(path=path))
     )
     tc.assertEqual(expected_text, page_obj.get_full_text())
+
+
+def test_apple_pages_short_primary_message_uses_structured_text_message() -> None:
+    """Keep very short single-message documents on the structured extraction path."""
+
+    path = "sharepoint2text/tests/resources/apple/mwe.pages"
+
+    messages = extract_document_text_messages(Path(path))
+
+    tc.assertEqual(1, len(messages))
+    tc.assertEqual(
+        "This is a test document.", extract_primary_document_text(Path(path))
+    )
+
+
+def test_apple_pages_document_text_messages_exclude_image_caption_textboxes() -> None:
+    """Do not treat short image-caption text boxes as main document text blocks."""
+
+    path = Path("sharepoint2text/tests/resources/apple/with_tables_image.pages")
+
+    messages = extract_document_text_messages(path)
+
+    tc.assertEqual(1, len(messages))
+    tc.assertEqual("Space Image", extract_image_captions_from_pages(path)[0])
+
+
+def test_apple_pages_document_text_messages_keep_multiline_supplemental_blocks() -> (
+    None
+):
+    """Preserve real supplemental text boxes such as footer/contact blocks."""
+
+    path = Path(
+        "sharepoint2text/tests/resources/apple/classic-pages-resume-template.pages"
+    )
+
+    messages = extract_document_text_messages(path)
+    message_texts = [_extract_message_text(message) for message in messages]
+
+    tc.assertEqual(2, len(messages))
+    tc.assertEqual(
+        "1234 Main Street Anytown, State ZIP   123-456-7890\nno_reply@example.com",
+        message_texts[1],
+    )
 
 
 def test_apple_pages_heading_inference_reuses_family_across_style_mismatch() -> None:
