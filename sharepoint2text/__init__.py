@@ -8,7 +8,6 @@ legacy binary formats, plus PDF documents.
 
 import io
 import logging
-import re
 import sys
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -95,39 +94,8 @@ def _configure_pypdf_limits(max_file_size: int) -> None:
             setattr(_filters, attr, target)
 
 
-_PRERELEASE_NORMALIZE_RE = re.compile(r"(?<=\d)\.(a|b|rc)(0|[1-9]\d*)\b", re.IGNORECASE)
-
-
-def _normalize_version(value: str) -> str:
-    def repl(match: re.Match[str]) -> str:
-        tag = match.group(1).lower()
-        number = str(int(match.group(2)))
-        return f"{tag}{number}"
-
-    return _PRERELEASE_NORMALIZE_RE.sub(repl, value)
-
-
-def _version_from_pyproject() -> str | None:
-    here = Path(__file__).resolve()
-    for parent in list(here.parents)[:3]:
-        pyproject = parent / "pyproject.toml"
-        if not pyproject.is_file():
-            continue
-        text = pyproject.read_text(encoding="utf-8", errors="ignore")
-        # Verify this is our project's pyproject.toml
-        if 'name = "sharepoint-to-text"' not in text:
-            continue
-        match = re.search(
-            r'(?ms)^\[project\]\s.*?^version\s*=\s*["\']([^"\']+)["\']\s*$',
-            text,
-        )
-        return match.group(1) if match else None
-    return None
-
-
 try:
-    raw_version = _version_from_pyproject() or version("sharepoint-to-text")
-    __version__ = _normalize_version(raw_version)
+    __version__ = version("sharepoint-to-text")
 except PackageNotFoundError:  # pragma: no cover
     __version__ = "unknown"
 
