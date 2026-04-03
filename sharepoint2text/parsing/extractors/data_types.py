@@ -235,12 +235,6 @@ class ExtractionInterface(Protocol):
 
 
 @dataclass
-class ApplePagesContent(ExtractionInterface):
-    tables: List[List[List[str]]] = field(default_factory=list)
-    full_text: str = ""  # Full text including formulas
-
-
-@dataclass
 class FileMetadataInterface:
     filename: str | None = None
     file_extension: str | None = None
@@ -1479,6 +1473,48 @@ class PlainTextContent(ExtractionInterface):
         self.content = self.content.strip()
 
     def to_json(self) -> dict:
+        return serialize_extraction(self)
+
+
+#################
+# Apple Pages
+#################
+
+
+@dataclass
+class ApplePagesContent(ExtractionInterface):
+    """Extracted content from Apple Pages (.pages) files."""
+
+    tables: List[List[List[str]]] = field(default_factory=list)
+    full_text: str = ""  # Full text including tables rendered as text
+    metadata: FileMetadataInterface = field(default_factory=FileMetadataInterface)
+
+    def iterate_units(
+        self, *, ignore_images: bool = False
+    ) -> typing.Iterator[UnitInterface]:
+        """Yield the document as a single unit."""
+        yield PlainTextUnit(text=self.full_text.strip())
+
+    def get_full_text(self) -> str:
+        """Get full text of the document."""
+        return self.full_text.strip()
+
+    def get_metadata(self) -> FileMetadataInterface:
+        """Returns the metadata of the extracted file."""
+        return self.metadata
+
+    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        """Apple Pages content does not yield images."""
+        yield from ()
+        return
+
+    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        """Yield tables from the document."""
+        for table in self.tables:
+            yield TableData(data=table)
+
+    def to_json(self) -> dict:
+        """Returns a JSON-serializable dictionary representation."""
         return serialize_extraction(self)
 
 

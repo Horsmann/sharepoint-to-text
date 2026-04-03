@@ -3372,23 +3372,25 @@ def test_apple_pages_2():
 
     tc.assertEqual(2, len(page_obj.tables))
     tc.assertEqual(
-        (
-            "This is a test document. A new journey!",
-            "",
-            "A | B | C | D | Z",
-            "1 | 2 | 3 | 4 |",
-            "5 | 6 | 7 | 8 |",
-            "9 | 10 | 11 | 12 | Ü",
-            "13 | 14 | 15 | 16 |",
-            "",
-            "A | B",
-            "John | long",
-            "White | Gray",
-            "Red | Blue",
-            "8 | 9",
-            "",
-            "Headerline",
-            "^^ okay, das ist jetzt mal etwas mehr Text :P",
+        "\n".join(
+            (
+                "This is a test document. A new journey!",
+                "",
+                "A | B | C | D | Z",
+                "1 | 2 | 3 | 4 | ",
+                "5 | 6 | 7 | 8 | ",
+                "9 | 10 | 11 | 12 | Ü",
+                "13 | 14 | 15 | 16 | ",
+                "",
+                "A | B",
+                "John | long",
+                "White | Gray",
+                "Red | Blue",
+                "8 | 9",
+                "",
+                "Headerline",
+                "^^ okay, das ist jetzt mal etwas mehr Text :P",
+            )
         ),
         page_obj.get_full_text(),
     )
