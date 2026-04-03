@@ -1763,17 +1763,6 @@ def test_read_epub__2() -> None:
     tc.assertEqual("§ 19\n\nÜbergangsvorschriften", units[-1].get_text()[:27])
 
 
-def test_read_macro_enabled_docm() -> None:
-    """Test .docm (macro-enabled Word) extraction - same structure as .docx."""
-    path = "sharepoint2text/tests/resources/modern_ms/sample.docm"
-    result: DocxContent = next(
-        read_docx(file_like=_read_file_to_file_like(path=path), path=path)
-    )
-    # Verify it extracts as DocxContent (same as .docx)
-    tc.assertIsInstance(result, DocxContent)
-    tc.assertTrue(len(result.get_full_text()) > 0)
-
-
 def test_read_macro_enabled_xlsm() -> None:
     """Test .xlsm (macro-enabled Excel) extraction - same structure as .xlsx."""
     path = "sharepoint2text/tests/resources/modern_ms/sample.xlsm"

@@ -691,3 +691,14 @@ def test_read_docx__units() -> None:
     tc.assertEqual(docx.tables[0], units[5].get_tables()[0].get_table())
     tc.assertEqual(1, len(units[6].get_tables()))
     tc.assertEqual(docx.tables[1], units[6].get_tables()[0].get_table())
+
+
+def test_read_macro_enabled_docm() -> None:
+    """Test .docm (macro-enabled Word) extraction - same structure as .docx."""
+    path = "sharepoint2text/tests/resources/modern_ms/sample.docm"
+    result: DocxContent = next(
+        read_docx(file_like=read_file_to_file_like(path=path), path=path)
+    )
+    # Verify it extracts as DocxContent (same as .docx)
+    tc.assertIsInstance(result, DocxContent)
+    tc.assertTrue(len(result.get_full_text()) > 0)
