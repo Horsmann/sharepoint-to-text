@@ -1015,6 +1015,33 @@ def extract_document_flow(pages_path: Path) -> DocumentFlow | None:
     return best
 
 
+def extract_primary_document_text(pages_path: Path) -> str | None:
+    """Extract the primary document text blob from Index/Document.iwa."""
+    with zipfile.ZipFile(pages_path) as archive:
+        raw = archive.read("Index/Document.iwa")
+        messages = decode_iwa_messages(raw, source="Index/Document.iwa")
+
+    best_text = ""
+    for message in messages:
+        for field, wire, value in parse_proto_fields(message.body):
+            if field != 3 or wire != 2 or not isinstance(value, bytes):
+                continue
+            try:
+                text = value.decode("utf-8")
+            except UnicodeDecodeError:
+                continue
+            if "\ufffc" in text:
+                continue
+            alpha_count = sum(ch.isalpha() for ch in text)
+            if alpha_count < 40:
+                continue
+            cleaned = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+            if len(cleaned) > len(best_text):
+                best_text = cleaned
+
+    return best_text or None
+
+
 def extract_image_captions_from_pages(pages_path: Path) -> list[str]:
     """Extract image caption strings from the Pages document graph."""
     with zipfile.ZipFile(pages_path) as archive:
@@ -1466,9 +1493,14 @@ def read_apple_pages(
             )
 
             # Render the full text output
-            full_text = render_output(
-                ranked, tables_data, show_source=False, document_flow=document_flow
-            )
+            if document_flow is None and not tables_data:
+                full_text = extract_primary_document_text(temp_path) or render_output(
+                    ranked, tables_data, show_source=False, document_flow=document_flow
+                )
+            else:
+                full_text = render_output(
+                    ranked, tables_data, show_source=False, document_flow=document_flow
+                )
 
             # Create the ApplePagesContent object
             metadata = FileMetadataInterface()
