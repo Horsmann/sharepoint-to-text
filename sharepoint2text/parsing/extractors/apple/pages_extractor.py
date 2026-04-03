@@ -1637,17 +1637,15 @@ def build_tables(candidates: list[Candidate]) -> list[Table]:
         row_count_hint=row_count_hint,
     )
     raw_values = [str(value) for value in numeric_values]
+    # "Pages appears to store table cells sparsely: table headers and dimensions live "
+    # "in Index/Tables/DataList.iwa, populated cell values in DataList-*-2.iwa, and "
+    # "empty cells are omitted from the scalar stream. When numeric values form an "
+    # "almost contiguous ascending sequence, missing integers are treated as blank cells."
     metadata = {
         "width": width,
         "row_count_hint": row_count_hint,
         "raw_values": numeric_values,
         "reconstruction": reconstruction,
-        "hypothesis": (
-            "Pages appears to store table cells sparsely: table headers and dimensions live "
-            "in Index/Tables/DataList.iwa, populated cell values in DataList-*-2.iwa, and "
-            "empty cells are omitted from the scalar stream. When numeric values form an "
-            "almost contiguous ascending sequence, missing integers are treated as blank cells."
-        ),
     }
     return [
         Table(
