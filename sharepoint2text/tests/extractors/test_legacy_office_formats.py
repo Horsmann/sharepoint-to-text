@@ -2,6 +2,9 @@ import logging
 import typing
 from unittest import TestCase
 
+from sharepoint2text.parsing.exceptions import (
+    ExtractionFileEncryptedError,
+)
 from sharepoint2text.parsing.extractors.data_types import (
     DocContent,
     DocImage,
@@ -476,3 +479,15 @@ def test_read_rtf_tables_2() -> None:
 
     tables = list(rtfs[0].iterate_tables())
     tc.assertEqual(23, len(tables))
+
+
+def test_password_protected__xls() -> None:
+    path = "sharepoint2text/tests/resources/legacy_ms/password_protected/xls-password-protected-pw123.xls"
+    with tc.assertRaises(ExtractionFileEncryptedError):
+        list(read_xls(file_like=read_file_to_file_like(path=path), path=path))
+
+
+def test_password_protected__doc() -> None:
+    path = "sharepoint2text/tests/resources/legacy_ms/password_protected/doc-password-protected-pw123.doc"
+    with tc.assertRaises(ExtractionFileEncryptedError):
+        list(read_doc(file_like=read_file_to_file_like(path=path), path=path))

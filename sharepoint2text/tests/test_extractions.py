@@ -27,11 +27,6 @@ from sharepoint2text.parsing.extractors.mail.mbox_email_extractor import (
     read_mbox_format_mail,
 )
 from sharepoint2text.parsing.extractors.mhtml_extractor import read_mhtml
-from sharepoint2text.parsing.extractors.ms_legacy.doc_extractor import read_doc
-from sharepoint2text.parsing.extractors.ms_legacy.xls_extractor import read_xls
-from sharepoint2text.parsing.extractors.ms_modern.docx_extractor import read_docx
-from sharepoint2text.parsing.extractors.ms_modern.pptx_extractor import read_pptx
-from sharepoint2text.parsing.extractors.ms_modern.xlsx_extractor import read_xlsx
 from sharepoint2text.parsing.extractors.pdf.pdf_extractor import read_pdf
 
 logger = logging.getLogger(__name__)
@@ -86,36 +81,6 @@ def test_password_protected__pdf() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/password_protected/pdf-password-protected-pw123.pdf"
     with tc.assertRaises(ExtractionFileEncryptedError):
         list(read_pdf(file_like=_read_file_to_file_like(path=path), path=path))
-
-
-def test_password_protected__xls() -> None:
-    path = "sharepoint2text/tests/resources/legacy_ms/password_protected/xls-password-protected-pw123.xls"
-    with tc.assertRaises(ExtractionFileEncryptedError):
-        list(read_xls(file_like=_read_file_to_file_like(path=path), path=path))
-
-
-def test_password_protected__doc() -> None:
-    path = "sharepoint2text/tests/resources/legacy_ms/password_protected/doc-password-protected-pw123.doc"
-    with tc.assertRaises(ExtractionFileEncryptedError):
-        list(read_doc(file_like=_read_file_to_file_like(path=path), path=path))
-
-
-def test_password_protected__docx() -> None:
-    path = "sharepoint2text/tests/resources/legacy_ms/password_protected/docx-password-protected-pw123.docx"
-    with tc.assertRaises(ExtractionFileEncryptedError):
-        list(read_docx(file_like=_read_file_to_file_like(path=path), path=path))
-
-
-def test_password_protected__xlsx() -> None:
-    path = "sharepoint2text/tests/resources/legacy_ms/password_protected/xslx-password-protected-pw123.xlsx"
-    with tc.assertRaises(ExtractionFileEncryptedError):
-        list(read_xlsx(file_like=_read_file_to_file_like(path=path), path=path))
-
-
-def test_password_protected__pptx() -> None:
-    path = "sharepoint2text/tests/resources/legacy_ms/password_protected/pptx-password-protected-pw123.pptx"
-    with tc.assertRaises(ExtractionFileEncryptedError):
-        list(read_pptx(file_like=_read_file_to_file_like(path=path), path=path))
 
 
 def test_password_protected__zip() -> None:

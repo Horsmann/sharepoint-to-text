@@ -1,6 +1,9 @@
 import logging
 from unittest import TestCase
 
+from sharepoint2text.parsing.exceptions import (
+    ExtractionFileEncryptedError,
+)
 from sharepoint2text.parsing.extractors.data_types import (
     DocxComment,
     DocxContent,
@@ -869,3 +872,21 @@ def test_markdown_export():
         "## Tables\n\n| Income | tax |\n|--------|-----|\n| 119    | 19  |",
         docx.get_full_markdown(),
     )
+
+
+def test_password_protected__docx() -> None:
+    path = "sharepoint2text/tests/resources/legacy_ms/password_protected/docx-password-protected-pw123.docx"
+    with tc.assertRaises(ExtractionFileEncryptedError):
+        list(read_docx(file_like=read_file_to_file_like(path=path), path=path))
+
+
+def test_password_protected__xlsx() -> None:
+    path = "sharepoint2text/tests/resources/legacy_ms/password_protected/xslx-password-protected-pw123.xlsx"
+    with tc.assertRaises(ExtractionFileEncryptedError):
+        list(read_xlsx(file_like=read_file_to_file_like(path=path), path=path))
+
+
+def test_password_protected__pptx() -> None:
+    path = "sharepoint2text/tests/resources/legacy_ms/password_protected/pptx-password-protected-pw123.pptx"
+    with tc.assertRaises(ExtractionFileEncryptedError):
+        list(read_pptx(file_like=read_file_to_file_like(path=path), path=path))
