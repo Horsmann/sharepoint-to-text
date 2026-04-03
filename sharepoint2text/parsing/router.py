@@ -15,6 +15,8 @@ _ATTACHMENT_AWARE_FILE_TYPES = frozenset({"msg", "eml", "mbox"})
 # Mapping from file type identifiers to allowlisted extractor keys.
 # Format: file_type -> extractor_key
 _EXTRACTOR_REGISTRY: dict[str, str] = {
+    # Apple formats
+    "pages": "pages",
     # Modern MS Office
     "xlsx": "xlsx",
     "xlsb": "xlsx",
@@ -123,6 +125,12 @@ def _load_registered_extractor(extractor_key: str) -> Any:
         ExtractionFileFormatNotSupportedError: If the key is not allowlisted.
     """
     match extractor_key:
+        case "pages":
+            from sharepoint2text.parsing.extractors.apple.pages_extractor import (
+                read_apple_pages,
+            )
+
+            return read_apple_pages
         case "xlsx":
             from sharepoint2text.parsing.extractors.ms_modern.xlsx_extractor import (
                 read_xlsx,

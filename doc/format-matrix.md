@@ -14,6 +14,7 @@ This document summarizes how `sharepoint-to-text` behaves by format family. It i
 | Mailbox archives | `.mbox` | Many | One extraction result per email | Treat as a stream, not a single document |
 | HTML-like content | `.html`, `.htm`, `.mhtml`, `.mht` | 1 | Usually one document-level unit | Output is extraction-oriented, not browser-rendered |
 | Ebook | `.epub` | 1 | Format-defined document units | Good for text extraction, not ebook rendering |
+| Apple Pages | `.pages` | 1 | Usually heading-aware document units | Experimental support; best for text-first Pages documents |
 | Archives | `.zip`, `.tar`, `.7z`, `.tgz`, `.tbz2`, `.txz` | Many | Depends on contained files | Only one archive level is processed |
 
 ## Attachment Behavior
@@ -56,6 +57,12 @@ This document summarizes how `sharepoint-to-text` behaves by format family. It i
 
 - expect text extraction, metadata, images, and tables where supported
 - do not expect stable page-level units
+
+### Apple Pages
+
+- support is experimental and may change as more `.pages` samples are covered
+- text extraction is the strongest path today; layout fidelity is limited
+- heading inference, image-caption association, and table placement are heuristic
 
 ### Plain-text formats
 
