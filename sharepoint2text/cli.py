@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import sys
 from pathlib import Path
@@ -148,6 +149,62 @@ def _strip_email_attachments(results: list[ExtractionInterface]) -> None:
             result.attachments = []
 
 
+def _iter_expanded_results(
+    results: Iterator[ExtractionInterface], *, include_email_attachments: bool
+) -> Iterator[ExtractionInterface]:
+    for result in results:
+        yield from _iter_result_tree(
+            result, include_email_attachments=include_email_attachments
+        )
+
+
+def _iter_serialized_results(
+    results: Iterator[ExtractionInterface], *, include_binary: bool
+) -> Iterator[dict]:
+    for result in results:
+        yield serialize_extraction(result, include_binary=include_binary)
+
+
+def _iter_serialized_unit_results(
+    results: Iterator[ExtractionInterface],
+    *,
+    include_binary: bool,
+    include_email_attachments: bool = False,
+) -> Iterator[dict]:
+    for result in results:
+        for extraction in _iter_result_tree(
+            result, include_email_attachments=include_email_attachments
+        ):
+            for unit in extraction.iterate_units():
+                yield serialize_extraction(unit, include_binary=include_binary)
+
+
+def _write_json_array(items: Iterator[dict], output_stream: TextIO) -> None:
+    output_stream.write("[")
+    first = True
+    for item in items:
+        if not first:
+            output_stream.write(",")
+        output_stream.write("\n")
+        output_stream.write(json.dumps(item, indent=4))
+        first = False
+    if not first:
+        output_stream.write("\n")
+    output_stream.write("]\n")
+
+
+def _write_full_text(
+    results: Iterator[ExtractionInterface], output_stream: TextIO
+) -> None:
+    first = True
+    for result in results:
+        if not first:
+            output_stream.write("\n\n")
+        output_stream.write(result.get_full_text().rstrip())
+        first = False
+    output_stream.write("\n")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and return a process-style exit code.
 
@@ -203,47 +260,45 @@ def main(argv: Sequence[str] | None = None) -> int:
             output_stream = output_file
 
         try:
-            results = list(
+            results = iter(
                 sharepoint2text.read_file(
                     args.file,
                     max_file_size=max_file_size_bytes,
                     ignore_images=not args.include_images,
+                    include_attachments=not args.no_attachments,
                 )
             )
-            if not results:
+            first_result = next(results, None)
+            if first_result is None:
                 raise RuntimeError(f"No extraction results for {args.file}")
-            if args.no_attachments:
-                _strip_email_attachments(results)
+            results = itertools.chain([first_result], results)
 
             if args.json or args.json_unit:
                 include_binary = bool(args.include_images)
-                payload = (
-                    _serialize_unit_results(
+                payload_items = (
+                    _iter_serialized_unit_results(
                         results,
                         include_binary=include_binary,
                         include_email_attachments=not args.no_attachments,
                     )
                     if args.json_unit
-                    else _serialize_results(
-                        (
-                            _expand_email_results(results)
-                            if not args.no_attachments
-                            else results
+                    else _iter_serialized_results(
+                        _iter_expanded_results(
+                            results,
+                            include_email_attachments=not args.no_attachments,
                         ),
                         include_binary=include_binary,
                     )
                 )
-                json.dump(payload, output_stream, indent=4)
-                output_stream.write("\n")
+                _write_json_array(payload_items, output_stream)
             else:
-                output_stream.write(
-                    _serialize_full_text(
-                        _expand_email_results(results)
-                        if not args.no_attachments
-                        else results
-                    )
+                _write_full_text(
+                    _iter_expanded_results(
+                        results,
+                        include_email_attachments=not args.no_attachments,
+                    ),
+                    output_stream,
                 )
-                output_stream.write("\n")
         finally:
             if output_file is not None:
                 output_file.close()

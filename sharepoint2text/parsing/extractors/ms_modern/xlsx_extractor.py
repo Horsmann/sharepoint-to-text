@@ -209,36 +209,6 @@ def _is_meaningful_value(val: Any) -> bool:
     return True
 
 
-# =============================================================================
-# Row/column trimming
-# =============================================================================
-
-
-def _find_last_data_column(rows: list[tuple]) -> int:
-    """Find the 1-based index of the last column with data."""
-    if not rows:
-        return 0
-
-    max_col = 0
-    for row in rows:
-        for i in range(len(row) - 1, -1, -1):
-            if _is_cell_non_empty(row[i]):
-                max_col = max(max_col, i + 1)
-                break
-    return max_col
-
-
-def _find_last_data_row(rows: list[tuple]) -> int:
-    """Find the 1-based index of the last row with data."""
-    if not rows:
-        return 0
-
-    for i in range(len(rows) - 1, -1, -1):
-        if any(_is_cell_non_empty(val) for val in rows[i]):
-            return i + 1
-    return 0
-
-
 def _is_table_name_row(row: list[Any]) -> bool:
     """Check if row has exactly one meaningful cell (table name pattern)."""
     non_empty = sum(1 for val in row if _is_meaningful_value(val))
@@ -250,45 +220,44 @@ def _is_table_name_row(row: list[Any]) -> bool:
 # =============================================================================
 
 
-def _read_sheet_data(ws: Worksheet) -> tuple[list[dict[str, Any]], list[list[Any]]]:
-    """Read sheet data and return (records, all_rows) with trimmed empty cells."""
-    rows = list(ws.iter_rows(values_only=True))
-    if not rows:
-        return [], []
+def _read_sheet_data(ws: Worksheet) -> list[list[Any]]:
+    """Read and trim sheet data in one pass over worksheet rows."""
+    rows: list[list[Any]] = []
+    last_data_row = 0
+    last_data_col = 0
 
-    # Trim trailing empty rows and columns
-    last_row = _find_last_data_row(rows)
-    rows = rows[:last_row]
-    if not rows:
-        return [], []
+    for row in ws.iter_rows(values_only=True):
+        normalized_row = list(row)
+        row_last_data_col = 0
+        for idx in range(len(normalized_row) - 1, -1, -1):
+            if _is_cell_non_empty(normalized_row[idx]):
+                row_last_data_col = idx + 1
+                break
 
-    last_col = _find_last_data_column(rows)
-    rows = [row[:last_col] for row in rows]
+        rows.append(normalized_row)
+        if row_last_data_col > 0:
+            last_data_row = len(rows)
+            if row_last_data_col > last_data_col:
+                last_data_col = row_last_data_col
 
-    # Generate headers from first row
+    if last_data_row == 0 or last_data_col == 0:
+        return []
+
+    trimmed_rows = [row[:last_data_col] for row in rows[:last_data_row]]
     headers = [
         (
             f"Unnamed: {i}"
             if val is None or (isinstance(val, str) and not val.strip())
             else str(val)
         )
-        for i, val in enumerate(rows[0])
+        for i, val in enumerate(trimmed_rows[0])
     ]
 
-    # Convert remaining rows to records format
-    records: list[dict[str, Any]] = []
     all_rows: list[list[Any]] = [headers]
-
-    for row in rows[1:]:
-        record = {
-            headers[i]: _get_cell_value(val)
-            for i, val in enumerate(row)
-            if i < len(headers)
-        }
-        records.append(record)
+    for row in trimmed_rows[1:]:
         all_rows.append([_get_cell_value(val) for val in row])
 
-    return records, all_rows
+    return all_rows
 
 
 def _format_sheet_as_text(all_rows: list[list[Any]]) -> str:
@@ -525,7 +494,7 @@ def _read_content_from_workbook(wb: Any, sheet_names: list[str]) -> list[XlsxShe
 
     for sheet_name in sheet_names:
         ws = wb[sheet_name]
-        records, all_rows = _read_sheet_data(ws)
+        all_rows = _read_sheet_data(ws)
         text = _format_sheet_as_text(all_rows)
 
         # Skip first row if it's just a table name

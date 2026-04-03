@@ -223,6 +223,7 @@ class _PptxContext(OOXMLZipContext):
         # Cache for slide-related XML (keyed by path)
         self._slide_roots: dict[str, ET.Element] = {}
         self._comment_roots: dict[str, ET.Element] = {}
+        self._missing_comment_numbers: set[int] = set()
 
         # Cache for extracted data
         self._slide_order: list[str] | None = None
@@ -240,17 +241,6 @@ class _PptxContext(OOXMLZipContext):
 
         # Pre-compute slide order so we know which slides to load
         self._slide_order = self._compute_slide_order()
-
-        # Load all slide XML files
-        for slide_path in self._slide_order:
-            root = self.read_xml_root_if_exists(slide_path)
-            if root is not None:
-                self._slide_roots[slide_path] = root
-
-        # Load all comment files
-        for name in self.namelist:
-            if name.startswith("ppt/comments/comment") and name.endswith(".xml"):
-                self._comment_roots[name] = self.read_xml_root(name)
 
     def _compute_slide_order(self) -> list[str]:
         """Compute slide order from cached presentation XML."""
@@ -291,6 +281,11 @@ class _PptxContext(OOXMLZipContext):
 
     def get_slide_root(self, slide_path: str) -> ET.Element | None:
         """Get cached slide XML root."""
+        if slide_path not in self._slide_roots:
+            root = self.read_xml_root_if_exists(slide_path)
+            if root is None:
+                return None
+            self._slide_roots[slide_path] = root
         return self._slide_roots.get(slide_path)
 
     def get_slide_relationships(self, slide_path: str) -> dict[str, dict[str, str]]:
@@ -316,7 +311,15 @@ class _PptxContext(OOXMLZipContext):
 
     def get_comment_root(self, slide_number: int) -> ET.Element | None:
         """Get cached comment XML root for a slide."""
+        if slide_number in self._missing_comment_numbers:
+            return None
         comment_file = f"ppt/comments/comment{slide_number}.xml"
+        if comment_file not in self._comment_roots:
+            root = self.read_xml_root_if_exists(comment_file)
+            if root is None:
+                self._missing_comment_numbers.add(slide_number)
+                return None
+            self._comment_roots[comment_file] = root
         return self._comment_roots.get(comment_file)
 
 

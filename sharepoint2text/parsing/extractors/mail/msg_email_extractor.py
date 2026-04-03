@@ -360,7 +360,11 @@ def _parse_multi_recipients(raw: str | list[str]) -> list[EmailAddress]:
 
 
 def read_msg_format_mail(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: io.BytesIO,
+    path: str | None = None,
+    *,
+    ignore_images: bool = False,
+    include_attachments: bool = True,
 ) -> Generator[EmailContent, Any, None]:
     """
     Read a Microsoft Outlook MSG file and extract its content.
@@ -441,8 +445,10 @@ def read_msg_format_mail(
         sender_list = _parse_multi_recipients(msg.sender)
         from_email = sender_list[0] if sender_list else EmailAddress()
 
-        msg_attachments = getattr(msg, "attachments", None) or []
         attachments = []
+        msg_attachments = (
+            getattr(msg, "attachments", None) or [] if include_attachments else []
+        )
         if msg_attachments:
             # Prefer raw OLE attachment payloads for byte-level fidelity.
             attachments = _extract_msg_attachments_from_ole(file_like)
