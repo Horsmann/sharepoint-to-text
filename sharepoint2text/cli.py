@@ -260,7 +260,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             output_stream = output_file
 
         try:
-            results = iter(
+            results: Iterator[ExtractionInterface] = iter(
                 sharepoint2text.read_file(
                     args.file,
                     max_file_size=max_file_size_bytes,
