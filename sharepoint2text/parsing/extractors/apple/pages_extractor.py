@@ -1296,9 +1296,10 @@ def read_apple_pages(
         try:
             temp_path = Path(tmp_path)
 
-            # Extract tables using the draft implementation
+            # ApplePagesContent stores tables as the full rendered grid, including
+            # the header row. The textual renderer still treats headers separately.
             tables_data = extract_tables_from_pages(temp_path)
-            tables = [table.rows for table in tables_data]
+            tables = [[table.headers, *table.rows] for table in tables_data]
 
             # Extract text candidates and build document
             candidates = extract_candidates(temp_path)

@@ -3369,7 +3369,6 @@ def test_apple_pages_2():
         read_apple_pages(_read_file_to_file_like(path=path))
     )
 
-    tc.assertEqual(2, len(page_obj.tables))
     tc.assertEqual(
         "\n".join(
             (
@@ -3392,4 +3391,27 @@ def test_apple_pages_2():
             )
         ),
         page_obj.get_full_text(),
+    )
+
+    tc.assertEqual(2, len(page_obj.tables))
+    tc.assertEqual(
+        [
+            ["A", "B", "C", "D", "Z"],
+            ["1", "2", "3", "4", ""],
+            ["5", "6", "7", "8", ""],
+            ["9", "10", "11", "12", "Ü"],
+            ["13", "14", "15", "16", ""],
+        ],
+        list(page_obj.iterate_tables())[0],
+    )
+    tc.assertEqual(
+        [
+            ["A", "B"],
+            ["John", "long"],
+            ["White", "Gray"],
+            ["Red", "Blue"],
+            ["8", "9"],
+            ["", ""],
+        ],
+        list(page_obj.iterate_tables())[1],
     )

@@ -346,8 +346,11 @@ class TableData(TableInterface):
     data: list[list[typing.Any]] = field(default_factory=list)
 
     def __eq__(self, other: object) -> bool:
+        """Compare table data against dimensions, wrappers, or raw row lists."""
         if isinstance(other, TableDim):
             return self.get_dim() == other
+        if isinstance(other, list):
+            return self.data == other
         return super().__eq__(other)
 
     def get_table(self) -> list[list[typing.Any]]:
