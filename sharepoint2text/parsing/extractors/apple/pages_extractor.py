@@ -30,6 +30,7 @@ PRINTABLE_ASCII = set(string.printable) - {"\x0b", "\x0c"}
 MAX_HEADING_WORDS = 12
 MAX_HEADING_TEXT_LENGTH = 160
 MIN_BODY_WORDS = 14
+MIN_SEGMENT_MERGE_SCORE = 20
 
 
 @dataclass(frozen=True)
@@ -1432,10 +1433,105 @@ def merge_document_segments(left: str, right: str) -> str:
     return f"{left} {right}"
 
 
+def _normalize_alignment_text(text: str) -> str:
+    """Normalize document-flow text for cross-checking against paragraph content."""
+    return " ".join(text.split())
+
+
+def _score_segment_merge(
+    left: str, right: str, paragraph_texts: list[str] | None = None
+) -> int:
+    """Score whether two flow segments likely belong to the same paragraph.
+
+    Args:
+        left: The segment before the placeholder.
+        right: The segment after the placeholder.
+        paragraph_texts: Optional paragraph texts extracted from the primary
+            document message, used as higher-confidence evidence.
+
+    Returns:
+        A higher score for more plausible merges. Scores below
+        `MIN_SEGMENT_MERGE_SCORE` are treated as too ambiguous to merge.
+    """
+    left = left.strip()
+    right = right.strip()
+    if not left or not right:
+        return -100
+
+    merged = merge_document_segments(left, right)
+    normalized_merged = _normalize_alignment_text(merged)
+    normalized_left = _normalize_alignment_text(left)
+    normalized_right = _normalize_alignment_text(right)
+
+    score = 0
+    if paragraph_texts:
+        normalized_paragraphs = {
+            _normalize_alignment_text(paragraph)
+            for paragraph in paragraph_texts
+            if paragraph.strip()
+        }
+        if normalized_merged in normalized_paragraphs:
+            score += 100
+        elif any(
+            normalized_left in paragraph and normalized_right in paragraph
+            for paragraph in normalized_paragraphs
+        ):
+            score += 60
+
+    left_end = left[-1]
+    right_start = right[0]
+    if left_end not in ".!?;:":
+        score += 10
+    if right_start.islower():
+        score += 12
+    elif right_start in "\"'([{" or right_start.isdigit():
+        score += 6
+    elif right_start.isupper():
+        score -= 6
+
+    if left_end.isalpha() and right_start.isalpha():
+        score += 6
+
+    if left_end in ".!?;" and right_start.isupper():
+        score -= 20
+
+    return score
+
+
+def _best_merge_index(
+    segments: list[str], paragraph_texts: list[str] | None = None
+) -> int | None:
+    """Return the best segment boundary to collapse when flow has extra placeholders."""
+    best_index: int | None = None
+    best_score = MIN_SEGMENT_MERGE_SCORE - 1
+    for index in range(len(segments) - 1):
+        score = _score_segment_merge(
+            segments[index], segments[index + 1], paragraph_texts
+        )
+        if score > best_score:
+            best_score = score
+            best_index = index
+    return best_index
+
+
 def align_document_flow_to_tables(
-    document_flow: DocumentFlow | None, table_count: int
+    document_flow: DocumentFlow | None,
+    table_count: int,
+    paragraph_texts: list[str] | None = None,
 ) -> DocumentFlow | None:
-    """Collapse non-table placeholders so document flow matches extracted tables."""
+    """Collapse only plausible non-table placeholders so flow matches extracted tables.
+
+    Args:
+        document_flow: Flow segments recovered from the primary Pages message.
+        table_count: Number of extracted tables that should map onto placeholders.
+        paragraph_texts: Optional paragraph texts from the primary document,
+            used to confirm that a candidate merge recreates real prose.
+
+    Returns:
+        An adjusted document flow when extra placeholders can be merged with
+        confidence. If the remaining extra placeholders are ambiguous, the
+        function returns the partially adjusted flow instead of forcing merges.
+    """
     if document_flow is None or document_flow.placeholder_count <= table_count:
         return document_flow
 
@@ -1443,14 +1539,12 @@ def align_document_flow_to_tables(
     placeholder_count = document_flow.placeholder_count
 
     while placeholder_count > table_count and len(segments) >= 2:
-        merge_index = next(
-            (
-                index
-                for index in range(len(segments) - 1)
-                if segments[index].strip() and segments[index + 1].strip()
-            ),
-            len(segments) - 2,
+        merge_index = _best_merge_index(
+            segments,
+            paragraph_texts,
         )
+        if merge_index is None:
+            break
         segments[merge_index : merge_index + 2] = [
             merge_document_segments(segments[merge_index], segments[merge_index + 1])
         ]
@@ -1763,6 +1857,7 @@ def read_apple_pages(
             # but keep the textual renderer based on the unpadded decoded rows.
             tables_data = extract_tables_from_pages(temp_path)
             images = [] if ignore_images else extract_images_from_pages(temp_path)
+            paragraphs = extract_primary_document_paragraphs(temp_path)
             tables: list[list[list[str]]] = []
             for table in tables_data:
                 declared_row_count = table.metadata.get("declared_row_count")
@@ -1785,7 +1880,9 @@ def read_apple_pages(
             candidates = extract_candidates(temp_path)
             ranked = dedupe_preserve_best(candidates)
             document_flow = align_document_flow_to_tables(
-                extract_document_flow(temp_path), len(tables_data)
+                extract_document_flow(temp_path),
+                len(tables_data),
+                [paragraph.text for paragraph in paragraphs if paragraph.text.strip()],
             )
 
             # Render the full text output
@@ -1804,7 +1901,7 @@ def read_apple_pages(
             content = ApplePagesContent(
                 tables=tables,
                 images=images,
-                paragraphs=extract_primary_document_paragraphs(temp_path),
+                paragraphs=paragraphs,
                 full_text=full_text,
                 metadata=metadata,
             )
