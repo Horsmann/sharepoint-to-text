@@ -298,7 +298,10 @@ def test_read_pptx_1() -> None:
 
     tc.assertEqual(0, len(units[0].get_images()))
     tc.assertEqual("EU-funding visibility", units[0].get_text()[:21])
-    tc.assertEqual(PptxUnitMetadata(unit_number=1), units[0].get_metadata())
+    tc.assertEqual(
+        PptxUnitMetadata(unit_number=1, title="EU-funding visibility - art. 22 GA"),
+        units[0].get_metadata(),
+    )
 
     tc.assertEqual(5, len(units[1].get_images()))
     tc.assertEqual("This is the wrong EU ", units[1].get_text()[:21])
@@ -400,6 +403,16 @@ def test_read_pptx_3() -> None:
         ],
         units[0].get_tables()[0].get_table(),
     )
+
+
+def test_read_pptx_4_units() -> None:
+    path = "sharepoint2text/tests/resources/modern_ms/slide_titles.pptx"
+    pptx: PptxContent = next(read_pptx(read_file_to_file_like(path=path)))
+
+    units = list(pptx.iterate_units())
+    tc.assertEqual(2, len(units))
+    tc.assertEqual("Title Slide 1", units[0].get_metadata().title)
+    tc.assertEqual("Title Slide 2", units[1].get_metadata().title)
 
 
 def test_read_pptx__image_flag():

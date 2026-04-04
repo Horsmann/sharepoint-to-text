@@ -1872,14 +1872,14 @@ class PptxUnitMetadata(UnitMetadataInterface):
     """Pptx Unit Metadata"""
 
     unit_number: int
-
-    pass
+    title: str = ""
 
 
 @dataclass
 class PptxUnit(UnitInterface):
     slide_number: int
     text: str
+    title: str = ""
     images: list[PptxImage] = field(default_factory=list)
     tables: list[TableData] = field(default_factory=list)
 
@@ -1893,7 +1893,7 @@ class PptxUnit(UnitInterface):
         return list(self.tables)
 
     def get_metadata(self) -> PptxUnitMetadata:
-        return PptxUnitMetadata(unit_number=self.slide_number)
+        return PptxUnitMetadata(unit_number=self.slide_number, title=self.title)
 
     def to_json(self) -> dict:
         return serialize_extraction(self)
@@ -2010,6 +2010,7 @@ class PptxContent(ExtractionInterface):
         for slide in self.slides:
             yield PptxUnit(
                 slide_number=slide.slide_number,
+                title=slide.title,
                 images=[] if ignore_images else list(slide.images),
                 tables=[TableData(data=table) for table in slide.tables],
                 text=slide.get_text().strip(),
