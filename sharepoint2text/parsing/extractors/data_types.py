@@ -2607,8 +2607,11 @@ class OdfContent(ExtractionInterface):
 
 @dataclass
 class OdpUnit(UnitInterface):
+    """Represents a single OpenDocument presentation slide as a unit."""
+
     slide_number: int
     text: str
+    title: str = ""
     location: list[str] = field(default_factory=list)
     images: list[OpenDocumentImage] = field(default_factory=list)
     tables: list[TableData] = field(default_factory=list)
@@ -2625,6 +2628,7 @@ class OdpUnit(UnitInterface):
     def get_metadata(self) -> OdpUnitMetadata:
         return OdpUnitMetadata(
             unit_number=self.slide_number,
+            title=self.title,
             location=list(self.location),
             slide_number=self.slide_number,
         )
@@ -2635,7 +2639,10 @@ class OdpUnit(UnitInterface):
 
 @dataclass
 class OdpUnitMetadata(UnitMetadataInterface):
+    """Metadata for a single OpenDocument presentation unit."""
+
     unit_number: int
+    title: str = ""
     location: list[str] = field(default_factory=list)
     slide_number: int = 1
 
@@ -2664,6 +2671,14 @@ class OdpSlide:
         parts.extend(self.other_text)
         return "\n".join(parts)
 
+    @property
+    def unit_text(self) -> str:
+        """Text emitted for the slide unit, excluding the slide title."""
+        parts = []
+        parts.extend(self.body_text)
+        parts.extend(self.other_text)
+        return "\n".join(parts)
+
 
 @dataclass
 class OdpContent(ExtractionInterface):
@@ -2677,11 +2692,10 @@ class OdpContent(ExtractionInterface):
     ) -> typing.Iterator[UnitInterface]:
         """Iterate over slides, yielding combined text per slide."""
         for slide in self.slides:
-            parts = [slide.text_combined]
-
             yield OdpUnit(
                 slide_number=slide.slide_number,
-                text="\n".join(parts),
+                text=slide.unit_text,
+                title=slide.title,
                 location=[slide.title] if slide.title else [],
                 images=[] if ignore_images else list(slide.images),
                 tables=[TableData(data=table) for table in slide.tables],
@@ -2689,7 +2703,8 @@ class OdpContent(ExtractionInterface):
 
     def get_full_text(self) -> str:
         """Get full text of all slides."""
-        return _join_unit_text(self.iterate_units())
+        texts = [slide.text_combined.strip() for slide in self.slides]
+        return "\n".join(text for text in texts if text)
 
     def get_metadata(self) -> OpenDocumentMetadata:
         """Returns the metadata of the extracted file."""

@@ -423,7 +423,14 @@ def _extract_slide(
                     # Check style to determine if it's a title
                     style_name = p.get(_ATTR_TEXT_STYLE_NAME, "")
                     if not found_title and (
-                        "Title" in style_name or style_name == "TitleText"
+                        "Title" in style_name
+                        or style_name == "TitleText"
+                        or (
+                            style_name == ""
+                            and not slide.title
+                            and not slide.body_text
+                            and not slide.other_text
+                        )
                     ):
                         slide.title = text
                         found_title = True

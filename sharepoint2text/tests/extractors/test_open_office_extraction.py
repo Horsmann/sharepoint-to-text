@@ -258,7 +258,12 @@ def test_read_open_office__presentation_with_table() -> None:
 
     tc.assertTrue(isinstance(units[0].get_metadata(), OdpUnitMetadata))
     tc.assertEqual(
-        OdpUnitMetadata(unit_number=1, location=[], slide_number=1),
+        OdpUnitMetadata(
+            unit_number=1,
+            title="A slide with table",
+            location=["A slide with table"],
+            slide_number=1,
+        ),
         units[0].get_metadata(),
     )
 
@@ -755,3 +760,17 @@ def test_read_odt__unit_structure() -> None:
     unit5 = units[4]
     tc.assertListEqual(["A title", "Chapter 2"], unit5.get_metadata().heading_path)
     tc.assertEqual("The text of chapter 2", unit5.get_text())
+
+
+def test_read_odt_units() -> None:
+    path = "sharepoint2text/tests/resources/open_office/slide_headlines.odp"
+    odt: OdpContent = next(read_odp(read_file_to_file_like(path=path)))
+
+    units = list(odt.iterate_units())
+    tc.assertEqual(2, len(units))
+    tc.assertEqual("My Slide Title", units[0].get_metadata().title)
+    tc.assertEqual(1, units[0].get_metadata().unit_number)
+    tc.assertEqual("", units[0].get_text())
+    tc.assertEqual("Another Slide", units[1].get_metadata().title)
+    tc.assertEqual("Good day!", units[1].get_text())
+    tc.assertEqual(2, units[1].get_metadata().unit_number)
