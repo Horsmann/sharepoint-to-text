@@ -7,6 +7,7 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFileFormatNotSupportedError,
     ExtractionFileTooLargeError,
     ExtractionLegacyMicrosoftParsingError,
+    ExtractionPathTraversalError,
     ExtractionZipBombError,
 )
 from sharepoint2text.parsing.router import get_extractor, is_supported_file
@@ -18,6 +19,7 @@ __all__ = [
     "ExtractionFileFormatNotSupportedError",
     "ExtractionFileTooLargeError",
     "ExtractionLegacyMicrosoftParsingError",
+    "ExtractionPathTraversalError",
     "ExtractionZipBombError",
     "get_extractor",
     "is_supported_file",

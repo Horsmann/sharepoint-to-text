@@ -393,3 +393,279 @@ def test_archive_skips_7z_symbolic_links(monkeypatch: Any) -> None:
 
     tc.assertEqual(1, len(results))
     tc.assertIn("visible content", results[0].get_full_text())
+
+
+# =============================================================================
+# Path Traversal Attack Tests
+# =============================================================================
+
+
+def test_is_unsafe_archive_path_detects_parent_traversal() -> None:
+    """_is_unsafe_archive_path should detect '../' path traversal attempts."""
+    from sharepoint2text.parsing.extractors.archive_extractor import (
+        _is_unsafe_archive_path,
+    )
+
+    # Unsafe paths that attempt directory traversal (escape the base directory)
+    tc.assertTrue(_is_unsafe_archive_path("../etc/passwd"))
+    tc.assertTrue(_is_unsafe_archive_path("foo/../../../etc/passwd"))
+    tc.assertTrue(_is_unsafe_archive_path("foo/bar/../../baz/../../../etc/shadow"))
+    tc.assertTrue(_is_unsafe_archive_path(".."))
+
+    # Note: "foo/.." normalizes to "." which is safe (stays in base directory)
+    tc.assertFalse(_is_unsafe_archive_path("foo/.."))
+    # But "foo/../.." escapes
+    tc.assertTrue(_is_unsafe_archive_path("foo/../.."))
+
+    # Windows-style path traversal
+    tc.assertTrue(_is_unsafe_archive_path("..\\Windows\\System32\\config\\SAM"))
+    tc.assertTrue(_is_unsafe_archive_path("foo\\..\\..\\Windows"))
+
+
+def test_is_unsafe_archive_path_detects_absolute_paths() -> None:
+    """_is_unsafe_archive_path should detect absolute paths."""
+    from sharepoint2text.parsing.extractors.archive_extractor import (
+        _is_unsafe_archive_path,
+    )
+
+    # Unix absolute paths
+    tc.assertTrue(_is_unsafe_archive_path("/etc/passwd"))
+    tc.assertTrue(_is_unsafe_archive_path("/tmp/malicious.txt"))
+
+    # Windows absolute paths (after normalization)
+    tc.assertTrue(_is_unsafe_archive_path("C:\\Windows\\System32"))
+    tc.assertTrue(_is_unsafe_archive_path("D:\\sensitive\\data.txt"))
+
+
+def test_is_unsafe_archive_path_allows_safe_paths() -> None:
+    """_is_unsafe_archive_path should allow legitimate relative paths."""
+    from sharepoint2text.parsing.extractors.archive_extractor import (
+        _is_unsafe_archive_path,
+    )
+
+    # Safe relative paths
+    tc.assertFalse(_is_unsafe_archive_path("file.txt"))
+    tc.assertFalse(_is_unsafe_archive_path("subdir/file.txt"))
+    tc.assertFalse(_is_unsafe_archive_path("deep/nested/path/file.txt"))
+    tc.assertFalse(_is_unsafe_archive_path("folder_with_dots.../file.txt"))
+    tc.assertFalse(_is_unsafe_archive_path("...not_traversal/file.txt"))
+
+
+def test_zip_archive_skips_path_traversal_entries() -> None:
+    """ZIP archives with path traversal entries should skip malicious files."""
+    zip_buffer = std_io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as zf:
+        # Safe file
+        zf.writestr("safe/document.txt", b"safe content")
+        # Path traversal attempts
+        zf.writestr("../etc/passwd", b"root:x:0:0:root:/root:/bin/bash")
+        zf.writestr("foo/../../etc/shadow", b"shadow content")
+        zf.writestr("bar/../../../tmp/malicious.txt", b"malicious payload")
+    zip_buffer.seek(0)
+
+    results = list(read_archive(zip_buffer, path="traversal.zip"))
+
+    # Only the safe file should be extracted
+    tc.assertEqual(1, len(results))
+    tc.assertIn("safe content", results[0].get_full_text())
+
+
+def test_zip_archive_skips_absolute_path_entries() -> None:
+    """ZIP archives with absolute paths should skip those entries."""
+    zip_buffer = std_io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as zf:
+        # Safe file
+        zf.writestr("normal/file.txt", b"normal content")
+        # Absolute path attempts
+        zf.writestr("/etc/passwd", b"root:x:0:0")
+        zf.writestr("/tmp/evil.txt", b"evil payload")
+    zip_buffer.seek(0)
+
+    results = list(read_archive(zip_buffer, path="absolute.zip"))
+
+    # Only the safe file should be extracted
+    tc.assertEqual(1, len(results))
+    tc.assertIn("normal content", results[0].get_full_text())
+
+
+def test_tar_archive_skips_path_traversal_entries() -> None:
+    """TAR archives with path traversal entries should skip malicious files."""
+    tar_buffer = std_io.BytesIO()
+    with tarfile.open(fileobj=tar_buffer, mode="w") as tf:
+        # Safe file
+        safe_data = b"safe content"
+        safe_info = tarfile.TarInfo("safe/document.txt")
+        safe_info.size = len(safe_data)
+        tf.addfile(safe_info, std_io.BytesIO(safe_data))
+
+        # Path traversal attempt
+        malicious_data = b"malicious content"
+        malicious_info = tarfile.TarInfo("../../../etc/passwd")
+        malicious_info.size = len(malicious_data)
+        tf.addfile(malicious_info, std_io.BytesIO(malicious_data))
+
+        # Another traversal attempt
+        evil_data = b"evil content"
+        evil_info = tarfile.TarInfo("foo/bar/../../../tmp/evil.txt")
+        evil_info.size = len(evil_data)
+        tf.addfile(evil_info, std_io.BytesIO(evil_data))
+    tar_buffer.seek(0)
+
+    results = list(read_archive(tar_buffer, path="traversal.tar"))
+
+    # Only the safe file should be extracted
+    tc.assertEqual(1, len(results))
+    tc.assertIn("safe content", results[0].get_full_text())
+
+
+def test_tar_archive_skips_absolute_path_entries() -> None:
+    """TAR archives with absolute paths should skip those entries."""
+    tar_buffer = std_io.BytesIO()
+    with tarfile.open(fileobj=tar_buffer, mode="w") as tf:
+        # Safe file
+        safe_data = b"normal content"
+        safe_info = tarfile.TarInfo("normal/file.txt")
+        safe_info.size = len(safe_data)
+        tf.addfile(safe_info, std_io.BytesIO(safe_data))
+
+        # Absolute path attempt
+        abs_data = b"absolute path content"
+        abs_info = tarfile.TarInfo("/etc/passwd")
+        abs_info.size = len(abs_data)
+        tf.addfile(abs_info, std_io.BytesIO(abs_data))
+    tar_buffer.seek(0)
+
+    results = list(read_archive(tar_buffer, path="absolute.tar"))
+
+    # Only the safe file should be extracted
+    tc.assertEqual(1, len(results))
+    tc.assertIn("normal content", results[0].get_full_text())
+
+
+def test_tar_gz_archive_skips_path_traversal() -> None:
+    """Compressed TAR.GZ archives should also skip path traversal entries."""
+    tar_buffer = std_io.BytesIO()
+    with tarfile.open(fileobj=tar_buffer, mode="w:gz") as tf:
+        # Safe file
+        safe_data = b"safe compressed content"
+        safe_info = tarfile.TarInfo("safe.txt")
+        safe_info.size = len(safe_data)
+        tf.addfile(safe_info, std_io.BytesIO(safe_data))
+
+        # Path traversal attempt
+        malicious_data = b"trying to escape"
+        malicious_info = tarfile.TarInfo("../../escape.txt")
+        malicious_info.size = len(malicious_data)
+        tf.addfile(malicious_info, std_io.BytesIO(malicious_data))
+    tar_buffer.seek(0)
+
+    results = list(read_archive(tar_buffer, path="traversal.tar.gz"))
+
+    tc.assertEqual(1, len(results))
+    tc.assertIn("safe compressed content", results[0].get_full_text())
+
+
+def test_archive_path_traversal_logs_warning(caplog: Any) -> None:
+    """Path traversal attempts should be logged as warnings."""
+    zip_buffer = std_io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as zf:
+        zf.writestr("safe.txt", b"safe")
+        zf.writestr("../escape.txt", b"trying to escape")
+    zip_buffer.seek(0)
+
+    with caplog.at_level(logging.WARNING):
+        list(read_archive(zip_buffer, path="test.zip"))
+
+    # Should have logged a warning about the unsafe path
+    warning_messages = [
+        r.message for r in caplog.records if r.levelno == logging.WARNING
+    ]
+    tc.assertTrue(
+        any(
+            "unsafe" in msg.lower() or "skip" in msg.lower() for msg in warning_messages
+        ),
+        f"Expected warning about unsafe path, got: {warning_messages}",
+    )
+
+
+def test_7z_archive_skips_path_traversal_entries(monkeypatch: Any) -> None:
+    """7z archives with path traversal entries should skip malicious files."""
+    safe_data = b"safe content"
+    malicious_data = b"malicious content"
+
+    class FakeSevenZipFile:
+        """Fake 7z interface that includes path traversal entries."""
+
+        def __init__(self, file_like: Any, mode: str) -> None:
+            self._mode = mode
+
+        def __enter__(self) -> "FakeSevenZipFile":
+            return self
+
+        def __exit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc_val: BaseException | None,
+            exc_tb: Any,
+        ) -> None:
+            return None
+
+        def needs_password(self) -> bool:
+            return False
+
+        def list(self) -> List[FileInfo]:
+            return [
+                FileInfo(
+                    filename="../../../etc/passwd",
+                    uncompressed=len(malicious_data),
+                    is_directory=False,
+                    attributes=(stat.S_IFREG | 0o644) << 16,
+                ),
+                FileInfo(
+                    filename="foo/../../escape.txt",
+                    uncompressed=len(malicious_data),
+                    is_directory=False,
+                    attributes=(stat.S_IFREG | 0o644) << 16,
+                ),
+                FileInfo(
+                    filename="safe.txt",
+                    uncompressed=len(safe_data),
+                    is_directory=False,
+                    attributes=(stat.S_IFREG | 0o644) << 16,
+                ),
+            ]
+
+        def extract(self, path: str, targets: List[str]) -> None:
+            # Only the safe file should be requested for extraction
+            tc.assertEqual(["safe.txt"], targets)
+            with open(f"{path}/safe.txt", "wb") as extracted_file:
+                extracted_file.write(safe_data)
+
+    monkeypatch.setattr(archive_module, "SevenZipFile", FakeSevenZipFile)
+
+    seven_zip_buffer = std_io.BytesIO(b"7z\xbc\xaf\x27\x1c" + b"payload")
+    results = list(read_archive(seven_zip_buffer, path="traversal.7z"))
+
+    tc.assertEqual(1, len(results))
+    tc.assertIn("safe content", results[0].get_full_text())
+
+
+def test_sevenzip_safe_join_rejects_traversal() -> None:
+    """_safe_join in sevenzip module should reject path traversal."""
+    from sharepoint2text.parsing.extractors.util.sevenzip import Bad7zFile, _safe_join
+
+    # Should reject parent directory traversal
+    with tc.assertRaises(Bad7zFile):
+        _safe_join("/tmp/base", "../escape.txt")
+
+    with tc.assertRaises(Bad7zFile):
+        _safe_join("/tmp/base", "foo/../../escape.txt")
+
+    # Should reject absolute paths
+    with tc.assertRaises(Bad7zFile):
+        _safe_join("/tmp/base", "/etc/passwd")
+
+    # Should allow safe relative paths
+    result = _safe_join("/tmp/base", "safe/file.txt")
+    tc.assertTrue(result.startswith("/tmp/base/"))
+    tc.assertIn("safe/file.txt", result)

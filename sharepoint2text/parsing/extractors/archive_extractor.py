@@ -250,15 +250,36 @@ def _is_unsafe_archive_path(filename: str) -> bool:
     """Check if an archive entry path is a path traversal attempt.
 
     Rejects absolute paths and paths containing '..' components that could
-    escape the extraction directory.
+    escape the extraction directory. Handles both Unix and Windows path
+    formats regardless of the current platform.
+
+    Args:
+        filename: The archive entry path to check.
+
+    Returns:
+        True if the path is unsafe (traversal attempt), False otherwise.
     """
-    normalized = os.path.normpath(filename)
-    if os.path.isabs(normalized):
+    # Normalize path separators for consistent handling
+    normalized = filename.replace("\\", "/")
+
+    # Check for Windows drive letters (e.g., "C:/", "D:\")
+    # This catches Windows absolute paths even on Unix systems
+    if len(normalized) >= 2 and normalized[1] == ":":
         return True
-    # Check for '..' that would escape the base directory
-    parts = normalized.replace("\\", "/").split("/")
+
+    # Check for Unix absolute paths
+    if normalized.startswith("/"):
+        return True
+
+    # Normalize the path to resolve . and .. components
+    # Use the normalized (forward-slash) version for splitting
+    parts = os.path.normpath(normalized).replace("\\", "/").split("/")
+
+    # Check if any component is ".." which would escape the base directory
+    # After normpath, ".." only remains if it escapes (e.g., "../foo" -> "../foo")
     if ".." in parts:
         return True
+
     return False
 
 
