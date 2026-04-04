@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Released]
 
+## [1.1.1] - 2026-04-04
+### Added
+- The heading / chapter / section are now extracted for .docx/.doc files
+- A heuristic attempts to capture slide titles for open/legacy-ms formats
+
 ## [1.1.0] - 2026-04-04
 ### Added
 - **Enhanced CLI JSON output with metadata**
