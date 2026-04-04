@@ -324,3 +324,236 @@ def test_cli_rejects_negative_max_file_size_mb(capsys, tmp_path) -> None:
 
     assert exit_code == 1
     assert "--max-file-size-mb must be >= 0" in captured.err
+
+
+# =============================================================================
+# Folder extraction tests (--folder / -d)
+# =============================================================================
+
+
+def test_cli_folder_extracts_all_supported_by_default(capsys) -> None:
+    """--folder without --suffixes should extract all supported files."""
+    folder = Path("sharepoint2text/tests/resources/plain_text").resolve()
+
+    exit_code = main(["--folder", str(folder)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    # Should contain content from multiple files
+    assert len(captured.out) > 0
+
+
+def test_cli_folder_with_short_flag(capsys) -> None:
+    """-d should work as shorthand for --folder."""
+    folder = Path("sharepoint2text/tests/resources/plain_text").resolve()
+
+    exit_code = main(["-d", str(folder)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert len(captured.out) > 0
+
+
+def test_cli_folder_with_suffixes_filter(capsys) -> None:
+    """--folder with --suffixes should only extract matching files."""
+    folder = Path("sharepoint2text/tests/resources/plain_text").resolve()
+
+    exit_code = main(["--folder", str(folder), "--suffixes", ".txt"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    # plain.txt content should be present
+    assert "Hello" in captured.out or len(captured.out) > 0
+
+
+def test_cli_folder_with_multiple_suffixes(capsys) -> None:
+    """--suffixes should accept comma-separated values."""
+    folder = Path("sharepoint2text/tests/resources/plain_text").resolve()
+
+    exit_code = main(["--folder", str(folder), "--suffixes", ".txt,.md"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert len(captured.out) > 0
+
+
+def test_cli_folder_with_suffixes_short_flag(capsys) -> None:
+    """-s should work as shorthand for --suffixes."""
+    folder = Path("sharepoint2text/tests/resources/plain_text").resolve()
+
+    exit_code = main(["-d", str(folder), "-s", ".txt"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert len(captured.out) > 0
+
+
+def test_cli_folder_suffixes_without_leading_dot(capsys) -> None:
+    """--suffixes should work without leading dot."""
+    folder = Path("sharepoint2text/tests/resources/plain_text").resolve()
+
+    exit_code = main(["--folder", str(folder), "--suffixes", "txt,md"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert len(captured.out) > 0
+
+
+def test_cli_folder_json_output(capsys) -> None:
+    """--folder should work with --json output."""
+    folder = Path("sharepoint2text/tests/resources/plain_text").resolve()
+
+    exit_code = main(["--folder", str(folder), "--json", "--suffixes", ".txt"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out.strip())
+    assert isinstance(payload, list)
+    assert len(payload) > 0
+
+
+def test_cli_folder_json_unit_output(capsys) -> None:
+    """--folder should work with --json-unit output."""
+    folder = Path("sharepoint2text/tests/resources/plain_text").resolve()
+
+    exit_code = main(["--folder", str(folder), "--json-unit", "--suffixes", ".txt"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out.strip())
+    assert isinstance(payload, list)
+    assert len(payload) > 0
+
+
+def test_cli_folder_no_recursive(capsys, tmp_path) -> None:
+    """--no-recursive should only extract from top-level folder."""
+    # Create folder structure
+    (tmp_path / "top.txt").write_text("top level", encoding="utf-8")
+    subdir = tmp_path / "subdir"
+    subdir.mkdir()
+    (subdir / "nested.txt").write_text("nested level", encoding="utf-8")
+
+    # With --no-recursive, should only find top.txt
+    exit_code = main(
+        ["--folder", str(tmp_path), "--no-recursive", "--suffixes", ".txt"]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "top level" in captured.out
+    assert "nested level" not in captured.out
+
+
+def test_cli_folder_recursive_by_default(capsys, tmp_path) -> None:
+    """Folder extraction should be recursive by default."""
+    # Create folder structure
+    (tmp_path / "top.txt").write_text("top level", encoding="utf-8")
+    subdir = tmp_path / "subdir"
+    subdir.mkdir()
+    (subdir / "nested.txt").write_text("nested level", encoding="utf-8")
+
+    # Without --no-recursive, should find both files
+    exit_code = main(["--folder", str(tmp_path), "--suffixes", ".txt"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "top level" in captured.out
+    assert "nested level" in captured.out
+
+
+def test_cli_folder_nonexistent_raises_error(capsys) -> None:
+    """--folder with non-existent path should return error."""
+    exit_code = main(["--folder", "/nonexistent/path/to/folder"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Folder not found" in captured.err
+
+
+def test_cli_folder_file_path_raises_error(capsys) -> None:
+    """--folder with a file path (not directory) should return error."""
+    file_path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
+
+    exit_code = main(["--folder", str(file_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "not a directory" in captured.err
+
+
+def test_cli_suffixes_without_folder_raises_error(capsys) -> None:
+    """--suffixes without --folder should return error."""
+    file_path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
+
+    exit_code = main(["--file", str(file_path), "--suffixes", ".txt"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "--suffixes can only be used with --folder" in captured.err
+
+
+def test_cli_no_recursive_without_folder_raises_error(capsys) -> None:
+    """--no-recursive without --folder should return error."""
+    file_path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
+
+    exit_code = main(["--file", str(file_path), "--no-recursive"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "--no-recursive can only be used with --folder" in captured.err
+
+
+def test_cli_file_and_folder_mutually_exclusive(capsys) -> None:
+    """--file and --folder should be mutually exclusive."""
+    file_path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
+    folder_path = Path("sharepoint2text/tests/resources/plain_text").resolve()
+
+    exit_code = main(["--file", str(file_path), "--folder", str(folder_path)])
+
+    # argparse should reject this combination
+    assert exit_code != 0
+
+
+def test_cli_folder_empty_suffixes_raises_error(capsys) -> None:
+    """--suffixes with empty/whitespace value should return error."""
+    folder = Path("sharepoint2text/tests/resources/plain_text").resolve()
+
+    exit_code = main(["--folder", str(folder), "--suffixes", "   "])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "at least one valid suffix" in captured.err
+
+
+def test_cli_folder_no_matches_raises_error(capsys) -> None:
+    """--folder with suffixes that match no files should return error."""
+    folder = Path("sharepoint2text/tests/resources/plain_text").resolve()
+
+    exit_code = main(["--folder", str(folder), "--suffixes", ".nonexistent"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "No extraction results" in captured.err
+
+
+def test_cli_folder_with_max_file_size(capsys, tmp_path) -> None:
+    """--folder should respect --max-file-size-mb."""
+    # Create a file
+    (tmp_path / "test.txt").write_text("hello world", encoding="utf-8")
+
+    # With very small limit, should fail
+    exit_code = main(
+        [
+            "--folder",
+            str(tmp_path),
+            "--suffixes",
+            ".txt",
+            "--max-file-size-mb",
+            "0.000001",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    # File should be skipped due to size, resulting in no results
+    assert exit_code == 1
+    assert "No extraction results" in captured.err

@@ -28,13 +28,37 @@ def _build_parser() -> argparse.ArgumentParser:
         version=f"%(prog)s {sharepoint2text.__version__}",
         help="Show the version and exit.",
     )
-    parser.add_argument(
+
+    # Input source: either a single file or a folder
+    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument(
         "-f",
         "--file",
         type=Path,
-        required=True,
-        help="Path to the file to extract.",
+        help="Path to a single file to extract.",
     )
+    input_group.add_argument(
+        "-d",
+        "--folder",
+        type=Path,
+        help="Path to a folder to extract files from (recursive by default).",
+    )
+    parser.add_argument(
+        "-s",
+        "--suffixes",
+        type=str,
+        help=(
+            "Comma-separated list of file suffixes to extract when using --folder "
+            "(e.g., '.docx,.pdf,.txt'). If omitted, all supported file types are extracted."
+        ),
+    )
+    parser.add_argument(
+        "--no-recursive",
+        dest="no_recursive",
+        action="store_true",
+        help="When using --folder, only extract files in the top-level directory (no subdirectories).",
+    )
+
     output_group = parser.add_mutually_exclusive_group()
     output_group.add_argument(
         "-j",
@@ -205,6 +229,75 @@ def _write_full_text(
     output_stream.write("\n")
 
 
+def _parse_suffixes(suffixes_str: str) -> list[str]:
+    """Parse comma-separated suffixes string into a list of normalized suffixes."""
+    suffixes = []
+    for suffix in suffixes_str.split(","):
+        suffix = suffix.strip().lower()
+        if suffix:
+            if not suffix.startswith("."):
+                suffix = f".{suffix}"
+            suffixes.append(suffix)
+    return suffixes
+
+
+def _get_file_results(
+    args: argparse.Namespace, max_file_size_bytes: int
+) -> Iterator[ExtractionInterface]:
+    """Get extraction results for a single file."""
+    file_path = Path(args.file)
+    if not file_path.exists():
+        raise FileNotFoundError(f"File not found: {args.file}")
+
+    file_size = file_path.stat().st_size
+    if max_file_size_bytes > 0 and file_size > max_file_size_bytes:
+        raise ValueError(
+            "File size "
+            f"{file_size} bytes exceeds CLI maximum of {max_file_size_bytes} bytes"
+        )
+
+    return iter(
+        sharepoint2text.read_file(
+            args.file,
+            max_file_size=max_file_size_bytes,
+            ignore_images=not args.include_images,
+            include_attachments=not args.no_attachments,
+        )
+    )
+
+
+def _get_folder_results(
+    args: argparse.Namespace, max_file_size_bytes: int
+) -> Iterator[ExtractionInterface]:
+    """Get extraction results for a folder."""
+    folder_path = Path(args.folder)
+    if not folder_path.exists():
+        raise FileNotFoundError(f"Folder not found: {args.folder}")
+    if not folder_path.is_dir():
+        raise NotADirectoryError(f"Path is not a directory: {args.folder}")
+
+    # Parse suffixes if provided
+    suffixes: list[str] | None = None
+    extract_all_supported = True
+    if args.suffixes:
+        suffixes = _parse_suffixes(args.suffixes)
+        if not suffixes:
+            raise ValueError("--suffixes must contain at least one valid suffix")
+        extract_all_supported = False
+
+    return iter(
+        sharepoint2text.read_many(
+            folder_path,
+            suffixes=suffixes,
+            extract_all_supported=extract_all_supported,
+            max_file_size=max_file_size_bytes,
+            ignore_images=not args.include_images,
+            include_attachments=not args.no_attachments,
+            recursive=not args.no_recursive,
+        )
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and return a process-style exit code.
 
@@ -237,20 +330,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise ValueError("--include-images requires --json or --json-unit")
         if args.max_file_size_mb < 0:
             raise ValueError("--max-file-size-mb must be >= 0")
+        if args.suffixes and not args.folder:
+            raise ValueError("--suffixes can only be used with --folder")
+        if args.no_recursive and not args.folder:
+            raise ValueError("--no-recursive can only be used with --folder")
 
         max_file_size_bytes = int(args.max_file_size_mb * 1024 * 1024)
-
-        # Validate file path and size before processing
-        file_path = Path(args.file)
-        if not file_path.exists():
-            raise FileNotFoundError(f"File not found: {args.file}")
-
-        file_size = file_path.stat().st_size
-        if max_file_size_bytes > 0 and file_size > max_file_size_bytes:
-            raise ValueError(
-                "File size "
-                f"{file_size} bytes exceeds CLI maximum of {max_file_size_bytes} bytes"
-            )
 
         # Determine output stream
         output_stream: TextIO = sys.stdout
@@ -260,16 +345,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             output_stream = output_file
 
         try:
-            results: Iterator[ExtractionInterface] = iter(
-                sharepoint2text.read_file(
-                    args.file,
-                    max_file_size=max_file_size_bytes,
-                    ignore_images=not args.include_images,
-                    include_attachments=not args.no_attachments,
-                )
-            )
+            # Get extraction results based on input type (file or folder)
+            if args.folder:
+                results = _get_folder_results(args, max_file_size_bytes)
+            else:
+                results = _get_file_results(args, max_file_size_bytes)
+
             first_result = next(results, None)
             if first_result is None:
+                if args.folder:
+                    raise RuntimeError(
+                        f"No extraction results for folder: {args.folder}"
+                    )
                 raise RuntimeError(f"No extraction results for {args.file}")
             results = itertools.chain([first_result], results)
 
@@ -306,6 +393,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     except (
         FileNotFoundError,
+        NotADirectoryError,
         PermissionError,
         ValueError,
         RuntimeError,
