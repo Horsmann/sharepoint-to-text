@@ -302,3 +302,30 @@ def test_read_many_with_ignore_images() -> None:
     for result in results:
         images = list(result.iterate_images())
         tc.assertEqual(len(images), 0, "Images should be ignored")
+
+
+def test_read_many_passes_timeout_seconds(monkeypatch: Any) -> None:
+    """read_many should forward timeout_seconds to read_file."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir_path = Path(tmpdir)
+        (tmpdir_path / "file.txt").write_text("content")
+
+        original_read_file = read_many.__globals__["read_file"]
+        observed_timeout: dict[str, float] = {}
+
+        def patched_read_file(path: Any, **kwargs: Any) -> Any:
+            observed_timeout["value"] = kwargs["timeout_seconds"]
+            return original_read_file(path, **kwargs)
+
+        monkeypatch.setattr("sharepoint2text.read_file", patched_read_file)
+
+        results = list(
+            read_many(
+                tmpdir_path,
+                suffixes=[".txt"],
+                timeout_seconds=12.5,
+            )
+        )
+
+        tc.assertEqual(1, len(results))
+        tc.assertEqual(12.5, observed_timeout["value"])

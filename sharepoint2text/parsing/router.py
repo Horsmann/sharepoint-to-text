@@ -11,6 +11,7 @@ from sharepoint2text.parsing.mime_types import MIME_TYPE_MAPPING
 logger = logging.getLogger(__name__)
 
 _ATTACHMENT_AWARE_FILE_TYPES = frozenset({"msg", "eml", "mbox"})
+_ARCHIVE_FILE_TYPES = frozenset({"zip", "tar", "tgz", "tbz2", "txz", "7z"})
 
 # Mapping from file type identifiers to allowlisted extractor keys.
 # Format: file_type -> extractor_key
@@ -322,6 +323,51 @@ def _file_type_from_extension(path_lower: str) -> str | None:
     return ext if ext in _EXTRACTOR_REGISTRY else None
 
 
+def _is_archive_file_type(file_type: str | None) -> bool:
+    """Return whether a resolved file type is handled by the archive extractor.
+
+    Args:
+        file_type: Internal extractor key returned by the router.
+
+    Returns:
+        ``True`` when the file type maps to archive extraction, else ``False``.
+    """
+    return file_type in _ARCHIVE_FILE_TYPES
+
+
+def _resolve_file_type(
+    path: str | os.PathLike[str], *, force_plain_text: bool = False
+) -> str | None:
+    """Resolve a path or filename to an internal file-type key.
+
+    Detection order mirrors ``get_extractor()`` so callers can make routing
+    decisions without duplicating extension and MIME lookup logic.
+
+    Args:
+        path: File path or filename to analyze.
+        force_plain_text: If True, return the plain-text file type regardless of
+            path suffix or MIME detection.
+
+    Returns:
+        Internal file-type key, or ``None`` when the path cannot be resolved.
+    """
+    if force_plain_text:
+        return "txt"
+
+    path_str = os.fspath(path)
+    path_lower = path_str.lower()
+
+    file_type = _file_type_from_extension(path_lower)
+    if file_type:
+        return file_type
+
+    mime_type, _ = mimetypes.guess_type(path_lower)
+    if mime_type is not None and mime_type in MIME_TYPE_MAPPING:
+        return MIME_TYPE_MAPPING[mime_type]
+
+    return None
+
+
 def is_supported_file(path: str | os.PathLike[str]) -> bool:
     """
     Check if a path/filename appears to be supported by the extractor registry.
@@ -355,6 +401,7 @@ def get_extractor(
     ignore_images: bool = False,
     force_plain_text: bool = False,
     include_attachments: bool = True,
+    timeout_seconds: float | None = None,
 ) -> Callable[[BinaryIO, str | None], Generator[ExtractionInterface, Any, None]]:
     """
     Analyze a path/filename and return the appropriate extractor callable.
@@ -368,6 +415,10 @@ def get_extractor(
         ignore_images: If True, skip image extraction for supported formats.
         force_plain_text: If True, always route to the plain text extractor,
             even when extension/MIME detection does not recognize the file.
+        include_attachments: If False, skip extracting/storing supported email
+            attachment payloads.
+        timeout_seconds: Optional timeout passed through to archive extraction so
+            member files can be limited without timing the archive container.
 
     Returns:
         Extractor function with signature ``(binary stream, path) -> Generator`` that
@@ -381,42 +432,37 @@ def get_extractor(
     mime_type, _ = mimetypes.guess_type(path_lower)
     logger.debug("Guessed MIME type: [%s]", mime_type)
 
-    if force_plain_text:
-        logger.info("Force plain text extraction for file: %s", path_str)
-        return _get_extractor(
-            "txt",
-            ignore_images=ignore_images,
-            include_attachments=include_attachments,
-        )
-
-    # Primary detection: file extension (platform-independent)
-    file_type = _file_type_from_extension(path_lower)
-    if file_type:
-        logger.debug(
-            "Detected file type: %s (extension) for file: %s", file_type, path_str
-        )
-        logger.info("Using extractor for file type: %s", file_type)
-        return _get_extractor(
-            file_type,
-            ignore_images=ignore_images,
-            include_attachments=include_attachments,
-        )
-
-    # Secondary detection: MIME type lookup (may vary by OS configuration)
-    if mime_type is not None and mime_type in MIME_TYPE_MAPPING:
-        file_type = MIME_TYPE_MAPPING[mime_type]
-        logger.debug(
-            "Detected file type: %s (MIME: %s) for file: %s",
-            file_type,
-            mime_type,
-            path_str,
-        )
+    file_type = _resolve_file_type(path_str, force_plain_text=force_plain_text)
+    if file_type is not None:
+        if force_plain_text:
+            logger.info("Force plain text extraction for file: %s", path_str)
+        if _file_type_from_extension(path_lower):
+            logger.debug(
+                "Detected file type: %s (extension) for file: %s", file_type, path_str
+            )
+        elif mime_type is not None:
+            logger.debug(
+                "Detected file type: %s (MIME: %s) for file: %s",
+                file_type,
+                mime_type,
+                path_str,
+            )
         logger.debug("Using extractor for file type: %s", file_type)
-        return _get_extractor(
+        extractor = _get_extractor(
             file_type,
             ignore_images=ignore_images,
             include_attachments=include_attachments,
         )
+        if _is_archive_file_type(file_type) and timeout_seconds is not None:
+            archive_extractor = cast(Callable[..., Any], extractor)
+            return cast(
+                ExtractorFunction,
+                functools.partial(
+                    archive_extractor,
+                    timeout_seconds=timeout_seconds,
+                ),
+            )
+        return extractor
 
     extension = ""
     for compound_ext in _COMPOUND_EXTENSIONS:

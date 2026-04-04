@@ -2,11 +2,13 @@ import io as std_io
 import logging
 import stat
 import tarfile
+import time
 import zipfile
 from typing import Any, List
 from unittest import TestCase
 
 import sharepoint2text.parsing.extractors.archive_extractor as archive_module
+from sharepoint2text import read_file
 from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
     ExtractionFileTooLargeError,
@@ -198,6 +200,73 @@ def test_archive_skips_nested_archives() -> None:
     # Should only extract the outer.txt, not the nested.zip
     tc.assertEqual(1, len(results))
     tc.assertIn("outer content", results[0].get_full_text())
+
+
+def test_archive_timeout_applies_to_member_files_only(monkeypatch: Any) -> None:
+    """Archive extraction should skip only the timed-out member file."""
+    zip_buffer = std_io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as zf:
+        zf.writestr("fast.txt", b"fast content")
+        zf.writestr("slow.txt", b"slow content")
+    zip_buffer.seek(0)
+
+    original_get_file_extractor = archive_module._get_file_extractor_cached
+
+    def patched_get_file_extractor(filename: str, ignore_images: bool) -> Any:
+        extractor = original_get_file_extractor(filename, ignore_images)
+        if filename != "slow.txt":
+            return extractor
+
+        def slow_extractor(file_like: Any, path: str | None = None) -> Any:
+            time.sleep(0.2)
+            yield from extractor(file_like, path)
+
+        return slow_extractor
+
+    monkeypatch.setattr(
+        archive_module,
+        "_get_file_extractor_cached",
+        patched_get_file_extractor,
+    )
+
+    results = list(read_archive(zip_buffer, path="timeouts.zip", timeout_seconds=0.05))
+
+    tc.assertEqual(1, len(results))
+    tc.assertIn("fast content", results[0].get_full_text())
+
+
+def test_read_file_archive_timeout_skips_only_slow_members(
+    monkeypatch: Any, tmp_path: Any
+) -> None:
+    """read_file should not time the archive container itself."""
+    archive_path = tmp_path / "timeouts.zip"
+    with zipfile.ZipFile(archive_path, "w") as zf:
+        zf.writestr("fast.txt", b"fast content")
+        zf.writestr("slow.txt", b"slow content")
+
+    original_get_file_extractor = archive_module._get_file_extractor_cached
+
+    def patched_get_file_extractor(filename: str, ignore_images: bool) -> Any:
+        extractor = original_get_file_extractor(filename, ignore_images)
+        if filename != "slow.txt":
+            return extractor
+
+        def slow_extractor(file_like: Any, path: str | None = None) -> Any:
+            time.sleep(0.2)
+            yield from extractor(file_like, path)
+
+        return slow_extractor
+
+    monkeypatch.setattr(
+        archive_module,
+        "_get_file_extractor_cached",
+        patched_get_file_extractor,
+    )
+
+    results = list(read_file(archive_path, timeout_seconds=0.05))
+
+    tc.assertEqual(1, len(results))
+    tc.assertIn("fast content", results[0].get_full_text())
 
 
 def test_archive_skips_hidden_files() -> None:

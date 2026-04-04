@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import Any
 
 import sharepoint2text
 from sharepoint2text.cli import _serialize_results, main
@@ -255,6 +256,26 @@ def test_cli_outputs_json_unit_with_binary_payloads_when_requested(capsys) -> No
     assert len(images) > 0
     assert isinstance(images[0]["data"], dict)
     assert "_bytesio" in images[0]["data"] or "_bytes" in images[0]["data"]
+
+
+def test_cli_passes_timeout_to_read_file(capsys: Any, monkeypatch: Any) -> None:
+    """CLI should forward --timeout to the single-file API."""
+    path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
+    result = next(sharepoint2text.read_file(path, timeout_seconds=0))
+    observed_timeout: dict[str, float] = {}
+
+    def patched_read_file(file_path: Any, **kwargs: Any) -> Any:
+        observed_timeout["value"] = kwargs["timeout_seconds"]
+        return iter([result])
+
+    monkeypatch.setattr(sharepoint2text, "read_file", patched_read_file)
+
+    exit_code = main(["--file", str(path), "--timeout", "12.5"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert observed_timeout["value"] == 12.5
+    assert captured.out == f"{result.get_full_text()}\n"
 
 
 def test_cli_warns_on_removed_no_binary_argument(capsys) -> None:
