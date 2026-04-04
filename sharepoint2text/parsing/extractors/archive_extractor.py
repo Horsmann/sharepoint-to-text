@@ -31,13 +31,26 @@ Benchmarks:
 import io
 import logging
 import os
+import stat
 import tarfile
 import tempfile
 import time
 import zipfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, Callable, Generator, Optional, Set, Tuple
+from typing import (
+    IO,
+    Any,
+    BinaryIO,
+    Callable,
+    Generator,
+    Iterator,
+    Optional,
+    Set,
+    Tuple,
+    cast,
+)
 
 from sharepoint2text.parsing.exceptions import (
     ExtractionError,
@@ -48,6 +61,7 @@ from sharepoint2text.parsing.exceptions import (
 from sharepoint2text.parsing.extractors.data_types import ExtractionInterface
 from sharepoint2text.parsing.extractors.util.sevenzip import (
     Bad7zFile,
+    FileInfo,
     SevenZipFile,
 )
 from sharepoint2text.parsing.extractors.util.zip_bomb import open_zipfile
@@ -56,7 +70,7 @@ logger = logging.getLogger(__name__)
 
 # Performance constants
 BUFFER_SIZE = 64 * 1024  # 64KB buffer for streaming
-MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB max for in-memory processing
+MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB spool threshold before rollover to disk
 MAX_WORKERS = min(4, os.cpu_count() or 1)  # Thread pool size
 CACHE_SIZE = 256  # LRU cache size for file type detection
 MAX_ARCHIVE_FILE_SIZE = (
@@ -122,7 +136,18 @@ IMAGE_EXTENSIONS: Set[str] = {
 
 @dataclass(frozen=True)
 class ArchiveConfig:
-    """Configuration for archive extraction performance."""
+    """Configuration for archive extraction performance.
+
+    Attributes:
+        buffer_size: Chunk size used while copying archive members.
+        max_memory_size: Maximum number of bytes to keep in memory before
+            archive-member buffers roll over to a temporary file on disk.
+        max_workers: Reserved for future batch-parallel extraction support.
+        enable_parallel: Reserved for future batch-parallel extraction support.
+        enable_caching: Enable extractor/type lookup caches.
+        enable_streaming: Keep archive processing in a streaming style where
+            possible.
+    """
 
     buffer_size: int = BUFFER_SIZE
     max_memory_size: int = MAX_MEMORY_SIZE
@@ -225,15 +250,36 @@ def _is_unsafe_archive_path(filename: str) -> bool:
     """Check if an archive entry path is a path traversal attempt.
 
     Rejects absolute paths and paths containing '..' components that could
-    escape the extraction directory.
+    escape the extraction directory. Handles both Unix and Windows path
+    formats regardless of the current platform.
+
+    Args:
+        filename: The archive entry path to check.
+
+    Returns:
+        True if the path is unsafe (traversal attempt), False otherwise.
     """
-    normalized = os.path.normpath(filename)
-    if os.path.isabs(normalized):
+    # Normalize path separators for consistent handling
+    normalized = filename.replace("\\", "/")
+
+    # Check for Windows drive letters (e.g., "C:/", "D:\")
+    # This catches Windows absolute paths even on Unix systems
+    if len(normalized) >= 2 and normalized[1] == ":":
         return True
-    # Check for '..' that would escape the base directory
-    parts = normalized.replace("\\", "/").split("/")
+
+    # Check for Unix absolute paths
+    if normalized.startswith("/"):
+        return True
+
+    # Normalize the path to resolve . and .. components
+    # Use the normalized (forward-slash) version for splitting
+    parts = os.path.normpath(normalized).replace("\\", "/").split("/")
+
+    # Check if any component is ".." which would escape the base directory
+    # After normpath, ".." only remains if it escapes (e.g., "../foo" -> "../foo")
     if ".." in parts:
         return True
+
     return False
 
 
@@ -248,6 +294,42 @@ def _is_image_file(filename: str) -> bool:
     """
     _, ext = os.path.splitext(filename.lower())
     return ext in IMAGE_EXTENSIONS
+
+
+def _is_zip_symlink(info: zipfile.ZipInfo) -> bool:
+    """Return whether a ZIP member represents a symbolic link.
+
+    Args:
+        info: ZIP member metadata.
+
+    Returns:
+        True when the member stores a POSIX symbolic link.
+    """
+    return stat.S_ISLNK(info.external_attr >> 16)
+
+
+def _is_tar_symlink(member: tarfile.TarInfo) -> bool:
+    """Return whether a TAR member is a symbolic link.
+
+    Args:
+        member: TAR member metadata.
+
+    Returns:
+        True when the member is a symbolic link entry.
+    """
+    return member.issym()
+
+
+def _is_7z_symlink(file_info: FileInfo) -> bool:
+    """Return whether a 7z member should be treated as a symbolic link.
+
+    Args:
+        file_info: 7z member metadata.
+
+    Returns:
+        True when the entry is marked as a symbolic link.
+    """
+    return file_info.is_symlink
 
 
 def _should_skip_file(
@@ -291,7 +373,8 @@ def _should_skip_file(
 
 def _process_archive_entry(
     filename: str,
-    file_data: bytes,
+    file_like: IO[bytes],
+    file_size: int,
     archive_path: Optional[str],
     basename: str,
     ignore_images: bool = False,
@@ -301,7 +384,8 @@ def _process_archive_entry(
 
     Args:
         filename: Full path in archive
-        file_data: File content bytes
+        file_like: Seekable binary file object containing the entry contents.
+        file_size: Uncompressed size of the entry in bytes.
         archive_path: Optional archive path for metadata
         basename: Base filename for extractor selection
 
@@ -310,11 +394,11 @@ def _process_archive_entry(
     """
     try:
         # Check file size before processing
-        if len(file_data) > MAX_ARCHIVE_FILE_SIZE:
+        if file_size > MAX_ARCHIVE_FILE_SIZE:
             logger.warning(
                 "Skipping %s: file size %d bytes exceeds maximum allowed size of %d bytes",
                 filename,
-                len(file_data),
+                file_size,
                 MAX_ARCHIVE_FILE_SIZE,
             )
             return
@@ -325,11 +409,10 @@ def _process_archive_entry(
         # Use cached extractor for performance
         extractor = _get_file_extractor_cached(basename, ignore_images)
 
-        # Create BytesIO with optimal buffer size
-        file_bytes = io.BytesIO(file_data)
+        file_like.seek(0)
 
         # Process file with extractor
-        for content in extractor(file_bytes, path=full_path):
+        for content in extractor(cast(BinaryIO, file_like), path=full_path):
             yield content
 
     except (ExtractionError, OSError, ValueError, UnicodeDecodeError) as e:
@@ -339,6 +422,36 @@ def _process_archive_entry(
         logger.debug(
             "Extraction error details for %s: %s", filename, str(e), exc_info=True
         )
+
+
+@contextmanager
+def _spooled_entry_buffer(source_stream: IO[bytes]) -> Iterator[IO[bytes]]:
+    """Copy an archive member into a seekable spooled temporary file.
+
+    ZIP and TAR member streams are not reliably seekable, while downstream
+    extractors expect to be able to reset and re-read the file object. This
+    helper keeps small entries in memory and transparently rolls larger ones
+    onto disk when the configured spool threshold is exceeded.
+
+    Args:
+        source_stream: Binary archive-member stream positioned at the start.
+
+    Yields:
+        A seekable binary file object positioned at offset 0.
+    """
+    with tempfile.SpooledTemporaryFile(
+        max_size=_config.max_memory_size,
+        mode="w+b",
+    ) as buffered_stream:
+        if not hasattr(buffered_stream, "seekable"):
+            setattr(buffered_stream, "seekable", lambda: True)
+        while True:
+            chunk = source_stream.read(_config.buffer_size)
+            if not chunk:
+                break
+            buffered_stream.write(chunk)
+        buffered_stream.seek(0)
+        yield cast(IO[bytes], buffered_stream)
 
 
 def _extract_from_zip_optimized(
@@ -367,6 +480,12 @@ def _extract_from_zip_optimized(
                 if info.is_dir():
                     continue
 
+                if _is_zip_symlink(info):
+                    logger.warning(
+                        "Skipping symbolic link in ZIP archive: %s", info.filename
+                    )
+                    continue
+
                 # Check encryption (bit 0 of flag_bits)
                 if info.flag_bits & 0x1:
                     raise ExtractionFileEncryptedError(
@@ -385,8 +504,8 @@ def _extract_from_zip_optimized(
             # Process files in batch for better performance
             for info, filename, basename in files_to_process:
                 try:
-                    # Read file data with size check for memory optimization
-                    if info.file_size > _config.max_memory_size:
+                    # Enforce the archive-member size limit before decompression.
+                    if info.file_size > MAX_ARCHIVE_FILE_SIZE:
                         logger.warning(
                             "File %s too large (%s bytes), skipping",
                             filename,
@@ -394,16 +513,16 @@ def _extract_from_zip_optimized(
                         )
                         continue
 
-                    file_data = zf.read(info)
-
-                    # Process the file
-                    yield from _process_archive_entry(
-                        filename,
-                        file_data,
-                        archive_path,
-                        basename,
-                        ignore_images=ignore_images,
-                    )
+                    with zf.open(info, "r") as entry_stream:
+                        with _spooled_entry_buffer(entry_stream) as buffered_stream:
+                            yield from _process_archive_entry(
+                                filename,
+                                buffered_stream,
+                                info.file_size,
+                                archive_path,
+                                basename,
+                                ignore_images=ignore_images,
+                            )
 
                 except RuntimeError as e:
                     # Handle encrypted files that surface at read time
@@ -443,6 +562,12 @@ def _extract_from_tar_optimized(
 
             # Stream members to avoid materializing massive member lists in memory.
             for member in tf:
+                if _is_tar_symlink(member):
+                    logger.warning(
+                        "Skipping symbolic link in TAR archive: %s", member.name
+                    )
+                    continue
+
                 # Skip directories and non-regular files
                 if not member.isreg():
                     continue
@@ -476,8 +601,8 @@ def _extract_from_tar_optimized(
                 if _should_skip_file(filename, basename, ignore_images=ignore_images):
                     continue
 
-                # Check file size for memory optimization
-                if member_size > _config.max_memory_size:
+                # Enforce the archive-member size limit before reading.
+                if member_size > MAX_ARCHIVE_FILE_SIZE:
                     logger.warning(
                         "File %s too large (%s bytes), skipping", filename, member_size
                     )
@@ -489,16 +614,16 @@ def _extract_from_tar_optimized(
                     if extracted is None:
                         continue
 
-                    file_data = extracted.read()
-
-                    # Process the file
-                    yield from _process_archive_entry(
-                        filename,
-                        file_data,
-                        archive_path,
-                        basename,
-                        ignore_images=ignore_images,
-                    )
+                    with extracted:
+                        with _spooled_entry_buffer(extracted) as buffered_stream:
+                            yield from _process_archive_entry(
+                                filename,
+                                buffered_stream,
+                                member_size,
+                                archive_path,
+                                basename,
+                                ignore_images=ignore_images,
+                            )
 
                 except (tarfile.TarError, OSError, ExtractionError) as e:
                     logger.warning("Failed to extract %s from TAR: %s", filename, e)
@@ -561,6 +686,13 @@ def _extract_from_7z_optimized(
                 if file_info.is_directory:
                     continue
 
+                if _is_7z_symlink(file_info):
+                    logger.warning(
+                        "Skipping symbolic link in 7z archive: %s",
+                        file_info.filename,
+                    )
+                    continue
+
                 total_entries += 1
                 if total_entries > MAX_7Z_ENTRIES:
                     raise ExtractionFailedError(
@@ -589,8 +721,7 @@ def _extract_from_7z_optimized(
                 if _should_skip_file(filename, basename, ignore_images=ignore_images):
                     continue
 
-                # Check file size
-                if uncompressed_size > _config.max_memory_size:
+                if uncompressed_size > MAX_ARCHIVE_FILE_SIZE:
                     logger.warning(
                         "File %s too large (%s bytes), skipping",
                         filename,
@@ -655,16 +786,21 @@ def _process_7z_files_sequential(
                 logger.warning("Extracted file not found: %s", filename)
                 continue
 
-            with open(extracted_path, "rb") as extracted_file:
-                file_data = extracted_file.read()
+            if os.path.islink(extracted_path):
+                logger.warning(
+                    "Skipping symbolic link extracted from 7z archive: %s", filename
+                )
+                continue
 
-            yield from _process_archive_entry(
-                filename,
-                file_data,
-                archive_path,
-                basename,
-                ignore_images=ignore_images,
-            )
+            with open(extracted_path, "rb") as extracted_file:
+                yield from _process_archive_entry(
+                    filename,
+                    extracted_file,
+                    max(int(file_info.uncompressed or 0), 0),
+                    archive_path,
+                    basename,
+                    ignore_images=ignore_images,
+                )
 
         except (FileNotFoundError, PermissionError, OSError, ExtractionError) as e:
             logger.warning("Failed to process %s from 7z: %s", filename, e)

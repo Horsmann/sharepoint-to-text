@@ -142,3 +142,33 @@ class ExtractionFileTooLargeError(ExtractionError):
         self.actual_size = actual_size
         if cause is not None:
             self.__cause__ = cause
+
+
+class ExtractionPathTraversalError(ExtractionError):
+    """
+    Raised when an archive entry contains a path traversal attempt.
+
+    This exception indicates that an archive entry has a malicious path
+    designed to escape the extraction directory, such as paths containing
+    '../' components or absolute paths like '/etc/passwd'.
+
+    This is a security-focused exception used in strict mode. In default
+    mode, unsafe paths are silently skipped with a warning log.
+
+    Attributes:
+        message: Human-readable description of the error.
+        unsafe_path: The malicious path that was detected.
+        __cause__: Optional underlying exception that triggered this error.
+    """
+
+    def __init__(
+        self,
+        message: str = "Archive entry contains path traversal attempt",
+        *,
+        unsafe_path: str,
+        cause: Optional[Exception] = None,
+    ):
+        super().__init__(message)
+        self.unsafe_path = unsafe_path
+        if cause is not None:
+            self.__cause__ = cause
