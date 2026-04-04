@@ -52,6 +52,11 @@ from typing import (
     cast,
 )
 
+from sharepoint2text.parsing._timeout import (
+    DEFAULT_EXTRACTION_TIMEOUT_SECONDS,
+    collect_extraction_results,
+    normalize_timeout_seconds,
+)
 from sharepoint2text.parsing.exceptions import (
     ExtractionError,
     ExtractionFailedError,
@@ -377,6 +382,7 @@ def _process_archive_entry(
     file_size: int,
     archive_path: Optional[str],
     basename: str,
+    timeout_seconds: float = DEFAULT_EXTRACTION_TIMEOUT_SECONDS,
     ignore_images: bool = False,
 ) -> Generator[ExtractionInterface, Any, None]:
     """
@@ -388,6 +394,7 @@ def _process_archive_entry(
         file_size: Uncompressed size of the entry in bytes.
         archive_path: Optional archive path for metadata
         basename: Base filename for extractor selection
+        timeout_seconds: Maximum extraction time per archive member in seconds.
 
     Yields:
         ExtractionInterface objects
@@ -412,7 +419,12 @@ def _process_archive_entry(
         file_like.seek(0)
 
         # Process file with extractor
-        for content in extractor(cast(BinaryIO, file_like), path=full_path):
+        for content in collect_extraction_results(
+            extractor,
+            cast(BinaryIO, file_like),
+            full_path,
+            timeout_seconds=timeout_seconds,
+        ):
             yield content
 
     except (ExtractionError, OSError, ValueError, UnicodeDecodeError) as e:
@@ -455,7 +467,11 @@ def _spooled_entry_buffer(source_stream: IO[bytes]) -> Iterator[IO[bytes]]:
 
 
 def _extract_from_zip_optimized(
-    file_like: io.BytesIO, archive_path: Optional[str], *, ignore_images: bool = False
+    file_like: io.BytesIO,
+    archive_path: Optional[str],
+    *,
+    timeout_seconds: float = DEFAULT_EXTRACTION_TIMEOUT_SECONDS,
+    ignore_images: bool = False,
 ) -> Generator[ExtractionInterface, Any, None]:
     """
     Optimized ZIP extraction with single-pass processing.
@@ -463,6 +479,7 @@ def _extract_from_zip_optimized(
     Args:
         file_like: BytesIO containing the ZIP archive.
         archive_path: Optional path to the archive file for metadata.
+        timeout_seconds: Maximum extraction time per archive member in seconds.
 
     Yields:
         ExtractionInterface objects for each supported file in the archive.
@@ -521,6 +538,7 @@ def _extract_from_zip_optimized(
                                 info.file_size,
                                 archive_path,
                                 basename,
+                                timeout_seconds=timeout_seconds,
                                 ignore_images=ignore_images,
                             )
 
@@ -542,6 +560,7 @@ def _extract_from_tar_optimized(
     archive_path: Optional[str],
     mode: str = "r:*",
     *,
+    timeout_seconds: float = DEFAULT_EXTRACTION_TIMEOUT_SECONDS,
     ignore_images: bool = False,
 ) -> Generator[ExtractionInterface, Any, None]:
     """
@@ -551,6 +570,7 @@ def _extract_from_tar_optimized(
         file_like: BytesIO containing the TAR archive.
         archive_path: Optional path to the archive file for metadata.
         mode: TAR open mode (r:* for auto-detect compression).
+        timeout_seconds: Maximum extraction time per archive member in seconds.
 
     Yields:
         ExtractionInterface objects for each supported file in the archive.
@@ -622,6 +642,7 @@ def _extract_from_tar_optimized(
                                 member_size,
                                 archive_path,
                                 basename,
+                                timeout_seconds=timeout_seconds,
                                 ignore_images=ignore_images,
                             )
 
@@ -640,7 +661,11 @@ def _extract_from_tar_optimized(
 
 
 def _extract_from_7z_optimized(
-    file_like: io.BytesIO, archive_path: Optional[str], *, ignore_images: bool = False
+    file_like: io.BytesIO,
+    archive_path: Optional[str],
+    *,
+    timeout_seconds: float = DEFAULT_EXTRACTION_TIMEOUT_SECONDS,
+    ignore_images: bool = False,
 ) -> Generator[ExtractionInterface, Any, None]:
     """
     Optimized 7z extraction with file size limits.
@@ -648,6 +673,7 @@ def _extract_from_7z_optimized(
     Args:
         file_like: BytesIO containing the 7z archive.
         archive_path: Optional path to the archive file for metadata.
+        timeout_seconds: Maximum extraction time per archive member in seconds.
 
     Yields:
         ExtractionInterface objects for each supported file in the archive.
@@ -752,6 +778,7 @@ def _extract_from_7z_optimized(
                     files_to_process,
                     temp_dir,
                     archive_path,
+                    timeout_seconds=timeout_seconds,
                     ignore_images=ignore_images,
                 )
 
@@ -764,6 +791,7 @@ def _process_7z_files_sequential(
     temp_dir: str,
     archive_path: Optional[str],
     *,
+    timeout_seconds: float = DEFAULT_EXTRACTION_TIMEOUT_SECONDS,
     ignore_images: bool = False,
 ) -> Generator[ExtractionInterface, Any, None]:
     """Sequential processing of 7z files."""
@@ -799,6 +827,7 @@ def _process_7z_files_sequential(
                     max(int(file_info.uncompressed or 0), 0),
                     archive_path,
                     basename,
+                    timeout_seconds=timeout_seconds,
                     ignore_images=ignore_images,
                 )
 
@@ -814,7 +843,11 @@ def _process_7z_files_sequential(
 
 
 def read_archive(
-    file_like: io.BytesIO, path: Optional[str] = None, *, ignore_images: bool = False
+    file_like: io.BytesIO,
+    path: Optional[str] = None,
+    *,
+    timeout_seconds: float = DEFAULT_EXTRACTION_TIMEOUT_SECONDS,
+    ignore_images: bool = False,
 ) -> Generator[ExtractionInterface, Any, None]:
     """
     Optimized entry point for archive extraction.
@@ -825,6 +858,9 @@ def read_archive(
     Args:
         file_like: BytesIO object containing the complete archive data.
         path: Optional filesystem path to the source archive.
+        timeout_seconds: Maximum extraction time per supported file inside the
+            archive. The outer archive scan itself is not timed. Set to ``0``
+            to disable member timeout enforcement.
         ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
@@ -837,6 +873,7 @@ def read_archive(
         ...         print(f"Extracted: {content.get_metadata().filename}")
     """
     source_path = path or "<in-memory>"
+    normalized_timeout_seconds = normalize_timeout_seconds(timeout_seconds)
     logger.info("Entering archive extraction: %s", source_path)
     start_time = time.perf_counter()
 
@@ -854,17 +891,24 @@ def read_archive(
         # Route to optimized extractor
         if archive_type == "zip":
             yield from _extract_from_zip_optimized(
-                file_like, path, ignore_images=ignore_images
+                file_like,
+                path,
+                timeout_seconds=normalized_timeout_seconds,
+                ignore_images=ignore_images,
             )
         elif archive_type == "7z":
             yield from _extract_from_7z_optimized(
-                file_like, path, ignore_images=ignore_images
+                file_like,
+                path,
+                timeout_seconds=normalized_timeout_seconds,
+                ignore_images=ignore_images,
             )
         elif archive_type in ("tar", "tar.gz", "tar.bz2", "tar.xz"):
             yield from _extract_from_tar_optimized(
                 file_like,
                 path,
                 f"r:{archive_type.split('.')[-1]}",
+                timeout_seconds=normalized_timeout_seconds,
                 ignore_images=ignore_images,
             )
         else:

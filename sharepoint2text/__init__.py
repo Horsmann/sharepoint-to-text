@@ -13,6 +13,11 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Generator
 
+from sharepoint2text.parsing._timeout import (
+    DEFAULT_EXTRACTION_TIMEOUT_SECONDS,
+    collect_extraction_results,
+    normalize_timeout_seconds,
+)
 from sharepoint2text.parsing.exceptions import (
     ExtractionError,
     ExtractionFailedError,
@@ -44,7 +49,12 @@ from sharepoint2text.parsing.extractors.data_types import (
     XlsxContent,
 )
 from sharepoint2text.parsing.mime_types import MIME_TYPE_MAPPING
-from sharepoint2text.parsing.router import get_extractor, is_supported_file
+from sharepoint2text.parsing.router import (
+    _is_archive_file_type,
+    _resolve_file_type,
+    get_extractor,
+    is_supported_file,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -423,6 +433,7 @@ def read_many(
     *,
     extract_all_supported: bool = False,
     max_file_size: int = 100 * 1024 * 1024,  # 100MB default
+    timeout_seconds: float = DEFAULT_EXTRACTION_TIMEOUT_SECONDS,
     ignore_images: bool = False,
     force_plain_text: bool = False,
     include_attachments: bool = True,
@@ -444,6 +455,9 @@ def read_many(
                               ignoring the suffixes parameter. Default is False.
         max_file_size: Maximum file size in bytes (default: 100MB).
                       Set to 0 to disable size checking.
+        timeout_seconds: Maximum extraction time per file in seconds.
+            Set to ``0`` to disable timeout enforcement. Archive containers are
+            exempt; the same timeout is instead applied to files inside archives.
         ignore_images: If True, skip image extraction. Default is False.
         force_plain_text: If True, treat all files as plain text.
         include_attachments: If False, skip email attachment extraction.
@@ -480,6 +494,7 @@ def read_many(
 
     # Validate configuration
     has_suffixes = suffixes is not None and len(suffixes) > 0
+    normalized_timeout_seconds = normalize_timeout_seconds(timeout_seconds)
     if has_suffixes and extract_all_supported:
         raise InvalidConfigurationError(
             "Cannot specify both 'suffixes' and 'extract_all_supported=True'. "
@@ -547,6 +562,7 @@ def read_many(
             for result in read_file(
                 file_path,
                 max_file_size=max_file_size,
+                timeout_seconds=normalized_timeout_seconds,
                 ignore_images=ignore_images,
                 force_plain_text=force_plain_text,
                 include_attachments=include_attachments,
@@ -574,6 +590,7 @@ def read_file(
     path: str | Path,
     max_file_size: int = 100 * 1024 * 1024,  # 100MB default
     *,
+    timeout_seconds: float = DEFAULT_EXTRACTION_TIMEOUT_SECONDS,
     ignore_images: bool = False,
     force_plain_text: bool = False,
     include_attachments: bool = True,
@@ -588,6 +605,10 @@ def read_file(
         path: Path to the file to read.
         max_file_size: Maximum file size in bytes (default: 100MB).
                       Set to 0 to disable size checking.
+        timeout_seconds: Maximum extraction time for a single file in seconds.
+                      Set to ``0`` to disable timeout enforcement. Archive
+                      containers are exempt; the same timeout is applied to
+                      each supported file inside the archive.
         ignore_images: If True, skip image extraction. This can significantly
                       improve performance for files with many images.
                       Default is False.
@@ -644,6 +665,9 @@ def read_file(
         >>> # Skip image extraction for faster processing
         >>> for result in sharepoint2text.read_file("document.docx", ignore_images=True):
         ...     print(result.get_full_text())
+        >>> # Disable timeout enforcement explicitly
+        >>> for result in sharepoint2text.read_file("document.docx", timeout_seconds=0):
+        ...     print(result.get_full_text())
     """
     from sharepoint2text.parsing.exceptions import (
         ExtractionError,
@@ -652,6 +676,7 @@ def read_file(
     )
 
     path = Path(path)
+    normalized_timeout_seconds = normalize_timeout_seconds(timeout_seconds)
 
     _configure_pypdf_limits(max_file_size)
 
@@ -666,19 +691,36 @@ def read_file(
             )
 
     logger.info("Starting extraction: %s", path)
+    resolved_file_type = _resolve_file_type(
+        str(path),
+        force_plain_text=force_plain_text,
+    )
     extractor = get_extractor(
         str(path),
         ignore_images=ignore_images,
         force_plain_text=force_plain_text,
         include_attachments=include_attachments,
+        timeout_seconds=normalized_timeout_seconds,
     )
     with open(path, "rb") as f:
         try:
             # Pass the file stream directly to avoid an unnecessary full-copy
             # buffer before extraction.
-            for result in extractor(f, str(path)):
-                logger.info("Extraction complete: %s", path)
-                yield result
+            if normalized_timeout_seconds > 0 and not _is_archive_file_type(
+                resolved_file_type
+            ):
+                for result in collect_extraction_results(
+                    extractor,
+                    f,
+                    str(path),
+                    timeout_seconds=normalized_timeout_seconds,
+                ):
+                    logger.info("Extraction complete: %s", path)
+                    yield result
+            else:
+                for result in extractor(f, str(path)):
+                    logger.info("Extraction complete: %s", path)
+                    yield result
         except ExtractionError:
             raise
         except (OSError, ValueError, TypeError, UnicodeDecodeError) as exc:
@@ -693,6 +735,7 @@ def read_bytes(
     mime_type: str | None = None,
     extension: str | None = None,
     max_file_size: int = 100 * 1024 * 1024,  # 100MB default
+    timeout_seconds: float = DEFAULT_EXTRACTION_TIMEOUT_SECONDS,
     ignore_images: bool = False,
     force_plain_text: bool = False,
     include_attachments: bool = True,
@@ -709,6 +752,10 @@ def read_bytes(
         extension: File extension hint (for example ``"pdf"`` or ``".pdf"``).
         max_file_size: Maximum file size in bytes (default: 100MB).
                       Set to 0 to disable size checking.
+        timeout_seconds: Maximum extraction time for a single file in seconds.
+            Set to ``0`` to disable timeout enforcement. Archive containers are
+            exempt; the same timeout is applied to each supported file inside
+            the archive.
         ignore_images: If True, skip image extraction. This can significantly
                       improve performance for files with many images.
                       Default is False.
@@ -739,6 +786,7 @@ def read_bytes(
     if not isinstance(data, (bytes, io.BytesIO)):
         raise TypeError("data must be bytes or io.BytesIO")
 
+    normalized_timeout_seconds = normalize_timeout_seconds(timeout_seconds)
     _configure_pypdf_limits(max_file_size)
 
     normalized_extension = extension.strip().lower() if extension else ""
@@ -764,28 +812,33 @@ def read_bytes(
         )
 
     extractor = None
+    resolved_file_type: str | None = None
     virtual_path = "<in-memory>"
     extension_error: ExtractionFileFormatNotSupportedError | None = None
 
     if force_plain_text:
+        resolved_file_type = "txt"
         virtual_path = "in_memory.txt"
         extractor = get_extractor(
             virtual_path,
             ignore_images=ignore_images,
             force_plain_text=True,
             include_attachments=include_attachments,
+            timeout_seconds=normalized_timeout_seconds,
         )
     else:
         if not normalized_extension and not normalized_mime_type:
             raise ValueError("Either mime_type or extension must be provided")
 
         if normalized_extension:
+            resolved_file_type = _resolve_file_type(f"in_memory.{normalized_extension}")
             virtual_path = f"in_memory.{normalized_extension}"
             try:
                 extractor = get_extractor(
                     virtual_path,
                     ignore_images=ignore_images,
                     include_attachments=include_attachments,
+                    timeout_seconds=normalized_timeout_seconds,
                 )
             except ExtractionFileFormatNotSupportedError as exc:
                 extension_error = exc
@@ -793,18 +846,19 @@ def read_bytes(
                     raise
 
         if extractor is None and normalized_mime_type:
-            file_type = MIME_TYPE_MAPPING.get(normalized_mime_type)
-            if file_type is None:
+            resolved_file_type = MIME_TYPE_MAPPING.get(normalized_mime_type)
+            if resolved_file_type is None:
                 if extension_error is not None:
                     raise extension_error
                 raise ExtractionFileFormatNotSupportedError(
                     f"File type not supported for MIME type '{normalized_mime_type}'"
                 )
-            virtual_path = f"in_memory.{file_type}"
+            virtual_path = f"in_memory.{resolved_file_type}"
             extractor = get_extractor(
                 virtual_path,
                 ignore_images=ignore_images,
                 include_attachments=include_attachments,
+                timeout_seconds=normalized_timeout_seconds,
             )
 
         if extractor is None and extension_error is not None:
@@ -817,9 +871,21 @@ def read_bytes(
 
     logger.info("Starting in-memory extraction: %s", virtual_path)
     try:
-        for result in extractor(file_like, virtual_path):
-            logger.info("In-memory extraction complete: %s", virtual_path)
-            yield result
+        if normalized_timeout_seconds > 0 and not _is_archive_file_type(
+            resolved_file_type
+        ):
+            for result in collect_extraction_results(
+                extractor,
+                file_like,
+                virtual_path,
+                timeout_seconds=normalized_timeout_seconds,
+            ):
+                logger.info("In-memory extraction complete: %s", virtual_path)
+                yield result
+        else:
+            for result in extractor(file_like, virtual_path):
+                logger.info("In-memory extraction complete: %s", virtual_path)
+                yield result
     except ExtractionError:
         raise
     except (OSError, ValueError, TypeError, UnicodeDecodeError) as exc:
