@@ -236,3 +236,58 @@ def test_archive_skips_images() -> None:
     tc.assertEqual(2, len(results))
     tc.assertEqual(1, len(list(results[0].iterate_images())))
     tc.assertEqual(1, len(list(results[1].iterate_images())))
+
+
+def test_archive_spools_large_entry_instead_of_skipping(monkeypatch) -> None:
+    """ZIP entries larger than the memory threshold should roll to disk."""
+    original_config = archive_module._config
+    archive_module.configure_archive_extraction(max_memory_size=64)
+
+    payload = "\n".join(f"Line {index}" for index in range(128)).encode("utf-8")
+    zip_buffer = std_io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_STORED) as zf:
+        zf.writestr("large.txt", payload)
+    zip_buffer.seek(0)
+
+    rolled_states: list[bool] = []
+    real_spooled_file = archive_module.tempfile.SpooledTemporaryFile
+
+    class TrackingSpooledFile:
+        """Wrap SpooledTemporaryFile and record whether rollover occurred."""
+
+        def __init__(self, *args, **kwargs) -> None:
+            self._wrapped = real_spooled_file(*args, **kwargs)
+
+        def __enter__(self):
+            self._wrapped.__enter__()
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+            rolled_states.append(bool(getattr(self._wrapped, "_rolled", False)))
+            self._wrapped.__exit__(exc_type, exc_val, exc_tb)
+
+        def __getattr__(self, name: str):
+            return getattr(self._wrapped, name)
+
+    monkeypatch.setattr(
+        archive_module.tempfile,
+        "SpooledTemporaryFile",
+        TrackingSpooledFile,
+    )
+
+    try:
+        results = list(read_archive(zip_buffer, path="large.zip"))
+    finally:
+        archive_module.configure_archive_extraction(
+            buffer_size=original_config.buffer_size,
+            max_memory_size=original_config.max_memory_size,
+            max_workers=original_config.max_workers,
+            enable_parallel=original_config.enable_parallel,
+            enable_caching=original_config.enable_caching,
+            enable_streaming=original_config.enable_streaming,
+        )
+
+    tc.assertEqual(1, len(results))
+    tc.assertIsInstance(results[0], PlainTextContent)
+    tc.assertIn("Line 0", results[0].get_full_text())
+    tc.assertTrue(any(rolled_states))
