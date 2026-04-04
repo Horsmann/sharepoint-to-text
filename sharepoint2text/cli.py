@@ -145,15 +145,24 @@ def _serialize_unit_results(
     """Serialize per-unit output for ``--json-unit`` mode.
 
     Returns a flat ``list[dict]`` with one dictionary per extracted unit.
+    Each entry includes the unit content, unit_metadata, and file_metadata.
     """
-    return [
-        serialize_extraction(unit, include_binary=include_binary)
-        for result in results
+    serialized_units = []
+    for result in results:
+        file_metadata = serialize_extraction(
+            result.get_metadata(), include_binary=False
+        )
         for extraction in _iter_result_tree(
             result, include_email_attachments=include_email_attachments
-        )
-        for unit in extraction.iterate_units()
-    ]
+        ):
+            for unit in extraction.iterate_units():
+                unit_dict = serialize_extraction(unit, include_binary=include_binary)
+                unit_dict["unit_metadata"] = serialize_extraction(
+                    unit.get_metadata(), include_binary=False
+                )
+                unit_dict["file_metadata"] = file_metadata
+                serialized_units.append(unit_dict)
+    return serialized_units
 
 
 def _serialize_full_text(results: list[ExtractionInterface]) -> str:
@@ -211,12 +220,24 @@ def _iter_serialized_unit_results(
     include_binary: bool,
     include_email_attachments: bool = False,
 ) -> Iterator[dict]:
+    """Yield serialized unit dictionaries including metadata.
+
+    Each yielded dict contains the unit content plus unit_metadata and file_metadata.
+    """
     for result in results:
+        file_metadata = serialize_extraction(
+            result.get_metadata(), include_binary=False
+        )
         for extraction in _iter_result_tree(
             result, include_email_attachments=include_email_attachments
         ):
             for unit in extraction.iterate_units():
-                yield serialize_extraction(unit, include_binary=include_binary)
+                unit_dict = serialize_extraction(unit, include_binary=include_binary)
+                unit_dict["unit_metadata"] = serialize_extraction(
+                    unit.get_metadata(), include_binary=False
+                )
+                unit_dict["file_metadata"] = file_metadata
+                yield unit_dict
 
 
 def _write_json_array(items: Iterator[dict], output_stream: TextIO) -> None:
@@ -301,12 +322,20 @@ def _write_single_result_to_file(
         if args.json or args.json_unit:
             include_binary = bool(args.include_images)
             if args.json_unit:
-                # Write units as JSON array
-                units = list(result.iterate_units())
-                payload = [
-                    serialize_extraction(unit, include_binary=include_binary)
-                    for unit in units
-                ]
+                # Write units as JSON array with metadata
+                file_metadata = serialize_extraction(
+                    result.get_metadata(), include_binary=False
+                )
+                payload = []
+                for unit in result.iterate_units():
+                    unit_dict = serialize_extraction(
+                        unit, include_binary=include_binary
+                    )
+                    unit_dict["unit_metadata"] = serialize_extraction(
+                        unit.get_metadata(), include_binary=False
+                    )
+                    unit_dict["file_metadata"] = file_metadata
+                    payload.append(unit_dict)
             else:
                 # Write full extraction as JSON (wrapped in array for consistency)
                 expanded = list(

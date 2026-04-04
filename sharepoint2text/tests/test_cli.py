@@ -70,10 +70,15 @@ def test_serialize_results_returns_list_for_multiple_results() -> None:
 def test_cli_outputs_json_unit_with_flag(capsys) -> None:
     path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
     result = next(sharepoint2text.read_file(path))
-    expected = [
-        serialize_extraction(unit, include_binary=False)
-        for unit in result.iterate_units()
-    ]
+    file_metadata = serialize_extraction(result.get_metadata(), include_binary=False)
+    expected = []
+    for unit in result.iterate_units():
+        unit_dict = serialize_extraction(unit, include_binary=False)
+        unit_dict["unit_metadata"] = serialize_extraction(
+            unit.get_metadata(), include_binary=False
+        )
+        unit_dict["file_metadata"] = file_metadata
+        expected.append(unit_dict)
 
     exit_code = main(["--json-unit", "--file", str(path)])
     captured = capsys.readouterr()
@@ -86,10 +91,15 @@ def test_cli_outputs_json_unit_with_flag(capsys) -> None:
 def test_cli_outputs_json_unit_with_short_flag(capsys) -> None:
     path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
     result = next(sharepoint2text.read_file(path))
-    expected = [
-        serialize_extraction(unit, include_binary=False)
-        for unit in result.iterate_units()
-    ]
+    file_metadata = serialize_extraction(result.get_metadata(), include_binary=False)
+    expected = []
+    for unit in result.iterate_units():
+        unit_dict = serialize_extraction(unit, include_binary=False)
+        unit_dict["unit_metadata"] = serialize_extraction(
+            unit.get_metadata(), include_binary=False
+        )
+        unit_dict["file_metadata"] = file_metadata
+        expected.append(unit_dict)
 
     exit_code = main(["-u", "-f", str(path)])
     captured = capsys.readouterr()
@@ -256,6 +266,109 @@ def test_cli_outputs_json_unit_with_binary_payloads_when_requested(capsys) -> No
     assert len(images) > 0
     assert isinstance(images[0]["data"], dict)
     assert "_bytesio" in images[0]["data"] or "_bytes" in images[0]["data"]
+
+
+def test_cli_json_unit_includes_unit_metadata(capsys) -> None:
+    """Test that --json-unit output includes unit_metadata for each unit."""
+    path = Path("sharepoint2text/tests/resources/modern_ms/headings.docx").resolve()
+
+    exit_code = main(["--json-unit", "--file", str(path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out.strip())
+    assert isinstance(payload, list)
+    assert len(payload) > 0
+
+    # Each unit should have unit_metadata
+    for unit in payload:
+        assert "unit_metadata" in unit, "unit_metadata should be present"
+        metadata = unit["unit_metadata"]
+        assert "_type" in metadata
+        assert "unit_number" in metadata
+
+
+def test_cli_json_unit_includes_file_metadata(capsys) -> None:
+    """Test that --json-unit output includes file_metadata for each unit."""
+    path = Path("sharepoint2text/tests/resources/modern_ms/headings.docx").resolve()
+
+    exit_code = main(["--json-unit", "--file", str(path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out.strip())
+    assert isinstance(payload, list)
+    assert len(payload) > 0
+
+    # Each unit should have file_metadata with required fields
+    for unit in payload:
+        assert "file_metadata" in unit, "file_metadata should be present"
+        metadata = unit["file_metadata"]
+        assert "_type" in metadata
+        assert "filename" in metadata
+        assert metadata["filename"] == "headings.docx"
+        assert "file_path" in metadata
+        assert "file_extension" in metadata
+        assert metadata["file_extension"] == ".docx"
+
+
+def test_cli_json_unit_metadata_contains_docx_details(capsys) -> None:
+    """Test that DOCX file_metadata includes author and creation info."""
+    path = Path("sharepoint2text/tests/resources/modern_ms/headings.docx").resolve()
+
+    exit_code = main(["--json-unit", "--file", str(path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out.strip())
+
+    # Check DOCX-specific metadata fields
+    file_metadata = payload[0]["file_metadata"]
+    assert file_metadata["_type"] == "DocxMetadata"
+    assert "author" in file_metadata
+    assert "created" in file_metadata
+    assert "modified" in file_metadata
+
+
+def test_cli_json_unit_metadata_heading_path(capsys) -> None:
+    """Test that DOCX unit_metadata includes heading information."""
+    path = Path("sharepoint2text/tests/resources/modern_ms/headings.docx").resolve()
+
+    exit_code = main(["--json-unit", "--file", str(path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out.strip())
+
+    # DOCX units should have heading information in unit_metadata
+    unit_metadata = payload[0]["unit_metadata"]
+    assert unit_metadata["_type"] == "DocxUnitMetadata"
+    assert "heading_level" in unit_metadata
+    assert "heading_path" in unit_metadata
+    assert "location" in unit_metadata
+
+
+def test_cli_json_includes_metadata(capsys) -> None:
+    """Test that --json output includes metadata in the extraction result."""
+    path = Path("sharepoint2text/tests/resources/modern_ms/headings.docx").resolve()
+
+    exit_code = main(["--json", "--file", str(path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out.strip())
+    assert isinstance(payload, list)
+    assert len(payload) > 0
+
+    # The extraction result should have metadata
+    result = payload[0]
+    assert "metadata" in result
+    metadata = result["metadata"]
+    assert "_type" in metadata
+    assert metadata["_type"] == "DocxMetadata"
+    assert "filename" in metadata
+    assert "author" in metadata
+    assert "created" in metadata
 
 
 def test_cli_passes_timeout_to_read_file(capsys: Any, monkeypatch: Any) -> None:

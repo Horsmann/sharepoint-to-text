@@ -158,10 +158,19 @@ Output structure:
         "_type": "DocxContent",
         "paragraphs": [...],
         "tables": [...],
-        "metadata": {...}
+        "metadata": {
+            "_type": "DocxMetadata",
+            "filename": "document.docx",
+            "file_path": "/path/to/document.docx",
+            "author": "John Doe",
+            "created": "2024-01-15T10:30:00Z",
+            "modified": "2024-01-20T14:45:00Z"
+        }
     }
 ]
 ```
+
+The `metadata` field contains file-level information including filename, path, and format-specific details (author, creation date, etc.).
 
 ### JSON Unit Format
 
@@ -178,16 +187,24 @@ Output structure:
     {
         "_type": "PptxUnit",
         "slide_number": 1,
-        "title": "Introduction",
-        "content": "..."
-    },
-    {
-        "_type": "PptxUnit",
-        "slide_number": 2,
-        ...
+        "text": "Introduction slide content...",
+        "unit_metadata": {
+            "_type": "PptxUnitMetadata",
+            "unit_number": 1
+        },
+        "file_metadata": {
+            "_type": "PptxMetadata",
+            "filename": "presentation.pptx",
+            "file_path": "/path/to/presentation.pptx",
+            "author": "Jane Smith"
+        }
     }
 ]
 ```
+
+Each unit includes:
+- **`unit_metadata`**: Unit-specific information (page/slide/sheet number, heading path, etc.)
+- **`file_metadata`**: File-level information (filename, path, author, creation date, etc.)
 
 ---
 

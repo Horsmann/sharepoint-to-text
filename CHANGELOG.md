@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-
+### Added
+- **Enhanced CLI JSON output with metadata**
+  - `--json-unit` output now includes `unit_metadata` and `file_metadata` for each unit
+  - Unit metadata contains unit-specific information (page/slide number, heading path, etc.)
+  - File metadata contains file-level information (filename, author, creation date, etc.)
 
 ## [Released]
 
