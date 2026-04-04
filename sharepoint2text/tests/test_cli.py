@@ -578,3 +578,315 @@ def test_cli_folder_with_max_file_size(capsys, tmp_path) -> None:
     # File should be skipped due to size, resulting in no results
     assert exit_code == 1
     assert "No extraction results" in captured.err
+
+
+# =============================================================================
+# Folder output tests (--output with folder extraction)
+# =============================================================================
+
+
+def test_cli_folder_output_to_existing_folder(capsys, tmp_path) -> None:
+    """--folder with --output to existing folder should write separate files."""
+    # Create input folder with files
+    input_folder = tmp_path / "input"
+    input_folder.mkdir()
+    (input_folder / "file1.txt").write_text("content one", encoding="utf-8")
+    (input_folder / "file2.txt").write_text("content two", encoding="utf-8")
+
+    # Create output folder
+    output_folder = tmp_path / "output"
+    output_folder.mkdir()
+
+    exit_code = main(
+        [
+            "--folder",
+            str(input_folder),
+            "--suffixes",
+            ".txt",
+            "--output",
+            str(output_folder),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Successfully extracted 2 file(s)" in captured.err
+
+    # Check output files exist with correct content
+    assert (output_folder / "file1.txt").exists()
+    assert (output_folder / "file2.txt").exists()
+    assert "content one" in (output_folder / "file1.txt").read_text()
+    assert "content two" in (output_folder / "file2.txt").read_text()
+
+
+def test_cli_folder_output_preserves_subdirectory_structure(capsys, tmp_path) -> None:
+    """--folder output should preserve subdirectory structure."""
+    # Create input folder with nested structure
+    input_folder = tmp_path / "input"
+    input_folder.mkdir()
+    (input_folder / "root.txt").write_text("root content", encoding="utf-8")
+
+    subdir = input_folder / "subdir"
+    subdir.mkdir()
+    (subdir / "nested.txt").write_text("nested content", encoding="utf-8")
+
+    deep_subdir = subdir / "deep"
+    deep_subdir.mkdir()
+    (deep_subdir / "deep.txt").write_text("deep content", encoding="utf-8")
+
+    # Create output folder
+    output_folder = tmp_path / "output"
+    output_folder.mkdir()
+
+    exit_code = main(
+        [
+            "--folder",
+            str(input_folder),
+            "--suffixes",
+            ".txt",
+            "--output",
+            str(output_folder),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Successfully extracted 3 file(s)" in captured.err
+
+    # Check output structure mirrors input
+    assert (output_folder / "root.txt").exists()
+    assert (output_folder / "subdir" / "nested.txt").exists()
+    assert (output_folder / "subdir" / "deep" / "deep.txt").exists()
+
+    assert "root content" in (output_folder / "root.txt").read_text()
+    assert "nested content" in (output_folder / "subdir" / "nested.txt").read_text()
+    assert (
+        "deep content" in (output_folder / "subdir" / "deep" / "deep.txt").read_text()
+    )
+
+
+def test_cli_folder_output_creates_new_folder(capsys, tmp_path) -> None:
+    """--folder output should create new folder if path has no extension."""
+    # Create input folder
+    input_folder = tmp_path / "input"
+    input_folder.mkdir()
+    (input_folder / "file.txt").write_text("test content", encoding="utf-8")
+
+    # Output folder does not exist (no extension = treated as folder)
+    output_folder = tmp_path / "new_output"
+
+    exit_code = main(
+        [
+            "--folder",
+            str(input_folder),
+            "--suffixes",
+            ".txt",
+            "--output",
+            str(output_folder),
+        ]
+    )
+    assert exit_code == 0
+    assert output_folder.is_dir()
+    assert (output_folder / "file.txt").exists()
+
+
+def test_cli_folder_output_to_file_combines_results(capsys, tmp_path) -> None:
+    """--folder with --output to file should combine all results."""
+    # Create input folder
+    input_folder = tmp_path / "input"
+    input_folder.mkdir()
+    (input_folder / "file1.txt").write_text("content one", encoding="utf-8")
+    (input_folder / "file2.txt").write_text("content two", encoding="utf-8")
+
+    # Output file (has extension = treated as single file)
+    output_file = tmp_path / "combined.txt"
+
+    exit_code = main(
+        [
+            "--folder",
+            str(input_folder),
+            "--suffixes",
+            ".txt",
+            "--output",
+            str(output_file),
+        ]
+    )
+
+    assert exit_code == 0
+    assert output_file.exists()
+
+    content = output_file.read_text()
+    assert "content one" in content
+    assert "content two" in content
+
+
+def test_cli_folder_output_json_format(capsys, tmp_path) -> None:
+    """--folder output to folder with --json should create .json files."""
+    # Create input folder
+    input_folder = tmp_path / "input"
+    input_folder.mkdir()
+    (input_folder / "file.txt").write_text("test content", encoding="utf-8")
+
+    # Create output folder
+    output_folder = tmp_path / "output"
+    output_folder.mkdir()
+
+    exit_code = main(
+        [
+            "--folder",
+            str(input_folder),
+            "--suffixes",
+            ".txt",
+            "--json",
+            "--output",
+            str(output_folder),
+        ]
+    )
+    assert exit_code == 0
+
+    # Should create .json file instead of .txt
+    assert (output_folder / "file.json").exists()
+    assert not (output_folder / "file.txt").exists()
+
+    # Verify it's valid JSON
+    content = json.loads((output_folder / "file.json").read_text())
+    assert isinstance(content, list)
+
+
+def test_cli_folder_output_json_unit_format(capsys, tmp_path) -> None:
+    """--folder output with --json-unit should create per-unit .json files."""
+    # Create input folder
+    input_folder = tmp_path / "input"
+    input_folder.mkdir()
+    (input_folder / "file.txt").write_text("test content", encoding="utf-8")
+
+    # Create output folder
+    output_folder = tmp_path / "output"
+    output_folder.mkdir()
+
+    exit_code = main(
+        [
+            "--folder",
+            str(input_folder),
+            "--suffixes",
+            ".txt",
+            "--json-unit",
+            "--output",
+            str(output_folder),
+        ]
+    )
+    assert exit_code == 0
+    assert (output_folder / "file.json").exists()
+
+
+def test_cli_folder_output_trailing_slash_creates_folder(capsys, tmp_path) -> None:
+    """--output with trailing slash should create folder."""
+    # Create input folder
+    input_folder = tmp_path / "input"
+    input_folder.mkdir()
+    (input_folder / "file.txt").write_text("test content", encoding="utf-8")
+
+    # Output path with trailing slash
+    output_path = str(tmp_path / "output_dir") + "/"
+
+    exit_code = main(
+        [
+            "--folder",
+            str(input_folder),
+            "--suffixes",
+            ".txt",
+            "--output",
+            output_path,
+        ]
+    )
+
+    assert exit_code == 0
+    assert (tmp_path / "output_dir").is_dir()
+    assert (tmp_path / "output_dir" / "file.txt").exists()
+
+
+def test_cli_folder_output_prints_progress(capsys, tmp_path) -> None:
+    """--folder output should print progress to stderr."""
+    # Create input folder
+    input_folder = tmp_path / "input"
+    input_folder.mkdir()
+    (input_folder / "file.txt").write_text("test content", encoding="utf-8")
+
+    # Create output folder
+    output_folder = tmp_path / "output"
+    output_folder.mkdir()
+
+    exit_code = main(
+        [
+            "--folder",
+            str(input_folder),
+            "--suffixes",
+            ".txt",
+            "--output",
+            str(output_folder),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Extracted:" in captured.err
+    assert "file.txt" in captured.err
+
+
+def test_cli_single_file_output_unchanged(capsys, tmp_path) -> None:
+    """Single file extraction with --output should still work as before."""
+    # Create input file
+    input_file = tmp_path / "input.txt"
+    input_file.write_text("test content", encoding="utf-8")
+
+    # Output file
+    output_file = tmp_path / "output.txt"
+
+    exit_code = main(
+        [
+            "--file",
+            str(input_file),
+            "--output",
+            str(output_file),
+        ]
+    )
+
+    assert exit_code == 0
+    assert output_file.exists()
+    assert "test content" in output_file.read_text()
+
+
+def test_cli_folder_output_with_no_recursive(capsys, tmp_path) -> None:
+    """--folder output with --no-recursive should only extract top-level files."""
+    # Create input folder with nested structure
+    input_folder = tmp_path / "input"
+    input_folder.mkdir()
+    (input_folder / "top.txt").write_text("top content", encoding="utf-8")
+
+    subdir = input_folder / "subdir"
+    subdir.mkdir()
+    (subdir / "nested.txt").write_text("nested content", encoding="utf-8")
+
+    # Create output folder
+    output_folder = tmp_path / "output"
+    output_folder.mkdir()
+
+    exit_code = main(
+        [
+            "--folder",
+            str(input_folder),
+            "--suffixes",
+            ".txt",
+            "--no-recursive",
+            "--output",
+            str(output_folder),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Successfully extracted 1 file(s)" in captured.err
+
+    # Only top-level file should be extracted
+    assert (output_folder / "top.txt").exists()
+    assert not (output_folder / "subdir").exists()
