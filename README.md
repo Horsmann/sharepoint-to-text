@@ -251,6 +251,24 @@ Non-recursive (top-level only):
 sharepoint2text --folder /path/to/folder --no-recursive
 ```
 
+### Folder output (mirrored structure)
+
+When extracting from a folder, output to another folder to preserve the directory structure:
+
+```bash
+# Write each file separately to output folder
+sharepoint2text --folder /input/docs --output /output/extracted/
+
+# The output structure mirrors the input:
+# /input/docs/report.docx      -> /output/extracted/report.txt
+# /input/docs/sub/data.xlsx    -> /output/extracted/sub/data.txt
+```
+
+Output path behavior:
+- If `--output` is an existing directory, files are written separately
+- If `--output` is a new path without extension, it's created as a directory
+- If `--output` has a file extension, all results are combined into that file
+
 ### CLI options
 
 | Option | Description |
@@ -259,7 +277,7 @@ sharepoint2text --folder /path/to/folder --no-recursive
 | `--folder FOLDER`, `-d FOLDER` | Path to a folder to extract files from (recursive by default) |
 | `--suffixes SUFFIXES`, `-s SUFFIXES` | Comma-separated file suffixes to filter (e.g., `.docx,.pdf`). Only with `--folder`. If omitted, extracts all supported types. |
 | `--no-recursive` | Only extract top-level files (no subdirectories). Only with `--folder`. |
-| `--output FILE`, `-o FILE` | Write output to a file instead of stdout |
+| `--output PATH`, `-o PATH` | Output path: file (combined) or folder (separate files mirroring input structure) |
 | `--json`, `-j` | Emit `list[extraction_object]` |
 | `--json-unit`, `-u` | Emit `list[unit_object]` |
 | `--include-images`, `-i` | Include base64 image payloads in JSON output |
@@ -409,8 +427,10 @@ restored = ExtractionInterface.from_json(payload)
 
 ## Additional Documentation
 
+- [doc/cli.md](doc/cli.md): complete CLI reference with examples
 - [doc/direct-extractors.md](doc/direct-extractors.md): call format-specific extractors directly and work with concrete result attributes
 - [doc/format-matrix.md](doc/format-matrix.md): per-format behavior, units, and caveats
+- [doc/improvements.md](doc/improvements.md): roadmap and improvement ideas
 - [CONTRIBUTING.md](CONTRIBUTING.md): contributor workflow
 - [CHANGELOG.md](CHANGELOG.md): release history
 

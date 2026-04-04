@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Extract all supported files from a folder recursively
   - Filter by file type with `--suffixes` / `-s` (e.g., `--suffixes .docx,.pdf`)
   - Control recursion with `--no-recursive`
+  - **Folder output support**: `--output /folder/` writes each file separately, mirroring input structure
+- **Comprehensive CLI documentation** in `doc/cli.md`
 - **`InvalidConfigurationError`** exception for conflicting API options
 - **`ExtractionPathTraversalError`** exception for archive security
 - **Enhanced path traversal protection** in archive extraction

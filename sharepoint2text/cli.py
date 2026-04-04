@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import itertools
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Iterator, Sequence, TextIO
@@ -91,7 +92,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--output",
         "-o",
         type=Path,
-        help="Output file path (default: stdout).",
+        help=(
+            "Output path (default: stdout). "
+            "For single file extraction: specify a file path. "
+            "For folder extraction: specify either a file (all results combined) "
+            "or a folder (each file written separately, mirroring input structure)."
+        ),
     )
     parser.add_argument(
         "-m",
@@ -239,6 +245,154 @@ def _write_full_text(
     output_stream.write("\n")
 
 
+def _get_output_extension(args: argparse.Namespace) -> str:
+    """Determine the output file extension based on output format."""
+    if args.json or args.json_unit:
+        return ".json"
+    return ".txt"
+
+
+def _compute_output_path(
+    source_path: Path,
+    input_folder: Path,
+    output_folder: Path,
+    extension: str,
+) -> Path:
+    """Compute the output path for a file, mirroring the input folder structure.
+
+    Args:
+        source_path: The original source file path.
+        input_folder: The input folder being extracted.
+        output_folder: The output folder to write to.
+        extension: The output file extension (.txt or .json).
+
+    Returns:
+        The computed output path within the output folder.
+    """
+    # Get the relative path from the input folder
+    try:
+        relative_path = source_path.relative_to(input_folder)
+    except ValueError:
+        # If source_path is not relative to input_folder, use just the filename
+        relative_path = Path(source_path.name)
+
+    # Change the extension
+    output_name = relative_path.with_suffix(extension)
+
+    return output_folder / output_name
+
+
+def _write_single_result_to_file(
+    result: ExtractionInterface,
+    output_path: Path,
+    args: argparse.Namespace,
+) -> None:
+    """Write a single extraction result to a file.
+
+    Args:
+        result: The extraction result to write.
+        output_path: The path to write to.
+        args: CLI arguments for formatting options.
+    """
+    # Ensure parent directories exist
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        if args.json or args.json_unit:
+            include_binary = bool(args.include_images)
+            if args.json_unit:
+                # Write units as JSON array
+                units = list(result.iterate_units())
+                payload = [
+                    serialize_extraction(unit, include_binary=include_binary)
+                    for unit in units
+                ]
+            else:
+                # Write full extraction as JSON (wrapped in array for consistency)
+                expanded = list(
+                    _iter_result_tree(
+                        result, include_email_attachments=not args.no_attachments
+                    )
+                )
+                payload = [
+                    serialize_extraction(r, include_binary=include_binary)
+                    for r in expanded
+                ]
+            json.dump(payload, f, indent=4)
+            f.write("\n")
+        else:
+            # Write plain text
+            expanded = list(
+                _iter_result_tree(
+                    result, include_email_attachments=not args.no_attachments
+                )
+            )
+            text_parts = [r.get_full_text().rstrip() for r in expanded]
+            f.write("\n\n".join(text_parts))
+            f.write("\n")
+
+
+def _process_folder_to_folder(
+    args: argparse.Namespace,
+    max_file_size_bytes: int,
+    input_folder: Path,
+    output_folder: Path,
+) -> int:
+    """Process folder extraction with per-file output.
+
+    Args:
+        args: CLI arguments.
+        max_file_size_bytes: Maximum file size limit.
+        input_folder: The input folder to extract from.
+        output_folder: The output folder to write to.
+
+    Returns:
+        Number of files successfully extracted.
+    """
+    extension = _get_output_extension(args)
+    files_written = 0
+
+    # Parse suffixes if provided
+    suffixes: list[str] | None = None
+    extract_all_supported = True
+    if args.suffixes:
+        suffixes = _parse_suffixes(args.suffixes)
+        if not suffixes:
+            raise ValueError("--suffixes must contain at least one valid suffix")
+        extract_all_supported = False
+
+    # Use read_many but process each result individually
+    for result in sharepoint2text.read_many(
+        input_folder,
+        suffixes=suffixes,
+        extract_all_supported=extract_all_supported,
+        max_file_size=max_file_size_bytes,
+        ignore_images=not args.include_images,
+        include_attachments=not args.no_attachments,
+        recursive=not args.no_recursive,
+    ):
+        # Get the source file path from metadata
+        metadata = result.get_metadata()
+        source_path_str = metadata.file_path
+        if not source_path_str:
+            # Fallback to filename if full path not available
+            source_path_str = metadata.filename or "unknown"
+
+        source_path = Path(source_path_str)
+
+        # Compute output path
+        output_path = _compute_output_path(
+            source_path, input_folder, output_folder, extension
+        )
+
+        # Write the result
+        _write_single_result_to_file(result, output_path, args)
+        files_written += 1
+        print(f"Extracted: {source_path} -> {output_path}", file=sys.stderr)
+
+    return files_written
+
+
 def _parse_suffixes(suffixes_str: str) -> list[str]:
     """Parse comma-separated suffixes string into a list of normalized suffixes."""
     suffixes = []
@@ -351,10 +505,49 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         max_file_size_bytes = int(args.max_file_size_mb * 1024 * 1024)
 
-        # Determine output stream
+        # Check for folder-to-folder output mode
+        if args.folder and args.output and args.output.is_dir():
+            # Folder extraction with folder output: write each file separately
+            files_written = _process_folder_to_folder(
+                args, max_file_size_bytes, args.folder, args.output
+            )
+            if files_written == 0:
+                raise RuntimeError(f"No extraction results for folder: {args.folder}")
+            print(
+                f"Successfully extracted {files_written} file(s) to {args.output}",
+                file=sys.stderr,
+            )
+            return 0
+
+        # Standard mode: single output stream (stdout, file, or combined folder output)
         output_stream: TextIO = sys.stdout
         output_file: TextIO | None = None
         if args.output:
+            # If output path doesn't exist and we're in folder mode,
+            # check if user wants folder output (path ends with separator or has no extension)
+            if args.folder and not args.output.exists():
+                # Heuristic: if path has no extension or ends with separator, treat as folder
+                if (
+                    not args.output.suffix
+                    or str(args.output).endswith(os.sep)
+                    or str(args.output).endswith("/")
+                ):
+                    # Create as folder and use folder-to-folder mode
+                    args.output.mkdir(parents=True, exist_ok=True)
+                    files_written = _process_folder_to_folder(
+                        args, max_file_size_bytes, args.folder, args.output
+                    )
+                    if files_written == 0:
+                        raise RuntimeError(
+                            f"No extraction results for folder: {args.folder}"
+                        )
+                    print(
+                        f"Successfully extracted {files_written} file(s) to {args.output}",
+                        file=sys.stderr,
+                    )
+                    return 0
+
+            # Otherwise treat as file output
             output_file = open(args.output, "w", encoding="utf-8")
             output_stream = output_file
 
