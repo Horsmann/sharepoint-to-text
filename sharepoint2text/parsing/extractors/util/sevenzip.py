@@ -66,10 +66,29 @@ CODER_LZMA = b"\x03\x01\x01"
 CODER_LZMA2 = b"\x21"
 CODER_BCJ = b"\x03\x03\x01\x03"
 CODER_AES_PREFIX = b"\x06\xf1\x07"
+FILE_ATTRIBUTE_DIRECTORY = 0x10
+FILE_ATTRIBUTE_REPARSE_POINT = 0x0400
 
 
 class Bad7zFile(Exception):
     """Exception raised for invalid or unsupported 7z files."""
+
+
+def _is_symlink_attributes(attributes: int) -> bool:
+    """Return whether 7z file attributes describe a symbolic link.
+
+    Args:
+        attributes: Raw 7z file attributes.
+
+    Returns:
+        True when the attributes indicate a symbolic-link-like entry.
+
+    Notes:
+        The custom 7z reader currently parses a Windows-style attribute field
+        reliably. The reparse-point bit is the stable signal for link-like
+        entries in this representation.
+    """
+    return (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0
 
 
 @dataclass
@@ -80,6 +99,7 @@ class FileInfo:
         filename: Name of the file within the archive
         uncompressed: Uncompressed size in bytes
         is_directory: Whether this entry is a directory
+        is_symlink: Whether this entry is a symbolic link
         crc: Optional CRC32 checksum of the file data
         attributes: Windows file attributes (if present)
         folder_index: Index of the compression folder containing this file
@@ -88,6 +108,7 @@ class FileInfo:
     filename: str
     uncompressed: int
     is_directory: bool
+    is_symlink: bool = False
     crc: Optional[int] = None
     attributes: int = 0
     folder_index: int = 0
@@ -634,7 +655,8 @@ class SevenZipReader:
         size_index = 0
 
         for i in range(num_files):
-            is_dir = empty_streams[i] or (attributes[i] & 0x10) != 0
+            is_dir = empty_streams[i] or (attributes[i] & FILE_ATTRIBUTE_DIRECTORY) != 0
+            is_symlink = _is_symlink_attributes(attributes[i])
 
             if is_dir:
                 file_size = 0
@@ -649,6 +671,7 @@ class SevenZipReader:
                     filename=names[i],
                     uncompressed=file_size,
                     is_directory=is_dir,
+                    is_symlink=is_symlink,
                     attributes=attributes[i],
                 )
             )
@@ -882,7 +905,7 @@ class SevenZipReader:
 
         selected_by_folder: Dict[int, Set[int]] = {}
         for file_idx, file_info in enumerate(self._files):
-            if file_info.filename not in target_names:
+            if file_info.filename not in target_names or file_info.is_symlink:
                 continue
             selected_by_folder.setdefault(file_info.folder_index, set()).add(file_idx)
 
@@ -944,19 +967,22 @@ class SevenZipReader:
                     f"File '{file_info.filename}' exceeds decompressed data bounds"
                 )
 
-            file_path = _safe_join(base_path, file_info.filename)
-            parent_dir = os.path.dirname(file_path)
-            if parent_dir:
-                _mkdirs(parent_dir)
-
             file_data = decompressed[offset : offset + file_info.uncompressed]
             offset += file_info.uncompressed
+
+            if file_info.is_symlink:
+                continue
 
             if (
                 selected_file_indices is not None
                 and file_idx not in selected_file_indices
             ):
                 continue
+
+            file_path = _safe_join(base_path, file_info.filename)
+            parent_dir = os.path.dirname(file_path)
+            if parent_dir:
+                _mkdirs(parent_dir)
 
             try:
                 with open(file_path, "wb") as f:

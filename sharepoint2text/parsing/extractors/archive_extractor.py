@@ -31,6 +31,7 @@ Benchmarks:
 import io
 import logging
 import os
+import stat
 import tarfile
 import tempfile
 import time
@@ -60,6 +61,7 @@ from sharepoint2text.parsing.exceptions import (
 from sharepoint2text.parsing.extractors.data_types import ExtractionInterface
 from sharepoint2text.parsing.extractors.util.sevenzip import (
     Bad7zFile,
+    FileInfo,
     SevenZipFile,
 )
 from sharepoint2text.parsing.extractors.util.zip_bomb import open_zipfile
@@ -273,6 +275,42 @@ def _is_image_file(filename: str) -> bool:
     return ext in IMAGE_EXTENSIONS
 
 
+def _is_zip_symlink(info: zipfile.ZipInfo) -> bool:
+    """Return whether a ZIP member represents a symbolic link.
+
+    Args:
+        info: ZIP member metadata.
+
+    Returns:
+        True when the member stores a POSIX symbolic link.
+    """
+    return stat.S_ISLNK(info.external_attr >> 16)
+
+
+def _is_tar_symlink(member: tarfile.TarInfo) -> bool:
+    """Return whether a TAR member is a symbolic link.
+
+    Args:
+        member: TAR member metadata.
+
+    Returns:
+        True when the member is a symbolic link entry.
+    """
+    return member.issym()
+
+
+def _is_7z_symlink(file_info: FileInfo) -> bool:
+    """Return whether a 7z member should be treated as a symbolic link.
+
+    Args:
+        file_info: 7z member metadata.
+
+    Returns:
+        True when the entry is marked as a symbolic link.
+    """
+    return file_info.is_symlink
+
+
 def _should_skip_file(
     filename: str, basename: str, ignore_images: bool = False
 ) -> bool:
@@ -421,6 +459,12 @@ def _extract_from_zip_optimized(
                 if info.is_dir():
                     continue
 
+                if _is_zip_symlink(info):
+                    logger.warning(
+                        "Skipping symbolic link in ZIP archive: %s", info.filename
+                    )
+                    continue
+
                 # Check encryption (bit 0 of flag_bits)
                 if info.flag_bits & 0x1:
                     raise ExtractionFileEncryptedError(
@@ -497,6 +541,12 @@ def _extract_from_tar_optimized(
 
             # Stream members to avoid materializing massive member lists in memory.
             for member in tf:
+                if _is_tar_symlink(member):
+                    logger.warning(
+                        "Skipping symbolic link in TAR archive: %s", member.name
+                    )
+                    continue
+
                 # Skip directories and non-regular files
                 if not member.isreg():
                     continue
@@ -615,6 +665,13 @@ def _extract_from_7z_optimized(
                 if file_info.is_directory:
                     continue
 
+                if _is_7z_symlink(file_info):
+                    logger.warning(
+                        "Skipping symbolic link in 7z archive: %s",
+                        file_info.filename,
+                    )
+                    continue
+
                 total_entries += 1
                 if total_entries > MAX_7Z_ENTRIES:
                     raise ExtractionFailedError(
@@ -706,6 +763,12 @@ def _process_7z_files_sequential(
 
             if not os.path.exists(extracted_path):
                 logger.warning("Extracted file not found: %s", filename)
+                continue
+
+            if os.path.islink(extracted_path):
+                logger.warning(
+                    "Skipping symbolic link extracted from 7z archive: %s", filename
+                )
                 continue
 
             with open(extracted_path, "rb") as extracted_file:

@@ -1,6 +1,9 @@
 import io as std_io
 import logging
+import stat
+import tarfile
 import zipfile
+from typing import Any, List
 from unittest import TestCase
 
 import sharepoint2text.parsing.extractors.archive_extractor as archive_module
@@ -14,6 +17,7 @@ from sharepoint2text.parsing.extractors.data_types import (
     EpubContent,
     PlainTextContent,
 )
+from sharepoint2text.parsing.extractors.util.sevenzip import FileInfo
 from sharepoint2text.tests.extractors.utils import (
     read_file_to_file_like,
     tar_bytes_to_file_like,
@@ -44,7 +48,7 @@ def test_read_zip_archive_1() -> None:
 
     # Check that metadata includes archive path
     for result in results:
-        tc.assertIn("test_archive.zip!/", result.get_metadata().file_path)
+        tc.assertIn("test_archive.zip!/", result.get_metadata().file_path or "")
 
 
 def test_read_zip_archive_2() -> None:
@@ -213,6 +217,44 @@ def test_archive_skips_hidden_files() -> None:
     tc.assertIn("visible content", results[0].get_full_text())
 
 
+def test_archive_skips_zip_symbolic_links() -> None:
+    """ZIP symbolic-link entries should be ignored."""
+    zip_buffer = std_io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as zf:
+        zf.writestr("visible.txt", b"visible content")
+        symlink = zipfile.ZipInfo("link.txt")
+        symlink.create_system = 3
+        symlink.external_attr = (stat.S_IFLNK | 0o777) << 16
+        zf.writestr(symlink, "../etc/passwd")
+    zip_buffer.seek(0)
+
+    results = list(read_archive(zip_buffer, path="symlinks.zip"))
+
+    tc.assertEqual(1, len(results))
+    tc.assertIn("visible content", results[0].get_full_text())
+
+
+def test_archive_skips_tar_symbolic_links() -> None:
+    """TAR symbolic-link entries should be ignored."""
+    tar_buffer = std_io.BytesIO()
+    with tarfile.open(fileobj=tar_buffer, mode="w") as tf:
+        visible_data = b"visible content"
+        visible_info = tarfile.TarInfo("visible.txt")
+        visible_info.size = len(visible_data)
+        tf.addfile(visible_info, std_io.BytesIO(visible_data))
+
+        symlink_info = tarfile.TarInfo("link.txt")
+        symlink_info.type = tarfile.SYMTYPE
+        symlink_info.linkname = "/etc/passwd"
+        tf.addfile(symlink_info)
+    tar_buffer.seek(0)
+
+    results = list(read_archive(tar_buffer, path="symlinks.tar"))
+
+    tc.assertEqual(1, len(results))
+    tc.assertIn("visible content", results[0].get_full_text())
+
+
 def test_archive_skips_images() -> None:
 
     path = "sharepoint2text/tests/resources/archives/with_images.zip"
@@ -238,7 +280,7 @@ def test_archive_skips_images() -> None:
     tc.assertEqual(1, len(list(results[1].iterate_images())))
 
 
-def test_archive_spools_large_entry_instead_of_skipping(monkeypatch) -> None:
+def test_archive_spools_large_entry_instead_of_skipping(monkeypatch: Any) -> None:
     """ZIP entries larger than the memory threshold should roll to disk."""
     original_config = archive_module._config
     archive_module.configure_archive_extraction(max_memory_size=64)
@@ -255,18 +297,23 @@ def test_archive_spools_large_entry_instead_of_skipping(monkeypatch) -> None:
     class TrackingSpooledFile:
         """Wrap SpooledTemporaryFile and record whether rollover occurred."""
 
-        def __init__(self, *args, **kwargs) -> None:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
             self._wrapped = real_spooled_file(*args, **kwargs)
 
-        def __enter__(self):
+        def __enter__(self) -> "TrackingSpooledFile":
             self._wrapped.__enter__()
             return self
 
-        def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        def __exit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc_val: BaseException | None,
+            exc_tb: Any,
+        ) -> None:
             rolled_states.append(bool(getattr(self._wrapped, "_rolled", False)))
             self._wrapped.__exit__(exc_type, exc_val, exc_tb)
 
-        def __getattr__(self, name: str):
+        def __getattr__(self, name: str) -> Any:
             return getattr(self._wrapped, name)
 
     monkeypatch.setattr(
@@ -291,3 +338,58 @@ def test_archive_spools_large_entry_instead_of_skipping(monkeypatch) -> None:
     tc.assertIsInstance(results[0], PlainTextContent)
     tc.assertIn("Line 0", results[0].get_full_text())
     tc.assertTrue(any(rolled_states))
+
+
+def test_archive_skips_7z_symbolic_links(monkeypatch: Any) -> None:
+    """7z symbolic-link entries should be ignored before extraction."""
+    visible_data = b"visible content"
+
+    class FakeSevenZipFile:
+        """Provide a minimal 7z interface for archive-extractor tests."""
+
+        def __init__(self, file_like: Any, mode: str) -> None:
+            self._mode = mode
+
+        def __enter__(self) -> "FakeSevenZipFile":
+            return self
+
+        def __exit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc_val: BaseException | None,
+            exc_tb: Any,
+        ) -> None:
+            return None
+
+        def needs_password(self) -> bool:
+            return False
+
+        def list(self) -> List[FileInfo]:
+            return [
+                FileInfo(
+                    filename="link.txt",
+                    uncompressed=len(b"../etc/passwd"),
+                    is_directory=False,
+                    is_symlink=True,
+                    attributes=(stat.S_IFLNK | 0o777) << 16,
+                ),
+                FileInfo(
+                    filename="visible.txt",
+                    uncompressed=len(visible_data),
+                    is_directory=False,
+                    attributes=(stat.S_IFREG | 0o644) << 16,
+                ),
+            ]
+
+        def extract(self, path: str, targets: List[str]) -> None:
+            tc.assertEqual(["visible.txt"], targets)
+            with open(f"{path}/visible.txt", "wb") as extracted_file:
+                extracted_file.write(visible_data)
+
+    monkeypatch.setattr(archive_module, "SevenZipFile", FakeSevenZipFile)
+
+    seven_zip_buffer = std_io.BytesIO(b"7z\xbc\xaf\x27\x1c" + b"payload")
+    results = list(read_archive(seven_zip_buffer, path="symlinks.7z"))
+
+    tc.assertEqual(1, len(results))
+    tc.assertIn("visible content", results[0].get_full_text())
