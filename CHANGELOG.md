@@ -7,16 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [Released]
+
+## [1.1.0] - 2026-04-04
 ### Added
 - **Enhanced CLI JSON output with metadata**
   - `--json-unit` output now includes `unit_metadata` and `file_metadata` for each unit
   - Unit metadata contains unit-specific information (page/slide number, heading path, etc.)
   - File metadata contains file-level information (filename, author, creation date, etc.)
 
-## [Released]
-
-## [1.1.0] - 2026-04-04
-### Added
 - CSV reader added to treat csv like tables
 - Allow a `get_full_markdown()` export
 - `pycryptodome` is no longer optional
