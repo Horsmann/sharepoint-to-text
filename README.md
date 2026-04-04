@@ -211,6 +211,8 @@ For single-document formats, `next(...)` is usually the simplest call pattern.
 
 The package installs a `sharepoint2text` command.
 
+### Single file extraction
+
 Plain text output:
 
 ```bash
@@ -229,11 +231,34 @@ Per-unit JSON:
 sharepoint2text --file /path/to/file.pdf --json-unit
 ```
 
+### Folder extraction
+
+Extract all supported files from a folder:
+
+```bash
+sharepoint2text --folder /path/to/folder
+```
+
+Extract only specific file types:
+
+```bash
+sharepoint2text --folder /path/to/folder --suffixes .docx,.pdf,.txt
+```
+
+Non-recursive (top-level only):
+
+```bash
+sharepoint2text --folder /path/to/folder --no-recursive
+```
+
 ### CLI options
 
 | Option | Description |
 |---|---|
-| `--file FILE`, `-f FILE` | Required input file |
+| `--file FILE`, `-f FILE` | Path to a single file to extract |
+| `--folder FOLDER`, `-d FOLDER` | Path to a folder to extract files from (recursive by default) |
+| `--suffixes SUFFIXES`, `-s SUFFIXES` | Comma-separated file suffixes to filter (e.g., `.docx,.pdf`). Only with `--folder`. If omitted, extracts all supported types. |
+| `--no-recursive` | Only extract top-level files (no subdirectories). Only with `--folder`. |
 | `--output FILE`, `-o FILE` | Write output to a file instead of stdout |
 | `--json`, `-j` | Emit `list[extraction_object]` |
 | `--json-unit`, `-u` | Emit `list[unit_object]` |
@@ -244,6 +269,8 @@ sharepoint2text --file /path/to/file.pdf --json-unit
 
 Important CLI rules:
 
+- `--file` and `--folder` are mutually exclusive (one is required)
+- `--suffixes` and `--no-recursive` only work with `--folder`
 - `--json` and `--json-unit` are mutually exclusive
 - `--include-images` requires `--json` or `--json-unit`
 - the CLI enforces the same file-size guard as the Python API

@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Extract all supported formats with `extract_all_supported=True`
   - Recursive or non-recursive folder traversal
   - Continues processing on errors with warning logs
+- **CLI folder extraction** with new `--folder` / `-d` switch
+  - Extract all supported files from a folder recursively
+  - Filter by file type with `--suffixes` / `-s` (e.g., `--suffixes .docx,.pdf`)
+  - Control recursion with `--no-recursive`
 - **`InvalidConfigurationError`** exception for conflicting API options
 - **`ExtractionPathTraversalError`** exception for archive security
 - **Enhanced path traversal protection** in archive extraction
