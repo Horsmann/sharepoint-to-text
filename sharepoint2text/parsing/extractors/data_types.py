@@ -1076,16 +1076,26 @@ class DocxContent(ExtractionInterface):
     def iterate_units(
         self, *, ignore_images: bool = False
     ) -> typing.Iterator[UnitInterface]:
-        heading_re = re.compile(r"^heading\s*(\d+)\b", flags=re.IGNORECASE)
+        heading_re = re.compile(
+            r"^(heading|überschrift)\s*(\d+)?\b", flags=re.IGNORECASE
+        )
+        title_re = re.compile(r"^(title|titel)\b", flags=re.IGNORECASE)
 
         def heading_level(style: str | None) -> int | None:
             if not style:
                 return None
-            match = heading_re.match(style.strip())
+            normalized_style = style.strip()
+            if title_re.match(normalized_style):
+                return 0
+
+            match = heading_re.match(normalized_style)
             if not match:
                 return None
+            level_text = match.group(2)
+            if level_text is None:
+                return 1
             try:
-                return int(match.group(1))
+                return int(level_text)
             except ValueError:
                 return None
 

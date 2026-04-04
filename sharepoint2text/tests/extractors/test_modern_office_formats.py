@@ -697,6 +697,43 @@ def test_read_docx__units() -> None:
     tc.assertEqual(docx.tables[1], units[6].get_tables()[0].get_table())
 
 
+def test_read_docx__unit_structure() -> None:
+    path = "sharepoint2text/tests/resources/modern_ms/word_structure.docx"
+    docx: DocxContent = next(read_docx(file_like=read_file_to_file_like(path=path)))
+
+    units = list(docx.iterate_units())
+    tc.assertEqual(5, len(units))
+
+    unit1 = units[0]
+    tc.assertEqual(["The document title"], unit1.get_metadata().heading_path)
+    tc.assertEqual("blabla", unit1.get_text())
+
+    unit2 = units[1]
+    tc.assertEqual(
+        ["The document title", "Chapter 1"], unit2.get_metadata().heading_path
+    )
+    tc.assertEqual("This is chapter 1", unit2.get_text())
+
+    unit3 = units[2]
+    tc.assertEqual(
+        ["The document title", "Chapter 1", "Section 1.1"],
+        unit3.get_metadata().heading_path,
+    )
+    tc.assertEqual("A subsection", unit3.get_text())
+
+    unit4 = units[3]
+    tc.assertEqual(
+        ["The document title", "Chapter 2"], unit4.get_metadata().heading_path
+    )
+    tc.assertEqual("This is chapter 2", unit4.get_text())
+
+    unit5 = units[4]
+    tc.assertEqual(
+        ["The document title", "Chapter 3"], unit5.get_metadata().heading_path
+    )
+    tc.assertEqual("This is chapter 3", unit5.get_text())
+
+
 def test_read_macro_enabled_docm() -> None:
     """Test .docm (macro-enabled Word) extraction - same structure as .docx."""
     path = "sharepoint2text/tests/resources/modern_ms/sample.docm"
