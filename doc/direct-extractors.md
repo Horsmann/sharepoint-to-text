@@ -93,11 +93,6 @@ methods with concrete attributes from the specific result type.
 | `read_odg` | `.odg` | `OdgContent` | one document-level unit | `full_text`, `images`, `metadata` |
 | `read_odf` | `.odf` | `OdfContent` | one document-level unit | `full_text`, `metadata` |
 
-`read_apple_pages` is experimental. It is useful for text-first `.pages`
-documents, but its heading reconstruction, layout ordering, and table/image
-placement are currently less stable than the mature OOXML and OpenDocument
-extractors.
-
 ## Working With Concrete Types
 
 ### Word-like documents
@@ -135,8 +130,6 @@ Equivalent patterns for other word-like results:
   `annotations`, `pages`
 - `OdtContent`: use `paragraphs`, `hyperlinks`, `annotations`, `bookmarks`,
   `footnotes`, `endnotes`
-- `ApplePagesContent` (experimental): use `paragraphs`, `tables`, `images`,
-  `full_text`
 
 ### Spreadsheets
 

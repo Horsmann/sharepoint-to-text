@@ -4,8 +4,6 @@
 
 It is built for software engineers who need one extraction interface across modern Microsoft Office files, legacy Office files, OpenDocument, PDF, email, HTML-like content, plain-text formats, and archives.
 
-Apple Pages (`.pages`) is also supported on an experimental basis.
-
 ## Why This Package Exists
 
 Document ingestion pipelines usually fail in one of two ways:
@@ -247,12 +245,6 @@ Important CLI rules:
 ### PDF
 
 - `.pdf`
-
-### Apple
-
-- `.pages` experimental support
-- best suited for text-first documents
-- heading structure, table reconstruction, and layout fidelity are less stable than the mature Office/OpenDocument extractors
 
 ### Archives
 
