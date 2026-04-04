@@ -1663,14 +1663,18 @@ class PptUnitMetadata(UnitMetadataInterface):
     """Ppt Unit Metadata"""
 
     unit_number: int
+    title: str = ""
 
     ...
 
 
 @dataclass
 class PptUnit(UnitInterface):
+    """Represents a single legacy PowerPoint slide as an extraction unit."""
+
     slide_number: int
     text: str
+    title: str = ""
     images: list["PptImage"] = field(default_factory=list)
 
     def get_text(self) -> str:
@@ -1683,7 +1687,7 @@ class PptUnit(UnitInterface):
         return []
 
     def get_metadata(self) -> PptUnitMetadata:
-        return PptUnitMetadata(unit_number=self.slide_number)
+        return PptUnitMetadata(unit_number=self.slide_number, title=self.title)
 
     def to_json(self) -> dict:
         return serialize_extraction(self)
@@ -1800,6 +1804,14 @@ class PptSlideContent:
         parts.extend(self.other_text)
         return "\n".join(parts)
 
+    @property
+    def unit_text(self) -> str:
+        """Text content emitted for a slide unit, excluding the slide title."""
+        parts = []
+        parts.extend(self.body_text)
+        parts.extend(self.other_text)
+        return "\n".join(parts)
+
     def to_dict(self) -> dict[str, typing.Any]:
         """Convert to dictionary representation."""
         return {
@@ -1830,13 +1842,14 @@ class PptContent(ExtractionInterface):
         for slide in self.slides:
             yield PptUnit(
                 slide_number=slide.slide_number,
-                text=slide.text_combined,
+                text=slide.unit_text,
+                title=slide.title or "",
                 images=[] if ignore_images else list(slide.images),
             )
 
     def get_full_text(self) -> str:
         """Full text of the slide deck as one single block of text"""
-        texts = [unit.get_text().strip() for unit in self.iterate_units()]
+        texts = [slide.text_combined.strip() for slide in self.slides]
         return "\n".join(text for text in texts if text)
 
     def get_metadata(self) -> PptMetadata:

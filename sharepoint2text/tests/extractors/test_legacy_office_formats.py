@@ -442,6 +442,20 @@ def test_read_doc__unit_structure() -> None:
     tc.assertEqual("The text of chapter 2", unit5.get_text())
 
 
+def test_read_ppt_units() -> None:
+    path = "sharepoint2text/tests/resources/legacy_ms/slide_headlines.ppt"
+    pptx: PptContent = next(read_ppt(read_file_to_file_like(path=path)))
+
+    units = list(pptx.iterate_units())
+    tc.assertEqual(2, len(units))
+    tc.assertEqual("My Slide Title", units[0].get_metadata().title)
+    tc.assertEqual(1, units[0].get_metadata().unit_number)
+    tc.assertEqual("", units[0].get_text())
+    tc.assertEqual("Another Slide", units[1].get_metadata().title)
+    tc.assertEqual("Good day!", units[1].get_text())
+    tc.assertEqual(2, units[1].get_metadata().unit_number)
+
+
 def test_read_rtf() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/2025.144.un.rtf"
     rtf_gen: typing.Generator[RtfContent] = read_rtf(

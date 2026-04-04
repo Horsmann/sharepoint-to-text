@@ -365,12 +365,15 @@ def _parse_ppt_document(data: bytes, content: PptContent) -> None:
     """
     slide_list_texts = _extract_slide_list_texts(data)
     container_texts = _parse_containers(data)
+    slide_list_has_text = any(slide_texts for slide_texts in slide_list_texts)
 
     # Build slides from SlideListWithText (primary source)
-    if slide_list_texts:
+    if slide_list_has_text:
         _build_slides_from_text_blocks(content, slide_list_texts)
     elif container_texts["slides"]:
         _build_slides_from_text_blocks(content, container_texts["slides"])
+    elif slide_list_texts:
+        _build_slides_from_text_blocks(content, slide_list_texts)
 
     # Add notes from container parsing
     if container_texts["notes"] and content.slides:
