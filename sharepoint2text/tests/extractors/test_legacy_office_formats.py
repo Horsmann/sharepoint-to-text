@@ -408,6 +408,40 @@ def test_read_doc__heading_units() -> None:
     tc.assertEqual("This is a subsection in chapter 2", units[4].get_text())
 
 
+def test_read_doc__unit_structure() -> None:
+    path = "sharepoint2text/tests/resources/legacy_ms/word_structure.doc"
+    doc: DocContent = next(read_doc(file_like=read_file_to_file_like(path=path)))
+
+    units = list(doc.iterate_units())
+    tc.assertEqual(5, len(units))
+
+    unit1 = units[0]
+    tc.assertListEqual(["A title"], unit1.get_metadata().heading_path)
+    tc.assertEqual("blabla", unit1.get_text())
+
+    unit2 = units[1]
+    tc.assertListEqual(["A title", "Chapter 1"], unit2.get_metadata().heading_path)
+    tc.assertEqual("A chapter", unit2.get_text())
+
+    unit3 = units[2]
+    tc.assertListEqual(
+        ["A title", "Chapter 1", "Section 1.1"],
+        unit3.get_metadata().heading_path,
+    )
+    tc.assertEqual("A section", unit3.get_text())
+
+    unit4 = units[3]
+    tc.assertListEqual(
+        ["A title", "Chapter 1", "Section 1.1", "Sub-Section 1.1.1"],
+        unit4.get_metadata().heading_path,
+    )
+    tc.assertEqual("A sub-section", unit4.get_text())
+
+    unit5 = units[4]
+    tc.assertListEqual(["A title", "Chapter 2"], unit5.get_metadata().heading_path)
+    tc.assertEqual("The text of chapter 2", unit5.get_text())
+
+
 def test_read_rtf() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/2025.144.un.rtf"
     rtf_gen: typing.Generator[RtfContent] = read_rtf(

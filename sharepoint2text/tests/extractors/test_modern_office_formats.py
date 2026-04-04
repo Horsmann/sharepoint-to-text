@@ -705,17 +705,17 @@ def test_read_docx__unit_structure() -> None:
     tc.assertEqual(5, len(units))
 
     unit1 = units[0]
-    tc.assertEqual(["The document title"], unit1.get_metadata().heading_path)
+    tc.assertListEqual(["The document title"], unit1.get_metadata().heading_path)
     tc.assertEqual("blabla", unit1.get_text())
 
     unit2 = units[1]
-    tc.assertEqual(
+    tc.assertListEqual(
         ["The document title", "Chapter 1"], unit2.get_metadata().heading_path
     )
     tc.assertEqual("This is chapter 1", unit2.get_text())
 
     unit3 = units[2]
-    tc.assertEqual(
+    tc.assertListEqual(
         ["The document title", "Chapter 1", "Section 1.1"],
         unit3.get_metadata().heading_path,
     )

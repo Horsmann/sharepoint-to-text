@@ -743,7 +743,16 @@ class DocContent(ExtractionInterface):
             if not text:
                 return None
             lowered = text.lower()
-            if lowered.startswith("subsection"):
+            if (
+                lowered.startswith("title")
+                or lowered.startswith("titel")
+                or lowered.endswith(" title")
+                or lowered.endswith(" titel")
+            ):
+                return 0
+            if lowered.startswith("sub-section") or lowered.startswith("subsection"):
+                return 3
+            if lowered.startswith("section"):
                 return 2
             if lowered.startswith("chapter") or lowered == "intro":
                 return 1
