@@ -743,7 +743,16 @@ class DocContent(ExtractionInterface):
             if not text:
                 return None
             lowered = text.lower()
-            if lowered.startswith("subsection"):
+            if (
+                lowered.startswith("title")
+                or lowered.startswith("titel")
+                or lowered.endswith(" title")
+                or lowered.endswith(" titel")
+            ):
+                return 0
+            if lowered.startswith("sub-section") or lowered.startswith("subsection"):
+                return 3
+            if lowered.startswith("section"):
                 return 2
             if lowered.startswith("chapter") or lowered == "intro":
                 return 1
@@ -1654,14 +1663,18 @@ class PptUnitMetadata(UnitMetadataInterface):
     """Ppt Unit Metadata"""
 
     unit_number: int
+    title: str = ""
 
     ...
 
 
 @dataclass
 class PptUnit(UnitInterface):
+    """Represents a single legacy PowerPoint slide as an extraction unit."""
+
     slide_number: int
     text: str
+    title: str = ""
     images: list["PptImage"] = field(default_factory=list)
 
     def get_text(self) -> str:
@@ -1674,7 +1687,7 @@ class PptUnit(UnitInterface):
         return []
 
     def get_metadata(self) -> PptUnitMetadata:
-        return PptUnitMetadata(unit_number=self.slide_number)
+        return PptUnitMetadata(unit_number=self.slide_number, title=self.title)
 
     def to_json(self) -> dict:
         return serialize_extraction(self)
@@ -1791,6 +1804,14 @@ class PptSlideContent:
         parts.extend(self.other_text)
         return "\n".join(parts)
 
+    @property
+    def unit_text(self) -> str:
+        """Text content emitted for a slide unit, excluding the slide title."""
+        parts = []
+        parts.extend(self.body_text)
+        parts.extend(self.other_text)
+        return "\n".join(parts)
+
     def to_dict(self) -> dict[str, typing.Any]:
         """Convert to dictionary representation."""
         return {
@@ -1821,13 +1842,14 @@ class PptContent(ExtractionInterface):
         for slide in self.slides:
             yield PptUnit(
                 slide_number=slide.slide_number,
-                text=slide.text_combined,
+                text=slide.unit_text,
+                title=slide.title or "",
                 images=[] if ignore_images else list(slide.images),
             )
 
     def get_full_text(self) -> str:
         """Full text of the slide deck as one single block of text"""
-        texts = [unit.get_text().strip() for unit in self.iterate_units()]
+        texts = [slide.text_combined.strip() for slide in self.slides]
         return "\n".join(text for text in texts if text)
 
     def get_metadata(self) -> PptMetadata:
@@ -1863,14 +1885,14 @@ class PptxUnitMetadata(UnitMetadataInterface):
     """Pptx Unit Metadata"""
 
     unit_number: int
-
-    pass
+    title: str = ""
 
 
 @dataclass
 class PptxUnit(UnitInterface):
     slide_number: int
     text: str
+    title: str = ""
     images: list[PptxImage] = field(default_factory=list)
     tables: list[TableData] = field(default_factory=list)
 
@@ -1884,7 +1906,7 @@ class PptxUnit(UnitInterface):
         return list(self.tables)
 
     def get_metadata(self) -> PptxUnitMetadata:
-        return PptxUnitMetadata(unit_number=self.slide_number)
+        return PptxUnitMetadata(unit_number=self.slide_number, title=self.title)
 
     def to_json(self) -> dict:
         return serialize_extraction(self)
@@ -2001,6 +2023,7 @@ class PptxContent(ExtractionInterface):
         for slide in self.slides:
             yield PptxUnit(
                 slide_number=slide.slide_number,
+                title=slide.title,
                 images=[] if ignore_images else list(slide.images),
                 tables=[TableData(data=table) for table in slide.tables],
                 text=slide.get_text().strip(),
@@ -2584,8 +2607,11 @@ class OdfContent(ExtractionInterface):
 
 @dataclass
 class OdpUnit(UnitInterface):
+    """Represents a single OpenDocument presentation slide as a unit."""
+
     slide_number: int
     text: str
+    title: str = ""
     location: list[str] = field(default_factory=list)
     images: list[OpenDocumentImage] = field(default_factory=list)
     tables: list[TableData] = field(default_factory=list)
@@ -2602,6 +2628,7 @@ class OdpUnit(UnitInterface):
     def get_metadata(self) -> OdpUnitMetadata:
         return OdpUnitMetadata(
             unit_number=self.slide_number,
+            title=self.title,
             location=list(self.location),
             slide_number=self.slide_number,
         )
@@ -2612,7 +2639,10 @@ class OdpUnit(UnitInterface):
 
 @dataclass
 class OdpUnitMetadata(UnitMetadataInterface):
+    """Metadata for a single OpenDocument presentation unit."""
+
     unit_number: int
+    title: str = ""
     location: list[str] = field(default_factory=list)
     slide_number: int = 1
 
@@ -2641,6 +2671,14 @@ class OdpSlide:
         parts.extend(self.other_text)
         return "\n".join(parts)
 
+    @property
+    def unit_text(self) -> str:
+        """Text emitted for the slide unit, excluding the slide title."""
+        parts = []
+        parts.extend(self.body_text)
+        parts.extend(self.other_text)
+        return "\n".join(parts)
+
 
 @dataclass
 class OdpContent(ExtractionInterface):
@@ -2654,11 +2692,10 @@ class OdpContent(ExtractionInterface):
     ) -> typing.Iterator[UnitInterface]:
         """Iterate over slides, yielding combined text per slide."""
         for slide in self.slides:
-            parts = [slide.text_combined]
-
             yield OdpUnit(
                 slide_number=slide.slide_number,
-                text="\n".join(parts),
+                text=slide.unit_text,
+                title=slide.title,
                 location=[slide.title] if slide.title else [],
                 images=[] if ignore_images else list(slide.images),
                 tables=[TableData(data=table) for table in slide.tables],
@@ -2666,7 +2703,8 @@ class OdpContent(ExtractionInterface):
 
     def get_full_text(self) -> str:
         """Get full text of all slides."""
-        return _join_unit_text(self.iterate_units())
+        texts = [slide.text_combined.strip() for slide in self.slides]
+        return "\n".join(text for text in texts if text)
 
     def get_metadata(self) -> OpenDocumentMetadata:
         """Returns the metadata of the extracted file."""
@@ -2947,6 +2985,7 @@ class OdtContent(ExtractionInterface):
         """
         base_heading_path = [self.metadata.title] if self.metadata.title else []
         units: list[OdtUnit] = []
+        title_style_prefixes = ("title", "titel")
 
         if not self.paragraphs:
             heading_path = list(base_heading_path)
@@ -3006,6 +3045,11 @@ class OdtContent(ExtractionInterface):
 
         for paragraph in self.paragraphs:
             heading_level = paragraph.outline_level
+            style_name = (paragraph.style_name or "").strip().lower()
+            if heading_level is None and any(
+                style_name.startswith(prefix) for prefix in title_style_prefixes
+            ):
+                heading_level = 0
             if heading_level is not None:
                 heading_text = paragraph.text.strip()
                 if heading_text:
