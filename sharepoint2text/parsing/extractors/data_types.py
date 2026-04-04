@@ -2956,6 +2956,7 @@ class OdtContent(ExtractionInterface):
         """
         base_heading_path = [self.metadata.title] if self.metadata.title else []
         units: list[OdtUnit] = []
+        title_style_prefixes = ("title", "titel")
 
         if not self.paragraphs:
             heading_path = list(base_heading_path)
@@ -3015,6 +3016,11 @@ class OdtContent(ExtractionInterface):
 
         for paragraph in self.paragraphs:
             heading_level = paragraph.outline_level
+            style_name = (paragraph.style_name or "").strip().lower()
+            if heading_level is None and any(
+                style_name.startswith(prefix) for prefix in title_style_prefixes
+            ):
+                heading_level = 0
             if heading_level is not None:
                 heading_text = paragraph.text.strip()
                 if heading_text:
