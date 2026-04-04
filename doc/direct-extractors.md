@@ -83,7 +83,6 @@ methods with concrete attributes from the specific result type.
 | `read_ppt` | `.ppt`, `.pot`, `.pps` | `PptContent` | one unit per slide | `slides`, `master_text`, `all_text`, `streams`, `metadata` |
 | `read_odp` | `.odp`, `.otp` | `OdpContent` | one unit per slide | `slides`, `metadata` |
 | `read_pdf` | `.pdf` | `PdfContent` | one unit per page | `pages`, `metadata` |
-| `read_apple_pages` | `.pages` | `ApplePagesContent` | usually heading-aware document units | `paragraphs`, `tables`, `images`, `full_text`, `metadata` |
 | `read_html` | `.html`, `.htm` | `HtmlContent` | one document-level unit | `content`, `tables`, `headings`, `links`, `metadata` |
 | `read_mhtml` | `.mhtml`, `.mht` | `HtmlContent` | one document-level unit | `content`, `tables`, `headings`, `links`, `metadata` |
 | `read_epub` | `.epub` | `EpubContent` | one unit per chapter/content document | `chapters`, `images`, `toc`, `metadata` |
