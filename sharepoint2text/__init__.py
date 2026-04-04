@@ -413,6 +413,163 @@ def read_mbox_email(
     )
 
 
+class InvalidConfigurationError(ValueError):
+    """Raised when incompatible configuration options are provided."""
+
+
+def read_many(
+    folder_path: str | Path,
+    suffixes: list[str] | None = None,
+    *,
+    extract_all_supported: bool = False,
+    max_file_size: int = 100 * 1024 * 1024,  # 100MB default
+    ignore_images: bool = False,
+    force_plain_text: bool = False,
+    include_attachments: bool = True,
+    recursive: bool = True,
+) -> Generator[ExtractionInterface, Any, None]:
+    """
+    Extract content from multiple files in a folder.
+
+    Traverses a folder (optionally recursively) and extracts content from files
+    matching the specified suffixes, or all supported files if extract_all_supported
+    is True.
+
+    Args:
+        folder_path: Path to the folder to traverse.
+        suffixes: List of file suffixes to extract (e.g., [".docx", ".pdf"]).
+                 Suffixes should include the leading dot.
+                 Required if extract_all_supported is False.
+        extract_all_supported: If True, extract all files with supported formats,
+                              ignoring the suffixes parameter. Default is False.
+        max_file_size: Maximum file size in bytes (default: 100MB).
+                      Set to 0 to disable size checking.
+        ignore_images: If True, skip image extraction. Default is False.
+        force_plain_text: If True, treat all files as plain text.
+        include_attachments: If False, skip email attachment extraction.
+        recursive: If True, traverse subdirectories recursively. Default is True.
+
+    Yields:
+        ExtractionInterface objects for each successfully extracted file.
+
+    Raises:
+        InvalidConfigurationError: If both suffixes are provided and
+            extract_all_supported is True.
+        ValueError: If neither suffixes nor extract_all_supported is specified.
+        NotADirectoryError: If folder_path is not a directory.
+        FileNotFoundError: If folder_path does not exist.
+
+    Example:
+        >>> import sharepoint2text
+        >>> # Extract only Word and PDF files
+        >>> for result in sharepoint2text.read_many("/path/to/folder", [".docx", ".pdf"]):
+        ...     print(f"{result.get_metadata().file_path}: {len(result.get_full_text())} chars")
+        >>> # Extract all supported file types
+        >>> for result in sharepoint2text.read_many("/path/to/folder", extract_all_supported=True):
+        ...     print(result.get_full_text())
+    """
+    import glob as glob_module
+
+    folder = Path(folder_path)
+
+    # Validate folder exists and is a directory
+    if not folder.exists():
+        raise FileNotFoundError(f"Folder not found: {folder_path}")
+    if not folder.is_dir():
+        raise NotADirectoryError(f"Path is not a directory: {folder_path}")
+
+    # Validate configuration
+    has_suffixes = suffixes is not None and len(suffixes) > 0
+    if has_suffixes and extract_all_supported:
+        raise InvalidConfigurationError(
+            "Cannot specify both 'suffixes' and 'extract_all_supported=True'. "
+            "Use either suffixes to filter specific file types, or "
+            "extract_all_supported=True to extract all supported formats."
+        )
+
+    if not has_suffixes and not extract_all_supported:
+        raise ValueError(
+            "Must specify either 'suffixes' (list of file extensions to extract) "
+            "or 'extract_all_supported=True' to extract all supported formats."
+        )
+
+    # Normalize suffixes to ensure they start with a dot
+    normalized_suffixes: set[str] = set()
+    if has_suffixes and suffixes is not None:
+        for suffix in suffixes:
+            normalized = suffix.strip().lower()
+            if not normalized.startswith("."):
+                normalized = f".{normalized}"
+            normalized_suffixes.add(normalized)
+
+    # Build glob pattern
+    pattern = "**/*" if recursive else "*"
+    glob_path = str(folder / pattern)
+
+    # Track statistics for logging
+    files_found = 0
+    files_extracted = 0
+    files_skipped = 0
+
+    logger.info(
+        "Starting batch extraction from folder: %s (recursive=%s, extract_all_supported=%s)",
+        folder_path,
+        recursive,
+        extract_all_supported,
+    )
+
+    # Iterate through all files matching the glob pattern
+    for file_path_str in glob_module.glob(glob_path, recursive=recursive):
+        file_path = Path(file_path_str)
+
+        # Skip directories
+        if file_path.is_dir():
+            continue
+
+        files_found += 1
+
+        # Check if file should be processed
+        if extract_all_supported:
+            # Use the library's built-in support check
+            if not is_supported_file(str(file_path)):
+                files_skipped += 1
+                logger.debug("Skipping unsupported file: %s", file_path)
+                continue
+        else:
+            # Check against provided suffixes
+            file_suffix = file_path.suffix.lower()
+            if file_suffix not in normalized_suffixes:
+                files_skipped += 1
+                continue
+
+        # Extract the file
+        try:
+            for result in read_file(
+                file_path,
+                max_file_size=max_file_size,
+                ignore_images=ignore_images,
+                force_plain_text=force_plain_text,
+                include_attachments=include_attachments,
+            ):
+                files_extracted += 1
+                yield result
+        except ExtractionError as e:
+            logger.warning("Failed to extract %s: %s", file_path, e)
+            files_skipped += 1
+            continue
+        except (OSError, IOError) as e:
+            logger.warning("IO error reading %s: %s", file_path, e)
+            files_skipped += 1
+            continue
+
+    logger.info(
+        "Batch extraction complete: %d files found, %d extracted, %d skipped",
+        files_found,
+        files_extracted,
+        files_skipped,
+    )
+
+
 def read_file(
     path: str | Path,
     max_file_size: int = 100 * 1024 * 1024,  # 100MB default
@@ -678,6 +835,7 @@ __all__ = [
     # Main functions
     "read_file",
     "read_bytes",
+    "read_many",
     "is_supported_file",
     "get_extractor",
     # exceptions
@@ -688,6 +846,7 @@ __all__ = [
     "ExtractionZipBombError",
     "ExtractionFailedError",
     "ExtractionFileTooLargeError",
+    "InvalidConfigurationError",
     # legacy MS office
     "read_doc",
     "read_xls",

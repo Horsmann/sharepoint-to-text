@@ -8,18 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+
 ## [Released]
 
-## [1.0.1] - 2026-04-03
+## [1.1.0] - 2026-04-04
 ### Added
 - CSV reader added to treat csv like tables
 - Allow a `get_full_markdown()` export
 - `pycryptodome` is no longer optional
+- **New `read_many()` API** for batch extraction from folders
+  - Extract files by suffix filter (e.g., `[".docx", ".pdf"]`)
+  - Extract all supported formats with `extract_all_supported=True`
+  - Recursive or non-recursive folder traversal
+  - Continues processing on errors with warning logs
+- **`InvalidConfigurationError`** exception for conflicting API options
+- **`ExtractionPathTraversalError`** exception for archive security
+- **Enhanced path traversal protection** in archive extraction
+  - Cross-platform detection (Unix and Windows paths)
+  - Comprehensive test coverage for ZIP, TAR, and 7z archives
+
 
 ### Improvements
 - Prevent XML External Entity attacks for .xml-based formats
 - Archive extraction respects ignore_images flag now
 - Minor speed-tweaks
+
+### Security
+- Improved archive path traversal detection to handle Windows-style paths on Unix systems
+- Added unit tests for path traversal attack vectors
 
 ## [1.0.0] - 2026-02-21
 ### Added

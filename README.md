@@ -26,7 +26,7 @@ Document ingestion pipelines usually fail in one of two ways:
 | Python | `>=3.10` |
 | Install | `uv add sharepoint-to-text` |
 | Runtime model | Pure Python |
-| Primary interfaces | `read_file(...)`, `read_bytes(...)`, CLI |
+| Primary interfaces | `read_file(...)`, `read_bytes(...)`, `read_many(...)`, CLI |
 | Output model | Generator of typed extraction objects |
 | SharePoint access | Optional `sharepoint_io` helper for Graph-backed listing/download |
 
@@ -96,22 +96,28 @@ for unit in result.iterate_units():
     print(unit.get_metadata())
 ```
 
-### Batch ingestion example
+### Batch extraction from a folder
 
 ```python
-from pathlib import Path
-
 import sharepoint2text
 
-for path in Path("docs").rglob("*"):
-    if not path.is_file() or not sharepoint2text.is_supported_file(path):
-        continue
+# Extract only Word and PDF files from a folder
+for result in sharepoint2text.read_many("docs", suffixes=[".docx", ".pdf"]):
+    print(result.get_metadata().file_path)
+    print(result.get_full_text()[:200])
+```
 
-    for result in sharepoint2text.read_file(path, ignore_images=True):
-        for unit in result.iterate_units(ignore_images=True):
-            text = unit.get_text().strip()
-            if text:
-                print(path, text[:120])
+### Extract all supported files from a folder
+
+```python
+import sharepoint2text
+
+# Extract all supported file formats recursively
+for result in sharepoint2text.read_many("docs", extract_all_supported=True):
+    for unit in result.iterate_units(ignore_images=True):
+        text = unit.get_text().strip()
+        if text:
+            print(result.get_metadata().file_path, text[:120])
 ```
 
 ## Core API
@@ -139,9 +145,37 @@ sharepoint2text.read_bytes(
     include_attachments=True,
 )
 
+sharepoint2text.read_many(
+    folder_path,
+    suffixes=[".docx", ".pdf"],  # list of extensions to extract
+    extract_all_supported=False,  # or True to extract all supported formats
+    max_file_size=100 * 1024 * 1024,
+    ignore_images=False,
+    force_plain_text=False,
+    include_attachments=True,
+    recursive=True,               # traverse subdirectories
+)
+
 sharepoint2text.is_supported_file(path)
 sharepoint2text.get_extractor(path)
 ```
+
+### Batch extraction with `read_many`
+
+The `read_many` function extracts content from multiple files in a folder:
+
+| Parameter | Description |
+|---|---|
+| `folder_path` | Path to the folder to traverse |
+| `suffixes` | List of file extensions to extract (e.g., `[".docx", ".pdf"]`) |
+| `extract_all_supported` | If `True`, extract all supported formats (mutually exclusive with `suffixes`) |
+| `recursive` | If `True` (default), traverse subdirectories |
+
+Configuration rules:
+- You must specify either `suffixes` or `extract_all_supported=True`
+- Specifying both raises `InvalidConfigurationError`
+- Suffixes are normalized (with or without leading dot)
+- Extraction continues on errors, logging warnings for failed files
 
 ### Result model
 
@@ -319,7 +353,9 @@ Common exceptions:
 - `ExtractionFileTooLargeError`
 - `ExtractionLegacyMicrosoftParsingError`
 - `ExtractionZipBombError`
+- `ExtractionPathTraversalError`
 - `ExtractionFailedError`
+- `InvalidConfigurationError` (for `read_many` with conflicting options)
 
 If you are integrating this into a service, see [doc/integration-guide.md](doc/integration-guide.md) and [doc/troubleshooting.md](doc/troubleshooting.md).
 
