@@ -100,13 +100,17 @@ _TEXT_RECORD_TYPES = frozenset({RT_TEXT_CHARS_ATOM, RT_TEXT_BYTES_ATOM, RT_CSTRI
 # =============================================================================
 
 _CONTROL_CHARS = "".join(chr(i) for i in range(32) if i not in (9, 10))  # Keep \t, \n
+# Spread the control-char deletions first, then let the explicit mappings win.
+# In a dict literal later keys override earlier ones, so the previous order
+# silently reverted \r, \v, \f back to None and dropped PPT paragraph
+# separators (\r) and soft line breaks (\v) from extracted text.
 _CLEAN_TRANS = str.maketrans(
     {
+        **{c: None for c in _CONTROL_CHARS},
         "\x00": None,
         "\r": "\n",
         "\x0b": "\n",
         "\x0c": "\n",
-        **{c: None for c in _CONTROL_CHARS},
     }
 )
 
