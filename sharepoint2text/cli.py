@@ -109,16 +109,6 @@ def _build_parser() -> argparse.ArgumentParser:
             "Use 0 to disable size checks."
         ),
     )
-    parser.add_argument(
-        "-t",
-        "--timeout",
-        type=float,
-        default=60.0,
-        help=(
-            "Maximum extraction time per file in seconds (default: 60). "
-            "Use 0 to disable timeout enforcement."
-        ),
-    )
     return parser
 
 
@@ -453,7 +443,6 @@ def _get_file_results(
         sharepoint2text.read_file(
             args.file,
             max_file_size=max_file_size_bytes,
-            timeout_seconds=args.timeout,
             ignore_images=not args.include_images,
             include_attachments=not args.no_attachments,
         )
@@ -485,7 +474,6 @@ def _get_folder_results(
             suffixes=suffixes,
             extract_all_supported=extract_all_supported,
             max_file_size=max_file_size_bytes,
-            timeout_seconds=args.timeout,
             ignore_images=not args.include_images,
             include_attachments=not args.no_attachments,
             recursive=not args.no_recursive,
@@ -525,8 +513,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise ValueError("--include-images requires --json or --json-unit")
         if args.max_file_size_mb < 0:
             raise ValueError("--max-file-size-mb must be >= 0")
-        if args.timeout < 0:
-            raise ValueError("--timeout must be >= 0")
         if args.suffixes and not args.folder:
             raise ValueError("--suffixes can only be used with --folder")
         if args.no_recursive and not args.folder:

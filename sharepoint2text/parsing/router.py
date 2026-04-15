@@ -401,7 +401,6 @@ def get_extractor(
     ignore_images: bool = False,
     force_plain_text: bool = False,
     include_attachments: bool = True,
-    timeout_seconds: float | None = None,
 ) -> Callable[[BinaryIO, str | None], Generator[ExtractionInterface, Any, None]]:
     """
     Analyze a path/filename and return the appropriate extractor callable.
@@ -417,8 +416,6 @@ def get_extractor(
             even when extension/MIME detection does not recognize the file.
         include_attachments: If False, skip extracting/storing supported email
             attachment payloads.
-        timeout_seconds: Optional timeout passed through to archive extraction so
-            member files can be limited without timing the archive container.
 
     Returns:
         Extractor function with signature ``(binary stream, path) -> Generator`` that
@@ -453,15 +450,6 @@ def get_extractor(
             ignore_images=ignore_images,
             include_attachments=include_attachments,
         )
-        if _is_archive_file_type(file_type) and timeout_seconds is not None:
-            archive_extractor = cast(Callable[..., Any], extractor)
-            return cast(
-                ExtractorFunction,
-                functools.partial(
-                    archive_extractor,
-                    timeout_seconds=timeout_seconds,
-                ),
-            )
         return extractor
 
     extension = ""

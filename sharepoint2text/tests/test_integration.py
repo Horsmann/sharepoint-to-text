@@ -3,9 +3,7 @@ import io
 import json
 import logging
 import os
-import time
 import unittest
-from typing import Any
 
 import sharepoint2text.parsing.exceptions
 from sharepoint2text import (
@@ -370,50 +368,3 @@ def test_read_bytes_force_plain_text_unknown_extension() -> None:
     result_no_hints = next(read_bytes(data, force_plain_text=True))
     tc.assertTrue(isinstance(result_no_hints, PlainTextContent))
     tc.assertEqual("line one\nline two", result_no_hints.get_full_text())
-
-
-def test_read_file_timeout_for_direct_file(monkeypatch: Any) -> None:
-    """read_file should fail when a direct-file extractor exceeds the timeout."""
-    path = "sharepoint2text/tests/resources/plain_text/plain.txt"
-    original_get_extractor = sharepoint2text.get_extractor
-
-    def slow_get_extractor(*args: Any, **kwargs: Any) -> Any:
-        extractor = original_get_extractor(*args, **kwargs)
-
-        def slow_extractor(file_like: Any, source_path: str | None = None) -> Any:
-            time.sleep(0.2)
-            yield from extractor(file_like, source_path)
-
-        return slow_extractor
-
-    monkeypatch.setattr("sharepoint2text.get_extractor", slow_get_extractor)
-
-    with tc.assertRaises(
-        sharepoint2text.parsing.exceptions.ExtractionFailedError
-    ) as exc_info:
-        list(read_file(path, timeout_seconds=0.05))
-
-    tc.assertIn("timed out", str(exc_info.exception))
-
-
-def test_read_bytes_timeout_for_direct_file(monkeypatch: Any) -> None:
-    """read_bytes should fail when in-memory extraction exceeds the timeout."""
-    original_get_extractor = sharepoint2text.get_extractor
-
-    def slow_get_extractor(*args: Any, **kwargs: Any) -> Any:
-        extractor = original_get_extractor(*args, **kwargs)
-
-        def slow_extractor(file_like: Any, source_path: str | None = None) -> Any:
-            time.sleep(0.2)
-            yield from extractor(file_like, source_path)
-
-        return slow_extractor
-
-    monkeypatch.setattr("sharepoint2text.get_extractor", slow_get_extractor)
-
-    with tc.assertRaises(
-        sharepoint2text.parsing.exceptions.ExtractionFailedError
-    ) as exc_info:
-        list(read_bytes(b"Hello World", extension=".txt", timeout_seconds=0.05))
-
-    tc.assertIn("timed out", str(exc_info.exception))
