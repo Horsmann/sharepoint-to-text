@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Expose zip bomb limit configuration
 - Updated Readme
+### Bugfix
+- Fixed dropping paragraph separators - First contribution by @manishkhanal1989 (https://github.com/Horsmann/sharepoint-to-text/pull/58)
 
 ## [1.1.11] - 2026-04-15
 ### Bugfix
