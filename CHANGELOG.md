@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Released]
 
+## [1.2.0] - 2026-07-15
+### Added
+- Expose zip bomb limit configuration
+- Updated Readme
+
 ## [1.1.11] - 2026-04-15
 ### Bugfix
 - Removed timeout functionality which requires a main thread

@@ -43,6 +43,12 @@ from sharepoint2text.parsing.extractors.data_types import (
     XlsContent,
     XlsxContent,
 )
+from sharepoint2text.parsing.extractors.util.zip_bomb import (
+    ZipBombLimits,
+    get_zip_bomb_limits,
+    reset_zip_bomb_limits,
+    set_zip_bomb_limits,
+)
 from sharepoint2text.parsing.mime_types import MIME_TYPE_MAPPING
 from sharepoint2text.parsing.router import (
     _resolve_file_type,
@@ -843,6 +849,11 @@ __all__ = [
     "read_many",
     "is_supported_file",
     "get_extractor",
+    # ZIP-bomb limit configuration
+    "ZipBombLimits",
+    "get_zip_bomb_limits",
+    "set_zip_bomb_limits",
+    "reset_zip_bomb_limits",
     # exceptions
     "ExtractionError",
     "ExtractionFileFormatNotSupportedError",

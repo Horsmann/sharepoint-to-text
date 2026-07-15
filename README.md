@@ -120,6 +120,28 @@ for result in sharepoint2text.read_many("docs", extract_all_supported=True):
             print(result.get_metadata().file_path, text[:120])
 ```
 
+### Parse an email and its attachments
+
+```python
+import sharepoint2text
+from sharepoint2text import EmailContent
+
+# .eml and .msg return an EmailContent object
+email: EmailContent = next(sharepoint2text.read_file("message.msg"))
+
+print(email.subject)
+print(email.from_email.address)
+print([recipient.address for recipient in email.to_emails])
+print(email.get_full_text())
+
+# Recursively extract text from supported attachments (docx, pdf, xlsx, ...)
+for attachment in email.iterate_supported_attachments(skip_failed=True):
+    print(attachment.get_metadata().file_path, attachment.get_full_text()[:200])
+```
+
+> `.mbox` files instead yield one `EmailContent` per message, so iterate them
+> with a `for` loop rather than `next(...)`.
+
 ## Core API
 
 ### Main entry points
@@ -331,6 +353,58 @@ Important CLI rules:
 - `.tar.gz`, `.tgz`, `.tar.bz2`, `.tbz2`, `.tar.xz`, `.txz`
 
 For a behavior-focused view of units, attachments, and caveats by format, see [doc/format-matrix.md](doc/format-matrix.md).
+
+## Increasing the ZIP Bomb Limit
+
+Every ZIP-based format (OOXML `.docx`/`.xlsx`/`.pptx`, OpenDocument, and `.zip`
+archives) is checked against ZIP-bomb heuristics. Legitimate but very large
+SharePoint exports can occasionally trip these guards and raise
+`ExtractionZipBombError`. When you trust the input, raise the relevant
+threshold **once at application startup** with `set_zip_bomb_limits`.
+
+```python
+import sharepoint2text
+from sharepoint2text import ZipBombLimits
+
+# Raise the limits once, before any extraction runs.
+# Only set the fields you need — unspecified fields keep the library defaults.
+sharepoint2text.set_zip_bomb_limits(
+    ZipBombLimits(
+        max_total_uncompressed_bytes=16 * 1024 * 1024 * 1024,  # 16 GiB (default 4 GiB)
+        max_single_uncompressed_bytes=4 * 1024 * 1024 * 1024,  # 4 GiB (default 1 GiB)
+        max_entry_compression_ratio=1500.0,                    # default 500.0
+    )
+)
+
+# Subsequent extractions use the raised limits automatically.
+result = next(sharepoint2text.read_file("large_trusted_export.zip"))
+print(result.get_full_text()[:200])
+```
+
+Available `ZipBombLimits` fields and their defaults:
+
+| Field | Default | Meaning |
+|---|---|---|
+| `max_entries` | `50_000` | Maximum number of entries in a container |
+| `max_total_uncompressed_bytes` | `4 GiB` | Maximum combined uncompressed size |
+| `max_single_uncompressed_bytes` | `1 GiB` | Maximum uncompressed size of one entry |
+| `max_total_compression_ratio` | `200.0` | Maximum overall compression ratio |
+| `max_entry_compression_ratio` | `500.0` | Maximum compression ratio of one entry |
+
+Related helpers, all importable from `sharepoint2text`:
+
+```python
+from sharepoint2text import (
+    ZipBombLimits,          # the limits dataclass
+    get_zip_bomb_limits,    # inspect the currently active limits
+    reset_zip_bomb_limits,  # restore the library defaults
+    set_zip_bomb_limits,    # override the process-wide limits
+)
+```
+
+> The limits are process-wide and apply to every subsequent ZIP-based
+> extraction. Only raise them for input you trust, since these guards are a
+> deliberate denial-of-service protection.
 
 ## SharePoint Integration
 
