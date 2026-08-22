@@ -242,8 +242,6 @@ def read_odf(
     Args:
         ignore_images: If True, skip image extraction (not applicable for this format).
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering ODF extraction: %s", source_path)
     try:
         file_like.seek(0)
         if is_odf_encrypted(file_like):
@@ -267,10 +265,9 @@ def read_odf(
             ctx.close()
 
         metadata.populate_from_path(path)
+        logger.debug("Extracted ODF: characters=%d", len(full_text))
         yield OdfParserOutput(metadata=metadata, full_text=full_text)
     except ExtractionError:
         raise
     except (KeyError, ET.ParseError, OSError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract ODF file", cause=exc) from exc
-    finally:
-        logger.info("Leaving ODF extraction: %s", source_path)

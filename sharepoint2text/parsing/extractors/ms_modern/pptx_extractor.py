@@ -400,7 +400,7 @@ def _extract_slide_comments_from_context(
                 )
             )
     except (AttributeError, TypeError, ValueError) as e:
-        logger.debug(f"Failed to extract comments for slide {slide_number}: {e}")
+        logger.debug("Failed to extract comments for slide %d: %s", slide_number, e)
 
     return comments
 
@@ -693,7 +693,7 @@ def _process_slide_from_context(
                             (position, "image_caption", f"[Image: {description}]")
                         )
             except (KeyError, ValueError, OSError) as e:
-                logger.debug(f"Failed to extract image on slide {slide_number}: {e}")
+                logger.debug("Failed to extract image on slide %d: %s", slide_number, e)
             continue
 
         # Table extraction
@@ -706,7 +706,7 @@ def _process_slide_from_context(
                     if table_text:
                         ordered_content.append((position, "table", table_text))
             except (AttributeError, TypeError, ValueError) as e:
-                logger.debug(f"Failed to extract table on slide {slide_number}: {e}")
+                logger.debug("Failed to extract table on slide %d: %s", slide_number, e)
             continue
 
         # Shape (text) extraction
@@ -853,10 +853,7 @@ def read_pptx(
         - Images are loaded into memory as binary blobs
         - Large presentations with many images may use significant memory
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering PPTX extraction: %s", source_path)
     try:
-        logger.debug("Reading pptx")
         file_like.seek(0)
         if is_ooxml_encrypted(file_like):
             raise ExtractionFileEncryptedError(
@@ -884,7 +881,7 @@ def read_pptx(
 
             total_images = sum(len(slide.images) for slide in slides_result)
             logger.debug(
-                "Extracted PPTX: %d slides, %d images",
+                "Extracted PPTX: slides=%d, images=%d",
                 len(slides_result),
                 total_images,
             )
@@ -896,5 +893,3 @@ def read_pptx(
         raise
     except (KeyError, ET.ParseError, OSError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract PPTX file", cause=exc) from exc
-    finally:
-        logger.info("Leaving PPTX extraction: %s", source_path)

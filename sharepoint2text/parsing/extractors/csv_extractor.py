@@ -94,9 +94,6 @@ def read_csv(
     Yields:
         A single ``CsvParserOutput`` with both the raw text and a ``TableData``.
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering CSV/TSV extraction: %s", source_path)
-
     try:
         file_like.seek(0)
         raw = file_like.read()
@@ -129,6 +126,12 @@ def read_csv(
         metadata = SourceRecord()
         metadata.populate_from_path(path)
         metadata.detected_encoding = detected_encoding
+
+        logger.debug(
+            "Extracted delimited text: rows=%d, encoding=%s",
+            len(rows),
+            detected_encoding,
+        )
 
         yield CsvParserOutput(
             content=text,

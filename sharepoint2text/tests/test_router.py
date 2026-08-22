@@ -2,6 +2,8 @@ import logging
 import unittest
 from pathlib import Path
 
+import pytest
+
 from sharepoint2text.parsing.exceptions import ExtractionFileFormatNotSupportedError
 from sharepoint2text.parsing.extractors.archive_extractor import read_archive
 from sharepoint2text.parsing.extractors.csv_extractor import read_csv
@@ -330,3 +332,16 @@ def test_router_error_message_contains_path_and_extension():
         tc.assertIn("MIME: <unknown>", message)
     else:
         tc.fail("Expected ExtractionFileFormatNotSupportedError")
+
+
+def test_unsupported_type_is_raised_without_duplicate_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Leave unsupported-file reporting to the caller handling the exception."""
+    with (
+        caplog.at_level(logging.WARNING, logger="sharepoint2text.parsing.router"),
+        pytest.raises(ExtractionFileFormatNotSupportedError),
+    ):
+        _get_extractor("unsupported.misc")
+
+    assert not caplog.records

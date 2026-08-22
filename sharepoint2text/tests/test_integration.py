@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -53,6 +54,30 @@ def test_read_bytes_returns_a_normalized_document() -> None:
     assert isinstance(result, ExtractedDocument)
     assert result.format == "txt"
     assert result.full_text == "hello"
+
+
+def test_read_file_logs_one_debug_completion_without_info_noise(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Aggregate multi-document extraction into one detailed completion event."""
+    path = Path(__file__).parent / "resources" / "mails" / "basic_email.mbox"
+
+    with caplog.at_level(logging.DEBUG, logger="sharepoint2text"):
+        results = list(read_file(path))
+
+    api_records = [
+        record for record in caplog.records if record.name == "sharepoint2text._api"
+    ]
+    completion_messages = [
+        record.getMessage()
+        for record in api_records
+        if record.getMessage().startswith("Extracted file:")
+    ]
+
+    assert len(results) == 2
+    assert not [record for record in api_records if record.levelno == logging.INFO]
+    assert len(completion_messages) == 1
+    assert completion_messages[0].endswith("(2 documents)")
 
 
 def test_package_exports_only_the_normalized_api() -> None:

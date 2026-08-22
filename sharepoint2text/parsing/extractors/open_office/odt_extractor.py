@@ -278,13 +278,11 @@ def _get_text_recursive(element: ET.Element) -> str:
 
 def _extract_metadata_from_context(ctx: _OdtContext) -> OpenDocumentMetadata:
     """Extract metadata from cached meta.xml root."""
-    logger.debug("Extracting ODT metadata")
     return extract_odf_metadata(ctx.meta_root, NS)
 
 
 def _extract_paragraphs(body: ET.Element) -> list[OdtParagraph]:
     """Extract paragraphs from the document body."""
-    logger.debug("Extracting ODT paragraphs")
     paragraphs = []
 
     # Find all paragraphs (text:p) and headings (text:h)
@@ -324,7 +322,6 @@ def _extract_paragraphs(body: ET.Element) -> list[OdtParagraph]:
 
 def _extract_tables(body: ET.Element) -> list[OdtTable]:
     """Extract tables from the document body."""
-    logger.debug("Extracting ODT tables")
     tables = []
 
     for table in body.iter(_TABLE_TABLE_TAG):
@@ -344,7 +341,6 @@ def _extract_tables(body: ET.Element) -> list[OdtTable]:
 
 def _extract_hyperlinks(body: ET.Element) -> list[OdtHyperlink]:
     """Extract hyperlinks from the document."""
-    logger.debug("Extracting ODT hyperlinks")
     hyperlinks = []
 
     for link in body.iter(_TEXT_A_TAG):
@@ -358,7 +354,6 @@ def _extract_hyperlinks(body: ET.Element) -> list[OdtHyperlink]:
 
 def _extract_notes(body: ET.Element) -> tuple[list[OdtNote], list[OdtNote]]:
     """Extract footnotes and endnotes from the document."""
-    logger.debug("Extracting ODT notes")
     footnotes = []
     endnotes = []
 
@@ -387,7 +382,6 @@ def _extract_notes(body: ET.Element) -> tuple[list[OdtNote], list[OdtNote]]:
 
 def _extract_annotations(body: ET.Element) -> list[OpenDocumentAnnotation]:
     """Extract annotations/comments from the document."""
-    logger.debug("Extracting ODT annotations")
     annotations = []
 
     for annotation in body.iter(_OFFICE_ANNOTATION_TAG):
@@ -412,7 +406,6 @@ def _extract_annotations(body: ET.Element) -> list[OpenDocumentAnnotation]:
 
 def _extract_bookmarks(body: ET.Element) -> list[OdtBookmark]:
     """Extract bookmarks from the document."""
-    logger.debug("Extracting ODT bookmarks")
     bookmarks = []
 
     # Bookmark start elements
@@ -490,7 +483,6 @@ def _extract_images_from_context(
     2. Captioned: draw:frame > draw:text-box > text:p > draw:frame > draw:image
        (caption is the text content of the containing paragraph)
     """
-    logger.debug("Extracting ODT images")
     images: list[OpenDocumentImage] = []
     image_counter = 0
 
@@ -635,7 +627,6 @@ def _extract_headers_footers_from_context(
     ctx: _OdtContext,
 ) -> tuple[list[OdtHeaderFooter], list[OdtHeaderFooter]]:
     """Extract headers and footers from cached styles.xml root."""
-    logger.debug("Extracting ODT headers/footers")
     headers: list[OdtHeaderFooter] = []
     footers: list[OdtHeaderFooter] = []
 
@@ -682,7 +673,6 @@ def _extract_headers_footers_from_context(
 
 def _extract_styles_from_context(ctx: _OdtContext) -> list[str]:
     """Extract style names from cached content.xml and styles.xml roots."""
-    logger.debug("Extracting ODT styles")
     styles = set()
 
     # Extract from cached content.xml
@@ -735,7 +725,6 @@ def _append_full_text_from_element(elem: ET.Element, output: list[str]) -> None:
 
 def _extract_full_text(body: ET.Element) -> str:
     """Extract full text from the document body in reading order."""
-    logger.debug("Extracting ODT full text")
     all_text: list[str] = []
     _append_full_text_from_element(body, all_text)
     return "\n".join(all_text)
@@ -792,8 +781,6 @@ def read_odt(
         - ZIP file is opened once and all XML is cached
         - content.xml and styles.xml are parsed once and reused
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering ODT extraction: %s", source_path)
     try:
         file_like.seek(0)
         if is_odf_encrypted(file_like):
@@ -831,6 +818,13 @@ def read_odt(
         # Populate file metadata from path
         metadata.populate_from_path(path)
 
+        logger.debug(
+            "Extracted ODT: paragraphs=%d, tables=%d, images=%d",
+            len(paragraphs),
+            len(tables),
+            len(images),
+        )
+
         yield OdtParserOutput(
             metadata=metadata,
             paragraphs=paragraphs,
@@ -850,5 +844,3 @@ def read_odt(
         raise
     except (KeyError, ET.ParseError, OSError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract ODT file", cause=exc) from exc
-    finally:
-        logger.info("Leaving ODT extraction: %s", source_path)

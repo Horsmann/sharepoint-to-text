@@ -332,7 +332,7 @@ class _RtfParser:
                 raw_text_blocks=self.raw_text_blocks,
             )
         except (UnicodeDecodeError, ValueError, re.error) as e:
-            logger.error(f"RTF parsing failed: {e}")
+            logger.warning("RTF parsing failed; using plain-text fallback: %s", e)
             try:
                 text = self._decode_rtf()
                 plain = self._strip_rtf_simple(text)
@@ -569,7 +569,7 @@ class _RtfParser:
             )
 
         if self.images:
-            logger.debug(f"Extracted {len(self.images)} images from RTF")
+            logger.debug("Extracted RTF images: count=%d", len(self.images))
 
     def _extract_tables(self, text: str) -> None:
         """Extract tables from RTF."""
@@ -621,7 +621,7 @@ class _RtfParser:
             )
 
         if self.tables:
-            logger.debug(f"Extracted {len(self.tables)} tables from RTF")
+            logger.debug("Extracted RTF tables: count=%d", len(self.tables))
 
     def _save_table(
         self, rows: list[list[str]], start_pos: int, page_breaks: list[int], idx: int
@@ -870,10 +870,7 @@ def read_rtf(
     Args:
         ignore_images: If True, skip image extraction (not applicable for this format).
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering RTF extraction: %s", source_path)
     try:
-        logger.debug("Reading RTF file")
         file_like.seek(0)
         data = file_like.read()
 
@@ -886,5 +883,3 @@ def read_rtf(
         raise
     except (OSError, UnicodeDecodeError, ValueError, re.error) as exc:
         raise ExtractionFailedError("Failed to extract RTF file", cause=exc) from exc
-    finally:
-        logger.info("Leaving RTF extraction: %s", source_path)

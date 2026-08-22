@@ -112,10 +112,9 @@ def _detect_and_decode(content: bytes) -> tuple[str, str]:
     if best_match is not None:
         encoding = best_match.encoding
         logger.debug(
-            "Detected encoding: %s (confidence: %.2f, aliases: %s)",
+            "Detected text encoding: %s (coherence=%.2f%%)",
             encoding,
             best_match.percent_coherence,
-            best_match.encoding_aliases,
         )
         try:
             # Use the detected encoding
@@ -174,10 +173,7 @@ def read_plain_text(
         ...         print(f"Lines: {len(lines)}")
         ...         print(f"First line: {lines[0] if lines else '(empty)'}")
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering plain text extraction: %s", source_path)
     try:
-        logger.debug("Reading plain text file")
         file_like.seek(0)
 
         content = file_like.read()
@@ -199,5 +195,3 @@ def read_plain_text(
         raise ExtractionFailedError(
             "Failed to extract plain text file", cause=exc
         ) from exc
-    finally:
-        logger.info("Leaving plain text extraction: %s", source_path)

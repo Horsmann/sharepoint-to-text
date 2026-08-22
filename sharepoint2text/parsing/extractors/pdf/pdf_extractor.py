@@ -292,8 +292,6 @@ def read_pdf(
         ...             print(f"  Text: {page.text[:100]}...")
         ...             print(f"  Images: {len(page.images)}")
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering PDF extraction: %s", source_path)
     try:
         reader = _open_pdf_reader(file_like)
         if reader.is_encrypted:
@@ -332,7 +330,7 @@ def read_pdf(
         metadata.populate_from_path(path)
 
         logger.debug(
-            "Extracted PDF: %d pages, %d images",
+            "Extracted PDF: pages=%d, images=%d",
             len(reader.pages),
             total_images,
         )
@@ -352,8 +350,6 @@ def read_pdf(
         ) from exc
     except (DependencyError, OSError, ValueError, TypeError, KeyError) as exc:
         raise ExtractionFailedError("Failed to extract PDF file", cause=exc) from exc
-    finally:
-        logger.info("Leaving PDF extraction: %s", source_path)
 
 
 def _extract_image_bytes(page: PageLike, page_num: int) -> list[PdfImage]:
@@ -417,7 +413,7 @@ def _extract_image_bytes(page: PageLike, page_num: int) -> list[PdfImage]:
             image_data = _extract_image(obj, obj_name, image_index, page_num, caption)
             found_images.append(image_data)
         except (KeyError, TypeError, ValueError, NotImplementedError) as e:
-            logger.warning(
+            logger.debug(
                 "Failed to extract image [%s] [%d]: %s", obj_name, image_index, e
             )
 
@@ -564,7 +560,7 @@ def _extract_image(
     try:
         data = image_obj.get_data()
     except (KeyError, ValueError, TypeError, NotImplementedError) as e:
-        logger.warning("Failed to extract image data: %s", e)
+        logger.debug("Failed to extract PDF image data: %s", e)
         data = image_obj._data if hasattr(image_obj, "_data") else b""
 
     resolved_caption = caption or _extract_image_alt_text(image_obj)

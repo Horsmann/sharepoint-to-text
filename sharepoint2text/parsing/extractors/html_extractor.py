@@ -663,10 +663,7 @@ def read_html(
         ...         for heading in doc.headings:
         ...             print(f"  {heading['level']}: {heading['text']}")
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering HTML extraction: %s", source_path)
     try:
-        logger.debug("Reading HTML file")
         file_like.seek(0)
 
         content = file_like.read()
@@ -699,9 +696,9 @@ def read_html(
             parser = _HtmlTreeBuilder()
             parser.feed(html_text)
             root = parser.get_tree()
-        except (ValueError, RecursionError):
+        except (ValueError, RecursionError) as exc:
             # Last resort: return empty content
-            logger.warning("Failed to parse HTML content")
+            logger.warning("Failed to parse HTML; returning empty content: %s", exc)
             metadata = HtmlMetadata()
             metadata.populate_from_path(path)
             yield HtmlParserOutput(content="", metadata=metadata)
@@ -712,7 +709,7 @@ def read_html(
         text = extractor.extract(path)
 
         logger.debug(
-            "Extracted HTML: %d characters, %d tables, %d links",
+            "Extracted HTML: characters=%d, tables=%d, links=%d",
             len(text),
             len(extractor.tables),
             len(extractor.links),
@@ -729,5 +726,3 @@ def read_html(
         raise
     except (OSError, UnicodeDecodeError, LookupError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract HTML file", cause=exc) from exc
-    finally:
-        logger.info("Leaving HTML extraction: %s", source_path)

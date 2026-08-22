@@ -430,12 +430,11 @@ def _get_extractor(
     path_str = os.fspath(path)
     path_lower = path_str.lower()
     mime_type, _ = mimetypes.guess_type(path_lower)
-    logger.debug("Guessed MIME type: [%s]", mime_type)
 
     file_type = _resolve_file_type(path_str, force_plain_text=force_plain_text)
     if file_type is not None:
         if force_plain_text:
-            logger.info("Force plain text extraction for file: %s", path_str)
+            logger.debug("Forcing plain text extraction for file: %s", path_str)
         if _file_type_from_extension(path_lower):
             logger.debug(
                 "Detected file type: %s (extension) for file: %s", file_type, path_str
@@ -447,7 +446,6 @@ def _get_extractor(
                 mime_type,
                 path_str,
             )
-        logger.debug("Using extractor for file type: %s", file_type)
         extractor = _get_extractor_for_type(
             file_type,
             ignore_images=ignore_images,
@@ -465,7 +463,6 @@ def _get_extractor(
 
     mime_display = mime_type if mime_type is not None else "<unknown>"
     extension_display = extension if extension else "<none>"
-    logger.warning("Unsupported file type: %s (MIME: %s)", path_str, mime_type)
     raise ExtractionFileFormatNotSupportedError(
         "File type not supported for path "
         f"'{path_str}' (extension: {extension_display}, MIME: {mime_display})"

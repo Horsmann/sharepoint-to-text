@@ -971,7 +971,7 @@ def _extract_images_from_context(
                 )
             )
         except (KeyError, ValueError, OSError, UnicodeDecodeError) as e:
-            logger.debug(f"Image extraction failed for rel_id {rel_id} - {e}")
+            logger.debug("Failed to extract DOCX image %s: %s", rel_id, e)
             images.append(DocxImage(rel_id=rel_id, error=str(e)))
 
     return images
@@ -1037,8 +1037,6 @@ def read_docx(
         path: Optional path to the source file for metadata.
         ignore_images: If True, skip image extraction.
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering DOCX extraction: %s", source_path)
     try:
         file_like.seek(0)
         if is_ooxml_encrypted(file_like):
@@ -1075,7 +1073,7 @@ def read_docx(
             metadata.populate_from_path(path)
 
             logger.debug(
-                "Extracted DOCX: %d paragraphs, %d tables, %d images",
+                "Extracted DOCX: paragraphs=%d, tables=%d, images=%d",
                 len(paragraphs),
                 len(tables),
                 len(images),
@@ -1104,5 +1102,3 @@ def read_docx(
         raise
     except (KeyError, ET.ParseError, OSError, ValueError, UnicodeDecodeError) as exc:
         raise ExtractionFailedError("Failed to extract DOCX file", cause=exc) from exc
-    finally:
-        logger.info("Leaving DOCX extraction: %s", source_path)

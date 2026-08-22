@@ -198,7 +198,6 @@ def _format_sheet_as_text(headers: list[str], rows: list[list[str]]) -> str:
 
 def _read_content(file_like: io.BytesIO) -> list[XlsSheet]:
     """Read all sheets from XLS file and extract content."""
-    logger.debug("Reading content")
     file_like.seek(0)
     workbook = xlrd.open_workbook(
         file_contents=file_like.read(),
@@ -209,7 +208,6 @@ def _read_content(file_like: io.BytesIO) -> list[XlsSheet]:
 
     sheets = []
     for sheet in workbook.sheets():
-        logger.debug(f"Reading sheet: [{sheet.name}]")
 
         if sheet.nrows == 0:
             sheets.append(XlsSheet(name=sheet.name, data=[], text=""))
@@ -297,8 +295,6 @@ def read_xls(
     Args:
         ignore_images: If True, skip image extraction.
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering XLS extraction: %s", source_path)
     try:
         file_like.seek(0)
         if is_xls_encrypted(file_like):
@@ -309,6 +305,13 @@ def read_xls(
         metadata = _read_metadata(file_like)
         metadata.populate_from_path(path)
         images = [] if ignore_images else _extract_images_from_workbook(file_like)
+
+        logger.debug(
+            "Extracted XLS: sheets=%d, rows=%d, images=%d",
+            len(sheets),
+            sum(len(sheet.data) for sheet in sheets),
+            len(images),
+        )
 
         yield XlsParserOutput(
             metadata=metadata,
@@ -322,8 +325,6 @@ def read_xls(
         raise ExtractionLegacyMicrosoftParsingError(
             "Failed to extract XLS file", cause=exc
         ) from exc
-    finally:
-        logger.info("Leaving XLS extraction: %s", source_path)
 
 
 # =============================================================================
@@ -345,7 +346,7 @@ def _extract_images_from_workbook(file_like: io.BytesIO) -> list[XlsImage]:
                 return []
             data = ole.openstream("Workbook").read()
     except (OSError, IOError) as e:
-        logger.debug(f"Failed to read Workbook stream: {e}")
+        logger.debug("Failed to read XLS Workbook stream: %s", e)
         return []
 
     if len(data) < 25:

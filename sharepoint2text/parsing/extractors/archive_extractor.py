@@ -419,11 +419,6 @@ def _process_archive_entry(
 
     except (ExtractionError, OSError, ValueError, UnicodeDecodeError) as e:
         logger.warning("Failed to extract %s from archive: %s", filename, e)
-        # Log the error but continue processing other files in the archive
-        # This prevents one corrupted file from breaking the entire archive extraction
-        logger.debug(
-            "Extraction error details for %s: %s", filename, str(e), exc_info=True
-        )
 
 
 @contextmanager
@@ -622,12 +617,6 @@ def _extract_from_tar_optimized(
 
                 except (tarfile.TarError, OSError, ExtractionError) as e:
                     logger.warning("Failed to extract %s from TAR: %s", filename, e)
-                    logger.debug(
-                        "TAR extraction error details for %s: %s",
-                        filename,
-                        str(e),
-                        exc_info=True,
-                    )
                     continue
 
     except tarfile.TarError as e:
@@ -810,12 +799,6 @@ def _process_7z_files_sequential(
 
         except (FileNotFoundError, PermissionError, OSError, ExtractionError) as e:
             logger.warning("Failed to process %s from 7z: %s", filename, e)
-            logger.debug(
-                "7z processing error details for %s: %s",
-                filename,
-                str(e),
-                exc_info=True,
-            )
             continue
 
 
@@ -848,7 +831,6 @@ def read_archive(
         ...         print(f"Extracted: {content.get_metadata().filename}")
     """
     source_path = path or "<in-memory>"
-    logger.info("Entering archive extraction: %s", source_path)
     start_time = time.perf_counter()
 
     try:
@@ -859,7 +841,9 @@ def read_archive(
             raise ExtractionFailedError("Unable to detect archive type")
 
         logger.debug(
-            f"Detected archive type: {archive_type} in {time.perf_counter() - start_time:.3f}s"
+            "Detected %s archive in %.3fs",
+            archive_type,
+            time.perf_counter() - start_time,
         )
 
         # Route to optimized extractor
@@ -896,5 +880,4 @@ def read_archive(
         ) from exc
     finally:
         total_time = time.perf_counter() - start_time
-        logger.debug(f"Archive extraction completed in {total_time:.3f}s")
-        logger.info("Leaving archive extraction: %s", source_path)
+        logger.debug("Finished archive extraction: %s (%.3fs)", source_path, total_time)

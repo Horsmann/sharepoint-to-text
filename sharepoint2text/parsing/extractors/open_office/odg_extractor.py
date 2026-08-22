@@ -204,8 +204,6 @@ def read_odg(
     Args:
         ignore_images: If True, skip image extraction (not applicable for this format).
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering ODG extraction: %s", source_path)
     try:
         file_like.seek(0)
         if is_odf_encrypted(file_like):
@@ -233,10 +231,11 @@ def read_odg(
             ctx.close()
 
         metadata.populate_from_path(path)
+        logger.debug(
+            "Extracted ODG: characters=%d, images=%d", len(full_text), len(images)
+        )
         yield OdgParserOutput(metadata=metadata, full_text=full_text, images=images)
     except ExtractionError:
         raise
     except (KeyError, ET.ParseError, OSError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract ODG file", cause=exc) from exc
-    finally:
-        logger.info("Leaving ODG extraction: %s", source_path)

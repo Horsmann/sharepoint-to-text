@@ -241,8 +241,6 @@ def read_ppt(
         path: Optional path to the source file for metadata.
         ignore_images: If True, skip image extraction.
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering PPT extraction: %s", source_path)
     try:
         file_like.seek(0)
         file_like_binary: io.BytesIO = file_like  # type: ignore[assignment]
@@ -253,6 +251,11 @@ def read_ppt(
             file_like_binary, ignore_images=ignore_images
         )
         content.metadata.populate_from_path(path)
+        logger.debug(
+            "Extracted PPT: slides=%d, images=%d",
+            len(content.slides),
+            sum(len(slide.images) for slide in content.slides),
+        )
         yield content
     except ExtractionError:
         raise
@@ -260,8 +263,6 @@ def read_ppt(
         raise ExtractionLegacyMicrosoftParsingError(
             "Failed to extract PPT file", cause=exc
         ) from exc
-    finally:
-        logger.info("Leaving PPT extraction: %s", source_path)
 
 
 def _extract_ppt_content_structured(
@@ -348,7 +349,7 @@ def _extract_metadata(ole: olefile.OleFileIO) -> PptMetadata:
                 setattr(result, dst, int(val))
 
     except (OSError, AttributeError, TypeError, UnicodeDecodeError, ValueError) as e:
-        logger.debug(e)
+        logger.debug("Failed to extract PPT metadata: %s", e)
 
     return result
 
@@ -623,7 +624,7 @@ def _extract_images_from_pictures_stream(ole: olefile.OleFileIO) -> list[PptImag
     try:
         data = ole.openstream("Pictures").read()
     except (OSError, IOError) as e:
-        logger.debug(f"Failed to read Pictures stream: {e}")
+        logger.debug("Failed to read PPT Pictures stream: %s", e)
         return []
 
     if len(data) < 25:

@@ -223,7 +223,6 @@ def _get_text_recursive(element: ET.Element) -> str:
 
 def _extract_metadata(meta_root: ET.Element | None) -> OpenDocumentMetadata:
     """Extract metadata from meta.xml."""
-    logger.debug("Extracting ODS metadata")
     return extract_odf_metadata(meta_root, NS)
 
 
@@ -561,8 +560,6 @@ def read_ods(
         ...             for row in sheet.data[:5]:
         ...                 print(row)
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering ODS extraction: %s", source_path)
     try:
         file_like.seek(0)
         if is_odf_encrypted(file_like):
@@ -595,6 +592,13 @@ def read_ods(
         # Populate file metadata from path
         metadata.populate_from_path(path)
 
+        logger.debug(
+            "Extracted ODS: sheets=%d, rows=%d, images=%d",
+            len(sheets),
+            sum(len(sheet.data) for sheet in sheets),
+            sum(len(sheet.images) for sheet in sheets),
+        )
+
         yield OdsParserOutput(
             metadata=metadata,
             sheets=sheets,
@@ -603,5 +607,3 @@ def read_ods(
         raise
     except (KeyError, ET.ParseError, OSError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract ODS file", cause=exc) from exc
-    finally:
-        logger.info("Leaving ODS extraction: %s", source_path)

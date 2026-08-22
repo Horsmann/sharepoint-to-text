@@ -284,7 +284,7 @@ def read_many(
 
     # Track statistics for logging
     files_found = 0
-    files_extracted = 0
+    documents_extracted = 0
     files_skipped = 0
 
     logger.info(
@@ -328,7 +328,7 @@ def read_many(
                 include_attachments=include_attachments,
                 zip_bomb_limits=zip_bomb_limits,
             ):
-                files_extracted += 1
+                documents_extracted += 1
                 yield result
         except ExtractionError as e:
             logger.warning("Failed to extract %s: %s", file_path, e)
@@ -340,9 +340,10 @@ def read_many(
             continue
 
     logger.info(
-        "Batch extraction complete: %d files found, %d extracted, %d skipped",
+        "Batch extraction complete: files_found=%d, documents_extracted=%d, "
+        "files_skipped=%d",
         files_found,
-        files_extracted,
+        documents_extracted,
         files_skipped,
     )
 
@@ -421,7 +422,7 @@ def read_file(
                 actual_size=file_size,
             )
 
-    logger.info("Starting extraction: %s", path)
+    logger.debug("Extracting file: %s", path)
     extractor = _get_extractor(
         str(path),
         ignore_images=ignore_images,
@@ -433,9 +434,16 @@ def read_file(
             records = extractor(f, str(path))
             if _resolve_file_type(path, force_plain_text=force_plain_text) == "pdf":
                 records = _iterate_with_pypdf_limits(records, max_file_size)
+            documents_extracted = 0
             for result in _iterate_with_zip_bomb_limits(records, zip_bomb_limits):
-                logger.info("Extraction complete: %s", path)
+                documents_extracted += 1
                 yield _normalize_record(result)
+            logger.debug(
+                "Extracted file: %s (%d document%s)",
+                path,
+                documents_extracted,
+                "" if documents_extracted == 1 else "s",
+            )
         except ExtractionError:
             raise
         except (OSError, ValueError, TypeError, UnicodeDecodeError) as exc:
@@ -578,14 +586,21 @@ def read_bytes(
                 "Could not resolve extractor from provided extension/MIME type"
             )
 
-    logger.info("Starting in-memory extraction: %s", virtual_path)
+    logger.debug("Extracting in-memory file: %s", virtual_path)
     try:
         records = extractor(file_like, virtual_path)
         if resolved_file_type == "pdf":
             records = _iterate_with_pypdf_limits(records, max_file_size)
+        documents_extracted = 0
         for result in _iterate_with_zip_bomb_limits(records, zip_bomb_limits):
-            logger.info("In-memory extraction complete: %s", virtual_path)
+            documents_extracted += 1
             yield _normalize_record(result)
+        logger.debug(
+            "Extracted in-memory file: %s (%d document%s)",
+            virtual_path,
+            documents_extracted,
+            "" if documents_extracted == 1 else "s",
+        )
     except ExtractionError:
         raise
     except (OSError, ValueError, TypeError, UnicodeDecodeError) as exc:

@@ -582,8 +582,6 @@ def read_mbox_format_mail(
         First
         Second
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering MBOX extraction: %s", source_path)
     try:
         file_like.seek(0)
         message_count = 0
@@ -599,17 +597,10 @@ def read_mbox_format_mail(
                 m.metadata.populate_from_path(path)
 
             message_count += 1
-            logger.debug(
-                "Extracted message %d: subject=%s",
-                message_count,
-                m.subject[:50] if m.subject else "(no subject)",
-            )
             yield m
 
-        logger.debug("Extracted MBOX: %d messages", message_count)
+        logger.debug("Extracted MBOX: messages=%d", message_count)
     except ExtractionError:
         raise
     except (ValueError, TypeError, UnicodeDecodeError, OSError) as exc:
         raise ExtractionFailedError("Failed to extract MBOX file", cause=exc) from exc
-    finally:
-        logger.info("Leaving MBOX extraction: %s", source_path)

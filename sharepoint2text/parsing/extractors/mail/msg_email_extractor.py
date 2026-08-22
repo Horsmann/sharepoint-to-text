@@ -421,8 +421,6 @@ def read_msg_format_mail(
     Known Issues:
         - body_html uses the raw HTML body when detected
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering MSG extraction: %s", source_path)
     try:
         file_like.seek(0)
         msg = MsOxMessage(file_like)
@@ -479,10 +477,9 @@ def read_msg_format_mail(
         if path:
             content.metadata.populate_from_path(path)
 
+        logger.debug("Extracted MSG: attachments=%d", len(attachments))
         yield content
     except ExtractionError:
         raise
     except (ValueError, TypeError, AttributeError, OSError, UnicodeDecodeError) as exc:
         raise ExtractionFailedError("Failed to extract MSG file", cause=exc) from exc
-    finally:
-        logger.info("Leaving MSG extraction: %s", source_path)

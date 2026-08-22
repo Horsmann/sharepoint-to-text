@@ -1,9 +1,12 @@
 """Tests for the read_many() batch extraction function."""
 
+import logging
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 from sharepoint2text import (
     ExtractedDocument,
@@ -190,6 +193,30 @@ def test_read_many_empty_folder() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         results = list(read_many(tmpdir, suffixes=[".txt"]))
         tc.assertEqual(0, len(results))
+
+
+def test_read_many_logs_only_batch_lifecycle_at_info(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Keep INFO output bounded to one batch start and one batch summary."""
+    (tmp_path / "first.txt").write_text("first")
+    (tmp_path / "second.txt").write_text("second")
+
+    with caplog.at_level(logging.INFO, logger="sharepoint2text"):
+        results = list(read_many(tmp_path, suffixes=[".txt"]))
+
+    info_messages = [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno == logging.INFO and record.name.startswith("sharepoint2text")
+    ]
+
+    assert len(results) == 2
+    assert len(info_messages) == 2
+    assert info_messages[0].startswith("Starting batch extraction")
+    assert info_messages[1].endswith(
+        "files_found=2, documents_extracted=2, files_skipped=0"
+    )
 
 
 def test_read_many_no_matching_files() -> None:
