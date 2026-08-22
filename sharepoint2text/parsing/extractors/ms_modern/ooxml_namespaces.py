@@ -302,16 +302,3 @@ SKIP_TYPES = frozenset({"dt", "sldImg", "hdr"})
 
 # Table graphic data URI for PPTX
 TABLE_URI = "http://schemas.openxmlformats.org/drawingml/2006/table"
-
-# =============================================================================
-# XLSB parsing constants
-# =============================================================================
-
-# Record type for string shared strings table in XLSB
-XLSB_SST_ITEM_RECORD = 19
-
-# Datetime types for isinstance checking
-DATETIME_TYPES = (
-    int,
-    float,
-)  # Will be extended with actual datetime types in xlsx_extractor

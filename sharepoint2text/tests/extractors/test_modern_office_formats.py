@@ -770,112 +770,28 @@ def test_read_macro_enabled_xlsm() -> None:
 
 
 def test_read_xlsb() -> None:
-    """Test .xlsm (macro-enabled Excel) extraction - same structure as .xlsx."""
+    """Test that XLSB extraction preserves worksheets, rows, and cell positions."""
     path = "sharepoint2text/tests/resources/modern_ms/excel.xlsb"
     result: XlsxContent = next(
         read_xlsx(file_like=read_file_to_file_like(path=path), path=path)
     )
-    # Verify it extracts as XlsxContent (same as .xlsx)
-    tc.assertEqual(
-        """Sheet2
-A
-A1
-A2
-A3
-B
-Atable
-Btable
-Ctable
-Ytable
-Zparam
-Y
-X
-W
-XWtable
-Utable
-Stable
-S
-.
-H
-R
-P
-O
-B1
-B2
-B3
-POtable
-I1
-I2
-I3
-I4
-Itable
-I
-Ttable
-Dtable
-+
--
-Etable
-Q
-RQtable
-H1
-H2
-H3
-PPtable
-PP""",
-        result.get_full_text(),
-    )
+    tc.assertListEqual(["Sheet1", "Sheet2", "Sheet3"], [s.name for s in result.sheets])
+    tc.assertEqual(3, len(list(result.iterate_tables())))
 
-    tc.assertEqual(1, len(list(result.iterate_tables())))
-    sheet: XlsxSheet = list(result.iterate_tables())[0]
-    tc.assertListEqual(
-        [
-            ["A"],
-            ["A1"],
-            ["A2"],
-            ["A3"],
-            ["B"],
-            ["Atable"],
-            ["Btable"],
-            ["Ctable"],
-            ["Ytable"],
-            ["Zparam"],
-            ["Y"],
-            ["X"],
-            ["W"],
-            ["XWtable"],
-            ["Utable"],
-            ["Stable"],
-            ["S"],
-            ["."],
-            ["H"],
-            ["R"],
-            ["P"],
-            ["O"],
-            ["B1"],
-            ["B2"],
-            ["B3"],
-            ["POtable"],
-            ["I1"],
-            ["I2"],
-            ["I3"],
-            ["I4"],
-            ["Itable"],
-            ["I"],
-            ["Ttable"],
-            ["Dtable"],
-            ["+"],
-            ["-"],
-            ["Etable"],
-            ["Q"],
-            ["RQtable"],
-            ["H1"],
-            ["H2"],
-            ["H3"],
-            ["PPtable"],
-            ["PP"],
-        ],
-        sheet.data,
-    )
+    sheet: XlsxSheet = result.sheets[0]
+    tc.assertEqual(TableDim(rows=11, columns=52), sheet.get_dim())
+    tc.assertEqual("Atable", sheet.data[0][0])
+    tc.assertEqual("Btable", sheet.data[0][2])
+    tc.assertEqual("Zparam", sheet.data[0][18])
+    tc.assertEqual(1.01, sheet.data[1][18])
+    tc.assertEqual(1.0, sheet.data[2][2])
+    tc.assertListEqual([], result.sheets[1].data)
+    tc.assertListEqual([], result.sheets[2].data)
+
+    full_text = result.get_full_text()
+    tc.assertTrue(full_text.startswith("Sheet1\nAtable"))
+    tc.assertIn("Sheet2", full_text)
+    tc.assertIn("Sheet3", full_text)
 
 
 def test_read_xlsx__image_flag() -> None:

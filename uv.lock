@@ -1631,6 +1631,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pyxlsb"
+version = "1.0.10"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/3f/13/eebaeb7a40b062d1c6f7f91d09e73d30a69e33e4baa7cbe4b7658548b1cd/pyxlsb-1.0.10.tar.gz", hash = "sha256:8062d1ea8626d3f1980e8b1cfe91a4483747449242ecb61013bc2df85435f685", size = 22424, upload-time = "2022-10-14T19:17:47.308Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7e/92/345823838ae367c59b63e03aef9c331f485370f9df6d049256a61a28f06d/pyxlsb-1.0.10-py2.py3-none-any.whl", hash = "sha256:87c122a9a622e35ca5e741d2e541201d28af00fb46bec492cfa9586890b120b4", size = 23849, upload-time = "2022-10-14T19:17:46.079Z" },
+]
+
+[[package]]
 name = "pyyaml"
 version = "6.0.3"
 source = { registry = "https://pypi.org/simple" }
@@ -2126,6 +2135,7 @@ dependencies = [
     { name = "openpyxl" },
     { name = "pycryptodome" },
     { name = "pypdf" },
+    { name = "pyxlsb" },
     { name = "xlrd" },
 ]
 
@@ -2151,6 +2161,7 @@ requires-dist = [
     { name = "openpyxl", specifier = ">=3.1.5,<4" },
     { name = "pycryptodome", specifier = ">=3.23.0" },
     { name = "pypdf", specifier = ">=6.16.1,<7" },
+    { name = "pyxlsb", specifier = ">=1.0.10,<2" },
     { name = "xlrd", specifier = ">=2.0.2,<3" },
 ]
 
