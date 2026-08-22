@@ -9,6 +9,8 @@ legacy binary formats, plus PDF documents.
 import io
 import logging
 import sys
+import threading
+from contextlib import contextmanager
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Generator, Iterator, TypeVar
@@ -48,41 +50,67 @@ _PYPDF_DEFAULT_DECOMPRESSION_LIMIT = 75_000_000
 # ``sys.maxsize`` is the platform's ``ssize_t`` max, accepted by zlib.
 _PYPDF_NO_LIMIT = sys.maxsize
 
+_PYPDF_LIMIT_ATTRIBUTES = (
+    "ZLIB_MAX_OUTPUT_LENGTH",
+    "LZW_MAX_OUTPUT_LENGTH",
+    "RUN_LENGTH_MAX_OUTPUT_LENGTH",
+    "JBIG2_MAX_OUTPUT_LENGTH",
+    "MAX_DECLARED_STREAM_LENGTH",
+    "MAX_ARRAY_BASED_STREAM_OUTPUT_LENGTH",
+)
 
-def _configure_pypdf_limits(max_file_size: int) -> None:
-    """Adjust pypdf's internal decompression limits to match *max_file_size*.
+# pypdf exposes its limits as process-wide module globals. Serialize PDF
+# extraction while an override is active so concurrent calls cannot observe
+# another call's relaxed limits. An RLock keeps nested use in one thread safe.
+_PYPDF_LIMIT_LOCK = threading.RLock()
 
-    pypdf caps zlib/LZW/RunLength/JBIG2 output and declared stream lengths
-    at 75 MB.  When the caller raises (or disables) the sharepoint2text size
-    limit we must propagate that to pypdf, otherwise large but legitimate
-    PDFs still hit ``LimitReachedError``.
+
+def _pypdf_limit_target(max_file_size: int) -> int | None:
+    """Return the pypdf override required for one extraction call.
 
     Args:
-        max_file_size: The user-supplied limit in bytes.
-                       ``0`` means "no limit" – pypdf limits are disabled.
+        max_file_size: User-supplied input size limit in bytes. Zero disables
+            the limit.
+
+    Returns:
+        The process-wide pypdf limit to apply, or ``None`` to retain pypdf's
+        existing defaults.
+    """
+    if max_file_size == 0:
+        return _PYPDF_NO_LIMIT
+    if max_file_size > _PYPDF_DEFAULT_DECOMPRESSION_LIMIT:
+        return max_file_size
+    return None
+
+
+@contextmanager
+def _pypdf_limits_scope(max_file_size: int) -> Iterator[None]:
+    """Temporarily adjust and then restore pypdf decompression limits.
+
+    Args:
+        max_file_size: User-supplied input size limit in bytes. Zero disables
+            pypdf's decompression limits for the duration of this scope.
+
+    Yields:
+        Control while the per-call pypdf limits are active.
     """
     import pypdf.filters as _filters  # noqa: PLC0415
 
-    if max_file_size == 0:
-        # Disable all pypdf decompression limits.
-        target = _PYPDF_NO_LIMIT
-    elif max_file_size > _PYPDF_DEFAULT_DECOMPRESSION_LIMIT:
-        # Use the user's limit (compressed content can expand, so match it).
-        target = max_file_size
-    else:
-        # User limit is at or below pypdf's default – leave pypdf defaults.
-        return
-
-    for attr in (
-        "ZLIB_MAX_OUTPUT_LENGTH",
-        "LZW_MAX_OUTPUT_LENGTH",
-        "RUN_LENGTH_MAX_OUTPUT_LENGTH",
-        "JBIG2_MAX_OUTPUT_LENGTH",
-        "MAX_DECLARED_STREAM_LENGTH",
-        "MAX_ARRAY_BASED_STREAM_OUTPUT_LENGTH",
-    ):
-        if hasattr(_filters, attr):
-            setattr(_filters, attr, target)
+    target = _pypdf_limit_target(max_file_size)
+    with _PYPDF_LIMIT_LOCK:
+        original_limits = {
+            attribute: getattr(_filters, attribute)
+            for attribute in _PYPDF_LIMIT_ATTRIBUTES
+            if hasattr(_filters, attribute)
+        }
+        try:
+            if target is not None:
+                for attribute in original_limits:
+                    setattr(_filters, attribute, target)
+            yield
+        finally:
+            for attribute, original_limit in original_limits.items():
+                setattr(_filters, attribute, original_limit)
 
 
 try:
@@ -127,6 +155,33 @@ def _iterate_with_zip_bomb_limits(
         close = getattr(iterator, "close", None)
         if callable(close):
             with _zip_bomb_limits_scope(limits):
+                close()
+
+
+def _iterate_with_pypdf_limits(
+    iterator: Iterator[_T], max_file_size: int
+) -> Generator[_T, None, None]:
+    """Advance a PDF iterator under isolated pypdf limits.
+
+    Args:
+        iterator: Underlying PDF extractor iterator to advance.
+        max_file_size: Per-call limit used to configure pypdf.
+
+    Yields:
+        Values produced by the PDF extractor after restoring global limits.
+    """
+    try:
+        while True:
+            with _pypdf_limits_scope(max_file_size):
+                try:
+                    value = next(iterator)
+                except StopIteration:
+                    return
+            yield value
+    finally:
+        close = getattr(iterator, "close", None)
+        if callable(close):
+            with _pypdf_limits_scope(max_file_size):
                 close()
 
 
@@ -356,8 +411,6 @@ def read_file(
     _validate_zip_bomb_limits(zip_bomb_limits)
     path = Path(path)
 
-    _configure_pypdf_limits(max_file_size)
-
     # Check file size before reading
     if max_file_size > 0:
         file_size = path.stat().st_size
@@ -378,6 +431,8 @@ def read_file(
     with open(path, "rb") as f:
         try:
             records = extractor(f, str(path))
+            if _resolve_file_type(path, force_plain_text=force_plain_text) == "pdf":
+                records = _iterate_with_pypdf_limits(records, max_file_size)
             for result in _iterate_with_zip_bomb_limits(records, zip_bomb_limits):
                 logger.info("Extraction complete: %s", path)
                 yield _normalize_record(result)
@@ -445,8 +500,6 @@ def read_bytes(
     _validate_zip_bomb_limits(zip_bomb_limits)
     if not isinstance(data, (bytes, io.BytesIO)):
         raise TypeError("data must be bytes or io.BytesIO")
-
-    _configure_pypdf_limits(max_file_size)
 
     normalized_extension = extension.strip().lower() if extension else ""
     normalized_mime_type = mime_type.strip().lower() if mime_type else ""
@@ -528,6 +581,8 @@ def read_bytes(
     logger.info("Starting in-memory extraction: %s", virtual_path)
     try:
         records = extractor(file_like, virtual_path)
+        if resolved_file_type == "pdf":
+            records = _iterate_with_pypdf_limits(records, max_file_size)
         for result in _iterate_with_zip_bomb_limits(records, zip_bomb_limits):
             logger.info("In-memory extraction complete: %s", virtual_path)
             yield _normalize_record(result)
