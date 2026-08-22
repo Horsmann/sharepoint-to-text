@@ -228,6 +228,9 @@ with path.open("rb") as handle:
         print(email.subject)
 ```
 
+Mailbox results populate `EmailContent.attachments` by default, consistently
+with `.eml` and `.msg`; pass `include_attachments=False` to omit their payloads.
+
 ### PDF, HTML, EPUB, and plain text
 
 These formats also benefit from the concrete result objects:

@@ -351,6 +351,42 @@ def test_email__eml_format_with_attachment() -> None:
     tc.assertEqual(0, len(list(mail.iterate_tables())))
 
 
+def test_email__mbox_format_with_attachments() -> None:
+    """MBOX extraction should retain and recursively extract MIME attachments."""
+    eml_path = "sharepoint2text/tests/resources/mails/msg_with_attachment.eml"
+    eml_payload = read_file_to_file_like(path=eml_path).getvalue()
+    mbox_payload = (
+        b"From sender@example.com Wed Dec 31 12:32:42 2025\n" + eml_payload + b"\n"
+    )
+
+    mail = next(
+        read_mbox_format_mail(
+            file_like=io.BytesIO(mbox_payload),
+            path="mailbox.mbox",
+        )
+    )
+
+    tc.assertListEqual(
+        ["sample.pdf", "pptx_formula_image.pptx"],
+        [attachment.filename for attachment in mail.attachments],
+    )
+    tc.assertTrue(all(item.is_supported_mime_type for item in mail.attachments))
+    tc.assertTrue(all(item.data.tell() == 0 for item in mail.attachments))
+
+    extracted_attachments = list(mail.iterate_supported_attachments())
+    tc.assertEqual(2, len(extracted_attachments))
+    tc.assertIsInstance(extracted_attachments[0], PdfContent)
+    tc.assertIsInstance(extracted_attachments[1], PptxContent)
+
+    mail_without_attachments = next(
+        read_mbox_format_mail(
+            file_like=io.BytesIO(mbox_payload),
+            include_attachments=False,
+        )
+    )
+    tc.assertListEqual([], mail_without_attachments.attachments)
+
+
 def test_email__eml_format_missing_from_header_is_tolerated() -> None:
     payload = b"Subject: Missing From header\n\nBody"
     mail = next(read_eml_format_mail(file_like=io.BytesIO(payload)))

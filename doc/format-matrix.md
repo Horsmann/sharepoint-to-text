@@ -18,7 +18,7 @@ This document summarizes how `sharepoint-to-text` behaves by format family. It i
 
 ## Attachment Behavior
 
-### `.eml` and `.msg`
+### `.eml`, `.msg`, and `.mbox`
 
 - message metadata is extracted
 - body text is available through the email result
@@ -28,8 +28,7 @@ This document summarizes how `sharepoint-to-text` behaves by format family. It i
 ### `.mbox`
 
 - one extraction result is yielded per message
-- body and header extraction are supported
-- attachment handling is intentionally more limited than `.eml` and `.msg`
+- attachment extraction can be disabled with `include_attachments=False`
 
 ## Archive Behavior
 

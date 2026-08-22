@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   process files with unknown extensions as plain text
 - Remove README links to documentation files that do not exist
 - Document the minimal `EmailContent` attachment check and extraction iterator
+- Extract and recursively expose MIME attachments from `.mbox` messages
 
 ## [Released]
 

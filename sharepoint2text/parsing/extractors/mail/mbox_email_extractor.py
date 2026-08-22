@@ -28,24 +28,20 @@ Common mbox sources include:
 Dependencies
 ------------
 Python Standard Library:
-    - mailbox: Core mbox parsing and iteration
     - email: RFC 5322 message parsing
     - email.header: Encoded header word handling (RFC 2047)
     - email.utils: Address parsing and date handling
-    - tempfile: Temporary file creation for mbox processing
 
 No external dependencies required.
 
 Implementation Details
 ----------------------
-The Python mailbox module requires a filesystem path, not a file object.
-This necessitates writing the BytesIO contents to a temporary file before
-parsing. The temporary file is cleaned up after processing.
+The extractor scans the supplied binary stream for mbox separator lines and
+parses each RFC 5322 message with the standard-library email package. MIME
+attachments are decoded as each message is processed.
 
 Known Limitations
 -----------------
-- Requires temporary file creation (disk I/O overhead)
-- Attachments are not extracted (only body text)
 - "From " lines within message bodies may cause message boundary issues
   in poorly-formed mbox files (the "mboxrd" escaping is not handled)
 - Large mbox files may be slow due to sequential processing
@@ -98,9 +94,11 @@ from typing import Any, Generator
 from sharepoint2text.parsing.exceptions import ExtractionError, ExtractionFailedError
 from sharepoint2text.parsing.extractors.data_types import (
     EmailAddress,
+    EmailAttachment,
     EmailContent,
     EmailMetadata,
 )
+from sharepoint2text.parsing.mime_types import is_supported_mime_type
 
 logger = logging.getLogger(__name__)
 
@@ -389,7 +387,79 @@ def get_body_content(message: email.message.Message) -> tuple[str, str]:
     return body_plain, body_html
 
 
-def parse_email_message(message: email.message.Message) -> EmailContent:
+def _serialize_attachment_item(item: Any) -> bytes:
+    """Serialize one item from a multipart attachment payload.
+
+    Args:
+        item: Attached message, bytes, or text payload item.
+
+    Returns:
+        Serialized bytes for the payload item.
+    """
+    if isinstance(item, email.message.Message):
+        return item.as_bytes()
+    if isinstance(item, bytes):
+        return item
+    return str(item).encode("utf-8", errors="replace")
+
+
+def _get_attachment_payload(part: email.message.Message) -> bytes:
+    """Return decoded bytes for one MIME attachment part.
+
+    Args:
+        part: MIME message part representing an attachment.
+
+    Returns:
+        Decoded attachment bytes, or empty bytes when no payload is available.
+    """
+    decoded_payload = part.get_payload(decode=True)
+    if isinstance(decoded_payload, bytes):
+        return decoded_payload
+
+    raw_payload = part.get_payload()
+    if isinstance(raw_payload, list):
+        return b"\n".join(_serialize_attachment_item(item) for item in raw_payload)
+    if isinstance(raw_payload, str):
+        charset = part.get_content_charset() or "utf-8"
+        try:
+            return raw_payload.encode(charset, errors="replace")
+        except LookupError:
+            return raw_payload.encode("utf-8", errors="replace")
+    return b""
+
+
+def _extract_attachments(message: email.message.Message) -> list[EmailAttachment]:
+    """Extract MIME attachment metadata and payloads from an mbox message.
+
+    Args:
+        message: Parsed RFC 5322 message from an mbox mailbox.
+
+    Returns:
+        Attachments in MIME traversal order with rewound byte streams.
+    """
+    attachments: list[EmailAttachment] = []
+    for part in message.walk():
+        raw_filename = part.get_filename()
+        if part.get_content_disposition() != "attachment" and not raw_filename:
+            continue
+
+        filename = decode_header_value(raw_filename) or "attachment"
+        mime_type = part.get_content_type() or "application/octet-stream"
+        data = io.BytesIO(_get_attachment_payload(part))
+        attachments.append(
+            EmailAttachment(
+                filename=filename,
+                mime_type=mime_type,
+                data=data,
+                is_supported_mime_type=is_supported_mime_type(mime_type),
+            )
+        )
+    return attachments
+
+
+def parse_email_message(
+    message: email.message.Message, *, include_attachments: bool = True
+) -> EmailContent:
     """
     Parse an email.message.Message into an EmailContent dataclass.
 
@@ -399,6 +469,7 @@ def parse_email_message(message: email.message.Message) -> EmailContent:
 
     Args:
         message: Parsed email.message.Message object from mailbox iteration.
+        include_attachments: If True, extract MIME attachment payloads.
 
     Returns:
         EmailContent: Fully populated dataclass with all extracted data.
@@ -432,6 +503,7 @@ def parse_email_message(message: email.message.Message) -> EmailContent:
     to_cc = parse_email_addresses(message.get("Cc"))
     to_bcc = parse_email_addresses(message.get("Bcc"))
     reply_to = parse_email_addresses(message.get("Reply-To"))
+    attachments = _extract_attachments(message) if include_attachments else []
 
     return EmailContent(
         from_email=from_email,
@@ -443,6 +515,7 @@ def parse_email_message(message: email.message.Message) -> EmailContent:
         to_bcc=to_bcc,
         body_plain=body_plain,
         body_html=body_html,
+        attachments=attachments,
         metadata=metadata,
     )
 
@@ -467,6 +540,7 @@ def read_mbox_format_mail(
             file metadata (filename, extension, folder) in each returned
             EmailContent.metadata. Useful for batch processing and auditing.
         ignore_images: If True, skip image extraction (not applicable for this format).
+        include_attachments: If True, extract and store MIME attachment payloads.
 
     Yields:
         EmailContent: One object per message in the mbox. Order matches
@@ -511,13 +585,15 @@ def read_mbox_format_mail(
     source_path = path or "<in-memory>"
     logger.info("Entering MBOX extraction: %s", source_path)
     try:
-        _ = include_attachments
         file_like.seek(0)
         message_count = 0
         for msg_bytes in _iter_mbox_messages(file_like):
             # Parse message from bytes using standard library
             message = email.message_from_bytes(msg_bytes)
-            m = parse_email_message(message)
+            m = parse_email_message(
+                message,
+                include_attachments=include_attachments,
+            )
 
             if path:
                 m.metadata.populate_from_path(path)

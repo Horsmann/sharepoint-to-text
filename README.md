@@ -330,7 +330,7 @@ Important CLI rules:
 ### Email
 
 - `.eml`, `.msg`, `.mbox`
-- `.eml` and `.msg` can parse and expose supported attachments
+- All email formats can parse and expose supported attachments
 - `.mbox` yields one result per message
 
 ### Plain text and data-like formats
