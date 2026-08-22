@@ -477,8 +477,6 @@ Common exceptions:
 - `ExtractionFailedError`
 - `InvalidConfigurationError` (for `read_many` with conflicting options)
 
-If you are integrating this into a service, see [doc/integration-guide.md](doc/integration-guide.md) and [doc/troubleshooting.md](doc/troubleshooting.md).
-
 ## Serialization
 
 ```python
@@ -505,7 +503,6 @@ restored = ExtractionInterface.from_json(payload)
 - [doc/cli.md](doc/cli.md): complete CLI reference with examples
 - [doc/direct-extractors.md](doc/direct-extractors.md): call format-specific extractors directly and work with concrete result attributes
 - [doc/format-matrix.md](doc/format-matrix.md): per-format behavior, units, and caveats
-- [doc/improvements.md](doc/improvements.md): roadmap and improvement ideas
 - [CONTRIBUTING.md](CONTRIBUTING.md): contributor workflow
 - [CHANGELOG.md](CHANGELOG.md): release history
 
