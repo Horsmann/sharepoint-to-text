@@ -6,7 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
-## [1.2.1] - 2026-XX-XX
+
+## [Released]
+
+## [1.2.1] - 2026-08-22
 - Dependencies updated to latest version
 - Require `pyxlsb` for row-accurate `.xlsb` extraction instead of silently
   falling back to an incomplete shared-string representation
@@ -16,8 +19,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove README links to documentation files that do not exist
 - Document the minimal `EmailContent` attachment check and extraction iterator
 - Extract and recursively expose MIME attachments from `.mbox` messages
-
-## [Released]
 
 ## [1.2.0] - 2026-07-15
 ### Added
