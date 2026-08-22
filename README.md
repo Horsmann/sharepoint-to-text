@@ -129,14 +129,12 @@ from sharepoint2text import EmailContent
 # .eml and .msg return an EmailContent object
 email: EmailContent = next(sharepoint2text.read_file("message.msg"))
 
-print(email.subject)
-print(email.from_email.address)
-print([recipient.address for recipient in email.to_emails])
-print(email.get_full_text())
+if email.attachments:
+    print([attachment.filename for attachment in email.attachments])
 
 # Recursively extract text from supported attachments (docx, pdf, xlsx, ...)
 for attachment in email.iterate_supported_attachments(skip_failed=True):
-    print(attachment.get_metadata().file_path, attachment.get_full_text()[:200])
+    print(attachment.get_full_text())
 ```
 
 > `.mbox` files instead yield one `EmailContent` per message, so iterate them

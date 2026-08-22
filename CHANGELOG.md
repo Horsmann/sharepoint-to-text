@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Allow `read_many(..., extract_all_supported=True, force_plain_text=True)` to
   process files with unknown extensions as plain text
 - Remove README links to documentation files that do not exist
+- Document the minimal `EmailContent` attachment check and extraction iterator
 
 ## [Released]
 
