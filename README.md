@@ -30,7 +30,7 @@ uv sync --all-groups
 
 ## Quick Start
 
-### Extract a file
+### Read from disk
 
 ```python
 import sharepoint2text
@@ -40,7 +40,7 @@ print(document.full_text)
 print(document.source.path)
 ```
 
-### Extract in-memory data
+### Read from bytes
 
 ```python
 import sharepoint2text
@@ -53,22 +53,7 @@ print(document.full_text)
 
 `read_bytes` accepts either an `extension` or a `mime_type` routing hint.
 
-### Process structural units
-
-```python
-import sharepoint2text
-
-document = next(sharepoint2text.read_file("report.pdf", ignore_images=True))
-
-for unit in document.units:
-    print(unit.kind, unit.number, unit.title)
-    print(unit.text)
-```
-
-Typical units are pages, slides, sheets, chapters, messages, sections, or a
-single document unit.
-
-### Extract a folder
+### Read a folder
 
 ```python
 import sharepoint2text
@@ -82,6 +67,42 @@ for document in sharepoint2text.read_many(
 
 Use `extract_all_supported=True` instead of `suffixes` to process every
 supported file. Folder traversal is recursive by default.
+
+### Process structural units
+
+```python
+import sharepoint2text
+
+document = next(sharepoint2text.read_file("report.pdf"))
+
+for unit in document.units:
+    print(unit.kind, unit.number, unit.title)
+    print(unit.text)
+```
+
+Typical units are pages, slides, sheets, chapters, messages, sections, or a
+single document unit.
+
+### Read or disable images
+
+Image extraction is enabled by default. `iter_images()` yields images owned by
+structural units followed by document-level images:
+
+```python
+import sharepoint2text
+
+document = next(sharepoint2text.read_file("illustrated.docx"))
+
+for image in document.iter_images():
+    print(image.filename, image.media_type, len(image.data or b""))
+
+document_without_images = next(
+    sharepoint2text.read_file("illustrated.docx", ignore_images=True)
+)
+assert not list(document_without_images.iter_images())
+```
+
+`ignore_images=True` is also available on `read_bytes` and `read_many`.
 
 ## Public Data Model
 
@@ -175,9 +196,15 @@ the rest of a folder can continue.
 
 ## JSON and Markdown
 
-Serialization is centralized and independent of Python class names:
+Serialization is centralized and independent of Python class names. Use
+`document_to_dict` with the standard library's `json.dump` to write a readable
+file:
 
 ```python
+import json
+from pathlib import Path
+
+import sharepoint2text
 from sharepoint2text import (
     document_from_json,
     document_to_dict,
@@ -188,6 +215,9 @@ from sharepoint2text import (
 document = next(sharepoint2text.read_file("report.pdf"))
 
 mapping = document_to_dict(document)
+with Path("report.json").open("w", encoding="utf-8") as output_file:
+    json.dump(mapping, output_file, ensure_ascii=False, indent=2)
+
 payload = document_to_json(document)
 payload_with_binary = document_to_json(document, binary="base64")
 restored = document_from_json(payload_with_binary)
@@ -214,24 +244,91 @@ Every JSON envelope contains:
 }
 ```
 
-Binary data is omitted by default. Select `binary="base64"` explicitly to
-encode it. Decoding rejects unknown schema versions, malformed input, invalid
-base64, and cumulative binary data above 100 MiB by default. Use
-`max_binary_bytes` to impose a stricter boundary.
+The outer `schema` and `version` fields identify the wire format. `document`
+contains source and descriptive metadata, ordered content units, images,
+tables, annotations, attachments, and namespaced format-specific properties.
+An attachment's `extracted_document`, when present, is serialized recursively
+using the same document shape.
+
+Binary image and attachment data is omitted by default. Pass
+`binary="base64"` to `document_to_dict` or `document_to_json` to include it as
+base64 text. `document_to_json` returns compact JSON directly; use
+`document_to_dict` with `json.dump`, as above, when indentation or a file-like
+object is needed. For archives and `.mbox` inputs, serialize each yielded
+`ExtractedDocument` as its own envelope or put those envelopes in a JSON list.
+
+Decoding rejects unknown schema versions, malformed input, invalid base64, and
+cumulative binary data above 100 MiB by default. Use `max_binary_bytes` to
+impose a stricter boundary.
 
 ## Attachments
 
-Email attachment records are available through `document.attachments`:
+Email attachment records and their immutable byte payloads are available
+through `document.attachments`:
 
 ```python
+import sharepoint2text
+
 document = next(sharepoint2text.read_file("message.eml"))
 
-for attachment in document.attachments:
-    print(attachment.filename, attachment.media_type)
+if document.attachments:
+    for attachment in document.attachments:
+        print(
+            attachment.filename,
+            attachment.media_type,
+            len(attachment.data or b""),
+        )
+
+document_without_attachments = next(
+    sharepoint2text.read_file("message.eml", include_attachments=False)
+)
+assert not document_without_attachments.attachments
 ```
 
-Set `include_attachments=False` to omit attachment records and payloads.
-`.mbox` yields one `ExtractedDocument` per message.
+`include_attachments=False` is also available on `read_bytes` and `read_many`.
+
+### Recursively read mail attachments
+
+`.mbox` yields one `ExtractedDocument` per message. Attachments are retained as
+records but are not eagerly parsed, so feed `attachment.data` back into
+`read_bytes` to extract attached documents or attached email messages. The
+following depth-first loop handles attachments nested at any depth and skips
+only unsupported attachment formats:
+
+```python
+import sharepoint2text
+
+pending = list(sharepoint2text.read_file("mailbox.mbox"))
+
+while pending:
+    document = pending.pop()
+    print(document.source.filename, document.full_text)
+
+    if not document.attachments:
+        continue
+
+    for attachment in document.attachments:
+        print("attachment:", attachment.filename, attachment.media_type)
+        if attachment.data is None:
+            continue
+
+        try:
+            child_documents = list(
+                sharepoint2text.read_bytes(
+                    attachment.data,
+                    extension=attachment.filename,
+                    mime_type=attachment.media_type,
+                )
+            )
+        except sharepoint2text.ExtractionFileFormatNotSupportedError:
+            continue
+
+        pending.extend(child_documents)
+```
+
+Passing the complete attachment filename as `extension` preserves compound
+suffix routing such as `.tar.gz`; `mime_type` acts as a fallback. Other
+extraction failures are intentionally not suppressed by this example.
 
 ## Supported Formats
 
