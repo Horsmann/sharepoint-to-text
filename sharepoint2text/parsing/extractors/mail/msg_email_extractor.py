@@ -108,7 +108,7 @@ from msg_parser import MsOxMessage  # type: ignore[import-untyped]
 from olefile import OleFileIO  # type: ignore[import-untyped]
 
 from sharepoint2text.parsing.exceptions import ExtractionError, ExtractionFailedError
-from sharepoint2text.parsing.extractors.data_types import (
+from sharepoint2text.parsing.extractors._legacy_types import (
     EmailAddress,
     EmailAttachment,
     EmailContent,

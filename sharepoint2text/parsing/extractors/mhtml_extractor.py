@@ -89,7 +89,7 @@ from email.message import Message
 from typing import Any, Generator, Optional
 
 from sharepoint2text.parsing.exceptions import ExtractionError, ExtractionFailedError
-from sharepoint2text.parsing.extractors.data_types import HtmlContent, HtmlMetadata
+from sharepoint2text.parsing.extractors._legacy_types import HtmlContent, HtmlMetadata
 from sharepoint2text.parsing.extractors.html_extractor import read_html
 
 logger = logging.getLogger(__name__)

@@ -1,5 +1,3 @@
-"""PDF content extraction."""
+"""Internal PDF extraction implementation."""
 
-from sharepoint2text.parsing.extractors.pdf.pdf_extractor import read_pdf
-
-__all__ = ["read_pdf"]
+__all__: list[str] = []

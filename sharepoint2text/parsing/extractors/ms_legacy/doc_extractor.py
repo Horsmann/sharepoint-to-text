@@ -123,7 +123,7 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFileEncryptedError,
     ExtractionLegacyMicrosoftParsingError,
 )
-from sharepoint2text.parsing.extractors.data_types import (
+from sharepoint2text.parsing.extractors._legacy_types import (
     DocContent,
     DocImage,
     DocMetadata,

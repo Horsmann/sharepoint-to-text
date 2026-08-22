@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from sharepoint2text import (
+    ExtractedDocument,
     InvalidConfigurationError,
     read_many,
 )
@@ -17,15 +18,9 @@ tc.maxDiff = None
 RESOURCES_PATH = Path("sharepoint2text/tests/resources")
 
 
-def _has_extraction_interface(obj: Any) -> bool:
-    """Check if an object implements the ExtractionInterface protocol."""
-    return (
-        hasattr(obj, "get_metadata")
-        and hasattr(obj, "get_full_text")
-        and hasattr(obj, "iterate_units")
-        and callable(obj.get_metadata)
-        and callable(obj.get_full_text)
-    )
+def _is_normalized_document(obj: Any) -> bool:
+    """Return whether an object is a normalized public extraction result."""
+    return isinstance(obj, ExtractedDocument)
 
 
 def test_read_many_with_specific_suffixes() -> None:
@@ -42,13 +37,12 @@ def test_read_many_with_specific_suffixes() -> None:
     tc.assertGreater(len(results), 0)
     for result in results:
         tc.assertTrue(
-            _has_extraction_interface(result),
-            f"Result should implement ExtractionInterface: {type(result)}",
+            _is_normalized_document(result),
+            f"Result should be an ExtractedDocument: {type(result)}",
         )
-        metadata = result.get_metadata()
         tc.assertTrue(
-            metadata.file_path is not None and metadata.file_path.endswith(".txt"),
-            f"Expected .txt file, got: {metadata.file_path}",
+            result.source.path is not None and result.source.path.endswith(".txt"),
+            f"Expected .txt file, got: {result.source.path}",
         )
 
 
@@ -64,8 +58,7 @@ def test_read_many_with_multiple_suffixes() -> None:
 
     tc.assertGreater(len(results), 0)
     for result in results:
-        metadata = result.get_metadata()
-        file_path = metadata.file_path or ""
+        file_path = result.source.path or ""
         tc.assertTrue(
             file_path.endswith(".docx") or file_path.endswith(".xlsx"),
             f"Expected .docx or .xlsx file, got: {file_path}",
@@ -85,8 +78,8 @@ def test_read_many_extract_all_supported() -> None:
     tc.assertGreater(len(results), 0)
     for result in results:
         tc.assertTrue(
-            _has_extraction_interface(result),
-            f"Result should implement ExtractionInterface: {type(result)}",
+            _is_normalized_document(result),
+            f"Result should be an ExtractedDocument: {type(result)}",
         )
 
 
@@ -145,7 +138,7 @@ def test_read_many_non_recursive() -> None:
             read_many(tmpdir_path, suffixes=[".txt"], recursive=False)
         )
         tc.assertEqual(len(results_non_recursive), 1)
-        tc.assertIn("root content", results_non_recursive[0].get_full_text())
+        tc.assertIn("root content", results_non_recursive[0].full_text)
 
         # Recursive should find both
         results_recursive = list(
@@ -212,7 +205,7 @@ def test_read_many_ignores_unsupported_in_extract_all_mode() -> None:
 
         # Should only extract the .txt file
         tc.assertEqual(len(results), 1)
-        tc.assertIn("supported content", results[0].get_full_text())
+        tc.assertIn("supported content", results[0].full_text)
 
 
 def test_read_many_force_plain_text_extracts_unknown_extensions() -> None:
@@ -230,7 +223,7 @@ def test_read_many_force_plain_text_extracts_unknown_extensions() -> None:
         )
 
         tc.assertEqual(1, len(results))
-        tc.assertEqual("unknown plain-text content", results[0].get_full_text())
+        tc.assertEqual("unknown plain-text content", results[0].full_text)
 
 
 def test_read_many_with_path_object() -> None:
@@ -276,7 +269,7 @@ def test_read_many_continues_on_extraction_error(monkeypatch: Any) -> None:
             return original_read_file(path, **kwargs)
 
         monkeypatch.setattr(
-            "sharepoint2text.read_file",
+            "sharepoint2text._api.read_file",
             patched_read_file,
         )
 
@@ -318,5 +311,5 @@ def test_read_many_with_ignore_images() -> None:
 
     # Check that no images were extracted
     for result in results:
-        images = list(result.iterate_images())
+        images = list(result.iter_images())
         tc.assertEqual(len(images), 0, "Images should be ignored")

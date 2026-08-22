@@ -113,7 +113,7 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
     ExtractionFileEncryptedError,
 )
-from sharepoint2text.parsing.extractors.data_types import (
+from sharepoint2text.parsing.extractors._legacy_types import (
     OdpContent,
     OdpSlide,
     OpenDocumentAnnotation,

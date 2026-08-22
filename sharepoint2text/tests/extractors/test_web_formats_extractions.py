@@ -7,9 +7,7 @@ from unittest import TestCase
 from sharepoint2text.parsing.exceptions import (
     ExtractionFileEncryptedError,
 )
-from sharepoint2text.parsing.extractors.archive_extractor import read_archive
-from sharepoint2text.parsing.extractors.csv_extractor import read_csv
-from sharepoint2text.parsing.extractors.data_types import (
+from sharepoint2text.parsing.extractors._legacy_types import (
     EmailContent,
     EpubContent,
     EpubUnitMetadata,
@@ -18,6 +16,8 @@ from sharepoint2text.parsing.extractors.data_types import (
     HtmlUnitMetadata,
     TableDim,
 )
+from sharepoint2text.parsing.extractors.archive_extractor import read_archive
+from sharepoint2text.parsing.extractors.csv_extractor import read_csv
 from sharepoint2text.parsing.extractors.epub_extractor import read_epub
 from sharepoint2text.parsing.extractors.html_extractor import read_html
 from sharepoint2text.parsing.extractors.mail.mbox_email_extractor import (

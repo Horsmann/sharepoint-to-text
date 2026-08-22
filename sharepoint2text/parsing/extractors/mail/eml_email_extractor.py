@@ -75,7 +75,7 @@ from typing import Any, Generator
 from mailparser import parse_from_bytes  # type: ignore[import-untyped]
 
 from sharepoint2text.parsing.exceptions import ExtractionError, ExtractionFailedError
-from sharepoint2text.parsing.extractors.data_types import (
+from sharepoint2text.parsing.extractors._legacy_types import (
     EmailAddress,
     EmailAttachment,
     EmailContent,

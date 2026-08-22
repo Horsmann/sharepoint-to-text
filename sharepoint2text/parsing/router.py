@@ -5,7 +5,7 @@ import os
 from typing import Any, BinaryIO, Callable, Generator, cast
 
 from sharepoint2text.parsing.exceptions import ExtractionFileFormatNotSupportedError
-from sharepoint2text.parsing.extractors.data_types import ExtractionInterface
+from sharepoint2text.parsing.extractors._legacy_types import ExtractionInterface
 from sharepoint2text.parsing.mime_types import MIME_TYPE_MAPPING
 
 logger = logging.getLogger(__name__)
@@ -252,7 +252,7 @@ def _load_registered_extractor(extractor_key: str) -> Any:
             )
 
 
-def _get_extractor(
+def _get_extractor_for_type(
     file_type: str,
     ignore_images: bool = False,
     include_attachments: bool = True,
@@ -340,7 +340,7 @@ def _resolve_file_type(
 ) -> str | None:
     """Resolve a path or filename to an internal file-type key.
 
-    Detection order mirrors ``get_extractor()`` so callers can make routing
+    Detection order mirrors ``_get_extractor()`` so callers can make routing
     decisions without duplicating extension and MIME lookup logic.
 
     Args:
@@ -396,7 +396,7 @@ def is_supported_file(path: str | os.PathLike[str]) -> bool:
     return bool(mime_type and mime_type in MIME_TYPE_MAPPING)
 
 
-def get_extractor(
+def _get_extractor(
     path: str | os.PathLike[str],
     ignore_images: bool = False,
     force_plain_text: bool = False,
@@ -445,7 +445,7 @@ def get_extractor(
                 path_str,
             )
         logger.debug("Using extractor for file type: %s", file_type)
-        extractor = _get_extractor(
+        extractor = _get_extractor_for_type(
             file_type,
             ignore_images=ignore_images,
             include_attachments=include_attachments,

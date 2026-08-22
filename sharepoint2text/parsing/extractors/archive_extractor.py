@@ -57,7 +57,7 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFileEncryptedError,
     ExtractionFileTooLargeError,
 )
-from sharepoint2text.parsing.extractors.data_types import ExtractionInterface
+from sharepoint2text.parsing.extractors._legacy_types import ExtractionInterface
 from sharepoint2text.parsing.extractors.util.sevenzip import (
     Bad7zFile,
     FileInfo,
@@ -198,9 +198,9 @@ def configure_archive_extraction(
 @lru_cache(maxsize=1)
 def _get_router_functions() -> Tuple[Callable, Callable]:
     """Get cached router functions to avoid repeated imports."""
-    from sharepoint2text.parsing.router import get_extractor, is_supported_file
+    from sharepoint2text.parsing.router import _get_extractor, is_supported_file
 
-    return is_supported_file, get_extractor
+    return is_supported_file, _get_extractor
 
 
 @lru_cache(maxsize=CACHE_SIZE)
@@ -215,8 +215,10 @@ def _get_file_extractor_cached(
     filename: str, ignore_images: bool
 ) -> Callable[..., Any]:
     """Cached version of extractor retrieval."""
-    _, get_extractor = _get_router_functions()
-    extractor: Callable[..., Any] = get_extractor(filename, ignore_images=ignore_images)
+    _, _get_extractor = _get_router_functions()
+    extractor: Callable[..., Any] = _get_extractor(
+        filename, ignore_images=ignore_images
+    )
     return extractor
 
 

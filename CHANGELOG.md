@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Replace all format-specific public extraction records with eight slotted,
+  format-neutral dataclasses headed by `ExtractedDocument`.
+- Make `read_file`, `read_bytes`, and `read_many` return normalized documents
+  for every supported format.
+- Make CLI JSON output use the deterministic, explicitly versioned v2 schema.
+
+### Added
+- Add centralized dict/JSON codecs with opt-in base64 payloads, bounded binary
+  decoding, and schema validation.
+- Add Markdown rendering for normalized documents.
+
+### Removed
+- Remove the version-1 result types, direct format-reader exports, conversion
+  adapters, class-name-based public serialization, and their module paths.
+
 ## [Released]
 
 ## [1.2.1] - 2026-08-22

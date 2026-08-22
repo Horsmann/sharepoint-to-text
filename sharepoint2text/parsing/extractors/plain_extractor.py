@@ -79,7 +79,7 @@ from typing import Any, Generator
 from charset_normalizer import from_bytes
 
 from sharepoint2text.parsing.exceptions import ExtractionError, ExtractionFailedError
-from sharepoint2text.parsing.extractors.data_types import (
+from sharepoint2text.parsing.extractors._legacy_types import (
     FileMetadataInterface,
     PlainTextContent,
 )

@@ -5,15 +5,17 @@ import itertools
 import json
 import os
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import Iterator, Sequence, TextIO
 
 import sharepoint2text
-from sharepoint2text.parsing.extractors.data_types import (
-    EmailContent,
-    ExtractionInterface,
+from sharepoint2text.parsing.models import (
+    BinaryMode,
+    ExtractedDocument,
+    JsonValue,
+    document_to_dict,
 )
-from sharepoint2text.parsing.extractors.serialization import serialize_extraction
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -113,124 +115,113 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _serialize_results(
-    results: list[ExtractionInterface], *, include_binary: bool
-) -> list[dict]:
-    """Serialize extraction results for ``--json`` output.
+    results: list[ExtractedDocument], *, include_binary: bool
+) -> list[dict[str, JsonValue]]:
+    """Serialize documents for ``--json`` output.
 
-    Always returns a list so output shape is stable regardless of result
-    cardinality (single file, archives, mbox, etc.).
+    Args:
+        results: Normalized documents to encode.
+        include_binary: Encode binary payloads as base64 when true.
+
+    Returns:
+        Version-2 schema envelopes in source order.
     """
-    return [
-        serialize_extraction(result, include_binary=include_binary)
-        for result in results
-    ]
+    binary: BinaryMode = "base64" if include_binary else "omit"
+    return [document_to_dict(result, binary=binary) for result in results]
 
 
 def _serialize_unit_results(
-    results: list[ExtractionInterface],
-    *,
-    include_binary: bool,
-    include_email_attachments: bool = False,
-) -> list[dict]:
-    """Serialize per-unit output for ``--json-unit`` mode.
+    results: list[ExtractedDocument], *, include_binary: bool
+) -> list[dict[str, JsonValue]]:
+    """Serialize one version-2 document envelope per content unit.
 
-    Returns a flat ``list[dict]`` with one dictionary per extracted unit.
-    Each entry includes the unit content, unit_metadata, and file_metadata.
+    Args:
+        results: Normalized documents whose units should be emitted.
+        include_binary: Encode binary payloads as base64 when true.
+
+    Returns:
+        Version-2 schema envelopes containing exactly one unit each.
     """
-    serialized_units = []
+    binary: BinaryMode = "base64" if include_binary else "omit"
+    serialized_units: list[dict[str, JsonValue]] = []
     for result in results:
-        file_metadata = serialize_extraction(
-            result.get_metadata(), include_binary=False
-        )
-        for extraction in _iter_result_tree(
-            result, include_email_attachments=include_email_attachments
-        ):
-            for unit in extraction.iterate_units():
-                unit_dict = serialize_extraction(unit, include_binary=include_binary)
-                unit_dict["unit_metadata"] = serialize_extraction(
-                    unit.get_metadata(), include_binary=False
-                )
-                unit_dict["file_metadata"] = file_metadata
-                serialized_units.append(unit_dict)
+        for unit in result.units:
+            unit_document = replace(
+                result,
+                units=[unit],
+                document_images=[],
+                document_tables=[],
+                document_annotations=[],
+                attachments=[],
+            )
+            serialized_units.append(document_to_dict(unit_document, binary=binary))
     return serialized_units
 
 
-def _serialize_full_text(results: list[ExtractionInterface]) -> str:
-    """Join ``get_full_text()`` from all results using blank-line separators."""
-    return "\n\n".join(result.get_full_text().rstrip() for result in results).rstrip()
+def _serialize_full_text(results: list[ExtractedDocument]) -> str:
+    """Join normalized document text using blank-line separators.
 
+    Args:
+        results: Normalized documents to render.
 
-def _expand_email_results(
-    results: list[ExtractionInterface],
-) -> list[ExtractionInterface]:
-    """Expand email results with any supported extracted attachments."""
-    expanded: list[ExtractionInterface] = []
-    for result in results:
-        expanded.extend(_iter_result_tree(result, include_email_attachments=True))
-    return expanded
-
-
-def _iter_result_tree(
-    result: ExtractionInterface, *, include_email_attachments: bool
-) -> Iterator[ExtractionInterface]:
-    """Yield a root result and optionally nested supported email attachments."""
-    yield result
-    if not include_email_attachments or not isinstance(result, EmailContent):
-        return
-    for attachment in result.iterate_supported_attachments():
-        yield from _iter_result_tree(attachment, include_email_attachments=True)
-
-
-def _strip_email_attachments(results: list[ExtractionInterface]) -> None:
-    """Remove parsed attachment metadata/payloads from email results in-place."""
-    for result in results:
-        if isinstance(result, EmailContent):
-            result.attachments = []
-
-
-def _iter_expanded_results(
-    results: Iterator[ExtractionInterface], *, include_email_attachments: bool
-) -> Iterator[ExtractionInterface]:
-    for result in results:
-        yield from _iter_result_tree(
-            result, include_email_attachments=include_email_attachments
-        )
+    Returns:
+        Combined plain text with trailing whitespace removed.
+    """
+    return "\n\n".join(result.full_text.rstrip() for result in results).rstrip()
 
 
 def _iter_serialized_results(
-    results: Iterator[ExtractionInterface], *, include_binary: bool
-) -> Iterator[dict]:
+    results: Iterator[ExtractedDocument], *, include_binary: bool
+) -> Iterator[dict[str, JsonValue]]:
+    """Yield version-2 document envelopes.
+
+    Args:
+        results: Normalized documents to encode.
+        include_binary: Encode binary payloads as base64 when true.
+
+    Yields:
+        Version-2 schema envelopes in source order.
+    """
+    binary: BinaryMode = "base64" if include_binary else "omit"
     for result in results:
-        yield serialize_extraction(result, include_binary=include_binary)
+        yield document_to_dict(result, binary=binary)
 
 
 def _iter_serialized_unit_results(
-    results: Iterator[ExtractionInterface],
-    *,
-    include_binary: bool,
-    include_email_attachments: bool = False,
-) -> Iterator[dict]:
-    """Yield serialized unit dictionaries including metadata.
+    results: Iterator[ExtractedDocument], *, include_binary: bool
+) -> Iterator[dict[str, JsonValue]]:
+    """Yield one version-2 document envelope per content unit.
 
-    Each yielded dict contains the unit content plus unit_metadata and file_metadata.
+    Args:
+        results: Normalized documents whose units should be emitted.
+        include_binary: Encode binary payloads as base64 when true.
+
+    Yields:
+        Version-2 schema envelopes containing exactly one unit each.
     """
+    binary: BinaryMode = "base64" if include_binary else "omit"
     for result in results:
-        file_metadata = serialize_extraction(
-            result.get_metadata(), include_binary=False
-        )
-        for extraction in _iter_result_tree(
-            result, include_email_attachments=include_email_attachments
-        ):
-            for unit in extraction.iterate_units():
-                unit_dict = serialize_extraction(unit, include_binary=include_binary)
-                unit_dict["unit_metadata"] = serialize_extraction(
-                    unit.get_metadata(), include_binary=False
-                )
-                unit_dict["file_metadata"] = file_metadata
-                yield unit_dict
+        for unit in result.units:
+            unit_document = replace(
+                result,
+                units=[unit],
+                document_images=[],
+                document_tables=[],
+                document_annotations=[],
+                attachments=[],
+            )
+            yield document_to_dict(unit_document, binary=binary)
 
 
-def _write_json_array(items: Iterator[dict], output_stream: TextIO) -> None:
+def _write_json_array(
+    items: Iterator[dict[str, JsonValue]], output_stream: TextIO
+) -> None:
+    """Write JSON objects as one streaming array.
+
+    Args:
+        items: JSON-compatible objects to write.
+        output_stream: Text stream receiving the array.
+    """
     output_stream.write("[")
     first = True
     for item in items:
@@ -245,13 +236,19 @@ def _write_json_array(items: Iterator[dict], output_stream: TextIO) -> None:
 
 
 def _write_full_text(
-    results: Iterator[ExtractionInterface], output_stream: TextIO
+    results: Iterator[ExtractedDocument], output_stream: TextIO
 ) -> None:
+    """Write normalized document text with blank-line separators.
+
+    Args:
+        results: Normalized documents to render.
+        output_stream: Text stream receiving the output.
+    """
     first = True
     for result in results:
         if not first:
             output_stream.write("\n\n")
-        output_stream.write(result.get_full_text().rstrip())
+        output_stream.write(result.full_text.rstrip())
         first = False
     output_stream.write("\n")
 
@@ -294,7 +291,7 @@ def _compute_output_path(
 
 
 def _write_single_result_to_file(
-    result: ExtractionInterface,
+    result: ExtractedDocument,
     output_path: Path,
     args: argparse.Namespace,
 ) -> None:
@@ -312,42 +309,15 @@ def _write_single_result_to_file(
         if args.json or args.json_unit:
             include_binary = bool(args.include_images)
             if args.json_unit:
-                # Write units as JSON array with metadata
-                file_metadata = serialize_extraction(
-                    result.get_metadata(), include_binary=False
+                payload = _serialize_unit_results(
+                    [result], include_binary=include_binary
                 )
-                payload = []
-                for unit in result.iterate_units():
-                    unit_dict = serialize_extraction(
-                        unit, include_binary=include_binary
-                    )
-                    unit_dict["unit_metadata"] = serialize_extraction(
-                        unit.get_metadata(), include_binary=False
-                    )
-                    unit_dict["file_metadata"] = file_metadata
-                    payload.append(unit_dict)
             else:
-                # Write full extraction as JSON (wrapped in array for consistency)
-                expanded = list(
-                    _iter_result_tree(
-                        result, include_email_attachments=not args.no_attachments
-                    )
-                )
-                payload = [
-                    serialize_extraction(r, include_binary=include_binary)
-                    for r in expanded
-                ]
+                payload = _serialize_results([result], include_binary=include_binary)
             json.dump(payload, f, indent=4)
             f.write("\n")
         else:
-            # Write plain text
-            expanded = list(
-                _iter_result_tree(
-                    result, include_email_attachments=not args.no_attachments
-                )
-            )
-            text_parts = [r.get_full_text().rstrip() for r in expanded]
-            f.write("\n\n".join(text_parts))
+            f.write(result.full_text.rstrip())
             f.write("\n")
 
 
@@ -390,12 +360,9 @@ def _process_folder_to_folder(
         include_attachments=not args.no_attachments,
         recursive=not args.no_recursive,
     ):
-        # Get the source file path from metadata
-        metadata = result.get_metadata()
-        source_path_str = metadata.file_path
+        source_path_str = result.source.path
         if not source_path_str:
-            # Fallback to filename if full path not available
-            source_path_str = metadata.filename or "unknown"
+            source_path_str = result.source.filename or "unknown"
 
         source_path = Path(source_path_str)
 
@@ -426,7 +393,7 @@ def _parse_suffixes(suffixes_str: str) -> list[str]:
 
 def _get_file_results(
     args: argparse.Namespace, max_file_size_bytes: int
-) -> Iterator[ExtractionInterface]:
+) -> Iterator[ExtractedDocument]:
     """Get extraction results for a single file."""
     file_path = Path(args.file)
     if not file_path.exists():
@@ -451,7 +418,7 @@ def _get_file_results(
 
 def _get_folder_results(
     args: argparse.Namespace, max_file_size_bytes: int
-) -> Iterator[ExtractionInterface]:
+) -> Iterator[ExtractedDocument]:
     """Get extraction results for a folder."""
     folder_path = Path(args.folder)
     if not folder_path.exists():
@@ -588,26 +555,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                     _iter_serialized_unit_results(
                         results,
                         include_binary=include_binary,
-                        include_email_attachments=not args.no_attachments,
                     )
                     if args.json_unit
                     else _iter_serialized_results(
-                        _iter_expanded_results(
-                            results,
-                            include_email_attachments=not args.no_attachments,
-                        ),
+                        results,
                         include_binary=include_binary,
                     )
                 )
                 _write_json_array(payload_items, output_stream)
             else:
-                _write_full_text(
-                    _iter_expanded_results(
-                        results,
-                        include_email_attachments=not args.no_attachments,
-                    ),
-                    output_stream,
-                )
+                _write_full_text(results, output_stream)
         finally:
             if output_file is not None:
                 output_file.close()

@@ -12,11 +12,11 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFileTooLargeError,
     ExtractionZipBombError,
 )
-from sharepoint2text.parsing.extractors.archive_extractor import read_archive
-from sharepoint2text.parsing.extractors.data_types import (
+from sharepoint2text.parsing.extractors._legacy_types import (
     EpubContent,
     PlainTextContent,
 )
+from sharepoint2text.parsing.extractors.archive_extractor import read_archive
 from sharepoint2text.parsing.extractors.util.sevenzip import FileInfo
 from sharepoint2text.tests.extractors.utils import (
     read_file_to_file_like,

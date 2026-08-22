@@ -100,7 +100,7 @@ from html.parser import HTMLParser
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
 from sharepoint2text.parsing.exceptions import ExtractionError, ExtractionFailedError
-from sharepoint2text.parsing.extractors.data_types import (
+from sharepoint2text.parsing.extractors._legacy_types import (
     HtmlContent,
     HtmlMetadata,
 )

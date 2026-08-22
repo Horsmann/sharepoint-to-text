@@ -1,7 +1,7 @@
 import logging
 from unittest import TestCase
 
-from sharepoint2text.parsing.extractors.data_types import (
+from sharepoint2text.parsing.extractors._legacy_types import (
     PlainTextContent,
     PlainUnitMetadata,
 )

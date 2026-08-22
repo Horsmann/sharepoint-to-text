@@ -22,7 +22,7 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFileEncryptedError,
     ExtractionLegacyMicrosoftParsingError,
 )
-from sharepoint2text.parsing.extractors.data_types import (
+from sharepoint2text.parsing.extractors._legacy_types import (
     PPT_TEXT_TYPE_BODY,
     PPT_TEXT_TYPE_CENTER_BODY,
     PPT_TEXT_TYPE_CENTER_TITLE,
