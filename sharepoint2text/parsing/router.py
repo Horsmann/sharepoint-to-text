@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 _ATTACHMENT_AWARE_FILE_TYPES = frozenset({"msg", "eml", "mbox"})
 _ARCHIVE_FILE_TYPES = frozenset({"zip", "tar", "tgz", "tbz2", "txz", "7z"})
+_ATTACHMENT_OPTION_FILE_TYPES = _ATTACHMENT_AWARE_FILE_TYPES | _ARCHIVE_FILE_TYPES
 
 # Mapping from file type identifiers to allowlisted extractor keys.
 # Format: file_type -> extractor_key
@@ -268,6 +269,8 @@ def _get_extractor_for_type(
     Args:
         file_type: File type identifier (e.g., "docx", "pdf", "xlsx").
         ignore_images: If True, skip image extraction for supported formats.
+        include_attachments: If False, omit email attachments, including from
+            emails contained in archives.
 
     Returns:
         Callable extractor function that accepts (binary stream, path) arguments.
@@ -284,12 +287,12 @@ def _get_extractor_for_type(
     extractor = cast(ExtractorFunction, _load_registered_extractor(extractor_key))
 
     if ignore_images or (
-        file_type in _ATTACHMENT_AWARE_FILE_TYPES and not include_attachments
+        file_type in _ATTACHMENT_OPTION_FILE_TYPES and not include_attachments
     ):
         partial_kwargs: dict[str, Any] = {}
         if ignore_images:
             partial_kwargs["ignore_images"] = True
-        if file_type in _ATTACHMENT_AWARE_FILE_TYPES and not include_attachments:
+        if file_type in _ATTACHMENT_OPTION_FILE_TYPES and not include_attachments:
             partial_kwargs["include_attachments"] = False
         return cast(ExtractorFunction, functools.partial(extractor, **partial_kwargs))
     return extractor

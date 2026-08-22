@@ -295,7 +295,7 @@ def read_many(
     )
 
     # Iterate through all files matching the glob pattern
-    for file_path_str in glob_module.glob(glob_path, recursive=recursive):
+    for file_path_str in glob_module.iglob(glob_path, recursive=recursive):
         file_path = Path(file_path_str)
 
         # Skip directories
@@ -313,8 +313,8 @@ def read_many(
                 continue
         else:
             # Check against provided suffixes
-            file_suffix = file_path.suffix.lower()
-            if file_suffix not in normalized_suffixes:
+            path_lower = str(file_path).lower()
+            if not any(path_lower.endswith(suffix) for suffix in normalized_suffixes):
                 files_skipped += 1
                 continue
 

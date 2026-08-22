@@ -65,6 +65,20 @@ def test_read_many_with_multiple_suffixes() -> None:
         )
 
 
+def test_read_many_matches_compound_archive_suffix() -> None:
+    """Match a compressed TAR when its complete compound suffix is requested."""
+    results = list(
+        read_many(
+            RESOURCES_PATH / "archives",
+            suffixes=[".tar.gz"],
+            recursive=False,
+        )
+    )
+
+    tc.assertEqual(1, len(results))
+    tc.assertIn("test_archive.tar.gz!/", results[0].source.path or "")
+
+
 def test_read_many_extract_all_supported() -> None:
     """read_many with extract_all_supported should extract all supported files."""
     results = list(
@@ -293,6 +307,24 @@ def test_read_many_case_insensitive_suffix_matching() -> None:
 
         # Should find all three files
         tc.assertEqual(3, len(results))
+
+
+def test_read_many_enumerates_folder_lazily(monkeypatch: Any) -> None:
+    """Use lazy glob iteration instead of materializing every folder path."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir_path = Path(tmpdir)
+        (tmpdir_path / "document.txt").write_text("content")
+
+        def reject_eager_glob(*args: Any, **kwargs: Any) -> list[str]:
+            """Fail if read_many calls the eager glob implementation."""
+            raise AssertionError("read_many must not materialize glob results")
+
+        monkeypatch.setattr("glob.glob", reject_eager_glob)
+
+        results = list(read_many(tmpdir_path, suffixes=[".txt"]))
+
+    tc.assertEqual(1, len(results))
+    tc.assertEqual("content", results[0].full_text)
 
 
 def test_read_many_with_ignore_images() -> None:

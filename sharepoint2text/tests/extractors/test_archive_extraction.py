@@ -3,10 +3,12 @@ import logging
 import stat
 import tarfile
 import zipfile
+from pathlib import Path
 from typing import Any, List
 from unittest import TestCase
 
 import sharepoint2text.parsing.extractors.archive_extractor as archive_module
+from sharepoint2text import read_bytes
 from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
     ExtractionFileTooLargeError,
@@ -112,6 +114,27 @@ def test_tar_archive_entry_limit() -> None:
         archive_module.MAX_TAR_ENTRIES = original_limit
 
 
+def test_tar_archive_entry_limit_counts_directories() -> None:
+    """Count non-regular TAR headers toward the archive entry limit."""
+    original_limit = archive_module.MAX_TAR_ENTRIES
+    archive_module.MAX_TAR_ENTRIES = 1
+    tar_buffer = std_io.BytesIO()
+
+    try:
+        with tarfile.open(fileobj=tar_buffer, mode="w:gz") as tf:
+            for directory_name in ("first/", "second/"):
+                directory = tarfile.TarInfo(directory_name)
+                directory.type = tarfile.DIRTYPE
+                tf.addfile(directory)
+        tar_buffer.seek(0)
+
+        with tc.assertRaises(ExtractionFailedError) as error:
+            list(read_archive(tar_buffer, path="directories.tar.gz"))
+        tc.assertIn("too many entries", str(error.exception))
+    finally:
+        archive_module.MAX_TAR_ENTRIES = original_limit
+
+
 def test_read_7zip_archive() -> None:
     """Test TAR archive extraction."""
     path = "sharepoint2text/tests/resources/archives/test_archive.7z"
@@ -176,6 +199,45 @@ def test_read_tar_gz_archive() -> None:
     result = results[0]
     tc.assertIsInstance(result, PlainTextParserOutput)
     tc.assertIn("This is a test document", result.get_full_text())
+
+
+def test_tar_member_is_not_subject_to_legacy_fifty_megabyte_cap(
+    monkeypatch: Any,
+) -> None:
+    """Use TAR safety limits instead of the obsolete generic member cutoff."""
+    monkeypatch.setattr(
+        archive_module,
+        "MAX_ARCHIVE_FILE_SIZE",
+        1,
+        raising=False,
+    )
+    tar_buffer = tar_bytes_to_file_like({"document.txt": b"complete content"})
+
+    results = list(read_archive(tar_buffer, path="complete.tar"))
+
+    tc.assertEqual(1, len(results))
+    tc.assertEqual("complete content", results[0].get_full_text())
+
+
+def test_archived_email_honors_include_attachments_false() -> None:
+    """Propagate attachment exclusion through an archive member extractor."""
+    eml_payload = Path(
+        "sharepoint2text/tests/resources/mails/msg_with_attachment.eml"
+    ).read_bytes()
+    zip_buffer = std_io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_STORED) as zf:
+        zf.writestr("message.eml", eml_payload)
+
+    documents = list(
+        read_bytes(
+            zip_buffer.getvalue(),
+            extension=".zip",
+            include_attachments=False,
+        )
+    )
+
+    tc.assertEqual(1, len(documents))
+    tc.assertListEqual([], documents[0].attachments)
 
 
 def test_archive_skips_nested_archives() -> None:
