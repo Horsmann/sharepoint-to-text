@@ -17,6 +17,7 @@ from sharepoint2text.parsing.extractors.util.zip_bomb import (
 )
 from sharepoint2text.parsing.models import (
     BinaryMode,
+    ContentUnit,
     ExtractedDocument,
     JsonValue,
     document_to_dict,
@@ -36,7 +37,7 @@ or --json-unit for the stable version-2 JSON schema."""
 _CLI_EPILOG = """\
 examples:
   sharepoint2text --file report.pdf
-  sharepoint2text --file report.pdf --json --include-images
+  sharepoint2text --file report.pdf --json --include-binary
   sharepoint2text --folder ./documents --suffixes .docx,.pdf
   sharepoint2text --folder ./documents --output ./extracted
 
@@ -234,7 +235,7 @@ def _add_json_output_arguments(group: argparse._ArgumentGroup) -> None:
         action="store_true",
         help=(
             "Write a JSON array with one version-2 extraction envelope per "
-            "document. Binary payloads are omitted unless --include-images is set."
+            "document. Binary payloads are omitted unless --include-binary is set."
         ),
     )
     output_group.add_argument(
@@ -244,7 +245,7 @@ def _add_json_output_arguments(group: argparse._ArgumentGroup) -> None:
         action="store_true",
         help=(
             "Write a JSON array with one version-2 extraction envelope per "
-            "content unit. Binary payloads are omitted unless --include-images is set."
+            "content unit. Binary payloads are omitted unless --include-binary is set."
         ),
     )
 
@@ -275,24 +276,26 @@ def _add_extraction_arguments(parser: argparse.ArgumentParser) -> None:
         parser: Parser that receives the extraction options.
     """
     group = parser.add_argument_group("extraction options")
-    _add_image_extraction_argument(group)
+    _add_binary_extraction_argument(group)
     _add_attachment_extraction_argument(group)
 
 
-def _add_image_extraction_argument(group: argparse._ArgumentGroup) -> None:
-    """Add the image-extraction option.
+def _add_binary_extraction_argument(group: argparse._ArgumentGroup) -> None:
+    """Add the binary-payload extraction option.
 
     Args:
-        group: Argument group that receives the image option.
+        group: Argument group that receives the binary-payload option.
     """
     group.add_argument(
         "-i",
+        "--include-binary",
         "--include-images",
-        dest="include_images",
+        dest="include_binary",
         action="store_true",
         help=(
-            "Extract supported images and encode their bytes as base64. Requires "
-            "--json or --json-unit and can increase processing time and output size."
+            "Extract images and encode image and attachment payloads as base64. "
+            "Requires --json or --json-unit and can increase processing time and "
+            "output size. --include-images is retained as a compatibility alias."
         ),
     )
 
@@ -397,16 +400,24 @@ def _serialize_unit_results(
     serialized_units: list[dict[str, JsonValue]] = []
     for result in results:
         for unit in result.units:
-            unit_document = replace(
-                result,
-                units=[unit],
-                document_images=[],
-                document_tables=[],
-                document_annotations=[],
-                attachments=[],
-            )
+            unit_document = _document_for_unit(result, unit)
             serialized_units.append(document_to_dict(unit_document, binary=binary))
     return serialized_units
+
+
+def _document_for_unit(
+    document: ExtractedDocument, unit: ContentUnit
+) -> ExtractedDocument:
+    """Return a self-contained document containing one selected unit.
+
+    Args:
+        document: Parent document whose document-level records are retained.
+        unit: Single content unit to place in the returned document.
+
+    Returns:
+        A shallow copy containing only ``unit`` in its unit collection.
+    """
+    return replace(document, units=[unit])
 
 
 def _serialize_full_text(results: list[ExtractedDocument]) -> str:
@@ -453,14 +464,7 @@ def _iter_serialized_unit_results(
     binary: BinaryMode = "base64" if include_binary else "omit"
     for result in results:
         for unit in result.units:
-            unit_document = replace(
-                result,
-                units=[unit],
-                document_images=[],
-                document_tables=[],
-                document_annotations=[],
-                attachments=[],
-            )
+            unit_document = _document_for_unit(result, unit)
             yield document_to_dict(unit_document, binary=binary)
 
 
@@ -541,35 +545,61 @@ def _compute_output_path(
     return output_folder / output_name
 
 
-def _write_single_result_to_file(
-    result: ExtractedDocument,
+def _write_results_to_file(
+    results: list[ExtractedDocument],
     output_path: Path,
     args: argparse.Namespace,
 ) -> None:
-    """Write a single extraction result to a file.
+    """Write every document from one source to a single output file.
 
     Args:
-        result: The extraction result to write.
+        results: Documents yielded from one source, in source order.
         output_path: The path to write to.
         args: CLI arguments for formatting options.
+
+    Raises:
+        ValueError: If ``results`` is empty.
     """
+    if not results:
+        raise ValueError("Cannot write an empty extraction result group")
+
     # Ensure parent directories exist
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     with open(output_path, "w", encoding="utf-8") as f:
         if args.json or args.json_unit:
-            include_binary = bool(args.include_images)
+            include_binary = bool(args.include_binary)
             if args.json_unit:
                 payload = _serialize_unit_results(
-                    [result], include_binary=include_binary
+                    results, include_binary=include_binary
                 )
             else:
-                payload = _serialize_results([result], include_binary=include_binary)
+                payload = _serialize_results(results, include_binary=include_binary)
             json.dump(payload, f, indent=4)
             f.write("\n")
         else:
-            f.write(result.full_text.rstrip())
+            f.write(_serialize_full_text(results))
             f.write("\n")
+
+
+def _group_results_by_source(
+    results: Iterator[ExtractedDocument],
+) -> Iterator[tuple[Path, list[ExtractedDocument]]]:
+    """Group adjacent extraction documents that came from the same source.
+
+    Args:
+        results: Documents yielded in source order by ``read_many``.
+
+    Yields:
+        Source paths paired with all documents yielded from that source.
+    """
+
+    def source_path(document: ExtractedDocument) -> Path:
+        value = document.source.path or document.source.filename or "unknown"
+        return Path(value)
+
+    for path, grouped_results in itertools.groupby(results, key=source_path):
+        yield path, list(grouped_results)
 
 
 def _process_folder_to_folder(
@@ -601,30 +631,24 @@ def _process_folder_to_folder(
             raise ValueError("--suffixes must contain at least one valid suffix")
         extract_all_supported = False
 
-    # Use read_many but process each result individually
-    for result in sharepoint2text.read_many(
+    results = sharepoint2text.read_many(
         input_folder,
         suffixes=suffixes,
         extract_all_supported=extract_all_supported,
         max_file_size=max_file_size_bytes,
-        ignore_images=not args.include_images,
+        ignore_images=not args.include_binary,
         include_attachments=not args.no_attachments,
         recursive=not args.no_recursive,
         zip_bomb_limits=_build_zip_bomb_limits(args.zip_bomb_limit_multiplier),
-    ):
-        source_path_str = result.source.path
-        if not source_path_str:
-            source_path_str = result.source.filename or "unknown"
-
-        source_path = Path(source_path_str)
-
+    )
+    for source_path, source_results in _group_results_by_source(results):
         # Compute output path
         output_path = _compute_output_path(
             source_path, input_folder, output_folder, extension
         )
 
-        # Write the result
-        _write_single_result_to_file(result, output_path, args)
+        # Write every document yielded from the current source together.
+        _write_results_to_file(source_results, output_path, args)
         files_written += 1
         print(f"Extracted: {source_path} -> {output_path}", file=sys.stderr)
 
@@ -662,7 +686,7 @@ def _get_file_results(
         sharepoint2text.read_file(
             args.file,
             max_file_size=max_file_size_bytes,
-            ignore_images=not args.include_images,
+            ignore_images=not args.include_binary,
             include_attachments=not args.no_attachments,
             zip_bomb_limits=_build_zip_bomb_limits(args.zip_bomb_limit_multiplier),
         )
@@ -694,7 +718,7 @@ def _get_folder_results(
             suffixes=suffixes,
             extract_all_supported=extract_all_supported,
             max_file_size=max_file_size_bytes,
-            ignore_images=not args.include_images,
+            ignore_images=not args.include_binary,
             include_attachments=not args.no_attachments,
             recursive=not args.no_recursive,
             zip_bomb_limits=_build_zip_bomb_limits(args.zip_bomb_limit_multiplier),
@@ -711,8 +735,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     Returns:
         ``0`` on success, ``1`` on validation/extraction/serialization errors.
-        Parser-driven early exits (for example ``--help`` / ``--version``) return
-        the exit code produced by ``argparse``.
+        Parser-driven early exits return the code produced by ``argparse``; invalid
+        command syntax uses ``2``.
     """
     parser = _build_parser()
     try:
@@ -730,8 +754,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     try:
-        if args.include_images and not (args.json or args.json_unit):
-            raise ValueError("--include-images requires --json or --json-unit")
+        if args.include_binary and not (args.json or args.json_unit):
+            raise ValueError("--include-binary requires --json or --json-unit")
         if args.max_file_size_mb < 0:
             raise ValueError("--max-file-size-mb must be >= 0")
         if args.suffixes and not args.folder:
@@ -804,7 +828,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             results = itertools.chain([first_result], results)
 
             if args.json or args.json_unit:
-                include_binary = bool(args.include_images)
+                include_binary = bool(args.include_binary)
                 payload_items = (
                     _iter_serialized_unit_results(
                         results,
@@ -832,6 +856,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         RuntimeError,
         OSError,
         TypeError,
+        sharepoint2text.ExtractionError,
     ) as exc:
         print(f"sharepoint2text: {exc}", file=sys.stderr)
         return 1

@@ -356,15 +356,19 @@ sharepoint2text --file document.docx
 # Version-2 JSON; binary payloads omitted
 sharepoint2text --file document.docx --json
 
-# One version-2 envelope per unit
+# One self-contained version-2 envelope per unit
 sharepoint2text --file report.pdf --json-unit
 
-# Include image payloads as base64
-sharepoint2text --file report.pdf --json --include-images
+# Include image and attachment payloads as base64
+sharepoint2text --file report.pdf --json --include-binary
 
 # Folder extraction
 sharepoint2text --folder ./docs --suffixes .docx,.pdf --output ./extracted/
 ```
+
+Mirrored folder output writes one output file per input source. When an input
+such as `.mbox` yields multiple documents, they are kept together in that
+file. `--include-images` remains available as an alias for `--include-binary`.
 
 See [doc/cli.md](doc/cli.md) for the complete option reference.
 

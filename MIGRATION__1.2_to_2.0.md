@@ -305,8 +305,8 @@ Plain-text CLI usage remains broadly similar. JSON consumers must be updated:
 - `--json-unit` emits one complete version-2 envelope containing one unit,
   rather than a raw unit object with separate `unit_metadata` and
   `file_metadata` keys;
-- `--include-images` controls base64 encoding of binary image and attachment
-  payloads;
+- `--include-binary` controls base64 encoding of binary image and attachment
+  payloads; `--include-images` remains available as a compatibility alias;
 - attachments remain records on their parent document and are not recursively
   emitted as additional documents;
 - `--no-attachments` omits attachment records and payloads.

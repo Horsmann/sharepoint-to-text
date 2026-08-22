@@ -14,18 +14,32 @@ from sharepoint2text.cli import (
     _build_zip_bomb_limits,
     _parse_zip_bomb_limit_multiplier,
     _serialize_results,
+    _serialize_unit_results,
     main,
 )
 from sharepoint2text.parsing.extractors.util.zip_bomb import (
     DEFAULT_ZIP_BOMB_LIMITS,
 )
-from sharepoint2text.parsing.models import document_to_dict
+from sharepoint2text.parsing.models import (
+    Annotation,
+    Attachment,
+    ContentUnit,
+    ExtractedDocument,
+    ImageAsset,
+    Table,
+    document_to_dict,
+)
 
 PLAIN_PATH = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
 IMAGE_PDF_PATH = Path("sharepoint2text/tests/resources/pdf/multi_image.pdf").resolve()
 EMAIL_PATH = Path(
     "sharepoint2text/tests/resources/mails/msg_with_attachment.eml"
 ).resolve()
+ENCRYPTED_PDF_PATH = Path(
+    "sharepoint2text/tests/resources/legacy_ms/password_protected/"
+    "pdf-password-protected-pw123.pdf"
+).resolve()
+MAILBOX_FOLDER = Path("sharepoint2text/tests/resources/mails").resolve()
 
 EXPECTED_CLI_OPTIONS = {
     "-h",
@@ -46,6 +60,7 @@ EXPECTED_CLI_OPTIONS = {
     "-o",
     "--output",
     "-i",
+    "--include-binary",
     "--include-images",
     "-n",
     "--no-attachments",
@@ -84,6 +99,7 @@ def test_cli_help_explains_modes_constraints_and_defaults() -> None:
     assert "extraction options:" in help_text
     assert "resource limits:" in help_text
     assert "Requires --json or --json-unit" in help_text
+    assert "image and attachment payloads" in help_text
     assert "new extensionless path" in help_text
     assert "preserves subdirectories" in help_text
     assert "default: 100" in help_text
@@ -149,6 +165,37 @@ def test_cli_json_unit_emits_one_v2_envelope_per_unit(capsys: Any) -> None:
     assert all(_body(item)["source"]["filename"] == "plain.txt" for item in payload)
 
 
+def test_json_unit_preserves_document_level_content() -> None:
+    """Verify every self-contained unit envelope retains parent-level records."""
+    document = ExtractedDocument(
+        format="test",
+        units=[ContentUnit(number=1, kind="document", text="body")],
+        document_images=[ImageAsset(number=1, filename="image.png")],
+        document_tables=[Table(rows=[["cell"]])],
+        document_annotations=[Annotation(kind="note", text="context")],
+        attachments=[Attachment(filename="attachment.txt")],
+    )
+
+    payload = _serialize_unit_results([document], include_binary=False)
+    body = _body(payload[0])
+
+    assert body["document_images"]
+    assert body["document_tables"]
+    assert body["document_annotations"]
+    assert body["attachments"]
+
+
+def test_cli_json_unit_retains_email_attachments(capsys: Any) -> None:
+    """Verify streaming unit output retains parent email attachment records."""
+    exit_code = main(["--json-unit", "--file", str(EMAIL_PATH)])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert payload
+    assert all(_body(envelope)["attachments"] for envelope in payload)
+
+
 def test_cli_omits_binary_payloads_by_default(capsys: Any) -> None:
     """Verify image data is neither extracted nor serialized by default."""
     exit_code = main(["--json", "--file", str(IMAGE_PDF_PATH)])
@@ -169,6 +216,17 @@ def test_cli_encodes_binary_payloads_when_requested(capsys: Any) -> None:
     assert exit_code == 0
     assert images
     assert all(isinstance(image["data"], str) for image in images)
+
+
+def test_cli_include_binary_encodes_attachment_payloads(capsys: Any) -> None:
+    """Verify the accurately named binary option includes attachment bytes."""
+    exit_code = main(["--json", "--include-binary", "--file", str(EMAIL_PATH)])
+    captured = capsys.readouterr()
+    attachments = _body(json.loads(captured.out)[0])["attachments"]
+
+    assert exit_code == 0
+    assert attachments
+    assert all(isinstance(attachment["data"], str) for attachment in attachments)
 
 
 def test_cli_no_attachments_removes_attachment_records(capsys: Any) -> None:
@@ -197,6 +255,16 @@ def test_cli_rejects_unknown_arguments(capsys: Any) -> None:
 
     assert exit_code == 1
     assert "warning: unsupported arguments" in captured.err
+
+
+def test_cli_reports_extraction_errors_without_tracebacks(capsys: Any) -> None:
+    """Verify library extraction errors become concise CLI failures."""
+    exit_code = main(["--file", str(ENCRYPTED_PDF_PATH)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "encrypted or password-protected" in captured.err
+    assert "Traceback" not in captured.err
 
 
 def test_cli_respects_max_file_size_override(capsys: Any, tmp_path: Path) -> None:
@@ -383,3 +451,25 @@ def test_cli_folder_to_folder_writes_version_two_json(tmp_path: Path) -> None:
 
     assert exit_code == 0
     assert payload[0]["version"] == 2
+
+
+def test_cli_folder_output_preserves_every_mailbox_message(tmp_path: Path) -> None:
+    """Verify mirrored output aggregates all documents yielded by one source."""
+    output_folder = tmp_path / "output"
+    output_folder.mkdir()
+
+    exit_code = main(
+        [
+            "--folder",
+            str(MAILBOX_FOLDER),
+            "--suffixes",
+            ".mbox",
+            "--output",
+            str(output_folder),
+            "--json",
+        ]
+    )
+    payload = json.loads((output_folder / "basic_email.json").read_text())
+
+    assert exit_code == 0
+    assert len(payload) == 2

@@ -87,19 +87,21 @@ sharepoint2text -f spreadsheet.xlsx -u
 This is also an array of complete version-2 envelopes, but each envelope
 contains exactly one item in `document.units`. Source and document metadata stay
 available in every item, making the output self-contained for streaming and
-indexing.
+indexing. Document-level images, tables, annotations, and attachments are
+retained in every envelope.
 
 ### Binary payloads
 
 Binary data is omitted by default. Request image extraction and base64 encoding
-explicitly:
+of image and attachment payloads explicitly:
 
 ```bash
-sharepoint2text --file report.pdf --json --include-images
+sharepoint2text --file report.pdf --json --include-binary
 sharepoint2text -f report.pdf -u -i
 ```
 
-`--include-images` requires `--json` or `--json-unit`.
+`--include-binary` requires `--json` or `--json-unit`. The former
+`--include-images` spelling remains available as a compatibility alias.
 
 ### File and folder destinations
 
@@ -119,6 +121,8 @@ For folder input:
 - an output path with an extension combines all results in one file.
 
 Per-file output uses `.txt` for plain text and `.json` for structured output.
+If one input yields multiple documents, such as an `.mbox` mailbox, all of its
+documents are written together rather than overwriting one another.
 
 ## Attachments
 
@@ -172,7 +176,7 @@ a malicious archive to exhaust memory or disk resources.
 | `--output PATH` | `-o` | Write combined output or mirror into a directory |
 | `--json` | `-j` | Emit version-2 document envelopes |
 | `--json-unit` | `-u` | Emit one version-2 envelope per unit |
-| `--include-images` | `-i` | Extract images and encode binary data as base64 |
+| `--include-binary` | `-i` | Extract images and encode image and attachment payloads as base64 |
 | `--no-attachments` | `-n` | Omit email attachment records and payloads |
 | `--max-file-size-mb N` | `-m` | Maximum input size; default 100, zero disables |
 | `--zip-bomb-limit-multiplier N` | `--zblm` | Multiply all ZIP-bomb limits by 2..10; `none` disables |
@@ -180,7 +184,8 @@ a malicious archive to exhaust memory or disk resources.
 | `--help` | `-h` | Show command help |
 
 `--suffixes` and `--no-recursive` require folder input. `--json` and
-`--json-unit` are mutually exclusive.
+`--json-unit` are mutually exclusive. `--include-images` is a compatibility
+alias for `--include-binary`.
 
 ## Exit Codes
 
@@ -188,9 +193,11 @@ a malicious archive to exhaust memory or disk resources.
 |---:|---|
 | `0` | Extraction succeeded |
 | `1` | Arguments, validation, I/O, extraction, or serialization failed |
+| `2` | Command syntax could not be parsed by `argparse` |
 
 Errors are written to stderr. Folder extraction logs individual skipped files
-and continues when possible.
+and continues when possible. File extraction errors are reported without a
+Python traceback.
 
 ## Related Documentation
 

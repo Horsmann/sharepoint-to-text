@@ -16,6 +16,9 @@ For upgrade instructions, see
 - Make `read_file`, `read_bytes`, and `read_many` return normalized documents
   for every supported format.
 - Make CLI JSON output use the deterministic, explicitly versioned v2 schema.
+- Preserve all yielded documents in mirrored folder output and all parent-level
+  records in self-contained `--json-unit` envelopes.
+- Report extraction failures as concise CLI errors instead of tracebacks.
 
 ### Added
 - Add centralized dict/JSON codecs with opt-in base64 payloads, bounded binary
@@ -25,6 +28,8 @@ For upgrade instructions, see
   `read_bytes`, and `read_many`.
 - Add `--zip-bomb-limit-multiplier` to uniformly relax or disable CLI ZIP-bomb
   limits for trusted input.
+- Add `--include-binary` as the accurately named CLI option for image and
+  attachment payloads while retaining `--include-images` as an alias.
 
 ### Removed
 - Remove the format-specific result types, direct format-reader exports,
