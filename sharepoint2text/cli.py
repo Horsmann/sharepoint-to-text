@@ -181,6 +181,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--zip-bomb-limit-multiplier",
+        "--zblm",
         type=_parse_zip_bomb_limit_multiplier,
         default=_DEFAULT_ZIP_BOMB_LIMIT_MULTIPLIER,
         metavar="2..10|none",

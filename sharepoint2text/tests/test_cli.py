@@ -223,10 +223,15 @@ def test_cli_rejects_invalid_zip_bomb_multipliers(
 
 
 @pytest.mark.parametrize(
-    ("cli_value", "expected_multiplier"),
-    [("3", 3), ("None", None)],
+    ("option_name", "cli_value", "expected_multiplier"),
+    [
+        ("--zip-bomb-limit-multiplier", "3", 3),
+        ("--zip-bomb-limit-multiplier", "None", None),
+        ("--zblm", "4", 4),
+    ],
 )
 def test_cli_forwards_zip_bomb_setting_to_single_file(
+    option_name: str,
     cli_value: str,
     expected_multiplier: int | None,
     capsys: Any,
@@ -246,7 +251,7 @@ def test_cli_forwards_zip_bomb_setting_to_single_file(
         [
             "--file",
             str(PLAIN_PATH),
-            "--zip-bomb-limit-multiplier",
+            option_name,
             cli_value,
         ]
     )

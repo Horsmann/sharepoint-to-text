@@ -175,7 +175,7 @@ a malicious archive to exhaust memory or disk resources.
 | `--include-images` | `-i` | Extract images and encode binary data as base64 |
 | `--no-attachments` | `-n` | Omit email attachment records and payloads |
 | `--max-file-size-mb N` | `-m` | Maximum input size; default 100, zero disables |
-| `--zip-bomb-limit-multiplier N` | | Multiply all ZIP-bomb limits by 2..10; `none` disables |
+| `--zip-bomb-limit-multiplier N` | `--zblm` | Multiply all ZIP-bomb limits by 2..10; `none` disables |
 | `--version` | `-v` | Print the installed version |
 | `--help` | `-h` | Show command help |
 
