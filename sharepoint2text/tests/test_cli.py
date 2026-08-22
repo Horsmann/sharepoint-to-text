@@ -10,6 +10,7 @@ import pytest
 
 import sharepoint2text
 from sharepoint2text.cli import (
+    _build_parser,
     _build_zip_bomb_limits,
     _parse_zip_bomb_limit_multiplier,
     _serialize_results,
@@ -26,12 +27,68 @@ EMAIL_PATH = Path(
     "sharepoint2text/tests/resources/mails/msg_with_attachment.eml"
 ).resolve()
 
+EXPECTED_CLI_OPTIONS = {
+    "-h",
+    "--help",
+    "-v",
+    "--version",
+    "-f",
+    "--file",
+    "-d",
+    "--folder",
+    "-s",
+    "--suffixes",
+    "--no-recursive",
+    "-j",
+    "--json",
+    "-u",
+    "--json-unit",
+    "-o",
+    "--output",
+    "-i",
+    "--include-images",
+    "-n",
+    "--no-attachments",
+    "-m",
+    "--max-file-size-mb",
+    "--zip-bomb-limit-multiplier",
+    "--zblm",
+}
+
 
 def _body(envelope: dict[str, Any]) -> dict[str, Any]:
     """Return the document body from one version-2 envelope."""
     body = envelope["document"]
     assert isinstance(body, dict)
     return body
+
+
+def test_cli_help_lists_every_current_option() -> None:
+    """Verify rendered help contains the complete current option set."""
+    parser = _build_parser()
+    help_text = parser.format_help()
+    actual_options = {
+        option for action in parser._actions for option in action.option_strings
+    }
+
+    assert actual_options == EXPECTED_CLI_OPTIONS
+    assert all(option in help_text for option in EXPECTED_CLI_OPTIONS)
+
+
+def test_cli_help_explains_modes_constraints_and_defaults() -> None:
+    """Verify help gives actionable details for non-obvious CLI behavior."""
+    help_text = " ".join(_build_parser().format_help().split())
+
+    assert "input selection:" in help_text
+    assert "output format and destination:" in help_text
+    assert "extraction options:" in help_text
+    assert "resource limits:" in help_text
+    assert "Requires --json or --json-unit" in help_text
+    assert "new extensionless path" in help_text
+    assert "preserves subdirectories" in help_text
+    assert "default: 100" in help_text
+    assert "Omit this option to keep the defaults" in help_text
+    assert "examples:" in help_text
 
 
 def test_cli_outputs_full_text_by_default(capsys: Any) -> None:

@@ -27,6 +27,22 @@ _MAX_ZIP_BOMB_LIMIT_MULTIPLIER = 10
 _DEFAULT_ZIP_BOMB_LIMIT_MULTIPLIER = 1
 _DISABLED_ZIP_BOMB_LIMIT_VALUE = "none"
 
+_CLI_DESCRIPTION = """\
+Extract normalized text and structure from supported files.
+
+Choose exactly one input source. Plain text is written by default; use --json
+or --json-unit for the stable version-2 JSON schema."""
+
+_CLI_EPILOG = """\
+examples:
+  sharepoint2text --file report.pdf
+  sharepoint2text --file report.pdf --json --include-images
+  sharepoint2text --folder ./documents --suffixes .docx,.pdf
+  sharepoint2text --folder ./documents --output ./extracted
+
+Use --output with a file path to combine results, or with a directory path to
+write one .txt or .json file per input file while preserving subdirectories."""
+
 
 def _parse_zip_bomb_limit_multiplier(value: str) -> int | None:
     """Parse a ZIP-bomb limit multiplier supplied on the command line.
@@ -87,110 +103,266 @@ def _build_zip_bomb_limits(multiplier: int | None) -> ZipBombLimits:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    """Build and return the command-line argument parser for the CLI."""
+    """Build the command-line argument parser.
+
+    Returns:
+        Parser containing every supported CLI option and its help text.
+    """
     parser = argparse.ArgumentParser(
         prog="sharepoint2text",
-        description="Extract file content and emit full text to stdout (or JSON with --json/--json-unit).",
+        description=_CLI_DESCRIPTION,
+        epilog=_CLI_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False,
     )
-    parser.add_argument(
+    _add_general_arguments(parser)
+    _add_input_arguments(parser)
+    _add_output_arguments(parser)
+    _add_extraction_arguments(parser)
+    _add_safety_arguments(parser)
+    return parser
+
+
+def _add_general_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add help and version options to a CLI parser.
+
+    Args:
+        parser: Parser that receives the general options.
+    """
+    group = parser.add_argument_group("general options")
+    group.add_argument(
+        "-h",
+        "--help",
+        action="help",
+        help="Show this help information and exit.",
+    )
+    group.add_argument(
         "-v",
         "--version",
         action="version",
         version=f"%(prog)s {sharepoint2text.__version__}",
-        help="Show the version and exit.",
+        help="Show the installed sharepoint2text version and exit.",
     )
 
-    # Input source: either a single file or a folder
-    input_group = parser.add_mutually_exclusive_group(required=True)
+
+def _add_input_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add input selection and folder traversal options to a CLI parser.
+
+    Args:
+        parser: Parser that receives the input options.
+    """
+    group = parser.add_argument_group("input selection")
+    _add_input_source_arguments(group)
+    _add_folder_filter_arguments(group)
+
+
+def _add_input_source_arguments(group: argparse._ArgumentGroup) -> None:
+    """Add the mutually exclusive file and folder arguments.
+
+    Args:
+        group: Argument group that receives the input-source options.
+    """
+    input_group = group.add_mutually_exclusive_group(required=True)
     input_group.add_argument(
         "-f",
         "--file",
         type=Path,
-        help="Path to a single file to extract.",
+        metavar="FILE",
+        help="Extract one existing supported file.",
     )
     input_group.add_argument(
         "-d",
         "--folder",
         type=Path,
-        help="Path to a folder to extract files from (recursive by default).",
+        metavar="FOLDER",
+        help=(
+            "Extract supported files from a directory. Descends into "
+            "subdirectories by default."
+        ),
     )
-    parser.add_argument(
+
+
+def _add_folder_filter_arguments(group: argparse._ArgumentGroup) -> None:
+    """Add options that control folder traversal.
+
+    Args:
+        group: Argument group that receives the folder-only options.
+    """
+    group.add_argument(
         "-s",
         "--suffixes",
         type=str,
+        metavar="SUFFIX[,...]",
         help=(
-            "Comma-separated list of file suffixes to extract when using --folder "
-            "(e.g., '.docx,.pdf,.txt'). If omitted, all supported file types are extracted."
+            "Folder input only. Limit extraction to comma-separated suffixes "
+            "such as .docx,.pdf,txt; leading dots are optional. When omitted, "
+            "all supported file types are considered."
         ),
     )
-    parser.add_argument(
+    group.add_argument(
         "--no-recursive",
         dest="no_recursive",
         action="store_true",
-        help="When using --folder, only extract files in the top-level directory (no subdirectories).",
+        help=(
+            "Folder input only. Inspect the selected directory without "
+            "descending into subdirectories."
+        ),
     )
 
-    output_group = parser.add_mutually_exclusive_group()
+
+def _add_output_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add output format and destination options to a CLI parser.
+
+    Args:
+        parser: Parser that receives the output options.
+    """
+    group = parser.add_argument_group("output format and destination")
+    _add_json_output_arguments(group)
+    _add_output_destination_argument(group)
+
+
+def _add_json_output_arguments(group: argparse._ArgumentGroup) -> None:
+    """Add mutually exclusive structured-output options.
+
+    Args:
+        group: Argument group that receives the JSON output options.
+    """
+    output_group = group.add_mutually_exclusive_group()
     output_group.add_argument(
         "-j",
         "--json",
         action="store_true",
-        help="Emit structured JSON instead of plain full text (omits binary payloads by default).",
+        help=(
+            "Write a JSON array with one version-2 extraction envelope per "
+            "document. Binary payloads are omitted unless --include-images is set."
+        ),
     )
     output_group.add_argument(
         "-u",
         "--json-unit",
         dest="json_unit",
         action="store_true",
-        help="Emit JSON for extracted text units instead of full extraction objects (omits binary payloads by default).",
+        help=(
+            "Write a JSON array with one version-2 extraction envelope per "
+            "content unit. Binary payloads are omitted unless --include-images is set."
+        ),
     )
-    parser.add_argument(
+
+
+def _add_output_destination_argument(group: argparse._ArgumentGroup) -> None:
+    """Add the output destination option.
+
+    Args:
+        group: Argument group that receives the destination option.
+    """
+    group.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        metavar="PATH",
+        help=(
+            "Write to PATH instead of stdout. For folder input, a file path "
+            "combines results; an existing directory or new extensionless path "
+            "receives one .txt or .json file per input and preserves subdirectories."
+        ),
+    )
+
+
+def _add_extraction_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add content-selection options to a CLI parser.
+
+    Args:
+        parser: Parser that receives the extraction options.
+    """
+    group = parser.add_argument_group("extraction options")
+    _add_image_extraction_argument(group)
+    _add_attachment_extraction_argument(group)
+
+
+def _add_image_extraction_argument(group: argparse._ArgumentGroup) -> None:
+    """Add the image-extraction option.
+
+    Args:
+        group: Argument group that receives the image option.
+    """
+    group.add_argument(
         "-i",
         "--include-images",
         dest="include_images",
         action="store_true",
-        help="Extract images from the file and include image data as base64 blobs in JSON output (default: images are ignored for faster processing).",
+        help=(
+            "Extract supported images and encode their bytes as base64. Requires "
+            "--json or --json-unit and can increase processing time and output size."
+        ),
     )
-    parser.add_argument(
+
+
+def _add_attachment_extraction_argument(group: argparse._ArgumentGroup) -> None:
+    """Add the email-attachment suppression option.
+
+    Args:
+        group: Argument group that receives the attachment option.
+    """
+    group.add_argument(
         "-n",
         "--no-attachments",
         dest="no_attachments",
         action="store_true",
-        help="For email files, exclude supported attachments from CLI extraction output.",
-    )
-    parser.add_argument(
-        "--output",
-        "-o",
-        type=Path,
         help=(
-            "Output path (default: stdout). "
-            "For single file extraction: specify a file path. "
-            "For folder extraction: specify either a file (all results combined) "
-            "or a folder (each file written separately, mirroring input structure)."
+            "Do not extract supported email attachments or include their "
+            "records in the output."
         ),
     )
-    parser.add_argument(
+
+
+def _add_safety_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add resource-limit options to a CLI parser.
+
+    Args:
+        parser: Parser that receives the safety options.
+    """
+    group = parser.add_argument_group("resource limits")
+    _add_file_size_limit_argument(group)
+    _add_zip_bomb_limit_argument(group)
+
+
+def _add_file_size_limit_argument(group: argparse._ArgumentGroup) -> None:
+    """Add the input file-size limit option.
+
+    Args:
+        group: Argument group that receives the file-size option.
+    """
+    group.add_argument(
         "-m",
         "--max-file-size-mb",
         type=float,
         default=100.0,
+        metavar="MIB",
         help=(
-            "Maximum input file size in MiB (default: 100). "
-            "Use 0 to disable size checks."
+            "Reject each input larger than this many MiB (default: 100). Use 0 "
+            "to disable only the input file-size check."
         ),
     )
-    parser.add_argument(
+
+
+def _add_zip_bomb_limit_argument(group: argparse._ArgumentGroup) -> None:
+    """Add the ZIP-bomb threshold scaling option.
+
+    Args:
+        group: Argument group that receives the archive safety option.
+    """
+    group.add_argument(
         "--zip-bomb-limit-multiplier",
         "--zblm",
         type=_parse_zip_bomb_limit_multiplier,
         default=_DEFAULT_ZIP_BOMB_LIMIT_MULTIPLIER,
         metavar="2..10|none",
         help=(
-            "Multiply every default ZIP-bomb limit by a whole integer from 2 "
-            "through 10. Use 'none' to disable ZIP-bomb checks (trusted input only)."
+            "Scale every default ZIP-bomb threshold by a whole number from 2 "
+            "through 10. Omit this option to keep the defaults, or use 'none' "
+            "to disable the checks for trusted input only."
         ),
     )
-    return parser
 
 
 def _serialize_results(
