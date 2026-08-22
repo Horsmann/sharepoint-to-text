@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+For upgrade instructions, see
+[Migrating from 1.2 to 2.0](MIGRATION__1.2_to_2.0.md).
+
 ### Changed
 - Replace all format-specific public extraction records with eight slotted,
   format-neutral dataclasses headed by `ExtractedDocument`.
