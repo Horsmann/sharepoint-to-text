@@ -118,8 +118,8 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
     ExtractionFileEncryptedError,
 )
-from sharepoint2text.parsing.extractors._legacy_types import (
-    OdsContent,
+from sharepoint2text.parsing.extractors._records import (
+    OdsParserOutput,
     OdsSheet,
     OpenDocumentAnnotation,
     OpenDocumentImage,
@@ -524,7 +524,7 @@ def _extract_sheet(
 
 def read_ods(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[OdsContent, Any, None]:
+) -> Generator[OdsParserOutput, Any, None]:
     """
     Extract all relevant content from an OpenDocument Spreadsheet (.ods) file.
 
@@ -540,11 +540,11 @@ def read_ods(
             The stream position is reset to the beginning before reading.
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
-            returned OdsContent.metadata.
+            returned OdsParserOutput.metadata.
         ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
-        OdsContent: Single OdsContent object containing:
+        OdsParserOutput: Single OdsParserOutput object containing:
             - metadata: OpenDocumentMetadata with title, creator, dates
             - sheets: List of OdsSheet objects with per-sheet data
 
@@ -595,7 +595,7 @@ def read_ods(
         # Populate file metadata from path
         metadata.populate_from_path(path)
 
-        yield OdsContent(
+        yield OdsParserOutput(
             metadata=metadata,
             sheets=sheets,
         )

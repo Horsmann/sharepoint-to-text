@@ -26,8 +26,8 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
     ExtractionFileEncryptedError,
 )
-from sharepoint2text.parsing.extractors._legacy_types import (
-    OdfContent,
+from sharepoint2text.parsing.extractors._records import (
+    OdfParserOutput,
     OpenDocumentMetadata,
 )
 from sharepoint2text.parsing.extractors.open_office._shared import (
@@ -235,7 +235,7 @@ def _extract_full_text(content_root: ET.Element) -> str:
 
 def read_odf(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[OdfContent, Any, None]:
+) -> Generator[OdfParserOutput, Any, None]:
     """
     Extract text and metadata from an ODF formula file.
 
@@ -267,7 +267,7 @@ def read_odf(
             ctx.close()
 
         metadata.populate_from_path(path)
-        yield OdfContent(metadata=metadata, full_text=full_text)
+        yield OdfParserOutput(metadata=metadata, full_text=full_text)
     except ExtractionError:
         raise
     except (KeyError, ET.ParseError, OSError, ValueError) as exc:

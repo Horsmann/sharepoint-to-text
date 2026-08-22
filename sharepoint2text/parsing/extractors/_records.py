@@ -1,3 +1,5 @@
+"""Internal parser-native records used while constructing normalized output."""
+
 from __future__ import annotations
 
 import io
@@ -8,11 +10,6 @@ from abc import abstractmethod
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Protocol
-
-from sharepoint2text.parsing.extractors._legacy_serialization import (
-    deserialize_extraction,
-    serialize_extraction,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -47,88 +44,16 @@ def _odf_length_to_px(length: str | None) -> int | None:
     return None
 
 
-def _markdown_unit_heading(meta: UnitMetadataInterface, multi_unit: bool) -> str | None:
-    """Generate a markdown heading from unit metadata using duck-typing."""
-    if not multi_unit:
-        return None
-
-    heading_level = getattr(meta, "heading_level", None)
-    heading_path = getattr(meta, "heading_path", None)
-    if heading_path and heading_level:
-        prefix = "#" * min(heading_level + 1, 6)
-        return f"{prefix} {heading_path[-1]}"
-
-    sheet_name = getattr(meta, "sheet_name", None)
-    if sheet_name:
-        return f"## {sheet_name}"
-
-    title = getattr(meta, "title", None)
-    if title:
-        return f"## {title}"
-
-    slide_number = getattr(meta, "slide_number", None)
-    if slide_number is not None:
-        return f"## Slide {slide_number}"
-
-    total_pages = getattr(meta, "total_pages", None)
-    if total_pages is not None:
-        return f"## Page {meta.unit_number}"
-
-    page_number = getattr(meta, "page_number", None)
-    if page_number is not None:
-        return f"## Page {page_number}"
-
-    return f"## Section {meta.unit_number}"
-
-
-def _render_markdown_table(data: list[list[typing.Any]]) -> str:
-    """Render a 2D list as a Markdown pipe table."""
-    if not data:
-        return ""
-
-    num_cols = max((len(row) for row in data), default=0)
-    if num_cols == 0:
-        return ""
-
-    rows: list[list[str]] = []
-    for row in data:
-        normalized = [str(cell) if cell is not None else "" for cell in row]
-        while len(normalized) < num_cols:
-            normalized.append("")
-        rows.append(normalized)
-
-    widths = [3] * num_cols
-    for row in rows:
-        for i, cell in enumerate(row):
-            widths[i] = max(widths[i], len(cell))
-
-    lines: list[str] = []
-    header = "| " + " | ".join(cell.ljust(w) for cell, w in zip(rows[0], widths)) + " |"
-    separator = "|" + "|".join("-" * (w + 2) for w in widths) + "|"
-    lines.append(header)
-    lines.append(separator)
-
-    for row in rows[1:]:
-        line = "| " + " | ".join(cell.ljust(w) for cell, w in zip(row, widths)) + " |"
-        lines.append(line)
-
-    return "\n".join(lines)
-
-
 ##############
 # Interfaces #
 ##############
-class ExtractionInterface(Protocol):
-    """Define the common contract implemented by every extraction result.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class ExtractionRecord(Protocol):
+    """Define the common contract implemented by every extraction result."""
 
     @abstractmethod
     def iterate_units(
         self, *, ignore_images: bool = False
-    ) -> typing.Iterator[UnitInterface]:
+    ) -> typing.Iterator[UnitRecord]:
         """
         Returns an iterator over the extracted text i.e., the main text body of a file.
         Additional text areas may be missing if they are not part of the main text body of the file.
@@ -146,7 +71,7 @@ class ExtractionInterface(Protocol):
         ...
 
     @abstractmethod
-    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+    def iterate_images(self) -> typing.Generator[ImageRecord, None, None]:
         """Yield images extracted from this document.
 
         Yields:
@@ -155,7 +80,7 @@ class ExtractionInterface(Protocol):
         ...
 
     @abstractmethod
-    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+    def iterate_tables(self) -> typing.Generator[TableRecord, None, None]:
         """Yield tables extracted from this document.
 
         Yields:
@@ -179,7 +104,7 @@ class ExtractionInterface(Protocol):
         ...
 
     @abstractmethod
-    def get_metadata(self) -> FileMetadataInterface:
+    def get_metadata(self) -> SourceRecord:
         """Return metadata describing this document object.
 
         Returns:
@@ -187,82 +112,10 @@ class ExtractionInterface(Protocol):
         """
         ...
 
-    @abstractmethod
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        ...
-
-    @classmethod
-    def from_json(cls, data: dict) -> ExtractionInterface:
-        """
-        Deserialize a JSON dictionary back to an ExtractionInterface instance.
-
-        This is the inverse of to_json(). It reconstructs the original
-        dataclass hierarchy from the serialized JSON representation.
-
-        Args:
-            data: A dictionary produced by to_json() or serialize_extraction()
-
-        Returns:
-            An instance of the appropriate ExtractionInterface subclass
-
-        Example:
-            >>> content = read_file("document.docx")
-            >>> json_data = content.to_json()
-            >>> restored = ExtractionInterface.from_json(json_data)
-            >>> assert restored.get_full_text() == content.get_full_text()
-        """
-        return typing.cast(ExtractionInterface, deserialize_extraction(data))
-
-    def get_full_markdown(self) -> str:
-        """Get content as Markdown-formatted text.
-
-        Renders the extraction result as Markdown with:
-        - Section headers derived from unit metadata (pages, slides, sheets, headings)
-        - Tables from ``iterate_tables()`` rendered as pipe-delimited Markdown tables
-
-        Multi-unit documents (e.g. PDFs, slide decks, spreadsheets) receive
-        a ``##``-level heading per unit. Single-unit documents omit the heading.
-
-        Returns:
-            A Markdown-formatted string.
-        """
-        parts: list[str] = []
-        units = list(self.iterate_units())
-        multi_unit = len(units) > 1
-
-        for unit in units:
-            meta = unit.get_metadata()
-            heading = _markdown_unit_heading(meta, multi_unit)
-            if heading:
-                parts.append(heading)
-
-            text = unit.get_text().strip()
-            if text:
-                parts.append(text)
-
-        tables = list(self.iterate_tables())
-        if tables:
-            parts.append("## Tables")
-            for table in tables:
-                md = _render_markdown_table(table.get_table())
-                if md:
-                    parts.append(md)
-
-        return "\n\n".join(parts).strip()
-
 
 @dataclass
-class FileMetadataInterface:
-    """Store source identity and decoding metadata shared by extracted files.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class SourceRecord:
+    """Store source identity and decoding metadata shared by extracted files."""
 
     filename: str | None = None
     file_extension: str | None = None
@@ -298,12 +151,8 @@ class FileMetadataInterface:
 
 
 @dataclass
-class TableInterface(Protocol):
-    """Define the tabular-data contract exposed by extraction results.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class TableRecord(Protocol):
+    """Define the tabular-data contract exposed by extraction results."""
 
     @abstractmethod
     def get_table(self) -> list[list[typing.Any]]:
@@ -325,12 +174,8 @@ class TableInterface(Protocol):
         pass
 
 
-class ImageInterface(Protocol):
-    """Define access to an extracted image and its descriptive metadata.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class ImageRecord(Protocol):
+    """Define access to an extracted image and its descriptive metadata."""
 
     @abstractmethod
     def get_bytes(self) -> io.BytesIO:
@@ -379,22 +224,14 @@ class ImageInterface(Protocol):
 
 
 @dataclass
-class UnitMetadataInterface(Protocol):
-    """Mark metadata objects associated with one structural extraction unit.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class UnitMetadataRecord(Protocol):
+    """Mark metadata objects associated with one structural extraction unit."""
 
     unit_number: int
 
 
-class UnitInterface(Protocol):
-    """Define a structural unit of extracted text, images, tables, and metadata.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class UnitRecord(Protocol):
+    """Define a structural unit of extracted text, images, tables, and metadata."""
 
     @abstractmethod
     def get_text(self) -> str:
@@ -406,7 +243,7 @@ class UnitInterface(Protocol):
         ...
 
     @abstractmethod
-    def get_images(self) -> list[ImageInterface]:
+    def get_images(self) -> list[ImageRecord]:
         """Return images associated with this document unit.
 
         Returns:
@@ -424,7 +261,7 @@ class UnitInterface(Protocol):
         ...
 
     @abstractmethod
-    def get_metadata(self) -> UnitMetadataInterface:
+    def get_metadata(self) -> UnitMetadataRecord:
         """Return metadata describing this document object.
 
         Returns:
@@ -432,34 +269,18 @@ class UnitInterface(Protocol):
         """
         ...
 
-    @abstractmethod
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-
 
 @dataclass
 class TableDim:
-    """Store the row and column dimensions of a table.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+    """Store the row and column dimensions of a table."""
 
     rows: int = 0
     columns: int = 0
 
 
 @dataclass
-class TableData(TableInterface):
-    """Represent a generic two-dimensional table returned by an extractor.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class TableData(TableRecord):
+    """Represent a generic two-dimensional table returned by an extractor."""
 
     data: list[list[typing.Any]] = field(default_factory=list)
 
@@ -515,14 +336,6 @@ class ImageMetadata:
             A dictionary containing the dataclass fields and their values.
         """
         return asdict(self)
-
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
 
     @property
     def unit_index(self) -> Optional[int]:
@@ -588,7 +401,7 @@ class ImageMetadata:
         return getattr(self, key, default)
 
 
-def _join_unit_text(units: typing.Iterable[UnitInterface]) -> str:
+def _join_unit_text(units: typing.Iterable[UnitRecord]) -> str:
     return ("\n".join(unit.get_text() for unit in units)).strip()
 
 
@@ -596,24 +409,16 @@ def _join_unit_text(units: typing.Iterable[UnitInterface]) -> str:
 # Email #
 #########
 @dataclass
-class EmailUnitMetadata(UnitMetadataInterface):
-    """Describe the structural position of one unit in a email message.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class EmailUnitMetadata(UnitMetadataRecord):
+    """Describe the structural position of one unit in a email message."""
 
     unit_number: int
     body_type: str
 
 
 @dataclass
-class EmailUnit(UnitInterface):
-    """Represent one structural text unit from a email message.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class EmailUnitRecord(UnitRecord):
+    """Represent one structural text unit from a email message."""
 
     text: str
     body_type: str = ""  # plain|html|empty
@@ -626,7 +431,7 @@ class EmailUnit(UnitInterface):
         """
         return self.text
 
-    def get_images(self) -> list[ImageInterface]:
+    def get_images(self) -> list[ImageRecord]:
         """Return images associated with this email message unit.
 
         Returns:
@@ -642,7 +447,7 @@ class EmailUnit(UnitInterface):
         """
         return []
 
-    def get_metadata(self) -> UnitMetadataInterface:
+    def get_metadata(self) -> UnitMetadataRecord:
         """Return metadata describing this email message object.
 
         Returns:
@@ -650,34 +455,18 @@ class EmailUnit(UnitInterface):
         """
         return EmailUnitMetadata(unit_number=1, body_type=self.body_type)
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 @dataclass
 class EmailAddress:
-    """Represent an email participant with an optional display name and address.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+    """Represent an email participant with an optional display name and address."""
 
     name: str = ""
     address: str = ""
 
 
 @dataclass
-class EmailMetadata(FileMetadataInterface):
-    """Store metadata extracted from a email message.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class EmailMetadata(SourceRecord):
+    """Store metadata extracted from a email message."""
 
     date: str = ""
     message_id: str = ""
@@ -685,11 +474,7 @@ class EmailMetadata(FileMetadataInterface):
 
 @dataclass
 class EmailAttachment:
-    """Keep attachment identity, media type, payload, and routing support status together.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+    """Keep attachment identity, media type, payload, and routing support status together."""
 
     filename: str
     mime_type: str
@@ -698,12 +483,8 @@ class EmailAttachment:
 
 
 @dataclass
-class EmailContent(ExtractionInterface):
-    """Aggregate the structured extraction result for a email message.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class EmailParserOutput(ExtractionRecord):
+    """Aggregate the structured extraction result for a email message."""
 
     from_email: EmailAddress
     subject: str = ""
@@ -723,7 +504,7 @@ class EmailContent(ExtractionInterface):
 
     def iterate_units(
         self, *, ignore_images: bool = False
-    ) -> typing.Iterator[UnitInterface]:
+    ) -> typing.Iterator[UnitRecord]:
         # ignore_images is a no-op for emails (no images supported)
         """Yield structural text units from this email message.
 
@@ -734,14 +515,14 @@ class EmailContent(ExtractionInterface):
             Units in source reading order.
         """
         if self.body_plain:
-            yield EmailUnit(text=self.body_plain, body_type="plain")
+            yield EmailUnitRecord(text=self.body_plain, body_type="plain")
             return
         if self.body_html:
-            yield EmailUnit(text=self.body_html, body_type="html")
+            yield EmailUnitRecord(text=self.body_html, body_type="html")
             return
-        yield EmailUnit(text="", body_type="empty")
+        yield EmailUnitRecord(text="", body_type="empty")
 
-    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+    def iterate_images(self) -> typing.Generator[ImageRecord, None, None]:
         # not supported
         """Yield images extracted from this email message.
 
@@ -751,7 +532,7 @@ class EmailContent(ExtractionInterface):
         yield from ()
         return
 
-    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+    def iterate_tables(self) -> typing.Generator[TableRecord, None, None]:
         """Yield tables extracted from this email message.
 
         Yields:
@@ -764,7 +545,7 @@ class EmailContent(ExtractionInterface):
         self,
         *,
         skip_failed: bool = False,
-    ) -> typing.Generator[ExtractionInterface, None, None]:
+    ) -> typing.Generator[ExtractionRecord, None, None]:
         """Iterate over supported attachments and extract them on demand.
 
         Args:
@@ -840,14 +621,6 @@ class EmailContent(ExtractionInterface):
         """
         return self.metadata
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 ############
 # legacy doc
@@ -855,12 +628,8 @@ class EmailContent(ExtractionInterface):
 
 
 @dataclass
-class DocUnit(UnitInterface):
-    """Represent one structural text unit from a legacy Word document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class DocUnitRecord(UnitRecord):
+    """Represent one structural text unit from a legacy Word document."""
 
     text: str
     unit_number: int = 1
@@ -878,7 +647,7 @@ class DocUnit(UnitInterface):
         """
         return self.text
 
-    def get_images(self) -> list[ImageInterface]:
+    def get_images(self) -> list[ImageRecord]:
         """Return images associated with this legacy Word document unit.
 
         Returns:
@@ -907,22 +676,10 @@ class DocUnit(UnitInterface):
             heading_path=list(self.heading_path),
         )
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 @dataclass
-class DocUnitMeta(UnitMetadataInterface):
-    """Describe the structural position of one unit in a legacy Word document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class DocUnitMeta(UnitMetadataRecord):
+    """Describe the structural position of one unit in a legacy Word document."""
 
     unit_number: int = 1
     location: list[str] = field(default_factory=list)
@@ -931,12 +688,8 @@ class DocUnitMeta(UnitMetadataInterface):
 
 
 @dataclass
-class DocMetadata(FileMetadataInterface):
-    """Store metadata extracted from a legacy Word document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class DocMetadata(SourceRecord):
+    """Store metadata extracted from a legacy Word document."""
 
     title: str = ""
     author: str = ""
@@ -951,12 +704,8 @@ class DocMetadata(FileMetadataInterface):
 
 
 @dataclass
-class DocImage(ImageInterface):
-    """Represent an image extracted from a legacy Word document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class DocImage(ImageRecord):
+    """Represent an image extracted from a legacy Word document."""
 
     image_index: int
     content_type: str
@@ -1019,12 +768,8 @@ class DocImage(ImageInterface):
 
 
 @dataclass
-class DocContent(ExtractionInterface):
-    """Aggregate the structured extraction result for a legacy Word document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class DocParserOutput(ExtractionRecord):
+    """Aggregate the structured extraction result for a legacy Word document."""
 
     main_text: str = ""
     footnotes: str = ""
@@ -1036,7 +781,7 @@ class DocContent(ExtractionInterface):
 
     def iterate_units(
         self, *, ignore_images: bool = False
-    ) -> typing.Iterator[UnitInterface]:
+    ) -> typing.Iterator[UnitRecord]:
         """Yield structural text units from this legacy Word document.
 
         Args:
@@ -1063,7 +808,7 @@ class DocContent(ExtractionInterface):
                     )
                     for image in self.images
                 ]
-            yield DocUnit(text="", unit_number=1, location=[], images=unit_images)
+            yield DocUnitRecord(text="", unit_number=1, location=[], images=unit_images)
             return
 
         base_location = [self.metadata.title] if self.metadata.title else []
@@ -1105,7 +850,7 @@ class DocContent(ExtractionInterface):
                 return 1
             return None
 
-        units: list[DocUnit] = []
+        units: list[DocUnitRecord] = []
         heading_stack: list[tuple[int, str]] = []
         current_heading_level: int | None = None
         current_heading_path: list[str] = []
@@ -1122,7 +867,7 @@ class DocContent(ExtractionInterface):
                 current_tables = []
                 return
             units.append(
-                DocUnit(
+                DocUnitRecord(
                     text=text,
                     unit_number=unit_index,
                     location=base_location + list(current_heading_path),
@@ -1182,7 +927,7 @@ class DocContent(ExtractionInterface):
                     )
                     for image in self.images
                 ]
-            yield DocUnit(
+            yield DocUnitRecord(
                 text=self.main_text.strip(),
                 unit_number=1,
                 location=base_location,
@@ -1194,7 +939,7 @@ class DocContent(ExtractionInterface):
         # Attach unassigned images (no stable anchors in legacy DOC extraction).
         if not ignore_images:
             for image in self.images:
-                matched_unit: DocUnit | None = None
+                matched_unit: DocUnitRecord | None = None
                 if image.caption:
                     for unit in units:
                         if image.caption in unit.text:
@@ -1232,7 +977,7 @@ class DocContent(ExtractionInterface):
             self.metadata.title + "\n" + _join_unit_text(self.iterate_units())
         ).strip()
 
-    def get_metadata(self) -> FileMetadataInterface:
+    def get_metadata(self) -> SourceRecord:
         """Return metadata describing this legacy Word document object.
 
         Returns:
@@ -1240,7 +985,7 @@ class DocContent(ExtractionInterface):
         """
         return self.metadata
 
-    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+    def iterate_images(self) -> typing.Generator[ImageRecord, None, None]:
         """Yield images extracted from this legacy Word document.
 
         Yields:
@@ -1249,7 +994,7 @@ class DocContent(ExtractionInterface):
         for img in self.images:
             yield img
 
-    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+    def iterate_tables(self) -> typing.Generator[TableRecord, None, None]:
         """Yield tables extracted from this legacy Word document.
 
         Yields:
@@ -1258,14 +1003,6 @@ class DocContent(ExtractionInterface):
         for table in self.tables:
             yield TableData(data=table)
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 ##############
 # modern docx
@@ -1273,12 +1010,8 @@ class DocContent(ExtractionInterface):
 
 
 @dataclass
-class DocxUnit(UnitInterface):
-    """Represent one structural text unit from a WordprocessingML document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class DocxUnitRecord(UnitRecord):
+    """Represent one structural text unit from a WordprocessingML document."""
 
     text: str
     unit_number: int = 1
@@ -1296,7 +1029,7 @@ class DocxUnit(UnitInterface):
         """
         return self.text
 
-    def get_images(self) -> list[ImageInterface]:
+    def get_images(self) -> list[ImageRecord]:
         """Return images associated with this WordprocessingML document unit.
 
         Returns:
@@ -1312,7 +1045,7 @@ class DocxUnit(UnitInterface):
         """
         return list(self.tables)
 
-    def get_metadata(self) -> UnitMetadataInterface:
+    def get_metadata(self) -> UnitMetadataRecord:
         """Return metadata describing this WordprocessingML document object.
 
         Returns:
@@ -1325,22 +1058,10 @@ class DocxUnit(UnitInterface):
             heading_path=list(self.heading_path),
         )
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 @dataclass
-class DocxUnitMetadata(UnitMetadataInterface):
-    """Describe the structural position of one unit in a WordprocessingML document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class DocxUnitMetadata(UnitMetadataRecord):
+    """Describe the structural position of one unit in a WordprocessingML document."""
 
     unit_number: int
     location: list[str] = field(default_factory=list)
@@ -1349,12 +1070,8 @@ class DocxUnitMetadata(UnitMetadataInterface):
 
 
 @dataclass
-class DocxMetadata(FileMetadataInterface):
-    """Store metadata extracted from a WordprocessingML document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class DocxMetadata(SourceRecord):
+    """Store metadata extracted from a WordprocessingML document."""
 
     title: str = ""
     author: str = ""
@@ -1370,11 +1087,7 @@ class DocxMetadata(FileMetadataInterface):
 
 @dataclass
 class DocxRun:
-    """Represent one styled run of text from a WordprocessingML paragraph.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+    """Represent one styled run of text from a WordprocessingML paragraph."""
 
     text: str = ""
     bold: Optional[bool] = None
@@ -1387,11 +1100,7 @@ class DocxRun:
 
 @dataclass
 class DocxParagraph:
-    """Represent a WordprocessingML paragraph and its structural context.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+    """Represent a WordprocessingML paragraph and its structural context."""
 
     text: str = ""
     style: Optional[str] = None
@@ -1402,23 +1111,15 @@ class DocxParagraph:
 
 @dataclass
 class DocxHeaderFooter:
-    """Represent text extracted from a document header or footer.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+    """Represent text extracted from a document header or footer."""
 
     type: str = ""
     text: str = ""
 
 
 @dataclass
-class DocxImage(ImageInterface):
-    """Represent an image extracted from a WordprocessingML document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class DocxImage(ImageRecord):
+    """Represent an image extracted from a WordprocessingML document."""
 
     rel_id: str = ""
     filename: str = ""
@@ -1485,11 +1186,7 @@ class DocxImage(ImageInterface):
 
 @dataclass
 class DocxHyperlink:
-    """Represent visible hyperlink text and its target URL.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+    """Represent visible hyperlink text and its target URL."""
 
     text: str = ""
     url: str = ""
@@ -1497,11 +1194,7 @@ class DocxHyperlink:
 
 @dataclass
 class DocxNote:
-    """Represent a footnote or endnote extracted from a document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+    """Represent a footnote or endnote extracted from a document."""
 
     id: str = ""
     text: str = ""
@@ -1509,11 +1202,7 @@ class DocxNote:
 
 @dataclass
 class DocxComment:
-    """Represent a Word comment and its authoring metadata.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+    """Represent a Word comment and its authoring metadata."""
 
     id: str = ""
     author: str = ""
@@ -1523,11 +1212,7 @@ class DocxComment:
 
 @dataclass
 class DocxSection:
-    """Describe page and margin settings for one Word document section.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+    """Describe page and margin settings for one Word document section."""
 
     page_width_inches: Optional[float] = None
     page_height_inches: Optional[float] = None
@@ -1540,11 +1225,7 @@ class DocxSection:
 
 @dataclass
 class DocxFormula:
-    """Represent an Office Math expression converted to LaTeX.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+    """Represent an Office Math expression converted to LaTeX."""
 
     latex: str = ""
     is_display: bool = (
@@ -1553,12 +1234,8 @@ class DocxFormula:
 
 
 @dataclass
-class DocxContent(ExtractionInterface):
-    """Aggregate the structured extraction result for a WordprocessingML document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class DocxParserOutput(ExtractionRecord):
+    """Aggregate the structured extraction result for a WordprocessingML document."""
 
     metadata: DocxMetadata = field(default_factory=DocxMetadata)
     paragraphs: List[DocxParagraph] = field(default_factory=list)
@@ -1578,7 +1255,7 @@ class DocxContent(ExtractionInterface):
 
     def iterate_units(
         self, *, ignore_images: bool = False
-    ) -> typing.Iterator[UnitInterface]:
+    ) -> typing.Iterator[UnitRecord]:
         """Yield structural text units from this WordprocessingML document.
 
         Args:
@@ -1671,7 +1348,7 @@ class DocxContent(ExtractionInterface):
             *,
             end_paragraph_index: int,
             next_heading_level: int | None = None,
-        ) -> typing.Iterator[DocxUnit]:
+        ) -> typing.Iterator[DocxUnitRecord]:
             nonlocal unit_index
             if not current_heading_path:
                 return iter(())
@@ -1700,7 +1377,7 @@ class DocxContent(ExtractionInterface):
             unit_index += 1
             return iter(
                 [
-                    DocxUnit(
+                    DocxUnitRecord(
                         text=text,
                         unit_number=unit_index,
                         location=list(current_heading_path),
@@ -1766,7 +1443,7 @@ class DocxContent(ExtractionInterface):
         if any_headings:
             return
 
-        yield DocxUnit(
+        yield DocxUnitRecord(
             text=self.full_text,
             unit_number=1,
             location=[self.metadata.title] if self.metadata.title else [],
@@ -1776,7 +1453,7 @@ class DocxContent(ExtractionInterface):
             tables=[TableData(data=table) for table in self.tables],
         )
 
-    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+    def iterate_images(self) -> typing.Generator[ImageRecord, None, None]:
         """Yield images extracted from this WordprocessingML document.
 
         Yields:
@@ -1785,7 +1462,7 @@ class DocxContent(ExtractionInterface):
         for img in self.images:
             yield img
 
-    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+    def iterate_tables(self) -> typing.Generator[TableRecord, None, None]:
         """Yield tables extracted from this WordprocessingML document.
 
         Yields:
@@ -1810,14 +1487,6 @@ class DocxContent(ExtractionInterface):
         """
         return self.metadata
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 ######
 # PDF
@@ -1825,7 +1494,7 @@ class DocxContent(ExtractionInterface):
 
 
 @dataclass
-class PdfUnitMetadata(UnitMetadataInterface):
+class PdfUnitMetadata(UnitMetadataRecord):
     """PDF unit metadata"""
 
     unit_number: int
@@ -1834,16 +1503,12 @@ class PdfUnitMetadata(UnitMetadataInterface):
 
 
 @dataclass
-class PdfUnit(UnitInterface):
-    """Represent one structural text unit from a PDF document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class PdfUnitRecord(UnitRecord):
+    """Represent one structural text unit from a PDF document."""
 
     page_number: int
     text: str
-    images: list[ImageInterface] = field(default_factory=list)
+    images: list[ImageRecord] = field(default_factory=list)
     tables: list[TableData] = field(default_factory=list)
 
     def get_text(self) -> str:
@@ -1854,7 +1519,7 @@ class PdfUnit(UnitInterface):
         """
         return self.text
 
-    def get_images(self) -> list[ImageInterface]:
+    def get_images(self) -> list[ImageRecord]:
         """Return images associated with this PDF document unit.
 
         Returns:
@@ -1878,22 +1543,10 @@ class PdfUnit(UnitInterface):
         """
         return PdfUnitMetadata(unit_number=self.page_number)
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 @dataclass
-class PdfImage(ImageInterface):
-    """Represent an image extracted from a PDF document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class PdfImage(ImageRecord):
+    """Represent an image extracted from a PDF document."""
 
     image_index: int = 0
     name: str = ""
@@ -1961,11 +1614,7 @@ class PdfImage(ImageInterface):
 
 @dataclass
 class PdfPage:
-    """Keep the text, images, and tables extracted from one PDF page.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+    """Keep the text, images, and tables extracted from one PDF page."""
 
     text: str = ""
     images: List[PdfImage] = field(default_factory=list)
@@ -1973,30 +1622,22 @@ class PdfPage:
 
 
 @dataclass
-class PdfMetadata(FileMetadataInterface):
-    """Store metadata extracted from a PDF document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class PdfMetadata(SourceRecord):
+    """Store metadata extracted from a PDF document."""
 
     total_pages: int = 0
 
 
 @dataclass
-class PdfContent(ExtractionInterface):
-    """Aggregate the structured extraction result for a PDF document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class PdfParserOutput(ExtractionRecord):
+    """Aggregate the structured extraction result for a PDF document."""
 
     pages: List[PdfPage] = field(default_factory=list)
     metadata: PdfMetadata = field(default_factory=PdfMetadata)
 
     def iterate_units(
         self, *, ignore_images: bool = False
-    ) -> typing.Iterator[UnitInterface]:
+    ) -> typing.Iterator[UnitRecord]:
         """Yield structural text units from this PDF document.
 
         Args:
@@ -2006,7 +1647,7 @@ class PdfContent(ExtractionInterface):
             Units in source reading order.
         """
         for page_number, page in enumerate(self.pages, start=1):
-            yield PdfUnit(
+            yield PdfUnitRecord(
                 page_number=page_number,
                 text=page.text,
                 images=[] if ignore_images else list(page.images),
@@ -2029,7 +1670,7 @@ class PdfContent(ExtractionInterface):
         """
         return self.metadata
 
-    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+    def iterate_images(self) -> typing.Generator[ImageRecord, None, None]:
         """Yield images extracted from this PDF document.
 
         Yields:
@@ -2039,7 +1680,7 @@ class PdfContent(ExtractionInterface):
             for img in page.images:
                 yield img
 
-    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+    def iterate_tables(self) -> typing.Generator[TableRecord, None, None]:
         """Yield tables extracted from PDF pages.
 
         PDF tables are inferred from text layout heuristics, not explicit
@@ -2053,14 +1694,6 @@ class PdfContent(ExtractionInterface):
             for table in page.tables:
                 yield TableData(data=table)
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 #########
 # Plain
@@ -2068,7 +1701,7 @@ class PdfContent(ExtractionInterface):
 
 
 @dataclass
-class PlainUnitMetadata(UnitMetadataInterface):
+class PlainUnitMetadata(UnitMetadataRecord):
     """Plain Unit Metadata"""
 
     unit_number: int
@@ -2077,12 +1710,8 @@ class PlainUnitMetadata(UnitMetadataInterface):
 
 
 @dataclass
-class PlainTextUnit(UnitInterface):
-    """Represent one structural text unit from a plain-text document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class PlainTextUnitRecord(UnitRecord):
+    """Represent one structural text unit from a plain-text document."""
 
     text: str
 
@@ -2094,7 +1723,7 @@ class PlainTextUnit(UnitInterface):
         """
         return self.text
 
-    def get_images(self) -> list[ImageInterface]:
+    def get_images(self) -> list[ImageRecord]:
         """Return images associated with this plain-text document unit.
 
         Returns:
@@ -2118,29 +1747,17 @@ class PlainTextUnit(UnitInterface):
         """
         return PlainUnitMetadata(unit_number=1)
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 @dataclass
-class PlainTextContent(ExtractionInterface):
-    """Aggregate the structured extraction result for a plain-text document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class PlainTextParserOutput(ExtractionRecord):
+    """Aggregate the structured extraction result for a plain-text document."""
 
     content: str = ""
-    metadata: FileMetadataInterface = field(default_factory=FileMetadataInterface)
+    metadata: SourceRecord = field(default_factory=SourceRecord)
 
     def iterate_units(
         self, *, ignore_images: bool = False
-    ) -> typing.Iterator[UnitInterface]:
+    ) -> typing.Iterator[UnitRecord]:
         # ignore_images is a no-op for plain text (no images supported)
         """Yield structural text units from this plain-text document.
 
@@ -2150,7 +1767,7 @@ class PlainTextContent(ExtractionInterface):
         Yields:
             Units in source reading order.
         """
-        yield PlainTextUnit(text=self.content.strip())
+        yield PlainTextUnitRecord(text=self.content.strip())
 
     def get_full_text(self) -> str:
         """Build the default full-text representation of this plain-text document.
@@ -2160,7 +1777,7 @@ class PlainTextContent(ExtractionInterface):
         """
         return _join_unit_text(self.iterate_units())
 
-    def get_metadata(self) -> FileMetadataInterface:
+    def get_metadata(self) -> SourceRecord:
         """Return metadata describing this plain-text document object.
 
         Returns:
@@ -2168,7 +1785,7 @@ class PlainTextContent(ExtractionInterface):
         """
         return self.metadata
 
-    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+    def iterate_images(self) -> typing.Generator[ImageRecord, None, None]:
         """Yield images extracted from this plain-text document.
 
         Yields:
@@ -2177,7 +1794,7 @@ class PlainTextContent(ExtractionInterface):
         yield from ()
         return
 
-    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+    def iterate_tables(self) -> typing.Generator[TableRecord, None, None]:
         """Yield tables extracted from this plain-text document.
 
         Yields:
@@ -2189,14 +1806,6 @@ class PlainTextContent(ExtractionInterface):
     def __post_init__(self) -> None:
         self.content = self.content.strip()
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 ############
 # CSV / TSV
@@ -2204,7 +1813,7 @@ class PlainTextContent(ExtractionInterface):
 
 
 @dataclass
-class CsvUnitMetadata(UnitMetadataInterface):
+class CsvUnitMetadata(UnitMetadataRecord):
     """CSV/TSV Unit Metadata"""
 
     unit_number: int
@@ -2213,12 +1822,8 @@ class CsvUnitMetadata(UnitMetadataInterface):
 
 
 @dataclass
-class CsvUnit(UnitInterface):
-    """Represent one structural text unit from a delimited text document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class CsvUnitRecord(UnitRecord):
+    """Represent one structural text unit from a delimited text document."""
 
     text: str
     tables: list[TableData] = field(default_factory=list)
@@ -2231,7 +1836,7 @@ class CsvUnit(UnitInterface):
         """
         return self.text
 
-    def get_images(self) -> list[ImageInterface]:
+    def get_images(self) -> list[ImageRecord]:
         """Return images associated with this delimited text document unit.
 
         Returns:
@@ -2255,30 +1860,18 @@ class CsvUnit(UnitInterface):
         """
         return CsvUnitMetadata(unit_number=1)
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 @dataclass
-class CsvContent(ExtractionInterface):
-    """Aggregate the structured extraction result for a delimited text document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class CsvParserOutput(ExtractionRecord):
+    """Aggregate the structured extraction result for a delimited text document."""
 
     content: str = ""
     table: TableData = field(default_factory=TableData)
-    metadata: FileMetadataInterface = field(default_factory=FileMetadataInterface)
+    metadata: SourceRecord = field(default_factory=SourceRecord)
 
     def iterate_units(
         self, *, ignore_images: bool = False
-    ) -> typing.Iterator[UnitInterface]:
+    ) -> typing.Iterator[UnitRecord]:
         """Yield structural text units from this delimited text document.
 
         Args:
@@ -2288,7 +1881,7 @@ class CsvContent(ExtractionInterface):
             Units in source reading order.
         """
         tables = [self.table] if self.table.data else []
-        yield CsvUnit(text=self.content.strip(), tables=tables)
+        yield CsvUnitRecord(text=self.content.strip(), tables=tables)
 
     def get_full_text(self) -> str:
         """Build the default full-text representation of this delimited text document.
@@ -2298,7 +1891,7 @@ class CsvContent(ExtractionInterface):
         """
         return _join_unit_text(self.iterate_units())
 
-    def get_metadata(self) -> FileMetadataInterface:
+    def get_metadata(self) -> SourceRecord:
         """Return metadata describing this delimited text document object.
 
         Returns:
@@ -2306,7 +1899,7 @@ class CsvContent(ExtractionInterface):
         """
         return self.metadata
 
-    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+    def iterate_images(self) -> typing.Generator[ImageRecord, None, None]:
         """Yield images extracted from this delimited text document.
 
         Yields:
@@ -2315,7 +1908,7 @@ class CsvContent(ExtractionInterface):
         yield from ()
         return
 
-    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+    def iterate_tables(self) -> typing.Generator[TableRecord, None, None]:
         """Yield tables extracted from this delimited text document.
 
         Yields:
@@ -2324,14 +1917,6 @@ class CsvContent(ExtractionInterface):
         if self.table.data:
             yield self.table
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 ########
 # HTML
@@ -2339,7 +1924,7 @@ class CsvContent(ExtractionInterface):
 
 
 @dataclass
-class HtmlUnitMetadata(UnitMetadataInterface):
+class HtmlUnitMetadata(UnitMetadataRecord):
     """Html Unit Metadata"""
 
     unit_number: int
@@ -2348,12 +1933,8 @@ class HtmlUnitMetadata(UnitMetadataInterface):
 
 
 @dataclass
-class HtmlUnit(UnitInterface):
-    """Represent one structural text unit from a HTML document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class HtmlUnitRecord(UnitRecord):
+    """Represent one structural text unit from a HTML document."""
 
     text: str
 
@@ -2365,7 +1946,7 @@ class HtmlUnit(UnitInterface):
         """
         return self.text
 
-    def get_images(self) -> list[ImageInterface]:
+    def get_images(self) -> list[ImageRecord]:
         """Return images associated with this HTML document unit.
 
         Returns:
@@ -2389,22 +1970,10 @@ class HtmlUnit(UnitInterface):
         """
         return HtmlUnitMetadata(unit_number=1)
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 @dataclass
-class HtmlMetadata(FileMetadataInterface):
-    """Store metadata extracted from a HTML document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class HtmlMetadata(SourceRecord):
+    """Store metadata extracted from a HTML document."""
 
     title: str = ""
     language: str = ""
@@ -2415,12 +1984,8 @@ class HtmlMetadata(FileMetadataInterface):
 
 
 @dataclass
-class HtmlContent(ExtractionInterface):
-    """Aggregate the structured extraction result for a HTML document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class HtmlParserOutput(ExtractionRecord):
+    """Aggregate the structured extraction result for a HTML document."""
 
     content: str = ""
     tables: List[List[List[str]]] = field(default_factory=list)
@@ -2434,7 +1999,7 @@ class HtmlContent(ExtractionInterface):
 
     def iterate_units(
         self, *, ignore_images: bool = False
-    ) -> typing.Iterator[UnitInterface]:
+    ) -> typing.Iterator[UnitRecord]:
         # ignore_images is a no-op for HTML (no images in units)
         """Yield structural text units from this HTML document.
 
@@ -2444,7 +2009,7 @@ class HtmlContent(ExtractionInterface):
         Yields:
             Units in source reading order.
         """
-        yield HtmlUnit(text=self.content.strip())
+        yield HtmlUnitRecord(text=self.content.strip())
 
     def get_full_text(self) -> str:
         """Build the default full-text representation of this HTML document.
@@ -2462,7 +2027,7 @@ class HtmlContent(ExtractionInterface):
         """
         return self.metadata
 
-    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+    def iterate_images(self) -> typing.Generator[ImageRecord, None, None]:
         """Yield images extracted from this HTML document.
 
         Yields:
@@ -2471,7 +2036,7 @@ class HtmlContent(ExtractionInterface):
         yield from ()
         return
 
-    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+    def iterate_tables(self) -> typing.Generator[TableRecord, None, None]:
         """Yield tables extracted from this HTML document.
 
         Yields:
@@ -2479,14 +2044,6 @@ class HtmlContent(ExtractionInterface):
         """
         for table in self.tables:
             yield TableData(data=table)
-
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
 
 
 #############
@@ -2505,7 +2062,7 @@ PPT_TEXT_TYPE_QUARTER_BODY = 8  # Quarter body
 
 
 @dataclass
-class PptUnitMetadata(UnitMetadataInterface):
+class PptUnitMetadata(UnitMetadataRecord):
     """Ppt Unit Metadata"""
 
     unit_number: int
@@ -2515,7 +2072,7 @@ class PptUnitMetadata(UnitMetadataInterface):
 
 
 @dataclass
-class PptUnit(UnitInterface):
+class PptUnitRecord(UnitRecord):
     """Represents a single legacy PowerPoint slide as an extraction unit."""
 
     slide_number: int
@@ -2531,7 +2088,7 @@ class PptUnit(UnitInterface):
         """
         return self.text
 
-    def get_images(self) -> list[ImageInterface]:
+    def get_images(self) -> list[ImageRecord]:
         """Return images associated with this legacy PowerPoint deck unit.
 
         Returns:
@@ -2555,17 +2112,9 @@ class PptUnit(UnitInterface):
         """
         return PptUnitMetadata(unit_number=self.slide_number, title=self.title)
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 @dataclass
-class PptImage(ImageInterface):
+class PptImage(ImageRecord):
     """Represents an embedded image in a legacy PPT file."""
 
     image_index: int = 0
@@ -2629,7 +2178,7 @@ class PptImage(ImageInterface):
 
 
 @dataclass
-class PptMetadata(FileMetadataInterface):
+class PptMetadata(SourceRecord):
     """Metadata extracted from a PPT file."""
 
     title: str = ""
@@ -2738,7 +2287,7 @@ class PptSlideContent:
 
 
 @dataclass
-class PptContent(ExtractionInterface):
+class PptParserOutput(ExtractionRecord):
     """Complete extracted content from a PPT file."""
 
     metadata: PptMetadata = field(default_factory=PptMetadata)
@@ -2749,7 +2298,7 @@ class PptContent(ExtractionInterface):
 
     def iterate_units(
         self, *, ignore_images: bool = False
-    ) -> typing.Iterator[UnitInterface]:
+    ) -> typing.Iterator[UnitRecord]:
         """Yield structural text units from this legacy PowerPoint deck.
 
         Args:
@@ -2759,7 +2308,7 @@ class PptContent(ExtractionInterface):
             Units in source reading order.
         """
         for slide in self.slides:
-            yield PptUnit(
+            yield PptUnitRecord(
                 slide_number=slide.slide_number,
                 text=slide.unit_text,
                 title=slide.title or "",
@@ -2792,7 +2341,7 @@ class PptContent(ExtractionInterface):
         """
         return len(self.slides)
 
-    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+    def iterate_images(self) -> typing.Generator[ImageRecord, None, None]:
         """Yield images extracted from this legacy PowerPoint deck.
 
         Yields:
@@ -2802,7 +2351,7 @@ class PptContent(ExtractionInterface):
             for img in slide.images:
                 yield img
 
-    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+    def iterate_tables(self) -> typing.Generator[TableRecord, None, None]:
         """Yield tables extracted from this legacy PowerPoint deck.
 
         Yields:
@@ -2811,14 +2360,6 @@ class PptContent(ExtractionInterface):
         yield from ()
         return
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 ##############
 # Modern PPTX
@@ -2826,7 +2367,7 @@ class PptContent(ExtractionInterface):
 
 
 @dataclass
-class PptxUnitMetadata(UnitMetadataInterface):
+class PptxUnitMetadata(UnitMetadataRecord):
     """Pptx Unit Metadata"""
 
     unit_number: int
@@ -2834,12 +2375,8 @@ class PptxUnitMetadata(UnitMetadataInterface):
 
 
 @dataclass
-class PptxUnit(UnitInterface):
-    """Represent one structural text unit from a PresentationML deck.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class PptxUnitRecord(UnitRecord):
+    """Represent one structural text unit from a PresentationML deck."""
 
     slide_number: int
     text: str
@@ -2855,7 +2392,7 @@ class PptxUnit(UnitInterface):
         """
         return self.text
 
-    def get_images(self) -> list[ImageInterface]:
+    def get_images(self) -> list[ImageRecord]:
         """Return images associated with this PresentationML deck unit.
 
         Returns:
@@ -2879,22 +2416,10 @@ class PptxUnit(UnitInterface):
         """
         return PptxUnitMetadata(unit_number=self.slide_number, title=self.title)
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 @dataclass
-class PptxMetadata(FileMetadataInterface):
-    """Store metadata extracted from a PresentationML deck.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class PptxMetadata(SourceRecord):
+    """Store metadata extracted from a PresentationML deck."""
 
     title: str = ""
     subject: str = ""
@@ -2909,12 +2434,8 @@ class PptxMetadata(FileMetadataInterface):
 
 
 @dataclass
-class PptxImage(ImageInterface):
-    """Represent an image extracted from a PresentationML deck.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class PptxImage(ImageRecord):
+    """Represent an image extracted from a PresentationML deck."""
 
     image_index: int = 0
     filename: str = ""
@@ -2979,11 +2500,7 @@ class PptxImage(ImageInterface):
 
 @dataclass
 class PptxFormula:
-    """Represent a slide formula converted from Office Math to LaTeX.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+    """Represent a slide formula converted from Office Math to LaTeX."""
 
     latex: str = ""
     is_display: bool = False  # True for display equations, False for inline
@@ -2991,11 +2508,7 @@ class PptxFormula:
 
 @dataclass
 class PptxComment:
-    """Represent a presentation comment and its authoring information.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+    """Represent a presentation comment and its authoring information."""
 
     author: str = ""
     text: str = ""
@@ -3004,11 +2517,7 @@ class PptxComment:
 
 @dataclass
 class PptxSlide:
-    """Aggregate extracted content and optional annotations for one presentation slide.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+    """Aggregate extracted content and optional annotations for one presentation slide."""
 
     slide_number: int = 0
     title: str = ""
@@ -3051,19 +2560,15 @@ class PptxSlide:
 
 
 @dataclass
-class PptxContent(ExtractionInterface):
-    """Aggregate the structured extraction result for a PresentationML deck.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class PptxParserOutput(ExtractionRecord):
+    """Aggregate the structured extraction result for a PresentationML deck."""
 
     metadata: PptxMetadata = field(default_factory=PptxMetadata)
     slides: List[PptxSlide] = field(default_factory=list)
 
     def iterate_units(
         self, *, ignore_images: bool = False
-    ) -> typing.Iterator[UnitInterface]:
+    ) -> typing.Iterator[UnitRecord]:
         """Yield structural text units from this PresentationML deck.
 
         Args:
@@ -3073,7 +2578,7 @@ class PptxContent(ExtractionInterface):
             Units in source reading order.
         """
         for slide in self.slides:
-            yield PptxUnit(
+            yield PptxUnitRecord(
                 slide_number=slide.slide_number,
                 title=slide.title,
                 images=[] if ignore_images else list(slide.images),
@@ -3107,7 +2612,7 @@ class PptxContent(ExtractionInterface):
         """
         return self.metadata
 
-    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+    def iterate_images(self) -> typing.Generator[ImageRecord, None, None]:
         """Yield images extracted from this PresentationML deck.
 
         Yields:
@@ -3117,7 +2622,7 @@ class PptxContent(ExtractionInterface):
             for img in slide.images:
                 yield img
 
-    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+    def iterate_tables(self) -> typing.Generator[TableRecord, None, None]:
         """Yield tables extracted from this PresentationML deck.
 
         Yields:
@@ -3127,14 +2632,6 @@ class PptxContent(ExtractionInterface):
             for table in slide.tables:
                 yield TableData(data=table)
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 #############
 # Legacy XLS
@@ -3142,24 +2639,16 @@ class PptxContent(ExtractionInterface):
 
 
 @dataclass
-class XlsUnitMetadata(UnitMetadataInterface):
-    """Describe the structural position of one unit in a legacy Excel workbook.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class XlsUnitMetadata(UnitMetadataRecord):
+    """Describe the structural position of one unit in a legacy Excel workbook."""
 
     unit_number: int
     sheet_name: str
 
 
 @dataclass
-class XlsUnit(UnitInterface):
-    """Represent one structural text unit from a legacy Excel workbook.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class XlsUnitRecord(UnitRecord):
+    """Represent one structural text unit from a legacy Excel workbook."""
 
     sheet_number: int
     sheet_name: str
@@ -3175,7 +2664,7 @@ class XlsUnit(UnitInterface):
         """
         return self.text
 
-    def get_images(self) -> list[ImageInterface]:
+    def get_images(self) -> list[ImageRecord]:
         """Return images associated with this legacy Excel workbook unit.
 
         Returns:
@@ -3201,17 +2690,9 @@ class XlsUnit(UnitInterface):
             unit_number=self.sheet_number, sheet_name=self.sheet_name
         )
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 @dataclass
-class XlsImage(ImageInterface):
+class XlsImage(ImageRecord):
     """Represents an embedded image in a legacy XLS file."""
 
     image_index: int = 0
@@ -3274,12 +2755,8 @@ class XlsImage(ImageInterface):
 
 
 @dataclass
-class XlsMetadata(FileMetadataInterface):
-    """Store metadata extracted from a legacy Excel workbook.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class XlsMetadata(SourceRecord):
+    """Store metadata extracted from a legacy Excel workbook."""
 
     title: str = ""
     author: str = ""
@@ -3291,12 +2768,8 @@ class XlsMetadata(FileMetadataInterface):
 
 
 @dataclass
-class XlsSheet(TableInterface):
-    """Represent one worksheet and its tabular content in a legacy Excel workbook.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class XlsSheet(TableRecord):
+    """Represent one worksheet and its tabular content in a legacy Excel workbook."""
 
     name: str = ""
     data: List[Dict[str, typing.Any]] = field(default_factory=list)
@@ -3329,12 +2802,8 @@ class XlsSheet(TableInterface):
 
 
 @dataclass
-class XlsContent(ExtractionInterface):
-    """Aggregate the structured extraction result for a legacy Excel workbook.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class XlsParserOutput(ExtractionRecord):
+    """Aggregate the structured extraction result for a legacy Excel workbook."""
 
     metadata: XlsMetadata = field(default_factory=XlsMetadata)
     sheets: List[XlsSheet] = field(default_factory=list)
@@ -3343,7 +2812,7 @@ class XlsContent(ExtractionInterface):
 
     def iterate_units(
         self, *, ignore_images: bool = False
-    ) -> typing.Iterator[UnitInterface]:
+    ) -> typing.Iterator[UnitRecord]:
         """Yield structural text units from this legacy Excel workbook.
 
         Args:
@@ -3362,7 +2831,7 @@ class XlsContent(ExtractionInterface):
                 if table
                 else []
             )
-            yield XlsUnit(
+            yield XlsUnitRecord(
                 sheet_number=sheet_index,
                 sheet_name=sheet.name,
                 tables=[TableData(data=normalized_table)] if normalized_table else [],
@@ -3390,7 +2859,7 @@ class XlsContent(ExtractionInterface):
         """
         return self.metadata
 
-    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+    def iterate_images(self) -> typing.Generator[ImageRecord, None, None]:
         """Yield images extracted from this legacy Excel workbook.
 
         Yields:
@@ -3399,7 +2868,7 @@ class XlsContent(ExtractionInterface):
         for img in self.images:
             yield img
 
-    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+    def iterate_tables(self) -> typing.Generator[TableRecord, None, None]:
         """Yield tables extracted from this legacy Excel workbook.
 
         Yields:
@@ -3408,14 +2877,6 @@ class XlsContent(ExtractionInterface):
         for sheet in self.sheets:
             yield sheet
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 ##############
 # Modern XLSX
@@ -3423,12 +2884,8 @@ class XlsContent(ExtractionInterface):
 
 
 @dataclass
-class XlsxUnitMetadata(UnitMetadataInterface):
-    """Describe the structural position of one unit in a modern Excel workbook.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class XlsxUnitMetadata(UnitMetadataRecord):
+    """Describe the structural position of one unit in a modern Excel workbook."""
 
     unit_number: int
     sheet_number: int
@@ -3436,12 +2893,8 @@ class XlsxUnitMetadata(UnitMetadataInterface):
 
 
 @dataclass
-class XlsxUnit(UnitInterface):
-    """Represent one structural text unit from a modern Excel workbook.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class XlsxUnitRecord(UnitRecord):
+    """Represent one structural text unit from a modern Excel workbook."""
 
     sheet_index: int
     sheet_name: str
@@ -3457,7 +2910,7 @@ class XlsxUnit(UnitInterface):
         """
         return self.text
 
-    def get_images(self) -> list[ImageInterface]:
+    def get_images(self) -> list[ImageRecord]:
         """Return images associated with this modern Excel workbook unit.
 
         Returns:
@@ -3485,22 +2938,10 @@ class XlsxUnit(UnitInterface):
             sheet_number=self.sheet_index,
         )
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 @dataclass
-class XlsxMetadata(FileMetadataInterface):
-    """Store metadata extracted from a modern Excel workbook.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class XlsxMetadata(SourceRecord):
+    """Store metadata extracted from a modern Excel workbook."""
 
     title: str = ""
     description: str = ""
@@ -3514,12 +2955,8 @@ class XlsxMetadata(FileMetadataInterface):
 
 
 @dataclass
-class XlsxImage(ImageInterface):
-    """Represent an image extracted from a modern Excel workbook.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class XlsxImage(ImageRecord):
+    """Represent an image extracted from a modern Excel workbook."""
 
     image_index: int = 0
     sheet_index: int = 0  # 0-based index of the sheet containing this image
@@ -3583,12 +3020,8 @@ class XlsxImage(ImageInterface):
 
 
 @dataclass
-class XlsxSheet(TableInterface):
-    """Represent one worksheet and its tabular content in a modern Excel workbook.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class XlsxSheet(TableRecord):
+    """Represent one worksheet and its tabular content in a modern Excel workbook."""
 
     name: str = ""
     data: List[List[typing.Any]] = field(default_factory=list)
@@ -3615,19 +3048,15 @@ class XlsxSheet(TableInterface):
 
 
 @dataclass
-class XlsxContent(ExtractionInterface):
-    """Aggregate the structured extraction result for a modern Excel workbook.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class XlsxParserOutput(ExtractionRecord):
+    """Aggregate the structured extraction result for a modern Excel workbook."""
 
     metadata: XlsxMetadata = field(default_factory=XlsxMetadata)
     sheets: List[XlsxSheet] = field(default_factory=list)
 
     def iterate_units(
         self, *, ignore_images: bool = False
-    ) -> typing.Iterator[UnitInterface]:
+    ) -> typing.Iterator[UnitRecord]:
         """Yield structural text units from this modern Excel workbook.
 
         Args:
@@ -3637,7 +3066,7 @@ class XlsxContent(ExtractionInterface):
             Units in source reading order.
         """
         for sheet_index, sheet in enumerate(self.sheets, start=1):
-            yield XlsxUnit(
+            yield XlsxUnitRecord(
                 sheet_index=sheet_index,
                 sheet_name=sheet.name,
                 images=[] if ignore_images else list(sheet.images),
@@ -3661,7 +3090,7 @@ class XlsxContent(ExtractionInterface):
         """
         return self.metadata
 
-    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+    def iterate_images(self) -> typing.Generator[ImageRecord, None, None]:
         """Yield images extracted from this modern Excel workbook.
 
         Yields:
@@ -3671,7 +3100,7 @@ class XlsxContent(ExtractionInterface):
             for img in sheet.images:
                 yield img
 
-    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+    def iterate_tables(self) -> typing.Generator[TableRecord, None, None]:
         """Yield tables extracted from this modern Excel workbook.
 
         Yields:
@@ -3680,14 +3109,6 @@ class XlsxContent(ExtractionInterface):
         for sheet in self.sheets:
             yield sheet
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 #############################
 # OpenDocument Shared Types #
@@ -3695,7 +3116,7 @@ class XlsxContent(ExtractionInterface):
 
 
 @dataclass
-class OpenDocumentMetadata(FileMetadataInterface):
+class OpenDocumentMetadata(SourceRecord):
     """
     Base metadata class for OpenDocument formats (ODT, ODS, ODP).
 
@@ -3733,14 +3154,14 @@ class OpenDocumentAnnotation:
 
 
 @dataclass
-class OpenDocumentImage(ImageInterface):
+class OpenDocumentImage(ImageRecord):
     """
     Represents an embedded image in an OpenDocument file.
 
     Images are stored in the Pictures/ directory within the ODF archive
     and referenced via href attributes in the content.xml.
 
-    Implements ImageInterface for consistent image handling across formats.
+    Implements ImageRecord for consistent image handling across formats.
     """
 
     href: str = ""
@@ -3814,23 +3235,15 @@ class OpenDocumentImage(ImageInterface):
 
 
 @dataclass
-class OdgUnitMetadata(UnitMetadataInterface):
-    """Describe the structural position of one unit in a OpenDocument drawing.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class OdgUnitMetadata(UnitMetadataRecord):
+    """Describe the structural position of one unit in a OpenDocument drawing."""
 
     unit_number: int
 
 
 @dataclass
-class OdgUnit(UnitInterface):
-    """Represent one structural text unit from a OpenDocument drawing.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class OdgUnitRecord(UnitRecord):
+    """Represent one structural text unit from a OpenDocument drawing."""
 
     text: str
     images: list[OpenDocumentImage] = field(default_factory=list)
@@ -3843,7 +3256,7 @@ class OdgUnit(UnitInterface):
         """
         return self.text
 
-    def get_images(self) -> list[ImageInterface]:
+    def get_images(self) -> list[ImageRecord]:
         """Return images associated with this OpenDocument drawing unit.
 
         Returns:
@@ -3867,17 +3280,9 @@ class OdgUnit(UnitInterface):
         """
         return OdgUnitMetadata(unit_number=1)
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 @dataclass
-class OdgContent(ExtractionInterface):
+class OdgParserOutput(ExtractionRecord):
     """Complete extracted content from an ODG file."""
 
     metadata: OpenDocumentMetadata = field(default_factory=OpenDocumentMetadata)
@@ -3886,7 +3291,7 @@ class OdgContent(ExtractionInterface):
 
     def iterate_units(
         self, *, ignore_images: bool = False
-    ) -> typing.Iterator[UnitInterface]:
+    ) -> typing.Iterator[UnitRecord]:
         """Yield structural text units from this OpenDocument drawing.
 
         Args:
@@ -3895,7 +3300,7 @@ class OdgContent(ExtractionInterface):
         Yields:
             Units in source reading order.
         """
-        yield OdgUnit(
+        yield OdgUnitRecord(
             text=self.full_text.strip(),
             images=[] if ignore_images else list(self.images),
         )
@@ -3916,7 +3321,7 @@ class OdgContent(ExtractionInterface):
         """
         return self.metadata
 
-    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+    def iterate_images(self) -> typing.Generator[ImageRecord, None, None]:
         """Yield images extracted from this OpenDocument drawing.
 
         Yields:
@@ -3925,7 +3330,7 @@ class OdgContent(ExtractionInterface):
         for img in self.images:
             yield img
 
-    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+    def iterate_tables(self) -> typing.Generator[TableRecord, None, None]:
         """Yield tables extracted from this OpenDocument drawing.
 
         Yields:
@@ -3934,14 +3339,6 @@ class OdgContent(ExtractionInterface):
         yield from ()
         return
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 ###############
 # OpenDocument ODF (Formula) #
@@ -3949,23 +3346,15 @@ class OdgContent(ExtractionInterface):
 
 
 @dataclass
-class OdfUnitMetadata(UnitMetadataInterface):
-    """Describe the structural position of one unit in a OpenDocument formula.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class OdfUnitMetadata(UnitMetadataRecord):
+    """Describe the structural position of one unit in a OpenDocument formula."""
 
     unit_number: int
 
 
 @dataclass
-class OdfUnit(UnitInterface):
-    """Represent one structural text unit from a OpenDocument formula.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class OdfUnitRecord(UnitRecord):
+    """Represent one structural text unit from a OpenDocument formula."""
 
     text: str
 
@@ -3977,7 +3366,7 @@ class OdfUnit(UnitInterface):
         """
         return self.text
 
-    def get_images(self) -> list[ImageInterface]:
+    def get_images(self) -> list[ImageRecord]:
         """Return images associated with this OpenDocument formula unit.
 
         Returns:
@@ -4001,17 +3390,9 @@ class OdfUnit(UnitInterface):
         """
         return OdfUnitMetadata(unit_number=1)
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 @dataclass
-class OdfContent(ExtractionInterface):
+class OdfParserOutput(ExtractionRecord):
     """Complete extracted content from an ODF file."""
 
     metadata: OpenDocumentMetadata = field(default_factory=OpenDocumentMetadata)
@@ -4019,7 +3400,7 @@ class OdfContent(ExtractionInterface):
 
     def iterate_units(
         self, *, ignore_images: bool = False
-    ) -> typing.Iterator[UnitInterface]:
+    ) -> typing.Iterator[UnitRecord]:
         # ignore_images is a no-op for ODF (no images supported)
         """Yield structural text units from this OpenDocument formula.
 
@@ -4029,7 +3410,7 @@ class OdfContent(ExtractionInterface):
         Yields:
             Units in source reading order.
         """
-        yield OdfUnit(text=self.full_text.strip())
+        yield OdfUnitRecord(text=self.full_text.strip())
 
     def get_full_text(self) -> str:
         """Build the default full-text representation of this OpenDocument formula.
@@ -4047,7 +3428,7 @@ class OdfContent(ExtractionInterface):
         """
         return self.metadata
 
-    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+    def iterate_images(self) -> typing.Generator[ImageRecord, None, None]:
         """Yield images extracted from this OpenDocument formula.
 
         Yields:
@@ -4056,7 +3437,7 @@ class OdfContent(ExtractionInterface):
         yield from ()
         return
 
-    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+    def iterate_tables(self) -> typing.Generator[TableRecord, None, None]:
         """Yield tables extracted from this OpenDocument formula.
 
         Yields:
@@ -4065,14 +3446,6 @@ class OdfContent(ExtractionInterface):
         yield from ()
         return
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 ###############
 # OpenDocument ODP (Presentation)
@@ -4080,7 +3453,7 @@ class OdfContent(ExtractionInterface):
 
 
 @dataclass
-class OdpUnit(UnitInterface):
+class OdpUnitRecord(UnitRecord):
     """Represents a single OpenDocument presentation slide as a unit."""
 
     slide_number: int
@@ -4098,7 +3471,7 @@ class OdpUnit(UnitInterface):
         """
         return self.text
 
-    def get_images(self) -> list[ImageInterface]:
+    def get_images(self) -> list[ImageRecord]:
         """Return images associated with this OpenDocument presentation unit.
 
         Returns:
@@ -4127,17 +3500,9 @@ class OdpUnit(UnitInterface):
             slide_number=self.slide_number,
         )
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 @dataclass
-class OdpUnitMetadata(UnitMetadataInterface):
+class OdpUnitMetadata(UnitMetadataRecord):
     """Metadata for a single OpenDocument presentation unit."""
 
     unit_number: int
@@ -4188,7 +3553,7 @@ class OdpSlide:
 
 
 @dataclass
-class OdpContent(ExtractionInterface):
+class OdpParserOutput(ExtractionRecord):
     """Complete extracted content from an ODP file."""
 
     metadata: OpenDocumentMetadata = field(default_factory=OpenDocumentMetadata)
@@ -4196,7 +3561,7 @@ class OdpContent(ExtractionInterface):
 
     def iterate_units(
         self, *, ignore_images: bool = False
-    ) -> typing.Iterator[UnitInterface]:
+    ) -> typing.Iterator[UnitRecord]:
         """Yield structural text units from this OpenDocument presentation.
 
         Args:
@@ -4206,7 +3571,7 @@ class OdpContent(ExtractionInterface):
             Units in source reading order.
         """
         for slide in self.slides:
-            yield OdpUnit(
+            yield OdpUnitRecord(
                 slide_number=slide.slide_number,
                 text=slide.unit_text,
                 title=slide.title,
@@ -4241,7 +3606,7 @@ class OdpContent(ExtractionInterface):
         """
         return len(self.slides)
 
-    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+    def iterate_images(self) -> typing.Generator[ImageRecord, None, None]:
         """Yield images extracted from this OpenDocument presentation.
 
         Yields:
@@ -4251,7 +3616,7 @@ class OdpContent(ExtractionInterface):
             for img in slides.images:
                 yield img
 
-    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+    def iterate_tables(self) -> typing.Generator[TableRecord, None, None]:
         """Yield tables extracted from this OpenDocument presentation.
 
         Yields:
@@ -4261,14 +3626,6 @@ class OdpContent(ExtractionInterface):
             for table in slide.tables:
                 yield TableData(data=table)
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 ##################################
 # OpenDocument ODS (Spreadsheet) #
@@ -4276,12 +3633,8 @@ class OdpContent(ExtractionInterface):
 
 
 @dataclass
-class OdsUnit(UnitInterface):
-    """Represent one structural text unit from a OpenDocument spreadsheet.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class OdsUnitRecord(UnitRecord):
+    """Represent one structural text unit from a OpenDocument spreadsheet."""
 
     sheet_number: int
     sheet_name: str
@@ -4297,7 +3650,7 @@ class OdsUnit(UnitInterface):
         """
         return self.text
 
-    def get_images(self) -> list[ImageInterface]:
+    def get_images(self) -> list[ImageRecord]:
         """Return images associated with this OpenDocument spreadsheet unit.
 
         Returns:
@@ -4325,22 +3678,10 @@ class OdsUnit(UnitInterface):
             sheet_name=self.sheet_name,
         )
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 @dataclass
-class OdsUnitMetadata(UnitMetadataInterface):
-    """Describe the structural position of one unit in a OpenDocument spreadsheet.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class OdsUnitMetadata(UnitMetadataRecord):
+    """Describe the structural position of one unit in a OpenDocument spreadsheet."""
 
     unit_number: int
     sheet_number: int
@@ -4348,7 +3689,7 @@ class OdsUnitMetadata(UnitMetadataInterface):
 
 
 @dataclass
-class OdsSheet(TableInterface):
+class OdsSheet(TableRecord):
     """Represents a single sheet in the spreadsheet."""
 
     name: str = ""
@@ -4377,7 +3718,7 @@ class OdsSheet(TableInterface):
 
 
 @dataclass
-class OdsContent(ExtractionInterface):
+class OdsParserOutput(ExtractionRecord):
     """Complete extracted content from an ODS file."""
 
     metadata: OpenDocumentMetadata = field(default_factory=OpenDocumentMetadata)
@@ -4385,7 +3726,7 @@ class OdsContent(ExtractionInterface):
 
     def iterate_units(
         self, *, ignore_images: bool = False
-    ) -> typing.Iterator[UnitInterface]:
+    ) -> typing.Iterator[UnitRecord]:
         """Yield structural text units from this OpenDocument spreadsheet.
 
         Args:
@@ -4395,7 +3736,7 @@ class OdsContent(ExtractionInterface):
             Units in source reading order.
         """
         for sheet_index, sheet in enumerate(self.sheets, start=1):
-            yield OdsUnit(
+            yield OdsUnitRecord(
                 sheet_number=sheet_index,
                 sheet_name=sheet.name,
                 images=[] if ignore_images else list(sheet.images),
@@ -4428,7 +3769,7 @@ class OdsContent(ExtractionInterface):
         """
         return len(self.sheets)
 
-    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+    def iterate_images(self) -> typing.Generator[ImageRecord, None, None]:
         """Yield images extracted from this OpenDocument spreadsheet.
 
         Yields:
@@ -4438,7 +3779,7 @@ class OdsContent(ExtractionInterface):
             for img in sheet.images:
                 yield img
 
-    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+    def iterate_tables(self) -> typing.Generator[TableRecord, None, None]:
         """Yield tables extracted from this OpenDocument spreadsheet.
 
         Yields:
@@ -4447,14 +3788,6 @@ class OdsContent(ExtractionInterface):
         for sheet in self.sheets:
             yield sheet
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 ####################################
 # OpenDocument ODT (Text Document) #
@@ -4462,12 +3795,8 @@ class OdsContent(ExtractionInterface):
 
 
 @dataclass
-class OdtUnit(UnitInterface):
-    """Represent one structural text unit from a OpenDocument text document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class OdtUnitRecord(UnitRecord):
+    """Represent one structural text unit from a OpenDocument text document."""
 
     text: str
     unit_number: int
@@ -4476,7 +3805,7 @@ class OdtUnit(UnitInterface):
     kind: str = "body"  # body|annotation
     annotation_creator: str | None = None
     annotation_date: str | None = None
-    images: list[ImageInterface] = field(default_factory=list)
+    images: list[ImageRecord] = field(default_factory=list)
     tables: list[TableData] = field(default_factory=list)
 
     def get_text(self) -> str:
@@ -4487,7 +3816,7 @@ class OdtUnit(UnitInterface):
         """
         return self.text
 
-    def get_images(self) -> list[ImageInterface]:
+    def get_images(self) -> list[ImageRecord]:
         """Return images associated with this OpenDocument text document unit.
 
         Returns:
@@ -4518,22 +3847,10 @@ class OdtUnit(UnitInterface):
             annotation_date=self.annotation_date,
         )
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 @dataclass
-class OdtUnitMetadata(UnitMetadataInterface):
-    """Describe the structural position of one unit in a OpenDocument text document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class OdtUnitMetadata(UnitMetadataRecord):
+    """Describe the structural position of one unit in a OpenDocument text document."""
 
     unit_number: int
     heading_level: int | None = None
@@ -4600,7 +3917,7 @@ class OdtBookmark:
 
 
 @dataclass
-class OdtTable(TableInterface):
+class OdtTable(TableRecord):
     """Represents a single table in the document."""
 
     data: List[List[str]] = field(default_factory=list)
@@ -4625,7 +3942,7 @@ class OdtTable(TableInterface):
 
 
 @dataclass
-class OdtContent(ExtractionInterface):
+class OdtParserOutput(ExtractionRecord):
     """Complete extracted content from an ODT file."""
 
     metadata: OpenDocumentMetadata = field(default_factory=OpenDocumentMetadata)
@@ -4644,7 +3961,7 @@ class OdtContent(ExtractionInterface):
 
     def iterate_units(
         self, *, ignore_images: bool = False
-    ) -> typing.Iterator[UnitInterface]:
+    ) -> typing.Iterator[UnitRecord]:
         """Iterate over heading-based units.
 
         Units are built from paragraph runs separated by headings (paragraphs with
@@ -4655,16 +3972,16 @@ class OdtContent(ExtractionInterface):
             ignore_images: Omit document images from the yielded units when true.
 
         Yields:
-            ``OdtUnit`` objects in document order, with heading context attached.
+            ``OdtUnitRecord`` objects in document order, with heading context attached.
         """
         base_heading_path = [self.metadata.title] if self.metadata.title else []
-        units: list[OdtUnit] = []
+        units: list[OdtUnitRecord] = []
         title_style_prefixes = ("title", "titel")
 
         if not self.paragraphs:
             heading_path = list(base_heading_path)
             units.append(
-                OdtUnit(
+                OdtUnitRecord(
                     text=self.full_text,
                     kind="body",
                     unit_number=1,
@@ -4704,7 +4021,7 @@ class OdtContent(ExtractionInterface):
                     unit_heading_path.append(token)
 
             units.append(
-                OdtUnit(
+                OdtUnitRecord(
                     text=text,
                     unit_number=unit_index,
                     heading_level=current_heading_level,
@@ -4765,7 +4082,7 @@ class OdtContent(ExtractionInterface):
         if not any_headings:
             heading_path = list(base_heading_path)
             units = [
-                OdtUnit(
+                OdtUnitRecord(
                     text=self.full_text,
                     kind="body",
                     unit_number=1,
@@ -4794,7 +4111,7 @@ class OdtContent(ExtractionInterface):
                         for cell in (table.data[0] if table.data else [])
                         if str(cell).strip()
                     ]
-                    matched_unit: OdtUnit | None = None
+                    matched_unit: OdtUnitRecord | None = None
                     if header_tokens:
                         for unit in units:
                             if all(token in unit.text for token in header_tokens):
@@ -4803,7 +4120,7 @@ class OdtContent(ExtractionInterface):
                     (matched_unit or units[-1]).tables.append(table_data)
 
             for image in self.images:
-                matched_image_unit: OdtUnit | None = None
+                matched_image_unit: OdtUnitRecord | None = None
                 for unit in units:
                     if image.caption and image.caption in unit.text:
                         matched_image_unit = unit
@@ -4846,7 +4163,7 @@ class OdtContent(ExtractionInterface):
         """
         return self.metadata
 
-    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+    def iterate_images(self) -> typing.Generator[ImageRecord, None, None]:
         """Yield images extracted from this OpenDocument text document.
 
         Yields:
@@ -4855,7 +4172,7 @@ class OdtContent(ExtractionInterface):
         for img in self.images:
             yield img
 
-    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+    def iterate_tables(self) -> typing.Generator[TableRecord, None, None]:
         """Yield tables extracted from this OpenDocument text document.
 
         Yields:
@@ -4864,14 +4181,6 @@ class OdtContent(ExtractionInterface):
         for table in self.tables:
             yield table
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 #######
 # RTF #
@@ -4879,24 +4188,16 @@ class OdtContent(ExtractionInterface):
 
 
 @dataclass
-class RtfUnitMetadata(UnitMetadataInterface):
-    """Describe the structural position of one unit in a Rich Text Format document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class RtfUnitMetadata(UnitMetadataRecord):
+    """Describe the structural position of one unit in a Rich Text Format document."""
 
     unit_number: int
     page_number: int
 
 
 @dataclass
-class RtfUnit(UnitInterface):
-    """Represent one structural text unit from a Rich Text Format document.
-
-    Instances are returned by extractors and remain JSON-serializable through
-    the shared serialization helpers.
-    """
+class RtfUnitRecord(UnitRecord):
+    """Represent one structural text unit from a Rich Text Format document."""
 
     page_number: int
     text: str
@@ -4911,7 +4212,7 @@ class RtfUnit(UnitInterface):
         """
         return self.text
 
-    def get_images(self) -> list[ImageInterface]:
+    def get_images(self) -> list[ImageRecord]:
         """Return images associated with this Rich Text Format document unit.
 
         Returns:
@@ -4936,14 +4237,6 @@ class RtfUnit(UnitInterface):
         return RtfUnitMetadata(
             unit_number=self.page_number, page_number=self.page_number
         )
-
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
 
 
 @dataclass
@@ -4988,7 +4281,7 @@ class RtfStyle:
 
 
 @dataclass
-class RtfMetadata(FileMetadataInterface):
+class RtfMetadata(SourceRecord):
     """Metadata extracted from an RTF file."""
 
     title: str = ""
@@ -5065,7 +4358,7 @@ class RtfField:
 
 
 @dataclass
-class RtfImage(ImageInterface):
+class RtfImage(ImageRecord):
     """Represents an embedded image in an RTF document."""
 
     image_type: str = ""  # png, jpeg, emf, wmf
@@ -5144,7 +4437,7 @@ class RtfImage(ImageInterface):
 
 
 @dataclass
-class RtfTable(TableInterface):
+class RtfTable(TableRecord):
     """Represents a table extracted from an RTF document."""
 
     data: List[List[str]] = field(default_factory=list)
@@ -5189,7 +4482,7 @@ class RtfAnnotation:
 
 
 @dataclass
-class RtfContent(ExtractionInterface):
+class RtfParserOutput(ExtractionRecord):
     """Complete extracted content from an RTF file."""
 
     metadata: RtfMetadata = field(default_factory=RtfMetadata)
@@ -5212,7 +4505,7 @@ class RtfContent(ExtractionInterface):
 
     def iterate_units(
         self, *, ignore_images: bool = False
-    ) -> typing.Iterator[UnitInterface]:
+    ) -> typing.Iterator[UnitRecord]:
         """Iterate over pages, yielding text per page.
 
         RTF documents are split on explicit page breaks (\\page).
@@ -5223,7 +4516,7 @@ class RtfContent(ExtractionInterface):
             ignore_images: Omit page images from the yielded units when true.
 
         Yields:
-            ``RtfUnit`` objects for each non-empty explicit or inferred page.
+            ``RtfUnitRecord`` objects for each non-empty explicit or inferred page.
         """
         # Group images and tables by page number
         images_by_page: dict[int, List[RtfImage]] = {}
@@ -5244,14 +4537,14 @@ class RtfContent(ExtractionInterface):
         if self.pages:
             for page_number, page_text in enumerate(self.pages, start=1):
                 if page_text.strip():
-                    yield RtfUnit(
+                    yield RtfUnitRecord(
                         page_number=page_number,
                         text=page_text,
                         images=images_by_page.get(page_number, []),
                         tables=tables_by_page.get(page_number, []),
                     )
         elif self.full_text:
-            yield RtfUnit(
+            yield RtfUnitRecord(
                 page_number=1,
                 text=self.full_text,
                 images=images_by_page.get(1, []),
@@ -5261,7 +4554,7 @@ class RtfContent(ExtractionInterface):
             # Fallback: combine all paragraphs
             combined = "\n".join(p.text for p in self.paragraphs if p.text.strip())
             if combined:
-                yield RtfUnit(
+                yield RtfUnitRecord(
                     page_number=1,
                     text=combined,
                     images=images_by_page.get(1, []),
@@ -5286,7 +4579,7 @@ class RtfContent(ExtractionInterface):
         """
         return self.metadata
 
-    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+    def iterate_images(self) -> typing.Generator[ImageRecord, None, None]:
         """Yield images extracted from this Rich Text Format document.
 
         Yields:
@@ -5295,7 +4588,7 @@ class RtfContent(ExtractionInterface):
         for img in self.images:
             yield img
 
-    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+    def iterate_tables(self) -> typing.Generator[TableRecord, None, None]:
         """Yield tables extracted from this Rich Text Format document.
 
         Yields:
@@ -5304,14 +4597,6 @@ class RtfContent(ExtractionInterface):
         for tbl in self.tables:
             yield tbl
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 ########
 # EPUB #
@@ -5319,7 +4604,7 @@ class RtfContent(ExtractionInterface):
 
 
 @dataclass
-class EpubUnitMetadata(UnitMetadataInterface):
+class EpubUnitMetadata(UnitMetadataRecord):
     """EPUB Unit Metadata - represents a chapter/content document."""
 
     unit_number: int = 1
@@ -5328,7 +4613,7 @@ class EpubUnitMetadata(UnitMetadataInterface):
 
 
 @dataclass
-class EpubChapter(UnitInterface):
+class EpubChapter(UnitRecord):
     """A single chapter or content document from an EPUB."""
 
     chapter_number: int = 1
@@ -5346,7 +4631,7 @@ class EpubChapter(UnitInterface):
         """
         return self.text
 
-    def get_images(self) -> list[ImageInterface]:
+    def get_images(self) -> list[ImageRecord]:
         """Return images associated with this EPUB publication unit.
 
         Returns:
@@ -5374,17 +4659,9 @@ class EpubChapter(UnitInterface):
             title=self.title,
         )
 
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)
-
 
 @dataclass
-class EpubImage(ImageInterface):
+class EpubImage(ImageRecord):
     """Image embedded in an EPUB file."""
 
     image_index: int = 0
@@ -5447,7 +4724,7 @@ class EpubImage(ImageInterface):
 
 
 @dataclass
-class EpubMetadata(FileMetadataInterface):
+class EpubMetadata(SourceRecord):
     """Metadata from an EPUB file (Dublin Core + EPUB-specific)."""
 
     # Dublin Core metadata
@@ -5467,7 +4744,7 @@ class EpubMetadata(FileMetadataInterface):
 
 
 @dataclass
-class EpubContent(ExtractionInterface):
+class EpubParserOutput(ExtractionRecord):
     """Complete extracted content from an EPUB file."""
 
     metadata: EpubMetadata = field(default_factory=EpubMetadata)
@@ -5479,7 +4756,7 @@ class EpubContent(ExtractionInterface):
 
     def iterate_units(
         self, *, ignore_images: bool = False
-    ) -> typing.Iterator[UnitInterface]:
+    ) -> typing.Iterator[UnitRecord]:
         """Yield structural text units from this EPUB publication.
 
         Args:
@@ -5502,7 +4779,7 @@ class EpubContent(ExtractionInterface):
             else:
                 yield chapter
 
-    def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+    def iterate_images(self) -> typing.Generator[ImageRecord, None, None]:
         """Yield images extracted from this EPUB publication.
 
         Yields:
@@ -5511,7 +4788,7 @@ class EpubContent(ExtractionInterface):
         for img in self.images:
             yield img
 
-    def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+    def iterate_tables(self) -> typing.Generator[TableRecord, None, None]:
         """Yield tables extracted from this EPUB publication.
 
         Yields:
@@ -5536,11 +4813,3 @@ class EpubContent(ExtractionInterface):
             The format-specific metadata instance.
         """
         return self.metadata
-
-    def to_json(self) -> dict:
-        """Serialize this value into the public JSON-compatible schema.
-
-        Returns:
-            A dictionary containing the type marker and serialized fields.
-        """
-        return serialize_extraction(self)

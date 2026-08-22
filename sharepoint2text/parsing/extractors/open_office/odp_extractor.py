@@ -113,8 +113,8 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
     ExtractionFileEncryptedError,
 )
-from sharepoint2text.parsing.extractors._legacy_types import (
-    OdpContent,
+from sharepoint2text.parsing.extractors._records import (
+    OdpParserOutput,
     OdpSlide,
     OpenDocumentAnnotation,
     OpenDocumentImage,
@@ -483,7 +483,7 @@ def _extract_slide(
 
 def read_odp(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[OdpContent, Any, None]:
+) -> Generator[OdpParserOutput, Any, None]:
     """
     Extract all relevant content from an OpenDocument Presentation (.odp) file.
 
@@ -499,11 +499,11 @@ def read_odp(
             The stream position is reset to the beginning before reading.
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
-            returned OdpContent.metadata.
+            returned OdpParserOutput.metadata.
         ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
-        OdpContent: Single OdpContent object containing:
+        OdpParserOutput: Single OdpParserOutput object containing:
             - metadata: OpenDocumentMetadata with title, creator, dates
             - slides: List of OdpSlide objects with per-slide content
 
@@ -553,7 +553,7 @@ def read_odp(
         # Populate file metadata from path
         metadata.populate_from_path(path)
 
-        yield OdpContent(
+        yield OdpParserOutput(
             metadata=metadata,
             slides=slides,
         )

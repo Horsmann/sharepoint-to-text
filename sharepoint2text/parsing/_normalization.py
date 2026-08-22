@@ -1,4 +1,4 @@
-"""Internal adapters from extractor records to the normalized model."""
+"""Normalize parser-native records at the extraction boundary."""
 
 from __future__ import annotations
 
@@ -9,11 +9,11 @@ from dataclasses import fields, is_dataclass
 from datetime import date, datetime
 from typing import TypeVar, cast
 
-from sharepoint2text.parsing.extractors._legacy_types import (
-    ExtractionInterface,
-    ImageInterface,
-    TableInterface,
-    UnitInterface,
+from sharepoint2text.parsing.extractors._records import (
+    ExtractionRecord,
+    ImageRecord,
+    TableRecord,
+    UnitRecord,
 )
 from sharepoint2text.parsing.models.core import (
     Annotation,
@@ -30,24 +30,24 @@ from sharepoint2text.parsing.models.core import (
 )
 
 _FORMAT_BY_CONTENT_TYPE = {
-    "CsvContent": "csv",
-    "DocContent": "doc",
-    "DocxContent": "docx",
-    "EmailContent": "email",
-    "EpubContent": "epub",
-    "HtmlContent": "html",
-    "OdfContent": "odf",
-    "OdgContent": "odg",
-    "OdpContent": "odp",
-    "OdsContent": "ods",
-    "OdtContent": "odt",
-    "PdfContent": "pdf",
-    "PlainTextContent": "txt",
-    "PptContent": "ppt",
-    "PptxContent": "pptx",
-    "RtfContent": "rtf",
-    "XlsContent": "xls",
-    "XlsxContent": "xlsx",
+    "CsvParserOutput": "csv",
+    "DocParserOutput": "doc",
+    "DocxParserOutput": "docx",
+    "EmailParserOutput": "email",
+    "EpubParserOutput": "epub",
+    "HtmlParserOutput": "html",
+    "OdfParserOutput": "odf",
+    "OdgParserOutput": "odg",
+    "OdpParserOutput": "odp",
+    "OdsParserOutput": "ods",
+    "OdtParserOutput": "odt",
+    "PdfParserOutput": "pdf",
+    "PlainTextParserOutput": "txt",
+    "PptParserOutput": "ppt",
+    "PptxParserOutput": "pptx",
+    "RtfParserOutput": "rtf",
+    "XlsParserOutput": "xls",
+    "XlsxParserOutput": "xlsx",
 }
 _SOURCE_FIELDS = {
     "filename",
@@ -111,7 +111,7 @@ def _nonempty_text(value: object) -> str | None:
 
 
 def _first_text(value: object, *names: str) -> str | None:
-    """Return the first non-empty text attribute from a legacy object."""
+    """Return the first non-empty text attribute from a record object."""
     for name in names:
         result = _nonempty_text(getattr(value, name, None))
         if result is not None:
@@ -119,7 +119,7 @@ def _first_text(value: object, *names: str) -> str | None:
     return None
 
 
-def _legacy_format(value: ExtractionInterface, metadata: object) -> str:
+def _record_format(value: ExtractionRecord, metadata: object) -> str:
     """Derive a lowercase source format from metadata or the content type."""
     extension = _first_text(metadata, "file_extension")
     if extension:
@@ -130,7 +130,7 @@ def _legacy_format(value: ExtractionInterface, metadata: object) -> str:
 
 
 def _source_metadata(metadata: object, source_format: str) -> SourceMetadata:
-    """Map shared legacy source fields to stable source metadata."""
+    """Map shared record source fields to stable source metadata."""
     filename = _first_text(metadata, "filename")
     extension = _first_text(metadata, "file_extension")
     media_name = filename or (f"source.{source_format}" if source_format else None)
@@ -146,7 +146,7 @@ def _source_metadata(metadata: object, source_format: str) -> SourceMetadata:
 
 
 def _json_value(value: object) -> JsonValue | object:
-    """Convert a small legacy value to JSON data or mark it unsupported."""
+    """Convert a small record value to JSON data or mark it unsupported."""
     if value is None or isinstance(value, (str, bool, int, float)):
         return value
     if isinstance(value, (date, datetime)):
@@ -188,7 +188,7 @@ def _namespaced_fields(
 
 
 def _keywords(value: object) -> list[str]:
-    """Normalize legacy keyword strings and sequences."""
+    """Normalize record keyword strings and sequences."""
     if isinstance(value, str):
         return [item.strip() for item in re.split(r"[;,]", value) if item.strip()]
     if isinstance(value, (list, tuple)):
@@ -197,15 +197,15 @@ def _keywords(value: object) -> list[str]:
 
 
 def _document_metadata(
-    legacy: ExtractionInterface, metadata: object, source_format: str
+    record: ExtractionRecord, metadata: object, source_format: str
 ) -> DocumentMetadata:
-    """Map descriptive legacy metadata and preserve uncommon scalar facts."""
+    """Map descriptive record metadata and preserve uncommon scalar facts."""
     title = _first_text(metadata, "title")
     if title is None:
-        title = _first_text(legacy, "subject")
+        title = _first_text(record, "subject")
     author = _first_text(metadata, "author", "creator", "initial_creator")
-    if author is None and hasattr(legacy, "from_email"):
-        sender = getattr(legacy, "from_email")
+    if author is None and hasattr(record, "from_email"):
+        sender = getattr(record, "from_email")
         author = _first_text(sender, "address", "name")
     return DocumentMetadata(
         title=title,
@@ -222,7 +222,7 @@ def _document_metadata(
 
 
 def _stream_bytes(value: object) -> bytes | None:
-    """Read immutable bytes without changing a legacy stream cursor."""
+    """Read immutable bytes without changing a record stream cursor."""
     if value is None:
         return None
     if isinstance(value, (bytes, bytearray)):
@@ -246,15 +246,13 @@ def _positive_dimension(value: object) -> int | None:
     )
 
 
-def _image_asset(
-    image: ImageInterface, source_format: str, fallback: int
-) -> ImageAsset:
-    """Normalize one legacy image without leaking mutable stream state."""
+def _image_asset(image: ImageRecord, source_format: str, fallback: int) -> ImageAsset:
+    """Normalize one record image without leaking mutable stream state."""
     metadata = image.get_metadata()
-    legacy_number = getattr(metadata, "image_number", None)
+    source_number = getattr(metadata, "image_number", None)
     number = (
-        legacy_number
-        if isinstance(legacy_number, int) and legacy_number > 0
+        source_number
+        if isinstance(source_number, int) and source_number > 0
         else fallback
     )
     return ImageAsset(
@@ -271,7 +269,7 @@ def _image_asset(
 
 
 def _cell_value(value: object) -> CellValue:
-    """Convert a legacy table value to a stable scalar cell value."""
+    """Convert a record table value to a stable scalar cell value."""
     if value is None or isinstance(value, (str, bool, int, float)):
         return value
     if isinstance(value, (date, datetime)):
@@ -279,8 +277,8 @@ def _cell_value(value: object) -> CellValue:
     return str(value)
 
 
-def _table(table: TableInterface, source_format: str) -> Table:
-    """Normalize one legacy table while preserving ragged row order."""
+def _table(table: TableRecord, source_format: str) -> Table:
+    """Normalize one record table while preserving ragged row order."""
     rows = [[_cell_value(cell) for cell in row] for row in table.get_table()]
     excluded = {"data", "name", "caption", "text", "images", "annotations"}
     return Table(
@@ -292,7 +290,7 @@ def _table(table: TableInterface, source_format: str) -> Table:
 
 
 def _annotation(record: object, kind: str, source_format: str) -> Annotation:
-    """Normalize one legacy supplemental record."""
+    """Normalize one record supplemental record."""
     if isinstance(record, str):
         return Annotation(kind=kind, text=record)
     text = _first_text(record, "text", "latex", "field_result", "name") or ""
@@ -317,7 +315,7 @@ def _annotation(record: object, kind: str, source_format: str) -> Annotation:
 
 
 def _record_annotations(owner: object, source_format: str) -> list[Annotation]:
-    """Collect supported annotation families from a legacy owner."""
+    """Collect supported annotation families from a record owner."""
     mappings = (
         ("comments", "comment"),
         ("annotations", "comment"),
@@ -345,8 +343,8 @@ def _record_annotations(owner: object, source_format: str) -> list[Annotation]:
     return result
 
 
-def _unit_kind(source_format: str, unit: UnitInterface, metadata: object) -> UnitKind:
-    """Map a legacy structural unit to a format-neutral kind."""
+def _unit_kind(source_format: str, unit: UnitRecord, metadata: object) -> UnitKind:
+    """Map a record structural unit to a format-neutral kind."""
     mapped = _UNIT_KINDS_BY_FORMAT.get(source_format)
     if mapped is not None:
         return mapped
@@ -365,25 +363,25 @@ def _unit_kind(source_format: str, unit: UnitInterface, metadata: object) -> Uni
 
 
 def _unit_annotations(
-    legacy: ExtractionInterface, index: int, source_format: str
+    record: ExtractionRecord, index: int, source_format: str
 ) -> list[Annotation]:
     """Collect annotations from the corresponding slide or sheet record."""
     for collection_name in ("slides", "sheets", "chapters"):
-        collection = getattr(legacy, collection_name, None)
+        collection = getattr(record, collection_name, None)
         if isinstance(collection, list) and index < len(collection):
             return _record_annotations(collection[index], source_format)
     return []
 
 
 def _content_unit(
-    legacy: ExtractionInterface, unit: UnitInterface, index: int, source_format: str
+    record: ExtractionRecord, unit: UnitRecord, index: int, source_format: str
 ) -> ContentUnit:
-    """Normalize one legacy content unit and its canonical assets."""
+    """Normalize one record content unit and its canonical assets."""
     metadata = unit.get_metadata()
-    legacy_number = getattr(metadata, "unit_number", None)
+    source_number = getattr(metadata, "unit_number", None)
     number = (
-        legacy_number
-        if isinstance(legacy_number, int) and legacy_number > 0
+        source_number
+        if isinstance(source_number, int) and source_number > 0
         else index + 1
     )
     heading_path = getattr(metadata, "heading_path", [])
@@ -402,7 +400,7 @@ def _content_unit(
             for position, image in enumerate(unit.get_images(), start=1)
         ],
         tables=[_table(table, source_format) for table in unit.get_tables()],
-        annotations=_unit_annotations(legacy, index, source_format),
+        annotations=_unit_annotations(record, index, source_format),
         properties=_namespaced_fields(metadata, source_format, excluded),
     )
 
@@ -424,9 +422,9 @@ def _unowned(all_items: list[_Item], owned_items: list[_Item]) -> list[_Item]:
     return result[-expected_count:] if expected_count else []
 
 
-def _attachments(legacy: ExtractionInterface, source_format: str) -> list[Attachment]:
+def _attachments(record: ExtractionRecord, source_format: str) -> list[Attachment]:
     """Normalize email attachments without extracting them eagerly."""
-    records = getattr(legacy, "attachments", ())
+    records = getattr(record, "attachments", ())
     if not isinstance(records, (list, tuple)):
         return []
     return [
@@ -443,7 +441,7 @@ def _attachments(legacy: ExtractionInterface, source_format: str) -> list[Attach
 
 
 def _document_properties(
-    legacy: ExtractionInterface, source_format: str
+    record: ExtractionRecord, source_format: str
 ) -> dict[str, JsonValue]:
     """Preserve selected stable content-level facts that are not parser trees."""
     properties: dict[str, JsonValue] = {}
@@ -455,7 +453,7 @@ def _document_properties(
         "to_bcc",
         "toc",
     ):
-        value = getattr(legacy, field_name, None)
+        value = getattr(record, field_name, None)
         if is_dataclass(value) and not isinstance(value, type):
             continue
         converted = _json_value(value)
@@ -465,57 +463,57 @@ def _document_properties(
 
 
 def _normalized_units(
-    legacy: ExtractionInterface, source_format: str
+    record: ExtractionRecord, source_format: str
 ) -> list[ContentUnit]:
     """Normalize all structural units in source order."""
     return [
-        _content_unit(legacy, unit, index, source_format)
-        for index, unit in enumerate(legacy.iterate_units())
+        _content_unit(record, unit, index, source_format)
+        for index, unit in enumerate(record.iterate_units())
     ]
 
 
 def _normalized_images(
-    legacy: ExtractionInterface, source_format: str
+    record: ExtractionRecord, source_format: str
 ) -> list[ImageAsset]:
-    """Normalize the legacy document-wide image iterator."""
+    """Normalize the record document-wide image iterator."""
     return [
         _image_asset(image, source_format, index)
-        for index, image in enumerate(legacy.iterate_images(), start=1)
+        for index, image in enumerate(record.iterate_images(), start=1)
     ]
 
 
-def _normalized_tables(legacy: ExtractionInterface, source_format: str) -> list[Table]:
-    """Normalize the legacy document-wide table iterator."""
-    return [_table(table, source_format) for table in legacy.iterate_tables()]
+def _normalized_tables(record: ExtractionRecord, source_format: str) -> list[Table]:
+    """Normalize the record document-wide table iterator."""
+    return [_table(table, source_format) for table in record.iterate_tables()]
 
 
 def _build_document(
-    legacy: ExtractionInterface, metadata: object, source_format: str
+    record: ExtractionRecord, metadata: object, source_format: str
 ) -> ExtractedDocument:
-    """Build a normalized document after validating the legacy boundary."""
-    units = _normalized_units(legacy, source_format)
-    all_images = _normalized_images(legacy, source_format)
-    all_tables = _normalized_tables(legacy, source_format)
+    """Build a normalized document after validating the record boundary."""
+    units = _normalized_units(record, source_format)
+    all_images = _normalized_images(record, source_format)
+    all_tables = _normalized_tables(record, source_format)
     owned_images = [item for unit in units for item in unit.images]
     owned_tables = [item for unit in units for item in unit.tables]
     return ExtractedDocument(
         format=source_format,
         source=_source_metadata(metadata, source_format),
-        metadata=_document_metadata(legacy, metadata, source_format),
+        metadata=_document_metadata(record, metadata, source_format),
         units=units,
         document_images=_unowned(all_images, owned_images),
         document_tables=_unowned(all_tables, owned_tables),
-        document_annotations=_record_annotations(legacy, source_format),
-        attachments=_attachments(legacy, source_format),
-        properties=_document_properties(legacy, source_format),
+        document_annotations=_record_annotations(record, source_format),
+        attachments=_attachments(record, source_format),
+        properties=_document_properties(record, source_format),
     )
 
 
-def _normalize_extraction(legacy_result: ExtractionInterface) -> ExtractedDocument:
+def _normalize_record(record: ExtractionRecord) -> ExtractedDocument:
     """Convert an internal extractor result to the normalized data model.
 
     Args:
-        legacy_result: Format-specific internal extraction result.
+        record: Format-specific internal extraction result.
 
     Returns:
         Normalized document with one canonical owner for each asset.
@@ -524,13 +522,13 @@ def _normalize_extraction(legacy_result: ExtractionInterface) -> ExtractedDocume
         TypeError: If the value does not implement the internal extraction protocol.
 
     Example:
-        >>> from sharepoint2text.parsing.extractors._legacy_types import PlainTextContent
-        >>> _normalize_extraction(PlainTextContent(content="Hello")).full_text
+        >>> from sharepoint2text.parsing.extractors._records import PlainTextParserOutput
+        >>> _normalize_record(PlainTextParserOutput(content="Hello")).full_text
         'Hello'
     """
     required = ("get_metadata", "iterate_units", "iterate_images", "iterate_tables")
-    if not all(callable(getattr(legacy_result, name, None)) for name in required):
-        raise TypeError("legacy_result must implement the internal extraction protocol")
-    metadata = legacy_result.get_metadata()
-    source_format = _legacy_format(legacy_result, metadata)
-    return _build_document(legacy_result, metadata, source_format)
+    if not all(callable(getattr(record, name, None)) for name in required):
+        raise TypeError("record must implement the internal extraction protocol")
+    metadata = record.get_metadata()
+    source_format = _record_format(record, metadata)
+    return _build_document(record, metadata, source_format)

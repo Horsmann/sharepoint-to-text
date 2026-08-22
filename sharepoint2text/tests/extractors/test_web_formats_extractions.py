@@ -7,13 +7,13 @@ from unittest import TestCase
 from sharepoint2text.parsing.exceptions import (
     ExtractionFileEncryptedError,
 )
-from sharepoint2text.parsing.extractors._legacy_types import (
-    EmailContent,
-    EpubContent,
+from sharepoint2text.parsing.extractors._records import (
+    EmailParserOutput,
+    EpubParserOutput,
     EpubUnitMetadata,
-    FileMetadataInterface,
-    HtmlContent,
+    HtmlParserOutput,
     HtmlUnitMetadata,
+    SourceRecord,
     TableDim,
 )
 from sharepoint2text.parsing.extractors.archive_extractor import read_archive
@@ -53,7 +53,7 @@ def _zip_bytes_to_file_like(files: dict[str, str]) -> io.BytesIO:
 
 
 def test_file_metadata_extraction() -> None:
-    meta = FileMetadataInterface()
+    meta = SourceRecord()
     meta.populate_from_path("my/dummy/path.txt")
 
     tc.assertEqual("path.txt", meta.filename)
@@ -82,7 +82,7 @@ def test_password_protected__zip() -> None:
 def test_email__mbox_format() -> None:
     path = "sharepoint2text/tests/resources/mails/basic_email.mbox"
 
-    mail_gen: typing.Generator[EmailContent, None, None] = read_mbox_format_mail(
+    mail_gen: typing.Generator[EmailParserOutput, None, None] = read_mbox_format_mail(
         file_like=_read_file_to_file_like(path=path),
         path=path,
     )
@@ -129,7 +129,7 @@ def test_email__mbox_format() -> None:
 
 def test_read_html__1() -> None:
     path = "sharepoint2text/tests/resources/html/sample.html"
-    html: HtmlContent = next(
+    html: HtmlParserOutput = next(
         read_html(file_like=_read_file_to_file_like(path=path), path=path)
     )
 
@@ -157,7 +157,7 @@ def test_read_html__1() -> None:
 
 def test_read_html__2() -> None:
     path = "sharepoint2text/tests/resources/html/large_complex.html"
-    html: HtmlContent = next(
+    html: HtmlParserOutput = next(
         read_html(file_like=_read_file_to_file_like(path=path), path=path)
     )
 
@@ -281,7 +281,7 @@ def test_read_html__2() -> None:
 def test_read_epub__1() -> None:
     """Test EPUB extraction with a sample EPUB file."""
     path = "sharepoint2text/tests/resources/epub/sample.epub"
-    epub: EpubContent = next(
+    epub: EpubParserOutput = next(
         read_epub(file_like=_read_file_to_file_like(path=path), path=path)
     )
 
@@ -350,7 +350,7 @@ def test_read_epub__1() -> None:
 def test_read_epub__2() -> None:
     """Test EPUB extraction with a sample EPUB file."""
     path = "sharepoint2text/tests/resources/epub/BJNR274910013.epub"
-    epub: EpubContent = next(
+    epub: EpubParserOutput = next(
         read_epub(file_like=_read_file_to_file_like(path=path), path=path)
     )
 
@@ -439,12 +439,12 @@ def test_read_epub__2() -> None:
 def test_read_mhtml() -> None:
     """Test MHTML (web archive) extraction."""
     path = "sharepoint2text/tests/resources/html/sample.mhtml"
-    result: HtmlContent = next(
+    result: HtmlParserOutput = next(
         read_mhtml(file_like=_read_file_to_file_like(path=path), path=path)
     )
 
-    # Verify it returns HtmlContent
-    tc.assertIsInstance(result, HtmlContent)
+    # Verify it returns HtmlParserOutput
+    tc.assertIsInstance(result, HtmlParserOutput)
 
     # Check metadata
     tc.assertEqual("Test MHTML Page", result.metadata.title)

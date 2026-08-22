@@ -1,8 +1,8 @@
 import logging
 from unittest import TestCase
 
-from sharepoint2text.parsing.extractors._legacy_types import (
-    PlainTextContent,
+from sharepoint2text.parsing.extractors._records import (
+    PlainTextParserOutput,
     PlainUnitMetadata,
 )
 from sharepoint2text.parsing.extractors.plain_extractor import read_plain_text
@@ -21,7 +21,7 @@ tc.maxDiff = None
 
 def test_read_text() -> None:
     path = "sharepoint2text/tests/resources/plain_text/plain.txt"
-    plain: PlainTextContent = next(
+    plain: PlainTextParserOutput = next(
         read_plain_text(file_like=read_file_to_file_like(path), path=path)
     )
 
@@ -43,7 +43,7 @@ def test_read_text() -> None:
 
 def test_read_plain_csv() -> None:
     path = "sharepoint2text/tests/resources/plain_text/plain.csv"
-    plain: PlainTextContent = next(
+    plain: PlainTextParserOutput = next(
         read_plain_text(file_like=read_file_to_file_like(path=path), path=path)
     )
 

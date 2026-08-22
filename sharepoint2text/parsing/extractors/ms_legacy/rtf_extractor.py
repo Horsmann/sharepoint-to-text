@@ -11,11 +11,10 @@ import re
 from typing import Any, Generator
 
 from sharepoint2text.parsing.exceptions import ExtractionError, ExtractionFailedError
-from sharepoint2text.parsing.extractors._legacy_types import (
+from sharepoint2text.parsing.extractors._records import (
     RtfAnnotation,
     RtfBookmark,
     RtfColor,
-    RtfContent,
     RtfField,
     RtfFont,
     RtfFootnote,
@@ -24,6 +23,7 @@ from sharepoint2text.parsing.extractors._legacy_types import (
     RtfImage,
     RtfMetadata,
     RtfParagraph,
+    RtfParserOutput,
     RtfStyle,
     RtfTable,
 )
@@ -285,7 +285,7 @@ class _RtfParser:
             for keyword, char in self.SPECIAL_CHARS.items()
         ]
 
-    def parse(self) -> RtfContent:
+    def parse(self) -> RtfParserOutput:
         """Parse the RTF document and return extracted content.
 
         Returns:
@@ -296,7 +296,7 @@ class _RtfParser:
 
             if not text.startswith("{\\rtf"):
                 logger.warning("Not a valid RTF file - missing RTF header")
-                return RtfContent(full_text=text)
+                return RtfParserOutput(full_text=text)
 
             self._extract_fonts(text)
             self._extract_colors(text)
@@ -312,7 +312,7 @@ class _RtfParser:
 
             full_text = "\n".join(p.text for p in self.paragraphs if p.text.strip())
 
-            return RtfContent(
+            return RtfParserOutput(
                 metadata=self.metadata,
                 fonts=self.fonts,
                 colors=self.colors,
@@ -336,9 +336,9 @@ class _RtfParser:
             try:
                 text = self._decode_rtf()
                 plain = self._strip_rtf_simple(text)
-                return RtfContent(full_text=plain)
+                return RtfParserOutput(full_text=plain)
             except (UnicodeDecodeError, ValueError):
-                return RtfContent()
+                return RtfParserOutput()
 
     def _decode_rtf(self) -> str:
         """Decode RTF bytes to string, handling various encodings."""
@@ -860,12 +860,12 @@ class _RtfParser:
 
 def read_rtf(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[RtfContent, Any, None]:
+) -> Generator[RtfParserOutput, Any, None]:
     """
     Extract content from an RTF file.
 
     Uses a generator pattern for API consistency. RTF files yield exactly one
-    RtfContent object containing text, pages, metadata, and document elements.
+    RtfParserOutput object containing text, pages, metadata, and document elements.
 
     Args:
         ignore_images: If True, skip image extraction (not applicable for this format).

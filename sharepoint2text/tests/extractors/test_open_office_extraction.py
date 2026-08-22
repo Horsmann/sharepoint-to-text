@@ -4,16 +4,16 @@ from unittest import TestCase
 from sharepoint2text.parsing.exceptions import (
     ExtractionFileEncryptedError,
 )
-from sharepoint2text.parsing.extractors._legacy_types import (
+from sharepoint2text.parsing.extractors._records import (
     ImageMetadata,
-    OdfContent,
-    OdgContent,
-    OdpContent,
+    OdfParserOutput,
+    OdgParserOutput,
+    OdpParserOutput,
     OdpUnitMetadata,
-    OdsContent,
-    OdtContent,
+    OdsParserOutput,
     OdtHeaderFooter,
     OdtNote,
+    OdtParserOutput,
     OdtTable,
     OdtUnitMetadata,
     OpenDocumentAnnotation,
@@ -62,7 +62,7 @@ def test_password_protected__odp() -> None:
 
 def test_read_open_office__document() -> None:
     path = "sharepoint2text/tests/resources/open_office/sample_document.odt"
-    odt: OdtContent = next(
+    odt: OdtParserOutput = next(
         read_odt(file_like=read_file_to_file_like(path=path), path=path)
     )
 
@@ -180,7 +180,7 @@ def test_read_open_office__document() -> None:
 def test_read_open_office__document_aoo() -> None:
     # the dialects are not fully compatible
     path = "sharepoint2text/tests/resources/open_office/apache_oo/aoo_document.odt"
-    odt: OdtContent = next(
+    odt: OdtParserOutput = next(
         read_odt(file_like=read_file_to_file_like(path=path), path=path)
     )
 
@@ -193,7 +193,7 @@ def test_read_open_office__document_aoo() -> None:
 
 def test_read_open_office__presentation_aoo() -> None:
     path = "sharepoint2text/tests/resources/open_office/apache_oo/aoo_presentation.odp"
-    odp: OdpContent = next(
+    odp: OdpParserOutput = next(
         read_odp(file_like=read_file_to_file_like(path=path), path=path)
     )
 
@@ -202,7 +202,7 @@ def test_read_open_office__presentation_aoo() -> None:
 
 def test_read_open_office__spreadsheet_aoo() -> None:
     path = "sharepoint2text/tests/resources/open_office/apache_oo/aoo_spreadsheet.ods"
-    ods: OdsContent = next(
+    ods: OdsParserOutput = next(
         read_ods(file_like=read_file_to_file_like(path=path), path=path)
     )
 
@@ -211,7 +211,7 @@ def test_read_open_office__spreadsheet_aoo() -> None:
 
 def test_read_open_office__drawing_aoo() -> None:
     path = "sharepoint2text/tests/resources/open_office/apache_oo/aoo_drawing.odg"
-    odg: OdgContent = next(
+    odg: OdgParserOutput = next(
         read_odg(file_like=read_file_to_file_like(path=path), path=path)
     )
 
@@ -220,7 +220,7 @@ def test_read_open_office__drawing_aoo() -> None:
 
 def test_read_open_office__formular_aoo() -> None:
     path = "sharepoint2text/tests/resources/open_office/apache_oo/aoo_formular.odf"
-    odf: OdfContent = next(
+    odf: OdfParserOutput = next(
         read_odf(file_like=read_file_to_file_like(path=path), path=path)
     )
 
@@ -229,7 +229,7 @@ def test_read_open_office__formular_aoo() -> None:
 
 def test_read_open_office__presentation_with_notes() -> None:
     path = "sharepoint2text/tests/resources/open_office/slide_with_notes.odp"
-    odp: OdpContent = next(
+    odp: OdpParserOutput = next(
         read_odp(file_like=read_file_to_file_like(path=path), path=path)
     )
 
@@ -240,7 +240,7 @@ def test_read_open_office__presentation_with_notes() -> None:
 
 def test_read_open_office__presentation_with_table() -> None:
     path = "sharepoint2text/tests/resources/open_office/odp_with_table.odp"
-    odp: OdpContent = next(
+    odp: OdpParserOutput = next(
         read_odp(file_like=read_file_to_file_like(path=path), path=path)
     )
 
@@ -270,7 +270,7 @@ def test_read_open_office__presentation_with_table() -> None:
 
 def test_read_open_office__drawing_odg() -> None:
     path = "sharepoint2text/tests/resources/open_office/drawing.odg"
-    odg: OdgContent = next(
+    odg: OdgParserOutput = next(
         read_odg(file_like=read_file_to_file_like(path=path), path=path)
     )
 
@@ -281,7 +281,7 @@ def test_read_open_office__drawing_odg() -> None:
 
 def test_read_open_office__formula_odf() -> None:
     path = "sharepoint2text/tests/resources/open_office/formular.odf"
-    odf: OdfContent = next(
+    odf: OdfParserOutput = next(
         read_odf(file_like=read_file_to_file_like(path=path), path=path)
     )
 
@@ -290,7 +290,7 @@ def test_read_open_office__formula_odf() -> None:
 
 def test_read_open_office__heading_units() -> None:
     path = "sharepoint2text/tests/resources/open_office/headings.odt"
-    odt: OdtContent = next(
+    odt: OdtParserOutput = next(
         read_odt(file_like=read_file_to_file_like(path=path), path=path)
     )
 
@@ -356,7 +356,7 @@ def test_read_open_office__heading_units() -> None:
 
 def test_read_open_office__presentation() -> None:
     path = "sharepoint2text/tests/resources/open_office/sample_presentation.odp"
-    odp: OdpContent = next(
+    odp: OdpParserOutput = next(
         read_odp(file_like=read_file_to_file_like(path=path), path=path)
     )
 
@@ -443,7 +443,7 @@ def test_read_open_office__presentation() -> None:
 
 def test_read_open_office__spreadsheet() -> None:
     path = "sharepoint2text/tests/resources/open_office/sample_spreadsheet.ods"
-    ods: OdsContent = next(
+    ods: OdsParserOutput = next(
         read_ods(file_like=read_file_to_file_like(path=path), path=path)
     )
 
@@ -551,7 +551,7 @@ def test_read_open_office__spreadsheet_2() -> None:
     the same number of columns for this to work
     """
     path = "sharepoint2text/tests/resources/modern_ms/empty_row_columns.ods"
-    ods: OdsContent = next(read_ods(file_like=read_file_to_file_like(path=path)))
+    ods: OdsParserOutput = next(read_ods(file_like=read_file_to_file_like(path=path)))
 
     tc.assertEqual(3, len(ods.sheets))
     expected_rows = [
@@ -579,10 +579,10 @@ def test_read_open_office__spreadsheet_2() -> None:
 
 
 def test_open_office__document_image_interface() -> None:
-    """Test that OpenDocumentImage correctly implements ImageInterface."""
+    """Test that OpenDocumentImage correctly implements ImageRecord."""
     # Create an OpenDocumentImage with test data
     path = "sharepoint2text/tests/resources/open_office/image_extraction.odt"
-    odt: OdtContent = next(
+    odt: OdtParserOutput = next(
         read_odt(file_like=read_file_to_file_like(path=path), path=path)
     )
 
@@ -622,10 +622,10 @@ def test_open_office__document_image_interface() -> None:
 
 
 def test_open_office__document_image_interface__no_images() -> None:
-    """Test that OpenDocumentImage correctly implements ImageInterface."""
+    """Test that OpenDocumentImage correctly implements ImageRecord."""
     # Create an OpenDocumentImage with test data
     path = "sharepoint2text/tests/resources/open_office/image_extraction.odt"
-    odt: OdtContent = next(
+    odt: OdtParserOutput = next(
         read_odt(
             file_like=read_file_to_file_like(path=path), path=path, ignore_images=True
         )
@@ -635,10 +635,10 @@ def test_open_office__document_image_interface__no_images() -> None:
 
 
 def test_open_office__presentation_image_interface() -> None:
-    """Test that OpenDocumentImage correctly implements ImageInterface."""
+    """Test that OpenDocumentImage correctly implements ImageRecord."""
     # Create an OpenDocumentImage with test data
     path = "sharepoint2text/tests/resources/open_office/image_extraction.odp"
-    odp: OdpContent = next(
+    odp: OdpParserOutput = next(
         read_odp(file_like=read_file_to_file_like(path=path), path=path)
     )
     tc.assertEqual(1, len(odp.slides[0].images))
@@ -683,10 +683,10 @@ def test_open_office__presentation_image_interface() -> None:
 
 
 def test_open_office__presentation_image_interface__no_image_flag() -> None:
-    """Test that OpenDocumentImage correctly implements ImageInterface."""
+    """Test that OpenDocumentImage correctly implements ImageRecord."""
     # Create an OpenDocumentImage with test data
     path = "sharepoint2text/tests/resources/open_office/image_extraction.odp"
-    odp: OdpContent = next(
+    odp: OdpParserOutput = next(
         read_odp(
             file_like=read_file_to_file_like(path=path), path=path, ignore_images=True
         )
@@ -695,10 +695,10 @@ def test_open_office__presentation_image_interface__no_image_flag() -> None:
 
 
 def test_open_office__spreadsheet_image_interface() -> None:
-    """Test that OpenDocumentImage correctly implements ImageInterface."""
+    """Test that OpenDocumentImage correctly implements ImageRecord."""
     # Create an OpenDocumentImage with test data
     path = "sharepoint2text/tests/resources/open_office/image_extraction.ods"
-    ods: OdsContent = next(
+    ods: OdsParserOutput = next(
         read_ods(file_like=read_file_to_file_like(path=path), path=path)
     )
     tc.assertEqual(3, len(ods.sheets))
@@ -717,10 +717,10 @@ def test_open_office__spreadsheet_image_interface() -> None:
 
 
 def test_open_office__spreadsheet_image_interface__no_images() -> None:
-    """Test that OpenDocumentImage correctly implements ImageInterface."""
+    """Test that OpenDocumentImage correctly implements ImageRecord."""
     # Create an OpenDocumentImage with test data
     path = "sharepoint2text/tests/resources/open_office/image_extraction.ods"
-    ods: OdsContent = next(
+    ods: OdsParserOutput = next(
         read_ods(
             file_like=read_file_to_file_like(path=path), path=path, ignore_images=True
         )
@@ -730,7 +730,7 @@ def test_open_office__spreadsheet_image_interface__no_images() -> None:
 
 def test_read_odt__unit_structure() -> None:
     path = "sharepoint2text/tests/resources/open_office/word_structure.odt"
-    doc: OdtContent = next(read_odt(file_like=read_file_to_file_like(path=path)))
+    doc: OdtParserOutput = next(read_odt(file_like=read_file_to_file_like(path=path)))
 
     units = list(doc.iterate_units())
     tc.assertEqual(5, len(units))
@@ -764,7 +764,7 @@ def test_read_odt__unit_structure() -> None:
 
 def test_read_odt_units() -> None:
     path = "sharepoint2text/tests/resources/open_office/slide_headlines.odp"
-    odt: OdpContent = next(read_odp(read_file_to_file_like(path=path)))
+    odt: OdpParserOutput = next(read_odp(read_file_to_file_like(path=path)))
 
     units = list(odt.iterate_units())
     tc.assertEqual(2, len(units))

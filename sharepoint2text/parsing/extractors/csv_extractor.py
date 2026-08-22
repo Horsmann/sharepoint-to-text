@@ -6,7 +6,7 @@ Extracts structured tabular content from CSV and TSV files with automatic
 encoding and dialect detection.
 
 Unlike the plain text extractor, this module parses the delimited structure
-and returns a ``CsvContent`` object whose ``iterate_tables()`` yields a
+and returns a ``CsvParserOutput`` object whose ``iterate_tables()`` yields a
 ``TableData`` instance suitable for downstream processing (DataFrames,
 Markdown rendering, etc.).
 
@@ -30,7 +30,7 @@ Extracted Content
 -----------------
     - content: Full text (decoded, unmodified)
     - table: ``TableData`` with each row as a list of cell strings
-    - metadata: ``FileMetadataInterface`` with detected_encoding
+    - metadata: ``SourceRecord`` with detected_encoding
 """
 
 import csv
@@ -41,9 +41,9 @@ from typing import Any, Generator
 from charset_normalizer import from_bytes
 
 from sharepoint2text.parsing.exceptions import ExtractionError, ExtractionFailedError
-from sharepoint2text.parsing.extractors._legacy_types import (
-    CsvContent,
-    FileMetadataInterface,
+from sharepoint2text.parsing.extractors._records import (
+    CsvParserOutput,
+    SourceRecord,
     TableData,
 )
 
@@ -83,7 +83,7 @@ def read_csv(
     path: str | None = None,
     *,
     ignore_images: bool = False,
-) -> Generator[CsvContent, Any, None]:
+) -> Generator[CsvParserOutput, Any, None]:
     """Extract structured content from a CSV or TSV file.
 
     Args:
@@ -92,7 +92,7 @@ def read_csv(
         ignore_images: Unused, accepted for interface consistency.
 
     Yields:
-        A single ``CsvContent`` with both the raw text and a ``TableData``.
+        A single ``CsvParserOutput`` with both the raw text and a ``TableData``.
     """
     source_path = path or "<in-memory>"
     logger.info("Entering CSV/TSV extraction: %s", source_path)
@@ -126,11 +126,11 @@ def read_csv(
             for row in reader:
                 rows.append(row)
 
-        metadata = FileMetadataInterface()
+        metadata = SourceRecord()
         metadata.populate_from_path(path)
         metadata.detected_encoding = detected_encoding
 
-        yield CsvContent(
+        yield CsvParserOutput(
             content=text,
             table=TableData(data=rows),
             metadata=metadata,

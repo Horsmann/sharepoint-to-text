@@ -13,6 +13,9 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Generator
 
+from sharepoint2text.parsing._normalization import (
+    _normalize_record,
+)
 from sharepoint2text.parsing.exceptions import (
     ExtractionError,
     ExtractionFailedError,
@@ -21,9 +24,6 @@ from sharepoint2text.parsing.exceptions import (
 )
 from sharepoint2text.parsing.mime_types import MIME_TYPE_MAPPING
 from sharepoint2text.parsing.models import ExtractedDocument
-from sharepoint2text.parsing.models._legacy import (
-    _normalize_extraction,
-)
 from sharepoint2text.parsing.router import (
     _get_extractor,
     _resolve_file_type,
@@ -325,7 +325,7 @@ def read_file(
         try:
             for result in extractor(f, str(path)):
                 logger.info("Extraction complete: %s", path)
-                yield _normalize_extraction(result)
+                yield _normalize_record(result)
         except ExtractionError:
             raise
         except (OSError, ValueError, TypeError, UnicodeDecodeError) as exc:
@@ -469,7 +469,7 @@ def read_bytes(
     try:
         for result in extractor(file_like, virtual_path):
             logger.info("In-memory extraction complete: %s", virtual_path)
-            yield _normalize_extraction(result)
+            yield _normalize_record(result)
     except ExtractionError:
         raise
     except (OSError, ValueError, TypeError, UnicodeDecodeError) as exc:

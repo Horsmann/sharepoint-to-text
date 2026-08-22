@@ -118,11 +118,11 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFileEncryptedError,
     ExtractionFileTooLargeError,
 )
-from sharepoint2text.parsing.extractors._legacy_types import (
-    PdfContent,
+from sharepoint2text.parsing.extractors._records import (
     PdfImage,
     PdfMetadata,
     PdfPage,
+    PdfParserOutput,
 )
 
 logger = logging.getLogger(__name__)
@@ -252,7 +252,7 @@ def _should_skip_images(reader: PdfReader, file_like: io.BytesIO) -> bool:
 
 def read_pdf(
     file_like: io.BytesIO, path: Optional[str] = None, *, ignore_images: bool = False
-) -> Generator[PdfContent, Any, None]:
+) -> Generator[PdfParserOutput, Any, None]:
     """
     Extract all relevant content from a PDF file.
 
@@ -268,11 +268,11 @@ def read_pdf(
             The stream position is reset to the beginning before reading.
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
-            returned PdfContent.metadata.
+            returned PdfParserOutput.metadata.
         ignore_images: If True, skip image extraction.
 
     Yields:
-        PdfContent: Single PdfContent object containing:
+        PdfParserOutput: Single PdfParserOutput object containing:
             - pages: List of PdfPage objects in document order
             - metadata: PdfMetadata with total_pages and file info
 
@@ -337,7 +337,7 @@ def read_pdf(
             total_images,
         )
 
-        yield PdfContent(
+        yield PdfParserOutput(
             pages=pages,
             metadata=metadata,
         )

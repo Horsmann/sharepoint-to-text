@@ -92,11 +92,11 @@ from email.utils import parsedate_to_datetime
 from typing import Any, Generator
 
 from sharepoint2text.parsing.exceptions import ExtractionError, ExtractionFailedError
-from sharepoint2text.parsing.extractors._legacy_types import (
+from sharepoint2text.parsing.extractors._records import (
     EmailAddress,
     EmailAttachment,
-    EmailContent,
     EmailMetadata,
+    EmailParserOutput,
 )
 from sharepoint2text.parsing.mime_types import is_supported_mime_type
 
@@ -459,12 +459,12 @@ def _extract_attachments(message: email.message.Message) -> list[EmailAttachment
 
 def parse_email_message(
     message: email.message.Message, *, include_attachments: bool = True
-) -> EmailContent:
+) -> EmailParserOutput:
     """
-    Parse an email.message.Message into an EmailContent dataclass.
+    Parse an email.message.Message into an EmailParserOutput dataclass.
 
     Consolidates all message parsing into a single function that extracts
-    headers, addresses, and body content into the standard EmailContent
+    headers, addresses, and body content into the standard EmailParserOutput
     structure.
 
     Args:
@@ -472,7 +472,7 @@ def parse_email_message(
         include_attachments: If True, extract MIME attachment payloads.
 
     Returns:
-        EmailContent: Fully populated dataclass with all extracted data.
+        EmailParserOutput: Fully populated dataclass with all extracted data.
 
     Implementation Notes:
         - Date is parsed via parsedate_to_datetime and converted to ISO format
@@ -505,7 +505,7 @@ def parse_email_message(
     reply_to = parse_email_addresses(message.get("Reply-To"))
     attachments = _extract_attachments(message) if include_attachments else []
 
-    return EmailContent(
+    return EmailParserOutput(
         from_email=from_email,
         subject=decode_header_value(message.get("Subject")),
         in_reply_to=decode_header_value(message.get("In-Reply-To", "")),
@@ -526,24 +526,24 @@ def read_mbox_format_mail(
     *,
     ignore_images: bool = False,
     include_attachments: bool = True,
-) -> Generator[EmailContent, Any, None]:
+) -> Generator[EmailParserOutput, Any, None]:
     """
     Read all emails from an mbox format file.
 
     Primary entry point for mbox extraction. Iterates through all messages
-    in the mailbox and yields EmailContent objects for each.
+    in the mailbox and yields EmailParserOutput objects for each.
 
     Args:
         file_like: BytesIO object containing complete mbox file data.
             The entire mbox content, potentially containing many messages.
         path: Optional filesystem path to source file. If provided, populates
             file metadata (filename, extension, folder) in each returned
-            EmailContent.metadata. Useful for batch processing and auditing.
+            EmailParserOutput.metadata. Useful for batch processing and auditing.
         ignore_images: If True, skip image extraction (not applicable for this format).
         include_attachments: If True, extract and store MIME attachment payloads.
 
     Yields:
-        EmailContent: One object per message in the mbox. Order matches
+        EmailParserOutput: One object per message in the mbox. Order matches
             the order of messages in the file.
 
     Raises:

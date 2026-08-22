@@ -22,7 +22,7 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFileEncryptedError,
     ExtractionLegacyMicrosoftParsingError,
 )
-from sharepoint2text.parsing.extractors._legacy_types import (
+from sharepoint2text.parsing.extractors._records import (
     PPT_TEXT_TYPE_BODY,
     PPT_TEXT_TYPE_CENTER_BODY,
     PPT_TEXT_TYPE_CENTER_TITLE,
@@ -30,9 +30,9 @@ from sharepoint2text.parsing.extractors._legacy_types import (
     PPT_TEXT_TYPE_NOTES,
     PPT_TEXT_TYPE_QUARTER_BODY,
     PPT_TEXT_TYPE_TITLE,
-    PptContent,
     PptImage,
     PptMetadata,
+    PptParserOutput,
     PptSlideContent,
     PptTextBlock,
 )
@@ -229,12 +229,12 @@ def _clean_text(text: str) -> str:
 
 def read_ppt(
     file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[PptContent, Any, None]:
+) -> Generator[PptParserOutput, Any, None]:
     """
     Extract text content and metadata from a legacy PowerPoint .ppt file.
 
     Uses a generator pattern for API consistency. PPT files yield exactly one
-    PptContent object containing slides, metadata, and extracted text.
+    PptParserOutput object containing slides, metadata, and extracted text.
 
     Args:
         file_like: BytesIO object containing the PPT file data.
@@ -266,8 +266,8 @@ def read_ppt(
 
 def _extract_ppt_content_structured(
     file_like: BinaryIO, ignore_images: bool = False
-) -> PptContent:
-    """Extract content from PPT file into structured PptContent object."""
+) -> PptParserOutput:
+    """Extract content from PPT file into structured PptParserOutput object."""
     file_like.seek(0)
 
     if not olefile.isOleFile(file_like):
@@ -276,7 +276,7 @@ def _extract_ppt_content_structured(
         )
 
     file_like.seek(0)
-    content = PptContent()
+    content = PptParserOutput()
 
     with olefile.OleFileIO(file_like) as ole:
         content.streams = ole.listdir()
@@ -358,9 +358,9 @@ def _extract_metadata(ole: olefile.OleFileIO) -> PptMetadata:
 # =============================================================================
 
 
-def _parse_ppt_document(data: bytes, content: PptContent) -> None:
+def _parse_ppt_document(data: bytes, content: PptParserOutput) -> None:
     """
-    Parse the PowerPoint Document stream and populate PptContent.
+    Parse the PowerPoint Document stream and populate PptParserOutput.
 
     Uses a multi-pass approach:
     1. Extract from SlideListWithText containers (most reliable)
@@ -406,7 +406,7 @@ def _parse_ppt_document(data: bytes, content: PptContent) -> None:
 
 
 def _build_slides_from_text_blocks(
-    content: PptContent, slides_texts: list[list[PptTextBlock]]
+    content: PptParserOutput, slides_texts: list[list[PptTextBlock]]
 ) -> None:
     """Build slide content from extracted text blocks."""
     for slide_num, texts in enumerate(slides_texts, 1):
@@ -598,7 +598,9 @@ def _extract_all_text_raw(data: bytes) -> list[str]:
 # =============================================================================
 
 
-def _distribute_images_to_slides(content: PptContent, images: list[PptImage]) -> None:
+def _distribute_images_to_slides(
+    content: PptParserOutput, images: list[PptImage]
+) -> None:
     """Distribute extracted images to slides round-robin."""
     if not images:
         return

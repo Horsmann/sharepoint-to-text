@@ -108,11 +108,11 @@ from msg_parser import MsOxMessage  # type: ignore[import-untyped]
 from olefile import OleFileIO  # type: ignore[import-untyped]
 
 from sharepoint2text.parsing.exceptions import ExtractionError, ExtractionFailedError
-from sharepoint2text.parsing.extractors._legacy_types import (
+from sharepoint2text.parsing.extractors._records import (
     EmailAddress,
     EmailAttachment,
-    EmailContent,
     EmailMetadata,
+    EmailParserOutput,
 )
 from sharepoint2text.parsing.extractors.html_extractor import (
     _HtmlTextExtractor,
@@ -365,13 +365,13 @@ def read_msg_format_mail(
     *,
     ignore_images: bool = False,
     include_attachments: bool = True,
-) -> Generator[EmailContent, Any, None]:
+) -> Generator[EmailParserOutput, Any, None]:
     """
     Read a Microsoft Outlook MSG file and extract its content.
 
     Primary entry point for MSG file extraction. Parses the OLE compound
     document structure and extracts email headers, addresses, body
-    content, and attachments into an EmailContent object.
+    content, and attachments into an EmailParserOutput object.
 
     This function uses a generator pattern for API consistency with other
     email extractors, even though MSG files contain exactly one email.
@@ -382,13 +382,13 @@ def read_msg_format_mail(
             binary content should be readable from this stream.
         path: Optional filesystem path to source file. If provided, populates
             file metadata (filename, extension, folder) in the returned
-            EmailContent.metadata. Useful for batch processing scenarios.
+            EmailParserOutput.metadata. Useful for batch processing scenarios.
         ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
-        EmailContent: Single EmailContent object containing all extracted
+        EmailParserOutput: Single EmailParserOutput object containing all extracted
             data. The generator yields exactly one item for valid MSG files.
-            Attachments are stored on EmailContent.attachments.
+            Attachments are stored on EmailParserOutput.attachments.
 
     Raises:
         Exception: Various exceptions from msg_parser for:
@@ -463,7 +463,7 @@ def read_msg_format_mail(
             body_plain = raw_body
             body_html = ""
 
-        content = EmailContent(
+        content = EmailParserOutput(
             subject=msg.subject or "",
             from_email=from_email,
             to_emails=_parse_multi_recipients(msg.to),

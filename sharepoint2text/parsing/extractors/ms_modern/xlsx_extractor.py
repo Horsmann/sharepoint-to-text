@@ -25,10 +25,10 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
     ExtractionFileEncryptedError,
 )
-from sharepoint2text.parsing.extractors._legacy_types import (
-    XlsxContent,
+from sharepoint2text.parsing.extractors._records import (
     XlsxImage,
     XlsxMetadata,
+    XlsxParserOutput,
     XlsxSheet,
 )
 from sharepoint2text.parsing.extractors.ms_modern.ooxml_namespaces import (
@@ -422,7 +422,7 @@ def _read_xlsb_sheet(workbook: Any, sheet_index: int, sheet_name: str) -> XlsxSh
     )
 
 
-def _read_xlsb(file_like: io.BytesIO, path: str | None = None) -> XlsxContent:
+def _read_xlsb(file_like: io.BytesIO, path: str | None = None) -> XlsxParserOutput:
     """Extract row-accurate worksheet content from an XLSB workbook."""
     metadata = XlsxMetadata()
     metadata.populate_from_path(path)
@@ -440,17 +440,17 @@ def _read_xlsb(file_like: io.BytesIO, path: str | None = None) -> XlsxContent:
                 for sheet_index, sheet_name in enumerate(sheet_names, start=1)
             ]
 
-    return XlsxContent(metadata=metadata, sheets=sheets)
+    return XlsxParserOutput(metadata=metadata, sheets=sheets)
 
 
 def read_xlsx(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[XlsxContent, Any, None]:
+) -> Generator[XlsxParserOutput, Any, None]:
     """
     Extract all relevant content from an Excel XLSX or XLSB file.
 
     Uses a generator pattern for API consistency. Excel files yield exactly one
-    XlsxContent object containing sheets, metadata, and images.
+    XlsxParserOutput object containing sheets, metadata, and images.
 
     Args:
         file_like: BytesIO object containing the XLSX or XLSB file data.
@@ -509,7 +509,7 @@ def read_xlsx(
             total_images,
         )
 
-        yield XlsxContent(metadata=metadata, sheets=sheets)
+        yield XlsxParserOutput(metadata=metadata, sheets=sheets)
     except ExtractionError:
         raise
     except (zipfile.BadZipFile, KeyError, ValueError, OSError) as exc:

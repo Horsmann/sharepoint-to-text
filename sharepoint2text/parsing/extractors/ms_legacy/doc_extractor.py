@@ -123,10 +123,10 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFileEncryptedError,
     ExtractionLegacyMicrosoftParsingError,
 )
-from sharepoint2text.parsing.extractors._legacy_types import (
-    DocContent,
+from sharepoint2text.parsing.extractors._records import (
     DocImage,
     DocMetadata,
+    DocParserOutput,
 )
 
 logger = logging.getLogger(__name__)
@@ -185,7 +185,7 @@ _DOC_TEXT_TRANS = str.maketrans(
 
 def read_doc(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[DocContent, Any, None]:
+) -> Generator[DocParserOutput, Any, None]:
     """
     Extract all relevant content from a legacy Word .doc file.
 
@@ -201,11 +201,11 @@ def read_doc(
             The stream position is reset to the beginning before reading.
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
-            returned DocContent.metadata. Useful for batch processing.
+            returned DocParserOutput.metadata. Useful for batch processing.
         ignore_images: If True, skip image extraction.
 
     Yields:
-        DocContent: Single DocContent object containing:
+        DocParserOutput: Single DocParserOutput object containing:
             - main_text: Primary document body text
             - footnotes: Footnote text (if any)
             - headers_footers: Header and footer text (if any)
@@ -280,7 +280,7 @@ class _DocReader:
     Attributes:
         file_like: Input BytesIO containing the DOC file
         ole: OleFileIO instance for container access
-        _content: Cached DocContent after first parse
+        _content: Cached DocParserOutput after first parse
         _is_unicode: Detected encoding (True=UTF-16LE, False=CP1252)
         _text_start: Detected offset where text begins in stream
 
@@ -300,7 +300,7 @@ class _DocReader:
         """
         self.file_like = file_like
         self.ole = None
-        self._content: Optional[DocContent] = None
+        self._content: Optional[DocParserOutput] = None
         self._is_unicode: Optional[bool] = None
         self._text_start: Optional[int] = None
         self._ignore_images = ignore_images
@@ -612,7 +612,7 @@ class _DocReader:
                 captions.append(cleaned)
         return captions
 
-    def _parse_content(self) -> DocContent:
+    def _parse_content(self) -> DocParserOutput:
         """
         Parse the WordDocument stream and extract all text content.
 
@@ -620,7 +620,7 @@ class _DocReader:
         validates the file format, and extracts text from all regions.
 
         Returns:
-            DocContent: Populated dataclass with main_text, footnotes,
+            DocParserOutput: Populated dataclass with main_text, footnotes,
                 headers_footers, and annotations.
 
         Raises:
@@ -745,7 +745,7 @@ class _DocReader:
 
         tables = self._extract_simple_tables_from_text(main_text)
 
-        self._content = DocContent(
+        self._content = DocParserOutput(
             main_text=main_text,
             footnotes=footnotes_text,
             headers_footers=headers_text,
@@ -756,7 +756,7 @@ class _DocReader:
 
         return self._content
 
-    def read(self) -> DocContent:
+    def read(self) -> DocParserOutput:
         """
         Extract and return all text content from the document.
 
@@ -764,7 +764,7 @@ class _DocReader:
         (if not already done) and returns the complete content.
 
         Returns:
-            DocContent: Dataclass with all extracted text regions.
+            DocParserOutput: Dataclass with all extracted text regions.
         """
         return self._parse_content()
 
@@ -800,8 +800,8 @@ class _DocReader:
         """
         return self._parse_content().annotations
 
-    def get_all_parts(self) -> DocContent:
-        """Get all document parts as a DocContent dataclass.
+    def get_all_parts(self) -> DocParserOutput:
+        """Get all document parts as a DocParserOutput dataclass.
 
         Returns:
             Structured legacy Word result containing every decoded text part.

@@ -12,9 +12,9 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFileTooLargeError,
     ExtractionZipBombError,
 )
-from sharepoint2text.parsing.extractors._legacy_types import (
-    EpubContent,
-    PlainTextContent,
+from sharepoint2text.parsing.extractors._records import (
+    EpubParserOutput,
+    PlainTextParserOutput,
 )
 from sharepoint2text.parsing.extractors.archive_extractor import read_archive
 from sharepoint2text.parsing.extractors.util.sevenzip import FileInfo
@@ -37,9 +37,9 @@ def test_read_zip_archive_1() -> None:
     # Should extract 2 text files from the archive
     tc.assertEqual(2, len(results))
 
-    # All results should be PlainTextContent
+    # All results should be PlainTextParserOutput
     for result in results:
-        tc.assertIsInstance(result, PlainTextContent)
+        tc.assertIsInstance(result, PlainTextParserOutput)
 
     # Check that we got the expected content
     texts = [r.get_full_text() for r in results]
@@ -58,8 +58,8 @@ def test_read_zip_archive_2() -> None:
     path = "sharepoint2text/tests/resources/archives/sample.zip"
     results = list(read_archive(file_like=read_file_to_file_like(path=path), path=path))
     tc.assertEqual(2, len(results))
-    tc.assertTrue(isinstance(results[0], PlainTextContent))
-    tc.assertTrue(isinstance(results[1], EpubContent))
+    tc.assertTrue(isinstance(results[0], PlainTextParserOutput))
+    tc.assertTrue(isinstance(results[1], EpubParserOutput))
 
 
 def test_read_zip_archive_rejects_zip_bomb_ratio() -> None:
@@ -86,9 +86,9 @@ def test_read_tar_archive() -> None:
     # Should extract 2 text files from the archive
     tc.assertEqual(2, len(results))
 
-    # All results should be PlainTextContent
+    # All results should be PlainTextParserOutput
     for result in results:
-        tc.assertIsInstance(result, PlainTextContent)
+        tc.assertIsInstance(result, PlainTextParserOutput)
 
     # Check that we got the expected content
     texts = [r.get_full_text() for r in results]
@@ -118,8 +118,8 @@ def test_read_7zip_archive() -> None:
     results = list(read_archive(file_like=read_file_to_file_like(path=path), path=path))
 
     tc.assertEqual(2, len(results))
-    tc.assertTrue(isinstance(results[0], PlainTextContent))
-    tc.assertTrue(isinstance(results[1], EpubContent))
+    tc.assertTrue(isinstance(results[0], PlainTextParserOutput))
+    tc.assertTrue(isinstance(results[1], EpubParserOutput))
 
 
 def test_7zip_file_size_limit() -> None:
@@ -174,7 +174,7 @@ def test_read_tar_gz_archive() -> None:
     tc.assertEqual(1, len(results))
 
     result = results[0]
-    tc.assertIsInstance(result, PlainTextContent)
+    tc.assertIsInstance(result, PlainTextParserOutput)
     tc.assertIn("This is a test document", result.get_full_text())
 
 
@@ -334,7 +334,7 @@ def test_archive_spools_large_entry_instead_of_skipping(monkeypatch: Any) -> Non
         )
 
     tc.assertEqual(1, len(results))
-    tc.assertIsInstance(results[0], PlainTextContent)
+    tc.assertIsInstance(results[0], PlainTextParserOutput)
     tc.assertIn("Line 0", results[0].get_full_text())
     tc.assertTrue(any(rolled_states))
 

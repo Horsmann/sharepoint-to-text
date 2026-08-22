@@ -95,11 +95,11 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
     ExtractionFileEncryptedError,
 )
-from sharepoint2text.parsing.extractors._legacy_types import (
+from sharepoint2text.parsing.extractors._records import (
     EpubChapter,
-    EpubContent,
     EpubImage,
     EpubMetadata,
+    EpubParserOutput,
 )
 from sharepoint2text.parsing.extractors.util.zip_context import ZipContext
 
@@ -756,7 +756,7 @@ def _is_epub_encrypted(ctx: _EpubContext) -> bool:
 
 def read_epub(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[EpubContent, Any, None]:
+) -> Generator[EpubParserOutput, Any, None]:
     """
     Extract all relevant content from an EPUB eBook file.
 
@@ -772,11 +772,11 @@ def read_epub(
             The stream position is reset to the beginning before reading.
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
-            returned EpubContent.metadata.
+            returned EpubParserOutput.metadata.
         ignore_images: If True, skip image extraction.
 
     Yields:
-        EpubContent: Single EpubContent object containing:
+        EpubParserOutput: Single EpubParserOutput object containing:
             - metadata: EpubMetadata with title, author, language, etc.
             - chapters: List of EpubChapter objects in reading order
             - images: List of EpubImage objects with binary data
@@ -834,7 +834,7 @@ def read_epub(
         finally:
             ctx.close()
 
-        yield EpubContent(
+        yield EpubParserOutput(
             metadata=metadata,
             chapters=chapters,
             images=images,

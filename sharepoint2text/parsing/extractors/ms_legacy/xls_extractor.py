@@ -21,10 +21,10 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFileEncryptedError,
     ExtractionLegacyMicrosoftParsingError,
 )
-from sharepoint2text.parsing.extractors._legacy_types import (
-    XlsContent,
+from sharepoint2text.parsing.extractors._records import (
     XlsImage,
     XlsMetadata,
+    XlsParserOutput,
     XlsSheet,
 )
 from sharepoint2text.parsing.extractors.util.encryption import is_xls_encrypted
@@ -287,12 +287,12 @@ def _read_metadata(file_like: io.BytesIO) -> XlsMetadata:
 
 def read_xls(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[XlsContent, Any, None]:
+) -> Generator[XlsParserOutput, Any, None]:
     """
     Extract content from a legacy Excel .xls file.
 
     Uses a generator pattern for API consistency. XLS files yield exactly one
-    XlsContent object containing sheets, metadata, and images.
+    XlsParserOutput object containing sheets, metadata, and images.
 
     Args:
         ignore_images: If True, skip image extraction.
@@ -310,7 +310,7 @@ def read_xls(
         metadata.populate_from_path(path)
         images = [] if ignore_images else _extract_images_from_workbook(file_like)
 
-        yield XlsContent(
+        yield XlsParserOutput(
             metadata=metadata,
             sheets=sheets,
             images=images,

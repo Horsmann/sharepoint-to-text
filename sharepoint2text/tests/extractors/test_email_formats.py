@@ -6,13 +6,13 @@ from unittest import TestCase
 from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
 )
-from sharepoint2text.parsing.extractors._legacy_types import (
+from sharepoint2text.parsing.extractors._records import (
     EmailAddress,
     EmailAttachment,
-    EmailContent,
+    EmailParserOutput,
     EmailUnitMetadata,
-    PdfContent,
-    PptxContent,
+    PdfParserOutput,
+    PptxParserOutput,
 )
 from sharepoint2text.parsing.extractors.mail.eml_email_extractor import (
     read_eml_format_mail,
@@ -36,7 +36,7 @@ tc.maxDiff = None
 #################
 def test_email__eml_format() -> None:
     path = "sharepoint2text/tests/resources/mails/basic_email.eml"
-    mail_gen: typing.Generator[EmailContent, None, None] = read_eml_format_mail(
+    mail_gen: typing.Generator[EmailParserOutput, None, None] = read_eml_format_mail(
         file_like=read_file_to_file_like(path=path),
         path=path,
     )
@@ -104,7 +104,7 @@ def test_email__eml_format() -> None:
 
 def test_email__msg_format() -> None:
     path = "sharepoint2text/tests/resources/mails/basic_email.msg"
-    mail_gen: typing.Generator[EmailContent, None, None] = read_msg_format_mail(
+    mail_gen: typing.Generator[EmailParserOutput, None, None] = read_msg_format_mail(
         file_like=read_file_to_file_like(path=path),
         path=path,
     )
@@ -165,7 +165,7 @@ def test_email__msg_format_reply_to_is_normalized_list() -> None:
 
 def test_email__msg_format_with_attachment() -> None:
     path = "sharepoint2text/tests/resources/mails/msg_with_attachment.msg"
-    mail_gen: typing.Generator[EmailContent, None, None] = read_msg_format_mail(
+    mail_gen: typing.Generator[EmailParserOutput, None, None] = read_msg_format_mail(
         file_like=read_file_to_file_like(path=path),
         path=path,
     )
@@ -221,8 +221,8 @@ def test_email__msg_format_with_attachment() -> None:
 
     attachments = list(mail.iterate_supported_attachments())
     tc.assertEqual(2, len(attachments))
-    tc.assertIsInstance(attachments[0], PdfContent)
-    tc.assertIsInstance(attachments[1], PptxContent)
+    tc.assertIsInstance(attachments[0], PdfParserOutput)
+    tc.assertIsInstance(attachments[1], PptxParserOutput)
     tc.assertEqual(
         "This is a test sentence\n"
         "This is a table\n"
@@ -255,7 +255,7 @@ def test_email__msg_format_with_attachment() -> None:
 
 
 def test_email_iterate_supported_attachments_can_raise_or_skip_failures() -> None:
-    broken_mail = EmailContent(
+    broken_mail = EmailParserOutput(
         from_email=EmailAddress(name="Sender", address="sender@example.com"),
         subject="broken attachments",
         attachments=[
@@ -279,7 +279,7 @@ def test_email_iterate_supported_attachments_can_raise_or_skip_failures() -> Non
 
 def test_email__eml_format_with_attachment() -> None:
     path = "sharepoint2text/tests/resources/mails/msg_with_attachment.eml"
-    mail_gen: typing.Generator[EmailContent, None, None] = read_eml_format_mail(
+    mail_gen: typing.Generator[EmailParserOutput, None, None] = read_eml_format_mail(
         file_like=read_file_to_file_like(path=path),
         path=path,
     )
@@ -334,8 +334,8 @@ def test_email__eml_format_with_attachment() -> None:
 
     attachments = list(mail.iterate_supported_attachments())
     tc.assertEqual(2, len(attachments))
-    tc.assertIsInstance(attachments[0], PdfContent)
-    tc.assertIsInstance(attachments[1], PptxContent)
+    tc.assertIsInstance(attachments[0], PdfParserOutput)
+    tc.assertIsInstance(attachments[1], PptxParserOutput)
 
     pptx_attachment = attachments_by_name["pptx_formula_image.pptx"]
     tc.assertEqual(
@@ -375,8 +375,8 @@ def test_email__mbox_format_with_attachments() -> None:
 
     extracted_attachments = list(mail.iterate_supported_attachments())
     tc.assertEqual(2, len(extracted_attachments))
-    tc.assertIsInstance(extracted_attachments[0], PdfContent)
-    tc.assertIsInstance(extracted_attachments[1], PptxContent)
+    tc.assertIsInstance(extracted_attachments[0], PdfParserOutput)
+    tc.assertIsInstance(extracted_attachments[1], PptxParserOutput)
 
     mail_without_attachments = next(
         read_mbox_format_mail(

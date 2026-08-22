@@ -5,17 +5,17 @@ from unittest import TestCase
 from sharepoint2text.parsing.exceptions import (
     ExtractionFileEncryptedError,
 )
-from sharepoint2text.parsing.extractors._legacy_types import (
-    DocContent,
+from sharepoint2text.parsing.extractors._records import (
     DocImage,
-    ImageInterface,
+    DocParserOutput,
     ImageMetadata,
-    PptContent,
+    ImageRecord,
     PptImage,
-    RtfContent,
+    PptParserOutput,
+    RtfParserOutput,
     RtfUnitMetadata,
     TableDim,
-    XlsContent,
+    XlsParserOutput,
     XlsUnitMetadata,
 )
 from sharepoint2text.parsing.extractors.ms_legacy.doc_extractor import read_doc
@@ -38,7 +38,7 @@ tc.maxDiff = None
 def test_read_xls_1() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/pb_2011_1_gen_web.xls"
 
-    xls: XlsContent = next(read_xls(file_like=read_file_to_file_like(path=path)))
+    xls: XlsParserOutput = next(read_xls(file_like=read_file_to_file_like(path=path)))
 
     tc.assertEqual(13, len(xls.sheets))
     tc.assertEqual("2007-09-19T14:21:02", xls.metadata.created)
@@ -80,7 +80,7 @@ def test_read_xls_1() -> None:
 
 def test_read_xls_2() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/mwe.xls"
-    xls: XlsContent = next(read_xls(file_like=read_file_to_file_like(path=path)))
+    xls: XlsParserOutput = next(read_xls(file_like=read_file_to_file_like(path=path)))
     tc.assertEqual(
         "colA  colB\n   1     2",
         xls.get_full_text(),
@@ -103,7 +103,7 @@ def test_read_xls_2() -> None:
 
 def test_read_xls_3_images() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/xls_with_images.xls"
-    xls: XlsContent = next(read_xls(file_like=read_file_to_file_like(path=path)))
+    xls: XlsParserOutput = next(read_xls(file_like=read_file_to_file_like(path=path)))
 
     tc.assertEqual(1, len(xls.images))
     tc.assertEqual(1, len(list(xls.iterate_images())))
@@ -140,7 +140,7 @@ def test_read_xls_3_images() -> None:
 
 def test_read_ppt() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/eurouni2.ppt"
-    ppt: PptContent = next(read_ppt(read_file_to_file_like(path=path)))
+    ppt: PptParserOutput = next(read_ppt(read_file_to_file_like(path=path)))
 
     tc.assertEqual(48, ppt.slide_count)
     tc.assertEqual(48, len(ppt.slides))
@@ -163,7 +163,7 @@ def test_read_ppt() -> None:
 
 def test_read_ppt__presentation_with_notes() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/slide_with_notes.ppt"
-    ppt: PptContent = next(
+    ppt: PptParserOutput = next(
         read_ppt(file_like=read_file_to_file_like(path=path), path=path)
     )
 
@@ -175,7 +175,7 @@ def test_read_ppt__presentation_with_notes() -> None:
 def test_read_ppt__image_extraction() -> None:
     """Test image extraction from legacy PPT files."""
     path = "sharepoint2text/tests/resources/legacy_ms/ppt_with_images.ppt"
-    ppt: PptContent = next(read_ppt(read_file_to_file_like(path=path)))
+    ppt: PptParserOutput = next(read_ppt(read_file_to_file_like(path=path)))
 
     tc.assertEqual("", ppt.get_full_text())
 
@@ -188,7 +188,7 @@ def test_read_ppt__image_extraction() -> None:
     tc.assertEqual(2, len(images))
 
     # First image (PNG)
-    img1: PptImage | ImageInterface = images[0]
+    img1: PptImage | ImageRecord = images[0]
     tc.assertEqual("image/png", img1.get_content_type())
     tc.assertEqual(1, img1.image_index)
     tc.assertEqual(1, img1.slide_number)
@@ -201,7 +201,7 @@ def test_read_ppt__image_extraction() -> None:
     tc.assertEqual(b"\x89PNG\r\n\x1a\n", img1_bytes.read(8))
 
     # Second image (JPEG)
-    img2: PptImage | ImageInterface = images[1]
+    img2: PptImage | ImageRecord = images[1]
     tc.assertEqual("image/jpeg", img2.get_content_type())
     tc.assertEqual(2, img2.image_index)
     tc.assertEqual(2, img2.slide_number)
@@ -239,7 +239,7 @@ def test_read_ppt__image_flag() -> None:
     """Test legacy .ppt image extraction can be disabled with ignore_images."""
     path = "sharepoint2text/tests/resources/legacy_ms/ppt_with_images.ppt"
 
-    result_with_images: PptContent = next(
+    result_with_images: PptParserOutput = next(
         read_ppt(
             file_like=read_file_to_file_like(path=path),
             path=path,
@@ -249,7 +249,7 @@ def test_read_ppt__image_flag() -> None:
     tc.assertEqual(2, len(list(result_with_images.iterate_images())))
     tc.assertEqual(2, sum(len(slide.images) for slide in result_with_images.slides))
 
-    result_without_images: PptContent = next(
+    result_without_images: PptParserOutput = next(
         read_ppt(
             file_like=read_file_to_file_like(path=path),
             path=path,
@@ -262,7 +262,7 @@ def test_read_ppt__image_flag() -> None:
 
 def test_read_doc() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/Speech_Prime_Minister_of_The_Netherlands_EN.doc"
-    doc: DocContent = next(read_doc(file_like=read_file_to_file_like(path=path)))
+    doc: DocParserOutput = next(read_doc(file_like=read_file_to_file_like(path=path)))
 
     # Text content
     expected = """
@@ -298,9 +298,9 @@ def test_read_doc() -> None:
 def test_read_doc__image_extraction_1() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/legacy_doc_image.doc"
 
-    doc: DocContent = next(read_doc(file_like=read_file_to_file_like(path=path)))
+    doc: DocParserOutput = next(read_doc(file_like=read_file_to_file_like(path=path)))
 
-    images: list[DocImage | ImageInterface] = list(doc.iterate_images())
+    images: list[DocImage | ImageRecord] = list(doc.iterate_images())
     tc.assertEqual(1, len(images))
     tc.assertEqual(0, len(list(doc.iterate_tables())))
 
@@ -336,8 +336,8 @@ def test_read_doc__image_extraction_1() -> None:
 
 def test_read_doc__image_extraction_2() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/legacy_doc_multi_image.doc"
-    doc: DocContent = next(read_doc(file_like=read_file_to_file_like(path=path)))
-    images: list[DocImage | ImageInterface] = list(doc.iterate_images())
+    doc: DocParserOutput = next(read_doc(file_like=read_file_to_file_like(path=path)))
+    images: list[DocImage | ImageRecord] = list(doc.iterate_images())
     tc.assertEqual(2, len(images))
     tc.assertEqual(0, len(list(doc.iterate_tables())))
 
@@ -356,7 +356,7 @@ def test_read_doc__image_extraction_2() -> None:
 
 def test_read_doc__heading_units() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/headings.doc"
-    doc: DocContent = next(
+    doc: DocParserOutput = next(
         read_doc(file_like=read_file_to_file_like(path=path), path=path)
     )
 
@@ -410,7 +410,7 @@ def test_read_doc__heading_units() -> None:
 
 def test_read_doc__unit_structure() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/word_structure.doc"
-    doc: DocContent = next(read_doc(file_like=read_file_to_file_like(path=path)))
+    doc: DocParserOutput = next(read_doc(file_like=read_file_to_file_like(path=path)))
 
     units = list(doc.iterate_units())
     tc.assertEqual(5, len(units))
@@ -444,7 +444,7 @@ def test_read_doc__unit_structure() -> None:
 
 def test_read_ppt_units() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/slide_headlines.ppt"
-    pptx: PptContent = next(read_ppt(read_file_to_file_like(path=path)))
+    pptx: PptParserOutput = next(read_ppt(read_file_to_file_like(path=path)))
 
     units = list(pptx.iterate_units())
     tc.assertEqual(2, len(units))
@@ -458,7 +458,7 @@ def test_read_ppt_units() -> None:
 
 def test_read_rtf() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/2025.144.un.rtf"
-    rtf_gen: typing.Generator[RtfContent] = read_rtf(
+    rtf_gen: typing.Generator[RtfParserOutput] = read_rtf(
         file_like=read_file_to_file_like(path=path)
     )
 
@@ -483,7 +483,7 @@ def test_read_rtf() -> None:
 
 def test_read_rtf_tables_1() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/CULT-OJ-2024-10-03-1_DE.rtf"
-    rtf_gen: typing.Generator[RtfContent] = read_rtf(
+    rtf_gen: typing.Generator[RtfParserOutput] = read_rtf(
         file_like=read_file_to_file_like(path=path), path=path
     )
 
@@ -518,7 +518,7 @@ def test_read_rtf_tables_1() -> None:
 
 def test_read_rtf_tables_2() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/02_dept_transport.rtf"
-    rtf_gen: typing.Generator[RtfContent] = read_rtf(
+    rtf_gen: typing.Generator[RtfParserOutput] = read_rtf(
         file_like=read_file_to_file_like(path=path)
     )
 

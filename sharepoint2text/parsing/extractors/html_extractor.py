@@ -100,9 +100,9 @@ from html.parser import HTMLParser
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
 from sharepoint2text.parsing.exceptions import ExtractionError, ExtractionFailedError
-from sharepoint2text.parsing.extractors._legacy_types import (
-    HtmlContent,
+from sharepoint2text.parsing.extractors._records import (
     HtmlMetadata,
+    HtmlParserOutput,
 )
 
 logger = logging.getLogger(__name__)
@@ -623,7 +623,7 @@ class _HtmlTextExtractor:
 
 def read_html(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[HtmlContent, Any, None]:
+) -> Generator[HtmlParserOutput, Any, None]:
     """
     Extract all relevant content from an HTML document.
 
@@ -639,11 +639,11 @@ def read_html(
             The stream position is reset to the beginning before reading.
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
-            returned HtmlContent.metadata.
+            returned HtmlParserOutput.metadata.
         ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
-        HtmlContent: Single HtmlContent object containing:
+        HtmlParserOutput: Single HtmlParserOutput object containing:
             - content: Full extracted text with formatting
             - tables: Structured table data as nested lists
             - headings: List of heading elements with level
@@ -651,7 +651,7 @@ def read_html(
             - metadata: HtmlMetadata with title, charset, etc.
 
     Note:
-        On parse failure, yields empty HtmlContent rather than raising.
+        On parse failure, yields empty HtmlParserOutput rather than raising.
         A warning is logged when parsing fails completely.
 
     Example:
@@ -704,7 +704,7 @@ def read_html(
             logger.warning("Failed to parse HTML content")
             metadata = HtmlMetadata()
             metadata.populate_from_path(path)
-            yield HtmlContent(content="", metadata=metadata)
+            yield HtmlParserOutput(content="", metadata=metadata)
             return
 
         # Extract text content
@@ -718,7 +718,7 @@ def read_html(
             len(extractor.links),
         )
 
-        yield HtmlContent(
+        yield HtmlParserOutput(
             content=text,
             tables=extractor.tables,
             headings=extractor.headings,

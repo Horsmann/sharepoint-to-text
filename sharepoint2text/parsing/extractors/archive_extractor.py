@@ -57,7 +57,7 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFileEncryptedError,
     ExtractionFileTooLargeError,
 )
-from sharepoint2text.parsing.extractors._legacy_types import ExtractionInterface
+from sharepoint2text.parsing.extractors._records import ExtractionRecord
 from sharepoint2text.parsing.extractors.util.sevenzip import (
     Bad7zFile,
     FileInfo,
@@ -384,7 +384,7 @@ def _process_archive_entry(
     archive_path: Optional[str],
     basename: str,
     ignore_images: bool = False,
-) -> Generator[ExtractionInterface, Any, None]:
+) -> Generator[ExtractionRecord, Any, None]:
     """
     Process a single archive entry with optimized memory usage.
 
@@ -396,7 +396,7 @@ def _process_archive_entry(
         basename: Base filename for extractor selection
 
     Yields:
-        ExtractionInterface objects
+        ExtractionRecord objects
     """
     try:
         # Check file size before processing
@@ -465,7 +465,7 @@ def _extract_from_zip_optimized(
     archive_path: Optional[str],
     *,
     ignore_images: bool = False,
-) -> Generator[ExtractionInterface, Any, None]:
+) -> Generator[ExtractionRecord, Any, None]:
     """
     Optimized ZIP extraction with single-pass processing.
 
@@ -474,7 +474,7 @@ def _extract_from_zip_optimized(
         archive_path: Optional path to the archive file for metadata.
 
     Yields:
-        ExtractionInterface objects for each supported file in the archive.
+        ExtractionRecord objects for each supported file in the archive.
     """
     try:
         with open_zipfile(
@@ -552,7 +552,7 @@ def _extract_from_tar_optimized(
     mode: str = "r:*",
     *,
     ignore_images: bool = False,
-) -> Generator[ExtractionInterface, Any, None]:
+) -> Generator[ExtractionRecord, Any, None]:
     """
     Optimized TAR extraction with streaming support.
 
@@ -562,7 +562,7 @@ def _extract_from_tar_optimized(
         mode: TAR open mode (r:* for auto-detect compression).
 
     Yields:
-        ExtractionInterface objects for each supported file in the archive.
+        ExtractionRecord objects for each supported file in the archive.
     """
     try:
         with tarfile.open(fileobj=file_like, mode=mode) as tf:  # type: ignore[call-overload]
@@ -653,7 +653,7 @@ def _extract_from_7z_optimized(
     archive_path: Optional[str],
     *,
     ignore_images: bool = False,
-) -> Generator[ExtractionInterface, Any, None]:
+) -> Generator[ExtractionRecord, Any, None]:
     """
     Optimized 7z extraction with file size limits.
 
@@ -662,7 +662,7 @@ def _extract_from_7z_optimized(
         archive_path: Optional path to the archive file for metadata.
 
     Yields:
-        ExtractionInterface objects for each supported file in the archive.
+        ExtractionRecord objects for each supported file in the archive.
 
     Raises:
         ExtractionFileTooLargeError: If the archive exceeds MAX_7Z_FILE_SIZE.
@@ -777,7 +777,7 @@ def _process_7z_files_sequential(
     archive_path: Optional[str],
     *,
     ignore_images: bool = False,
-) -> Generator[ExtractionInterface, Any, None]:
+) -> Generator[ExtractionRecord, Any, None]:
     """Sequential processing of 7z files."""
     for file_info, filename, basename in files_to_process:
         try:
@@ -830,7 +830,7 @@ def read_archive(
     path: Optional[str] = None,
     *,
     ignore_images: bool = False,
-) -> Generator[ExtractionInterface, Any, None]:
+) -> Generator[ExtractionRecord, Any, None]:
     """
     Optimized entry point for archive extraction.
 
@@ -843,7 +843,7 @@ def read_archive(
         ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
-        ExtractionInterface: Extraction results for each supported file.
+        ExtractionRecord: Extraction results for each supported file.
 
     Example:
         >>> import io

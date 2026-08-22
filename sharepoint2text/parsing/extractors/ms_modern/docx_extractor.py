@@ -19,9 +19,8 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
     ExtractionFileEncryptedError,
 )
-from sharepoint2text.parsing.extractors._legacy_types import (
+from sharepoint2text.parsing.extractors._records import (
     DocxComment,
-    DocxContent,
     DocxFormula,
     DocxHeaderFooter,
     DocxHyperlink,
@@ -29,6 +28,7 @@ from sharepoint2text.parsing.extractors._legacy_types import (
     DocxMetadata,
     DocxNote,
     DocxParagraph,
+    DocxParserOutput,
     DocxRun,
     DocxSection,
 )
@@ -1025,12 +1025,12 @@ def _extract_formulas_from_context(ctx: _DocxContext) -> list[DocxFormula]:
 
 def read_docx(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[DocxContent, Any, None]:
+) -> Generator[DocxParserOutput, Any, None]:
     """
     Extract all relevant content from a Word .docx file.
 
     Uses a generator pattern for API consistency. DOCX files yield exactly one
-    DocxContent object containing paragraphs, tables, images, metadata, etc.
+    DocxParserOutput object containing paragraphs, tables, images, metadata, etc.
 
     Args:
         file_like: BytesIO object containing the DOCX file data.
@@ -1081,7 +1081,7 @@ def read_docx(
                 len(images),
             )
 
-            yield DocxContent(
+            yield DocxParserOutput(
                 metadata=metadata,
                 paragraphs=paragraphs,
                 tables=tables,

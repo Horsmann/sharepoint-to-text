@@ -108,12 +108,12 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
     ExtractionFileEncryptedError,
 )
-from sharepoint2text.parsing.extractors._legacy_types import (
+from sharepoint2text.parsing.extractors._records import (
     PptxComment,
-    PptxContent,
     PptxFormula,
     PptxImage,
     PptxMetadata,
+    PptxParserOutput,
     PptxSlide,
 )
 from sharepoint2text.parsing.extractors.ms_modern.omml_to_latex import omml_to_latex
@@ -792,7 +792,7 @@ def _process_slide_from_context(
 
 def read_pptx(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[PptxContent, Any, None]:
+) -> Generator[PptxParserOutput, Any, None]:
     """
     Extract all relevant content from a PowerPoint .pptx file.
 
@@ -808,11 +808,11 @@ def read_pptx(
             The stream position is reset to the beginning before reading.
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
-            returned PptxContent.metadata.
+            returned PptxParserOutput.metadata.
         ignore_images: If True, skip image extraction.
 
     Yields:
-        PptxContent: Single PptxContent object containing:
+        PptxParserOutput: Single PptxParserOutput object containing:
             - metadata: PptxMetadata with title, author, dates, revision
             - slides: List of PPTXSlide objects, each containing:
                 - slide_number: 1-based slide index
@@ -889,7 +889,7 @@ def read_pptx(
                 total_images,
             )
 
-            yield PptxContent(metadata=metadata, slides=slides_result)
+            yield PptxParserOutput(metadata=metadata, slides=slides_result)
         finally:
             ctx.close()
     except ExtractionError:

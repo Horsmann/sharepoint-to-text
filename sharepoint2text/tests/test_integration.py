@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 from pathlib import Path
 
 import pytest
@@ -56,24 +55,25 @@ def test_read_bytes_returns_a_normalized_document() -> None:
     assert result.full_text == "hello"
 
 
-@pytest.mark.parametrize(
-    "removed_name",
-    ["DocxContent", "ExtractionInterface", "normalize_extraction", "read_docx"],
-)
-def test_version_one_names_are_absent_from_package(removed_name: str) -> None:
-    """Verify version-one records, adapters, and readers are not exported."""
-    assert not hasattr(sharepoint2text, removed_name)
+def test_package_exports_only_the_normalized_api() -> None:
+    """Verify the package has one explicit normalized public surface."""
+    expected = {
+        "Annotation",
+        "Attachment",
+        "ContentUnit",
+        "DocumentMetadata",
+        "ExtractedDocument",
+        "ImageAsset",
+        "SourceMetadata",
+        "Table",
+        "document_from_dict",
+        "document_from_json",
+        "document_to_dict",
+        "document_to_json",
+        "read_bytes",
+        "read_file",
+        "read_many",
+        "render_markdown",
+    }
 
-
-@pytest.mark.parametrize(
-    "removed_module",
-    [
-        "sharepoint2text.parsing.extractors.data_types",
-        "sharepoint2text.parsing.extractors.serialization",
-        "sharepoint2text.parsing.models.legacy",
-    ],
-)
-def test_version_one_module_paths_are_removed(removed_module: str) -> None:
-    """Verify the prior version-one import paths no longer resolve."""
-    with pytest.raises(ModuleNotFoundError):
-        importlib.import_module(removed_module)
+    assert expected <= set(sharepoint2text.__all__)

@@ -115,13 +115,13 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
     ExtractionFileEncryptedError,
 )
-from sharepoint2text.parsing.extractors._legacy_types import (
+from sharepoint2text.parsing.extractors._records import (
     OdtBookmark,
-    OdtContent,
     OdtHeaderFooter,
     OdtHyperlink,
     OdtNote,
     OdtParagraph,
+    OdtParserOutput,
     OdtRun,
     OdtTable,
     OpenDocumentAnnotation,
@@ -743,7 +743,7 @@ def _extract_full_text(body: ET.Element) -> str:
 
 def read_odt(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[OdtContent, Any, None]:
+) -> Generator[OdtParserOutput, Any, None]:
     """
     Extract all relevant content from an OpenDocument Text (.odt) file.
 
@@ -759,11 +759,11 @@ def read_odt(
             The stream position is reset to the beginning before reading.
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
-            returned OdtContent.metadata.
+            returned OdtParserOutput.metadata.
         ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
-        OdtContent: Single OdtContent object containing:
+        OdtParserOutput: Single OdtParserOutput object containing:
             - metadata: OpenDocumentMetadata with title, creator, dates, etc.
             - paragraphs: List of OdtParagraph with text and runs
             - tables: List of tables as OdtTable objects
@@ -831,7 +831,7 @@ def read_odt(
         # Populate file metadata from path
         metadata.populate_from_path(path)
 
-        yield OdtContent(
+        yield OdtParserOutput(
             metadata=metadata,
             paragraphs=paragraphs,
             tables=tables,

@@ -4,9 +4,9 @@ from unittest import TestCase
 from sharepoint2text.parsing.exceptions import (
     ExtractionFileEncryptedError,
 )
-from sharepoint2text.parsing.extractors._legacy_types import (
+from sharepoint2text.parsing.extractors._records import (
     ImageMetadata,
-    PdfContent,
+    PdfParserOutput,
     PdfUnitMetadata,
 )
 from sharepoint2text.parsing.extractors.pdf.pdf_extractor import read_pdf
@@ -20,7 +20,7 @@ tc.maxDiff = None
 
 def test_pdf__1() -> None:
     path = "sharepoint2text/tests/resources/pdf/sample.pdf"
-    pdf: PdfContent = next(read_pdf(file_like=read_file_to_file_like(path=path)))
+    pdf: PdfParserOutput = next(read_pdf(file_like=read_file_to_file_like(path=path)))
 
     tc.assertEqual(2, pdf.metadata.total_pages)
     tc.assertEqual(2, len(pdf.pages))
@@ -76,7 +76,7 @@ def test_pdf__1() -> None:
 
 def test_pdf__2() -> None:
     path = "sharepoint2text/tests/resources/pdf/multi_image.pdf"
-    pdf: PdfContent = next(
+    pdf: PdfParserOutput = next(
         read_pdf(file_like=read_file_to_file_like(path=path), path=path)
     )
 
@@ -127,7 +127,7 @@ def test_pdf__3() -> None:
     path = (
         "sharepoint2text/tests/resources/pdf/vendor-creation-form-english-version.pdf"
     )
-    pdf: PdfContent = next(
+    pdf: PdfParserOutput = next(
         read_pdf(file_like=read_file_to_file_like(path=path), path=path)
     )
 

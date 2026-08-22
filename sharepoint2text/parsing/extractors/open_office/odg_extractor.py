@@ -24,8 +24,8 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
     ExtractionFileEncryptedError,
 )
-from sharepoint2text.parsing.extractors._legacy_types import (
-    OdgContent,
+from sharepoint2text.parsing.extractors._records import (
+    OdgParserOutput,
     OpenDocumentImage,
     OpenDocumentMetadata,
 )
@@ -197,7 +197,7 @@ def _extract_images(
 
 def read_odg(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[OdgContent, Any, None]:
+) -> Generator[OdgParserOutput, Any, None]:
     """
     Extract text, metadata, and basic images from an ODG drawing file.
 
@@ -233,7 +233,7 @@ def read_odg(
             ctx.close()
 
         metadata.populate_from_path(path)
-        yield OdgContent(metadata=metadata, full_text=full_text, images=images)
+        yield OdgParserOutput(metadata=metadata, full_text=full_text, images=images)
     except ExtractionError:
         raise
     except (KeyError, ET.ParseError, OSError, ValueError) as exc:

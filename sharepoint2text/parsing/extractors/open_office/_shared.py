@@ -4,7 +4,7 @@ import mimetypes
 from functools import lru_cache
 
 from sharepoint2text.parsing import _defused_xml as ET
-from sharepoint2text.parsing.extractors._legacy_types import OpenDocumentMetadata
+from sharepoint2text.parsing.extractors._records import OpenDocumentMetadata
 
 
 @lru_cache(maxsize=512)

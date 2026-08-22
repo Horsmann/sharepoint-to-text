@@ -75,11 +75,11 @@ from typing import Any, Generator
 from mailparser import parse_from_bytes  # type: ignore[import-untyped]
 
 from sharepoint2text.parsing.exceptions import ExtractionError, ExtractionFailedError
-from sharepoint2text.parsing.extractors._legacy_types import (
+from sharepoint2text.parsing.extractors._records import (
     EmailAddress,
     EmailAttachment,
-    EmailContent,
     EmailMetadata,
+    EmailParserOutput,
 )
 from sharepoint2text.parsing.mime_types import is_supported_mime_type
 
@@ -132,9 +132,9 @@ def _parse_mailparser_address_list(raw: Any) -> list[EmailAddress]:
 
 def _read_eml_format(
     payload: bytes, *, include_attachments: bool = True
-) -> EmailContent:
+) -> EmailParserOutput:
     """
-    Parse raw EML file bytes and construct an EmailContent object.
+    Parse raw EML file bytes and construct an EmailParserOutput object.
 
     This internal function performs the actual parsing work using mailparser,
     extracting headers, addresses, and body content into a structured format.
@@ -144,7 +144,7 @@ def _read_eml_format(
             file contents, including all headers and body parts.
 
     Returns:
-        EmailContent: Populated dataclass with all extracted email data.
+        EmailParserOutput: Populated dataclass with all extracted email data.
 
     Implementation Notes:
         - mailparser.from_ is normalized to a best-effort EmailAddress
@@ -234,7 +234,7 @@ def _read_eml_format(
                 )
             )
 
-    return EmailContent(
+    return EmailParserOutput(
         subject=mail.subject or "",
         from_email=from_email,
         to_emails=to_emails,
@@ -255,12 +255,12 @@ def read_eml_format_mail(
     *,
     ignore_images: bool = False,
     include_attachments: bool = True,
-) -> Generator[EmailContent, Any, None]:
+) -> Generator[EmailParserOutput, Any, None]:
     """
-    Read an EML file and extract its content as EmailContent.
+    Read an EML file and extract its content as EmailParserOutput.
 
     Primary entry point for EML file extraction. Accepts a BytesIO object
-    containing the raw email data and yields EmailContent objects.
+    containing the raw email data and yields EmailParserOutput objects.
 
     This function uses a generator pattern for API consistency with other
     email extractors (mbox can contain multiple emails), even though EML
@@ -271,12 +271,12 @@ def read_eml_format_mail(
             The stream position is reset to the beginning before reading.
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
-            returned EmailContent.metadata object. Useful for tracking
+            returned EmailParserOutput.metadata object. Useful for tracking
             source files in batch processing scenarios.
         ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
-        EmailContent: Single EmailContent object containing all extracted
+        EmailParserOutput: Single EmailParserOutput object containing all extracted
             data. The generator will yield exactly one item for valid EML
             files.
 

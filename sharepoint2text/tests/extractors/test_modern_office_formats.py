@@ -4,19 +4,19 @@ from unittest import TestCase
 from sharepoint2text.parsing.exceptions import (
     ExtractionFileEncryptedError,
 )
-from sharepoint2text.parsing.extractors._legacy_types import (
+from sharepoint2text.parsing.extractors._records import (
     DocxComment,
-    DocxContent,
     DocxFormula,
     DocxNote,
-    DocxUnit,
+    DocxParserOutput,
+    DocxUnitRecord,
     ImageMetadata,
     PptxComment,
-    PptxContent,
+    PptxParserOutput,
     PptxUnitMetadata,
     TableData,
     TableDim,
-    XlsxContent,
+    XlsxParserOutput,
     XlsxSheet,
     XlsxUnitMetadata,
 )
@@ -36,7 +36,9 @@ tc.maxDiff = None
 ####################
 def test_read_xlsx_1() -> None:
     path = "sharepoint2text/tests/resources/modern_ms/Country_Codes_and_Names.xlsx"
-    xlsx: XlsxContent = next(read_xlsx(file_like=read_file_to_file_like(path=path)))
+    xlsx: XlsxParserOutput = next(
+        read_xlsx(file_like=read_file_to_file_like(path=path))
+    )
 
     tc.assertEqual("2006-09-16T00:00:00", xlsx.metadata.created)
     tc.assertEqual("2015-05-06T11:46:24", xlsx.metadata.modified)
@@ -88,7 +90,9 @@ def test_read_xlsx_1() -> None:
 
 def test_read_xlsx_2() -> None:
     path = "sharepoint2text/tests/resources/modern_ms/mwe.xlsx"
-    xlsx: XlsxContent = next(read_xlsx(file_like=read_file_to_file_like(path=path)))
+    xlsx: XlsxParserOutput = next(
+        read_xlsx(file_like=read_file_to_file_like(path=path))
+    )
     tc.assertEqual(
         "Blatt 1\nTabelle 1 Unnamed: 1\n     ColA       ColB\n        1          2",
         xlsx.get_full_text(),
@@ -106,7 +110,9 @@ def test_read_xlsx_3() -> None:
     """
     path = "sharepoint2text/tests/resources/modern_ms/empty_row_columns.xlsx"
 
-    xlsx: XlsxContent = next(read_xlsx(file_like=read_file_to_file_like(path=path)))
+    xlsx: XlsxParserOutput = next(
+        read_xlsx(file_like=read_file_to_file_like(path=path))
+    )
     tc.assertListEqual(
         [
             [None, "Name", None, "Age"],
@@ -143,7 +149,9 @@ def test_read_xlsx_3() -> None:
 def test_read_xlsx_4__image_extraction() -> None:
     path = "sharepoint2text/tests/resources/modern_ms/image_in_excel.xlsx"
 
-    xlsx: XlsxContent = next(read_xlsx(file_like=read_file_to_file_like(path=path)))
+    xlsx: XlsxParserOutput = next(
+        read_xlsx(file_like=read_file_to_file_like(path=path))
+    )
     tc.assertEqual("Image Sheet", xlsx.sheets[0].name)
     tc.assertEqual(1, len(xlsx.sheets[0].images))
 
@@ -183,7 +191,7 @@ def test_read_xlsx_4__image_extraction() -> None:
 
 def test_read_pptx_1() -> None:
     path = "sharepoint2text/tests/resources/modern_ms/eu-visibility_rules_00704232-AF9F-1A18-BD782C469454ADAD_68401.pptx"
-    pptx: PptxContent = next(read_pptx(read_file_to_file_like(path=path)))
+    pptx: PptxParserOutput = next(read_pptx(read_file_to_file_like(path=path)))
 
     # metadata
     tc.assertEqual("IVAN Anda-Otilia", pptx.metadata.author)
@@ -312,7 +320,7 @@ def test_read_pptx_1() -> None:
 
 def test_read_pptx_2() -> None:
     path = "sharepoint2text/tests/resources/modern_ms/pptx_formula_image.pptx"
-    pptx: PptxContent = next(read_pptx(read_file_to_file_like(path=path)))
+    pptx: PptxParserOutput = next(read_pptx(read_file_to_file_like(path=path)))
 
     # Test default get_full_text() - formulas included (no comments or image captions)
     # Note: "A beach" is a regular textbox, not an image caption
@@ -368,7 +376,7 @@ def test_read_pptx_2() -> None:
 
 def test_read_pptx_3() -> None:
     path = "sharepoint2text/tests/resources/modern_ms/pptx_table.pptx"
-    pptx: PptxContent = next(read_pptx(read_file_to_file_like(path=path)))
+    pptx: PptxParserOutput = next(read_pptx(read_file_to_file_like(path=path)))
 
     tc.assertEqual(1, len(list(pptx.iterate_tables())))
     table_1 = list(pptx.iterate_tables())[0]
@@ -407,7 +415,7 @@ def test_read_pptx_3() -> None:
 
 def test_read_pptx_4_units() -> None:
     path = "sharepoint2text/tests/resources/modern_ms/slide_titles.pptx"
-    pptx: PptxContent = next(read_pptx(read_file_to_file_like(path=path)))
+    pptx: PptxParserOutput = next(read_pptx(read_file_to_file_like(path=path)))
 
     units = list(pptx.iterate_units())
     tc.assertEqual(2, len(units))
@@ -417,13 +425,13 @@ def test_read_pptx_4_units() -> None:
 
 def test_read_pptx__image_flag():
     path = "sharepoint2text/tests/resources/modern_ms/pptx_images.pptx"
-    pptx: PptxContent = next(
+    pptx: PptxParserOutput = next(
         read_pptx(read_file_to_file_like(path=path), ignore_images=False)
     )
     tc.assertEqual(1, len(pptx.slides[0].images))
     tc.assertEqual("PPTX text", pptx.get_full_text())
 
-    pptx: PptxContent = next(
+    pptx: PptxParserOutput = next(
         read_pptx(read_file_to_file_like(path=path), ignore_images=True)
     )
     tc.assertEqual(0, len(pptx.slides[0].images))
@@ -435,7 +443,7 @@ def test_read_docx_1() -> None:
     path = (
         "sharepoint2text/tests/resources/modern_ms/GKIM_Skills_Framework_-_static.docx"
     )
-    docx: DocxContent = next(read_docx(read_file_to_file_like(path=path)))
+    docx: DocxParserOutput = next(read_docx(read_file_to_file_like(path=path)))
 
     # text is long. Verify only beginning
     tc.assertEqual("Welcome to the Government", docx.full_text[:25].strip())
@@ -474,7 +482,7 @@ def test_read_docx_2() -> None:
         "sharepoint2text/tests/resources/modern_ms/sample_with_comment_and_table.docx"
     )
 
-    docx: DocxContent = next(read_docx(read_file_to_file_like(path=path)))
+    docx: DocxParserOutput = next(read_docx(read_file_to_file_like(path=path)))
     # Formula with properly converted multiplication sign
     tc.assertEqual(
         "Hello World!\nAn image of space\nIncome\ntax\n119\n19\nAnother sentence after the table.\n$$\\frac{3}{4}\\times4=\\sqrt{9}$$",
@@ -528,7 +536,7 @@ def test_read_docx_2() -> None:
     # caption is from the text box content (wps:txbx)
     tc.assertEqual("An image of space", docx.images[0].caption)
 
-    # ImageInterface methods
+    # ImageRecord methods
     tc.assertEqual("image/png", docx.images[0].get_content_type())
     tc.assertEqual("Space", docx.images[0].get_description())
     tc.assertEqual("An image of space", docx.images[0].get_caption())
@@ -554,13 +562,13 @@ def test_read_docx__image_flag() -> None:
     # A converted docx from OSX pages - may not populate like a true MS client .docx
     # dedicated test for comment, table and footnote extraction
     path = "sharepoint2text/tests/resources/modern_ms/document_with_image.docx"
-    docx: DocxContent = next(
+    docx: DocxParserOutput = next(
         read_docx(read_file_to_file_like(path=path), ignore_images=False)
     )
     tc.assertEqual(1, len(docx.images))
     tc.assertEqual("Docx with image", docx.get_full_text())
 
-    docx: DocxContent = next(
+    docx: DocxParserOutput = next(
         read_docx(read_file_to_file_like(path=path), ignore_images=True)
     )
     tc.assertEqual(0, len(docx.images))
@@ -570,7 +578,7 @@ def test_read_docx__image_flag() -> None:
 def test_read_docx__image_extraction_1() -> None:
     # Test for caption extraction from following paragraph with caption style
     path = "sharepoint2text/tests/resources/modern_ms/vorlage-abschlussarbeit.docx"
-    docx: DocxContent = next(read_docx(read_file_to_file_like(path=path)))
+    docx: DocxParserOutput = next(read_docx(read_file_to_file_like(path=path)))
 
     tc.assertEqual(1, len(docx.images))
     tc.assertEqual(1, len(list(docx.iterate_images())))
@@ -593,7 +601,7 @@ def test_read_docx__image_extraction_1() -> None:
 
 def test_read_docx__image_extraction_2() -> None:
     path = "sharepoint2text/tests/resources/modern_ms/thesis-template.docx"
-    docx: DocxContent = next(read_docx(read_file_to_file_like(path=path)))
+    docx: DocxParserOutput = next(read_docx(read_file_to_file_like(path=path)))
 
     tc.assertEqual(2, len(docx.images))
     tc.assertEqual(2, len(list(docx.iterate_images())))
@@ -645,7 +653,9 @@ def test_read_docx__image_extraction_2() -> None:
 
 def test_read_docx__units() -> None:
     path = "sharepoint2text/tests/resources/modern_ms/headings.docx"
-    docx: DocxContent = next(read_docx(file_like=read_file_to_file_like(path=path)))
+    docx: DocxParserOutput = next(
+        read_docx(file_like=read_file_to_file_like(path=path))
+    )
 
     units = list(docx.iterate_units())
     tc.assertEqual(8, len(units))
@@ -654,7 +664,7 @@ def test_read_docx__units() -> None:
     tc.assertTrue(hasattr(units[0], "get_tables"))
 
     # first unit
-    unit_meta: DocxUnit = units[0].get_metadata()
+    unit_meta: DocxUnitRecord = units[0].get_metadata()
     tc.assertEqual(["Sample Document"], unit_meta.location)
     tc.assertEqual(
         "This document was created using accessibility techniques for headings, lists, image alternate text, tables, and columns. It should be completely accessible using assistive technologies such as screen readers.",
@@ -712,7 +722,9 @@ def test_read_docx__units() -> None:
 
 def test_read_docx__unit_structure() -> None:
     path = "sharepoint2text/tests/resources/modern_ms/word_structure.docx"
-    docx: DocxContent = next(read_docx(file_like=read_file_to_file_like(path=path)))
+    docx: DocxParserOutput = next(
+        read_docx(file_like=read_file_to_file_like(path=path))
+    )
 
     units = list(docx.iterate_units())
     tc.assertEqual(5, len(units))
@@ -750,29 +762,29 @@ def test_read_docx__unit_structure() -> None:
 def test_read_macro_enabled_docm() -> None:
     """Test .docm (macro-enabled Word) extraction - same structure as .docx."""
     path = "sharepoint2text/tests/resources/modern_ms/sample.docm"
-    result: DocxContent = next(
+    result: DocxParserOutput = next(
         read_docx(file_like=read_file_to_file_like(path=path), path=path)
     )
-    # Verify it extracts as DocxContent (same as .docx)
-    tc.assertIsInstance(result, DocxContent)
+    # Verify it extracts as DocxParserOutput (same as .docx)
+    tc.assertIsInstance(result, DocxParserOutput)
     tc.assertTrue(len(result.get_full_text()) > 0)
 
 
 def test_read_macro_enabled_xlsm() -> None:
     """Test .xlsm (macro-enabled Excel) extraction - same structure as .xlsx."""
     path = "sharepoint2text/tests/resources/modern_ms/sample.xlsm"
-    result: XlsxContent = next(
+    result: XlsxParserOutput = next(
         read_xlsx(file_like=read_file_to_file_like(path=path), path=path)
     )
-    # Verify it extracts as XlsxContent (same as .xlsx)
-    tc.assertIsInstance(result, XlsxContent)
+    # Verify it extracts as XlsxParserOutput (same as .xlsx)
+    tc.assertIsInstance(result, XlsxParserOutput)
     tc.assertTrue(len(result.sheets) > 0)
 
 
 def test_read_xlsb() -> None:
     """Test that XLSB extraction preserves worksheets, rows, and cell positions."""
     path = "sharepoint2text/tests/resources/modern_ms/excel.xlsb"
-    result: XlsxContent = next(
+    result: XlsxParserOutput = next(
         read_xlsx(file_like=read_file_to_file_like(path=path), path=path)
     )
     tc.assertListEqual(["Sheet1", "Sheet2", "Sheet3"], [s.name for s in result.sheets])
@@ -797,14 +809,14 @@ def test_read_xlsb() -> None:
 def test_read_xlsx__image_flag() -> None:
     """Test .xlsm (macro-enabled Excel) extraction - same structure as .xlsx."""
     path = "sharepoint2text/tests/resources/modern_ms/excel_images.xlsx"
-    result: XlsxContent = next(
+    result: XlsxParserOutput = next(
         read_xlsx(
             file_like=read_file_to_file_like(path=path), path=path, ignore_images=False
         ),
     )
     tc.assertEqual(1, len(result.sheets[0].images))
 
-    result: XlsxContent = next(
+    result: XlsxParserOutput = next(
         read_xlsx(
             file_like=read_file_to_file_like(path=path), path=path, ignore_images=True
         ),
@@ -815,29 +827,12 @@ def test_read_xlsx__image_flag() -> None:
 def test_read_macro_enabled_pptm() -> None:
     """Test .pptm (macro-enabled PowerPoint) extraction - same structure as .pptx."""
     path = "sharepoint2text/tests/resources/modern_ms/sample.pptm"
-    result: PptxContent = next(
+    result: PptxParserOutput = next(
         read_pptx(file_like=read_file_to_file_like(path=path), path=path)
     )
-    # Verify it extracts as PptxContent (same as .pptx)
-    tc.assertIsInstance(result, PptxContent)
+    # Verify it extracts as PptxParserOutput (same as .pptx)
+    tc.assertIsInstance(result, PptxParserOutput)
     tc.assertTrue(len(result.slides) > 0)
-
-
-def test_markdown_export():
-    """Test markdown export functionality."""
-
-    path = (
-        "sharepoint2text/tests/resources/modern_ms/sample_with_comment_and_table.docx"
-    )
-
-    docx: DocxContent = next(read_docx(read_file_to_file_like(path=path)))
-
-    tc.assertEqual(
-        "Hello World!\nAn image of space\nIncome\ntax\n119\n19\n"
-        "Another sentence after the table.\n$$\\frac{3}{4}\\times4=\\sqrt{9}$$\n\n"
-        "## Tables\n\n| Income | tax |\n|--------|-----|\n| 119    | 19  |",
-        docx.get_full_markdown(),
-    )
 
 
 def test_password_protected__docx() -> None:

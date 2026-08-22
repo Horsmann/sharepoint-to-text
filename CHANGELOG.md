@@ -20,8 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add Markdown rendering for normalized documents.
 
 ### Removed
-- Remove the version-1 result types, direct format-reader exports, conversion
-  adapters, class-name-based public serialization, and their module paths.
+- Remove the format-specific result types, direct format-reader exports,
+  conversion adapters, class-name-based serialization, and their module paths.
 
 ## [Released]
 
