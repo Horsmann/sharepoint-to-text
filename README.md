@@ -190,7 +190,8 @@ The `read_many` function extracts content from multiple files in a folder:
 |---|---|
 | `folder_path` | Path to the folder to traverse |
 | `suffixes` | List of file extensions to extract (e.g., `[".docx", ".pdf"]`) |
-| `extract_all_supported` | If `True`, extract all supported formats (mutually exclusive with `suffixes`) |
+| `extract_all_supported` | If `True`, extract all supported formats, or every file when combined with `force_plain_text=True` (mutually exclusive with `suffixes`) |
+| `force_plain_text` | Treat selected files as plain text, including unknown extensions in `extract_all_supported` mode |
 | `recursive` | If `True` (default), traverse subdirectories |
 
 Configuration rules:

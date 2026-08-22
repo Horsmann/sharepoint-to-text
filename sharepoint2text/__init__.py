@@ -451,11 +451,13 @@ def read_many(
                  Suffixes should include the leading dot.
                  Required if extract_all_supported is False.
         extract_all_supported: If True, extract all files with supported formats,
-                              ignoring the suffixes parameter. Default is False.
+            ignoring the suffixes parameter. When combined with
+            ``force_plain_text=True``, extract every regular file. Default is False.
         max_file_size: Maximum file size in bytes (default: 100MB).
                       Set to 0 to disable size checking.
         ignore_images: If True, skip image extraction. Default is False.
-        force_plain_text: If True, treat all files as plain text.
+        force_plain_text: If True, treat selected files as plain text, including
+            files with unknown extensions in ``extract_all_supported`` mode.
         include_attachments: If False, skip email attachment extraction.
         recursive: If True, traverse subdirectories recursively. Default is True.
 
@@ -540,8 +542,8 @@ def read_many(
 
         # Check if file should be processed
         if extract_all_supported:
-            # Use the library's built-in support check
-            if not is_supported_file(str(file_path)):
+            # Forced plain-text extraction also accepts unknown file extensions.
+            if not force_plain_text and not is_supported_file(str(file_path)):
                 files_skipped += 1
                 logger.debug("Skipping unsupported file: %s", file_path)
                 continue

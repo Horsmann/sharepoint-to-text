@@ -215,6 +215,24 @@ def test_read_many_ignores_unsupported_in_extract_all_mode() -> None:
         tc.assertIn("supported content", results[0].get_full_text())
 
 
+def test_read_many_force_plain_text_extracts_unknown_extensions() -> None:
+    """Forced plain-text mode should include files with unknown extensions."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir_path = Path(tmpdir)
+        (tmpdir_path / "unknown.xyz").write_text("unknown plain-text content")
+
+        results = list(
+            read_many(
+                tmpdir_path,
+                extract_all_supported=True,
+                force_plain_text=True,
+            )
+        )
+
+        tc.assertEqual(1, len(results))
+        tc.assertEqual("unknown plain-text content", results[0].get_full_text())
+
+
 def test_read_many_with_path_object() -> None:
     """read_many should accept both string and Path objects."""
     # Test with Path object
