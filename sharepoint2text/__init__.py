@@ -19,9 +19,6 @@ from sharepoint2text.parsing.exceptions import (
 )
 from sharepoint2text.parsing.extractors.util.zip_bomb import (
     ZipBombLimits,
-    get_zip_bomb_limits,
-    reset_zip_bomb_limits,
-    set_zip_bomb_limits,
 )
 from sharepoint2text.parsing.models import (
     Annotation,
@@ -62,12 +59,9 @@ __all__ = [
     "document_from_json",
     "document_to_dict",
     "document_to_json",
-    "get_zip_bomb_limits",
     "is_supported_file",
     "read_bytes",
     "read_file",
     "read_many",
     "render_markdown",
-    "reset_zip_bomb_limits",
-    "set_zip_bomb_limits",
 ]

@@ -134,6 +134,7 @@ sharepoint2text.read_file(
     ignore_images=False,
     force_plain_text=False,
     include_attachments=True,
+    zip_bomb_limits=None,
 )
 
 sharepoint2text.read_bytes(
@@ -145,6 +146,7 @@ sharepoint2text.read_bytes(
     ignore_images=False,
     force_plain_text=False,
     include_attachments=True,
+    zip_bomb_limits=None,
 )
 
 sharepoint2text.read_many(
@@ -157,6 +159,7 @@ sharepoint2text.read_many(
     force_plain_text=False,
     include_attachments=True,
     recursive=True,
+    zip_bomb_limits=None,
 )
 
 sharepoint2text.is_supported_file(path)
@@ -270,22 +273,30 @@ See [doc/cli.md](doc/cli.md) for the complete option reference.
 ## ZIP-Bomb Limits
 
 ZIP-based Office/OpenDocument files and archives are guarded by configurable
-limits. Raise them only for trusted input and do so once at process startup:
+limits. Raise them only for a trusted input and only on that extraction call:
 
 ```python
-from sharepoint2text import ZipBombLimits, set_zip_bomb_limits
+from sharepoint2text import ZipBombLimits, read_file
 
-set_zip_bomb_limits(
-    ZipBombLimits(
+documents = read_file(
+    "large_trusted_export.zip",
+    zip_bomb_limits=ZipBombLimits(
         max_total_uncompressed_bytes=16 * 1024 * 1024 * 1024,
         max_single_uncompressed_bytes=4 * 1024 * 1024 * 1024,
         max_entry_compression_ratio=1500.0,
-    )
+    ),
 )
+
+for document in documents:
+    print(document.full_text)
 ```
 
-`get_zip_bomb_limits()` returns the active process-wide values and
-`reset_zip_bomb_limits()` restores the defaults.
+The override applies only while that generator is actively extracting. It is
+automatically reset before a result is yielded and after completion, failure,
+or early generator closure, so later and concurrent calls keep the defaults.
+The same `zip_bomb_limits` keyword is available on `read_bytes` and
+`read_many`; for `read_many`, it is applied independently to each selected
+file.
 
 ## SharePoint Integration
 

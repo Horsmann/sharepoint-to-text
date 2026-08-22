@@ -21,10 +21,14 @@ For upgrade instructions, see
 - Add centralized dict/JSON codecs with opt-in base64 payloads, bounded binary
   decoding, and schema validation.
 - Add Markdown rendering for normalized documents.
+- Add isolated per-call `zip_bomb_limits` configuration to `read_file`,
+  `read_bytes`, and `read_many`.
 
 ### Removed
 - Remove the format-specific result types, direct format-reader exports,
   conversion adapters, class-name-based serialization, and their module paths.
+- Remove the process-wide `get_zip_bomb_limits`, `set_zip_bomb_limits`, and
+  `reset_zip_bomb_limits` helpers.
 
 ## [Released]
 

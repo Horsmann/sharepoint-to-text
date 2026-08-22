@@ -11,7 +11,7 @@ import logging
 import sys
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any, Generator, Iterator, TypeVar
 
 from sharepoint2text.parsing._normalization import (
     _normalize_record,
@@ -22,6 +22,11 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFileFormatNotSupportedError,
     ExtractionFileTooLargeError,
 )
+from sharepoint2text.parsing.extractors.util.zip_bomb import (
+    ZipBombLimits,
+    _validate_zip_bomb_limits,
+    _zip_bomb_limits_scope,
+)
 from sharepoint2text.parsing.mime_types import MIME_TYPE_MAPPING
 from sharepoint2text.parsing.models import ExtractedDocument
 from sharepoint2text.parsing.router import (
@@ -31,6 +36,8 @@ from sharepoint2text.parsing.router import (
 )
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 # Default pypdf decompression limit (bytes). pypdf uses 75 MB internally.
 _PYPDF_DEFAULT_DECOMPRESSION_LIMIT = 75_000_000
@@ -88,6 +95,41 @@ class InvalidConfigurationError(ValueError):
     """Raised when incompatible configuration options are provided."""
 
 
+def _iterate_with_zip_bomb_limits(
+    iterator: Iterator[_T],
+    limits: ZipBombLimits | None,
+) -> Generator[_T, None, None]:
+    """Advance an iterator under isolated ZIP-bomb limits.
+
+    Each iterator step leaves the scope before yielding control to the caller.
+    This ensures a suspended generator cannot expose its relaxed limits to
+    another extraction running in the same thread or task.
+
+    Args:
+        iterator: Underlying extractor iterator to advance.
+        limits: Per-call ZIP-bomb limits, or ``None`` for library defaults.
+
+    Yields:
+        Values produced by the underlying iterator.
+
+    Raises:
+        TypeError: If ``limits`` is neither ``None`` nor ``ZipBombLimits``.
+    """
+    try:
+        while True:
+            with _zip_bomb_limits_scope(limits):
+                try:
+                    value = next(iterator)
+                except StopIteration:
+                    return
+            yield value
+    finally:
+        close = getattr(iterator, "close", None)
+        if callable(close):
+            with _zip_bomb_limits_scope(limits):
+                close()
+
+
 def read_many(
     folder_path: str | Path,
     suffixes: list[str] | None = None,
@@ -98,6 +140,7 @@ def read_many(
     force_plain_text: bool = False,
     include_attachments: bool = True,
     recursive: bool = True,
+    zip_bomb_limits: ZipBombLimits | None = None,
 ) -> Generator[ExtractedDocument, Any, None]:
     """
     Extract content from multiple files in a folder.
@@ -121,6 +164,8 @@ def read_many(
             files with unknown extensions in ``extract_all_supported`` mode.
         include_attachments: If False, skip email attachment extraction.
         recursive: If True, traverse subdirectories recursively. Default is True.
+        zip_bomb_limits: ZIP-bomb limits for each selected file. When ``None``,
+            enforce the library defaults independently for every file.
 
     Yields:
         Normalized documents for each successfully extracted file.
@@ -131,6 +176,7 @@ def read_many(
         ValueError: If neither suffixes nor extract_all_supported is specified.
         NotADirectoryError: If folder_path is not a directory.
         FileNotFoundError: If folder_path does not exist.
+        TypeError: If ``zip_bomb_limits`` is not ``None`` or ``ZipBombLimits``.
 
     Example:
         >>> import sharepoint2text
@@ -141,6 +187,8 @@ def read_many(
         >>> for result in sharepoint2text.read_many("/path/to/folder", extract_all_supported=True):
         ...     print(result.full_text)
     """
+    _validate_zip_bomb_limits(zip_bomb_limits)
+
     import glob as glob_module
 
     folder = Path(folder_path)
@@ -223,6 +271,7 @@ def read_many(
                 ignore_images=ignore_images,
                 force_plain_text=force_plain_text,
                 include_attachments=include_attachments,
+                zip_bomb_limits=zip_bomb_limits,
             ):
                 files_extracted += 1
                 yield result
@@ -250,6 +299,7 @@ def read_file(
     ignore_images: bool = False,
     force_plain_text: bool = False,
     include_attachments: bool = True,
+    zip_bomb_limits: ZipBombLimits | None = None,
 ) -> Generator[ExtractedDocument, Any, None]:
     """
     Read and extract content from a file.
@@ -269,6 +319,8 @@ def read_file(
                       Useful for unknown or custom plain-text file formats.
         include_attachments: If False, skip extracting/storing email attachment
                       payloads for email file formats.
+        zip_bomb_limits: ZIP-bomb limits for this extraction call. When
+            ``None``, enforce the library defaults.
 
     Yields:
         Normalized documents for every supported source format.
@@ -285,6 +337,7 @@ def read_file(
         sharepoint2text.parsing.exceptions.ExtractionFileTooLargeError:
             If the file exceeds the maximum allowed size.
         FileNotFoundError: If the file does not exist.
+        TypeError: If ``zip_bomb_limits`` is not ``None`` or ``ZipBombLimits``.
 
     Example:
         >>> import sharepoint2text
@@ -300,6 +353,7 @@ def read_file(
         ExtractionFileTooLargeError,
     )
 
+    _validate_zip_bomb_limits(zip_bomb_limits)
     path = Path(path)
 
     _configure_pypdf_limits(max_file_size)
@@ -323,7 +377,8 @@ def read_file(
     )
     with open(path, "rb") as f:
         try:
-            for result in extractor(f, str(path)):
+            records = extractor(f, str(path))
+            for result in _iterate_with_zip_bomb_limits(records, zip_bomb_limits):
                 logger.info("Extraction complete: %s", path)
                 yield _normalize_record(result)
         except ExtractionError:
@@ -343,6 +398,7 @@ def read_bytes(
     ignore_images: bool = False,
     force_plain_text: bool = False,
     include_attachments: bool = True,
+    zip_bomb_limits: ZipBombLimits | None = None,
 ) -> Generator[ExtractedDocument, Any, None]:
     """
     Read and extract content from in-memory bytes.
@@ -364,6 +420,8 @@ def read_bytes(
                       Useful for unknown or custom plain-text file formats.
         include_attachments: If False, skip extracting/storing email attachment
             payloads for email file formats.
+        zip_bomb_limits: ZIP-bomb limits for this extraction call. When
+            ``None``, enforce the library defaults.
 
     Yields:
         A normalized extraction document.
@@ -371,7 +429,8 @@ def read_bytes(
     Raises:
         ValueError: If both ``mime_type`` and ``extension`` are missing/empty,
             unless ``force_plain_text=True``.
-        TypeError: If ``data`` is not ``bytes`` or ``io.BytesIO``.
+        TypeError: If ``data`` has the wrong type or ``zip_bomb_limits`` is not
+            ``None`` or ``ZipBombLimits``.
         sharepoint2text.parsing.exceptions.ExtractionFileFormatNotSupportedError:
             If the provided extension/MIME type is unsupported.
         sharepoint2text.parsing.exceptions.ExtractionFileEncryptedError:
@@ -383,6 +442,7 @@ def read_bytes(
         sharepoint2text.parsing.exceptions.ExtractionFileTooLargeError:
             If the file exceeds the maximum allowed size.
     """
+    _validate_zip_bomb_limits(zip_bomb_limits)
     if not isinstance(data, (bytes, io.BytesIO)):
         raise TypeError("data must be bytes or io.BytesIO")
 
@@ -467,7 +527,8 @@ def read_bytes(
 
     logger.info("Starting in-memory extraction: %s", virtual_path)
     try:
-        for result in extractor(file_like, virtual_path):
+        records = extractor(file_like, virtual_path)
+        for result in _iterate_with_zip_bomb_limits(records, zip_bomb_limits):
             logger.info("In-memory extraction complete: %s", virtual_path)
             yield _normalize_record(result)
     except ExtractionError:
