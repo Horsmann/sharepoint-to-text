@@ -9,12 +9,29 @@ from sharepoint2text.parsing.extractors.data_types import OpenDocumentMetadata
 
 @lru_cache(maxsize=512)
 def guess_content_type(path: str) -> str:
+    """Infer an image media type from an OpenDocument member path.
+
+    Args:
+        path: OpenDocument package member path.
+
+    Returns:
+        MIME-style content type.
+    """
     return mimetypes.guess_type(path)[0] or "application/octet-stream"
 
 
 def extract_odf_metadata(
     meta_root: ET.Element | None, ns: dict[str, str]
 ) -> OpenDocumentMetadata:
+    """Extract common document properties from OpenDocument metadata XML.
+
+    Args:
+        meta_root: Parsed root of ``meta.xml``, or ``None`` when unavailable.
+        ns: Namespace-prefix mapping used by ElementTree queries.
+
+    Returns:
+        Common OpenDocument metadata fields.
+    """
     metadata = OpenDocumentMetadata()
     if meta_root is None:
         return metadata
@@ -86,6 +103,19 @@ def element_text(
     attr_text_c: str,
     skip_tags: set[str] | None = None,
 ) -> str:
+    """Collect normalized descendant text from an OpenDocument element.
+
+    Args:
+        element: XML element whose content should be inspected.
+        text_space_tag: Qualified tag representing an explicit space.
+        text_tab_tag: Qualified tag representing a tab character.
+        text_line_break_tag: Qualified tag representing a line break.
+        attr_text_c: Qualified attribute containing a repeated-space count.
+        skip_tags: Qualified element tags whose subtrees should be omitted.
+
+    Returns:
+        Normalized descendant text.
+    """
     parts: list[str] = []
     _append_element_text(
         element,

@@ -286,7 +286,11 @@ class _RtfParser:
         ]
 
     def parse(self) -> RtfContent:
-        """Parse the RTF document and return extracted content."""
+        """Parse the RTF document and return extracted content.
+
+        Returns:
+            Structured RTF parse result.
+        """
         try:
             text = self._decode_rtf()
 

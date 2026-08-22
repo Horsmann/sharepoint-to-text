@@ -191,6 +191,15 @@ class _XhtmlTextExtractor(HTMLParser):
         return " ".join(value.split()).strip()
 
     def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]) -> None:
+        """Record an opening markup element in the extraction tree.
+
+        Args:
+            tag: Normalized HTML element name supplied by the parser.
+            attrs: Element attributes as name and optional-value pairs.
+
+        Returns:
+            None.
+        """
         tag = tag.lower()
 
         if self.skip_depth > 0:
@@ -225,6 +234,14 @@ class _XhtmlTextExtractor(HTMLParser):
             self.text_parts.append("\n")
 
     def handle_endtag(self, tag: str) -> None:
+        """Close the active markup element when its tag matches.
+
+        Args:
+            tag: Normalized HTML element name supplied by the parser.
+
+        Returns:
+            None.
+        """
         tag = tag.lower()
 
         if self.skip_depth > 0:
@@ -259,6 +276,14 @@ class _XhtmlTextExtractor(HTMLParser):
             self.in_block = False
 
     def handle_data(self, data: str) -> None:
+        """Attach character data to the active markup node.
+
+        Args:
+            data: Text or comment content supplied by the parser.
+
+        Returns:
+            None.
+        """
         if self.skip_depth > 0:
             return
 
@@ -273,7 +298,11 @@ class _XhtmlTextExtractor(HTMLParser):
         self.text_parts.append(data)
 
     def get_text(self) -> str:
-        """Get the extracted text, cleaned up."""
+        """Get the extracted text, cleaned up.
+
+        Returns:
+            Extracted text in reading order.
+        """
         text = "".join(self.text_parts)
         # Collapse multiple newlines to maximum of 2
         text = _RE_MULTI_NL.sub("\n\n", text)
@@ -285,11 +314,19 @@ class _XhtmlTextExtractor(HTMLParser):
         return text.strip()
 
     def get_title(self) -> str:
-        """Get the document title from <title> tag."""
+        """Get the document title from <title> tag.
+
+        Returns:
+            Chapter title, or an empty string when none was found.
+        """
         return self._title.strip()
 
     def get_tables(self) -> List[List[List[str]]]:
-        """Get extracted tables."""
+        """Get extracted tables.
+
+        Returns:
+            Tables represented as rows of string cell values.
+        """
         return self.tables
 
 
@@ -443,25 +480,54 @@ class _EpubContext(ZipContext):
                     self._spine.append(idref)
 
     def resolve_href(self, href: str) -> str:
-        """Resolve a relative href to its full path in the ZIP."""
+        """Resolve a relative href to its full path in the ZIP.
+
+        Args:
+            href: Relative resource reference to resolve against the package document.
+
+        Returns:
+            Normalized package member path.
+        """
         if href.startswith("/"):
             return href[1:]
         return self._opf_dir + href
 
     @property
     def opf_dir(self) -> str:
+        """Return the directory containing the EPUB package document.
+
+        Returns:
+            Package-relative directory path, without a trailing separator.
+        """
         return self._opf_dir
 
     @property
     def manifest(self) -> Dict[str, Dict[str, str]]:
+        """Return EPUB manifest entries keyed by item identifier.
+
+        Returns:
+            Parsed manifest mapping owned by this EPUB context. Callers should
+            treat the mapping as read-only.
+        """
         return self._manifest
 
     @property
     def spine(self) -> List[str]:
+        """Return EPUB manifest identifiers in reading order.
+
+        Returns:
+            Reading-order identifier list owned by this EPUB context. Callers
+            should treat the list as read-only.
+        """
         return self._spine
 
     @property
     def metadata(self) -> EpubMetadata:
+        """Return metadata parsed from the EPUB package document.
+
+        Returns:
+            Parsed EPUB metadata value object.
+        """
         return self._metadata
 
 

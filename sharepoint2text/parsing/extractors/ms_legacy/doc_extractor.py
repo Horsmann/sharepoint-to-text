@@ -769,23 +769,43 @@ class _DocReader:
         return self._parse_content()
 
     def get_main_text(self) -> str:
-        """Get only the main document body text."""
+        """Get only the main document body text.
+
+        Returns:
+            Primary document text.
+        """
         return self._parse_content().main_text
 
     def get_headers_footers(self) -> str:
-        """Get only the header and footer text."""
+        """Get only the header and footer text.
+
+        Returns:
+            Header and footer text ranges.
+        """
         return self._parse_content().headers_footers
 
     def get_footnotes(self) -> str:
-        """Get only the footnote text."""
+        """Get only the footnote text.
+
+        Returns:
+            Footnote text ranges.
+        """
         return self._parse_content().footnotes
 
     def get_annotations(self) -> str:
-        """Get only the annotation/comment text."""
+        """Get only the annotation/comment text.
+
+        Returns:
+            Annotation text ranges.
+        """
         return self._parse_content().annotations
 
     def get_all_parts(self) -> DocContent:
-        """Get all document parts as a DocContent dataclass."""
+        """Get all document parts as a DocContent dataclass.
+
+        Returns:
+            Structured legacy Word result containing every decoded text part.
+        """
         return self._parse_content()
 
     @staticmethod

@@ -61,6 +61,16 @@ def _serialize_for_json(value: typing.Any, *, include_binary: bool) -> typing.An
 
 
 def serialize_extraction(value: typing.Any, *, include_binary: bool = True) -> dict:
+    """Serialize an extraction model into the public JSON-compatible schema.
+
+    Args:
+        value: Extraction dataclass, nested model, or primitive value to serialize.
+        include_binary: Encode byte payloads as base64 when true; otherwise
+            represent binary fields as ``None``.
+
+    Returns:
+        Dictionary containing serialized fields and type markers.
+    """
     serialized = _serialize_for_json(value, include_binary=include_binary)
     if isinstance(serialized, dict):
         return serialized

@@ -116,7 +116,19 @@ except PackageNotFoundError:  # pragma: no cover
 def read_docx(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[DocxContent, Any, None]:
-    """Extract content from a DOCX file."""
+    """Extract content from a DOCX file.
+
+    Args:
+        file_like: Seekable binary stream containing the source document.
+        path: Optional source path used for metadata and format-specific routing.
+        ignore_images: Skip image extraction when true.
+
+    Returns:
+        A lazy generator yielding the document's structured ``DocxContent``.
+
+    Raises:
+        ExtractionError: If parsing fails when the returned generator is consumed.
+    """
     from sharepoint2text.parsing.extractors.ms_modern.docx_extractor import (
         read_docx as _read_docx,
     )
@@ -128,7 +140,19 @@ def read_docx(
 def read_xlsx(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[XlsxContent, Any, None]:
-    """Extract content from an XLSX file."""
+    """Extract content from an XLSX file.
+
+    Args:
+        file_like: Seekable binary stream containing the source document.
+        path: Optional source path used for metadata and format-specific routing.
+        ignore_images: Skip image extraction when true.
+
+    Returns:
+        A lazy generator yielding the workbook's structured ``XlsxContent``.
+
+    Raises:
+        ExtractionError: If parsing fails when the returned generator is consumed.
+    """
     from sharepoint2text.parsing.extractors.ms_modern.xlsx_extractor import (
         read_xlsx as _read_xlsx,
     )
@@ -140,7 +164,19 @@ def read_xlsx(
 def read_pptx(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[PptxContent, Any, None]:
-    """Extract content from a PPTX file."""
+    """Extract content from a PPTX file.
+
+    Args:
+        file_like: Seekable binary stream containing the source document.
+        path: Optional source path used for metadata and format-specific routing.
+        ignore_images: Skip image extraction when true.
+
+    Returns:
+        A lazy generator yielding the presentation's structured ``PptxContent``.
+
+    Raises:
+        ExtractionError: If parsing fails when the returned generator is consumed.
+    """
     from sharepoint2text.parsing.extractors.ms_modern.pptx_extractor import (
         read_pptx as _read_pptx,
     )
@@ -157,7 +193,19 @@ def read_pptx(
 def read_doc(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[DocContent, Any, None]:
-    """Extract content from a DOC file."""
+    """Extract content from a DOC file.
+
+    Args:
+        file_like: Seekable binary stream containing the source document.
+        path: Optional source path used for metadata and format-specific routing.
+        ignore_images: Skip image extraction when true.
+
+    Returns:
+        A lazy generator yielding the document's structured ``DocContent``.
+
+    Raises:
+        ExtractionError: If parsing fails when the returned generator is consumed.
+    """
     from sharepoint2text.parsing.extractors.ms_legacy.doc_extractor import (
         read_doc as _read_doc,
     )
@@ -169,7 +217,19 @@ def read_doc(
 def read_xls(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[XlsContent, Any, None]:
-    """Extract content from an XLS file."""
+    """Extract content from an XLS file.
+
+    Args:
+        file_like: Seekable binary stream containing the source document.
+        path: Optional source path used for metadata and format-specific routing.
+        ignore_images: Skip image extraction when true.
+
+    Returns:
+        A lazy generator yielding the workbook's structured ``XlsContent``.
+
+    Raises:
+        ExtractionError: If parsing fails when the returned generator is consumed.
+    """
     from sharepoint2text.parsing.extractors.ms_legacy.xls_extractor import (
         read_xls as _read_xls,
     )
@@ -181,7 +241,19 @@ def read_xls(
 def read_ppt(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[PptContent, Any, None]:
-    """Extract content from a PPT file."""
+    """Extract content from a PPT file.
+
+    Args:
+        file_like: Seekable binary stream containing the source document.
+        path: Optional source path used for metadata and format-specific routing.
+        ignore_images: Skip image extraction when true.
+
+    Returns:
+        A lazy generator yielding the presentation's structured ``PptContent``.
+
+    Raises:
+        ExtractionError: If parsing fails when the returned generator is consumed.
+    """
     from sharepoint2text.parsing.extractors.ms_legacy.ppt_extractor import (
         read_ppt as _read_ppt,
     )
@@ -193,7 +265,19 @@ def read_ppt(
 def read_rtf(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[RtfContent, Any, None]:
-    """Extract content from a RTF file."""
+    """Extract content from a RTF file.
+
+    Args:
+        file_like: Seekable binary stream containing the source document.
+        path: Optional source path used for metadata and format-specific routing.
+        ignore_images: Skip image extraction when true.
+
+    Returns:
+        A lazy generator yielding the document's structured ``RtfContent``.
+
+    Raises:
+        ExtractionError: If parsing fails when the returned generator is consumed.
+    """
     from sharepoint2text.parsing.extractors.ms_legacy.rtf_extractor import (
         read_rtf as _read_rtf,
     )
@@ -210,7 +294,19 @@ def read_rtf(
 def read_odt(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[OdtContent, Any, None]:
-    """Extract content from an ODT (OpenDocument Text) file."""
+    """Extract content from an ODT (OpenDocument Text) file.
+
+    Args:
+        file_like: Seekable binary stream containing the source document.
+        path: Optional source path used for metadata and format-specific routing.
+        ignore_images: Skip image extraction when true.
+
+    Returns:
+        A lazy generator yielding the document's structured ``OdtContent``.
+
+    Raises:
+        ExtractionError: If parsing fails when the returned generator is consumed.
+    """
     from sharepoint2text.parsing.extractors.open_office.odt_extractor import (
         read_odt as _read_odt,
     )
@@ -222,7 +318,19 @@ def read_odt(
 def read_odp(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[OdpContent, Any, None]:
-    """Extract content from an ODP (OpenDocument Presentation) file."""
+    """Extract content from an ODP (OpenDocument Presentation) file.
+
+    Args:
+        file_like: Seekable binary stream containing the source document.
+        path: Optional source path used for metadata and format-specific routing.
+        ignore_images: Skip image extraction when true.
+
+    Returns:
+        A lazy generator yielding the presentation's structured ``OdpContent``.
+
+    Raises:
+        ExtractionError: If parsing fails when the returned generator is consumed.
+    """
     from sharepoint2text.parsing.extractors.open_office.odp_extractor import (
         read_odp as _read_odp,
     )
@@ -234,7 +342,19 @@ def read_odp(
 def read_ods(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[OdsContent, Any, None]:
-    """Extract content from an ODS (OpenDocument Spreadsheet) file."""
+    """Extract content from an ODS (OpenDocument Spreadsheet) file.
+
+    Args:
+        file_like: Seekable binary stream containing the source document.
+        path: Optional source path used for metadata and format-specific routing.
+        ignore_images: Skip image extraction when true.
+
+    Returns:
+        A lazy generator yielding the spreadsheet's structured ``OdsContent``.
+
+    Raises:
+        ExtractionError: If parsing fails when the returned generator is consumed.
+    """
     from sharepoint2text.parsing.extractors.open_office.ods_extractor import (
         read_ods as _read_ods,
     )
@@ -246,7 +366,19 @@ def read_ods(
 def read_odg(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[OdgContent, Any, None]:
-    """Extract content from an ODG (OpenDocument Drawing) file."""
+    """Extract content from an ODG (OpenDocument Drawing) file.
+
+    Args:
+        file_like: Seekable binary stream containing the source document.
+        path: Optional source path used for metadata and format-specific routing.
+        ignore_images: Skip image extraction when true.
+
+    Returns:
+        A lazy generator yielding the drawing's structured ``OdgContent``.
+
+    Raises:
+        ExtractionError: If parsing fails when the returned generator is consumed.
+    """
     from sharepoint2text.parsing.extractors.open_office.odg_extractor import (
         read_odg as _read_odg,
     )
@@ -258,7 +390,19 @@ def read_odg(
 def read_odf(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[OdfContent, Any, None]:
-    """Extract content from an ODF (OpenDocument Formula) file."""
+    """Extract content from an ODF (OpenDocument Formula) file.
+
+    Args:
+        file_like: Seekable binary stream containing the source document.
+        path: Optional source path used for metadata and format-specific routing.
+        ignore_images: Skip image extraction when true.
+
+    Returns:
+        A lazy generator yielding the formula's structured ``OdfContent``.
+
+    Raises:
+        ExtractionError: If parsing fails when the returned generator is consumed.
+    """
     from sharepoint2text.parsing.extractors.open_office.odf_extractor import (
         read_odf as _read_odf,
     )
@@ -275,7 +419,19 @@ def read_odf(
 def read_plain_text(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[PlainTextContent, Any, None]:
-    """Extract content from a plain text file."""
+    """Extract content from a plain text file.
+
+    Args:
+        file_like: Seekable binary stream containing the source document.
+        path: Optional source path used for metadata and format-specific routing.
+        ignore_images: Skip image extraction when true.
+
+    Returns:
+        A lazy generator yielding decoded ``PlainTextContent``.
+
+    Raises:
+        ExtractionError: If parsing fails when the returned generator is consumed.
+    """
     from sharepoint2text.parsing.extractors.plain_extractor import (
         read_plain_text as _read_plain_text,
     )
@@ -290,7 +446,19 @@ def read_plain_text(
 def read_csv(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[CsvContent, Any, None]:
-    """Extract structured content from a CSV or TSV file."""
+    """Extract structured content from a CSV or TSV file.
+
+    Args:
+        file_like: Seekable binary stream containing the source document.
+        path: Optional source path used for metadata and format-specific routing.
+        ignore_images: Skip image extraction when true.
+
+    Returns:
+        A lazy generator yielding tabular ``CsvContent``.
+
+    Raises:
+        ExtractionError: If parsing fails when the returned generator is consumed.
+    """
     from sharepoint2text.parsing.extractors.csv_extractor import read_csv as _read_csv
 
     logger.debug("Reading CSV/TSV file: %s", path)
@@ -303,7 +471,19 @@ def read_csv(
 def read_pdf(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[PdfContent, Any, None]:
-    """Extract content from a PDF file."""
+    """Extract content from a PDF file.
+
+    Args:
+        file_like: Seekable binary stream containing the source document.
+        path: Optional source path used for metadata and format-specific routing.
+        ignore_images: Skip image extraction when true.
+
+    Returns:
+        A lazy generator yielding page-oriented ``PdfContent``.
+
+    Raises:
+        ExtractionError: If parsing fails when the returned generator is consumed.
+    """
     from sharepoint2text.parsing.extractors.pdf.pdf_extractor import (
         read_pdf as _read_pdf,
     )
@@ -318,7 +498,19 @@ def read_pdf(
 def read_html(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[HtmlContent, Any, None]:
-    """Extract content from an HTML file."""
+    """Extract content from an HTML file.
+
+    Args:
+        file_like: Seekable binary stream containing the source document.
+        path: Optional source path used for metadata and format-specific routing.
+        ignore_images: Skip image extraction when true.
+
+    Returns:
+        A lazy generator yielding parsed ``HtmlContent``.
+
+    Raises:
+        ExtractionError: If parsing fails when the returned generator is consumed.
+    """
     from sharepoint2text.parsing.extractors.html_extractor import (
         read_html as _read_html,
     )
@@ -333,7 +525,19 @@ def read_html(
 def read_epub(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[EpubContent, Any, None]:
-    """Extract content from an EPUB eBook file."""
+    """Extract content from an EPUB eBook file.
+
+    Args:
+        file_like: Seekable binary stream containing the source document.
+        path: Optional source path used for metadata and format-specific routing.
+        ignore_images: Skip image extraction when true.
+
+    Returns:
+        A lazy generator yielding chapter-oriented ``EpubContent``.
+
+    Raises:
+        ExtractionError: If parsing fails when the returned generator is consumed.
+    """
     from sharepoint2text.parsing.extractors.epub_extractor import (
         read_epub as _read_epub,
     )
@@ -348,7 +552,19 @@ def read_epub(
 def read_mhtml(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
 ) -> Generator[HtmlContent, Any, None]:
-    """Extract content from an MHTML (web archive) file."""
+    """Extract content from an MHTML (web archive) file.
+
+    Args:
+        file_like: Seekable binary stream containing the source document.
+        path: Optional source path used for metadata and format-specific routing.
+        ignore_images: Skip image extraction when true.
+
+    Returns:
+        A lazy generator yielding the archive's parsed ``HtmlContent``.
+
+    Raises:
+        ExtractionError: If parsing fails when the returned generator is consumed.
+    """
     from sharepoint2text.parsing.extractors.mhtml_extractor import (
         read_mhtml as _read_mhtml,
     )
@@ -367,7 +583,20 @@ def read_msg_email(
     ignore_images: bool = False,
     include_attachments: bool = True,
 ) -> Generator[EmailContent, Any, None]:
-    """Extract content from an Outlook MSG email file."""
+    """Extract content from an Outlook MSG email file.
+
+    Args:
+        file_like: Seekable binary stream containing the source document.
+        path: Optional source path used for metadata and format-specific routing.
+        ignore_images: Skip image extraction when true.
+        include_attachments: Extract and retain email attachments when true.
+
+    Returns:
+        A lazy generator yielding the message's ``EmailContent``.
+
+    Raises:
+        ExtractionError: If parsing fails when the returned generator is consumed.
+    """
     from sharepoint2text.parsing.extractors.mail.msg_email_extractor import (
         read_msg_format_mail as _read_msg_format_mail,
     )
@@ -388,7 +617,20 @@ def read_eml_email(
     ignore_images: bool = False,
     include_attachments: bool = True,
 ) -> Generator[EmailContent, Any, None]:
-    """Extract content from an EML email file."""
+    """Extract content from an EML email file.
+
+    Args:
+        file_like: Seekable binary stream containing the source document.
+        path: Optional source path used for metadata and format-specific routing.
+        ignore_images: Skip image extraction when true.
+        include_attachments: Extract and retain email attachments when true.
+
+    Returns:
+        A lazy generator yielding the message's ``EmailContent``.
+
+    Raises:
+        ExtractionError: If parsing fails when the returned generator is consumed.
+    """
     from sharepoint2text.parsing.extractors.mail.eml_email_extractor import (
         read_eml_format_mail as _read_eml_format_mail,
     )
@@ -409,7 +651,20 @@ def read_mbox_email(
     ignore_images: bool = False,
     include_attachments: bool = True,
 ) -> Generator[EmailContent, Any, None]:
-    """Extract content from an MBOX email file."""
+    """Extract content from an MBOX email file.
+
+    Args:
+        file_like: Seekable binary stream containing the source document.
+        path: Optional source path used for metadata and format-specific routing.
+        ignore_images: Skip image extraction when true.
+        include_attachments: Extract and retain email attachments when true.
+
+    Returns:
+        A lazy generator yielding one ``EmailContent`` object per mailbox message.
+
+    Raises:
+        ExtractionError: If parsing fails when the returned generator is consumed.
+    """
     from sharepoint2text.parsing.extractors.mail.mbox_email_extractor import (
         read_mbox_format_mail as _read_mbox_format_mail,
     )

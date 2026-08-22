@@ -119,6 +119,12 @@ def _render_markdown_table(data: list[list[typing.Any]]) -> str:
 # Interfaces #
 ##############
 class ExtractionInterface(Protocol):
+    """Define the common contract implemented by every extraction result.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     @abstractmethod
     def iterate_units(
         self, *, ignore_images: bool = False
@@ -141,12 +147,20 @@ class ExtractionInterface(Protocol):
 
     @abstractmethod
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
-        """Iterates over the extracted images"""
+        """Yield images extracted from this document.
+
+        Yields:
+            Image objects in source order.
+        """
         ...
 
     @abstractmethod
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
-        """Iterates over the extracted tables"""
+        """Yield tables extracted from this document.
+
+        Yields:
+            Table objects in source order.
+        """
         ...
 
     @abstractmethod
@@ -166,12 +180,20 @@ class ExtractionInterface(Protocol):
 
     @abstractmethod
     def get_metadata(self) -> FileMetadataInterface:
-        """Returns the metadata of the extracted file"""
+        """Return metadata describing this document object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         ...
 
     @abstractmethod
     def to_json(self) -> dict:
-        """Returns a JSON-serializable dictionary representation."""
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         ...
 
     @classmethod
@@ -236,6 +258,12 @@ class ExtractionInterface(Protocol):
 
 @dataclass
 class FileMetadataInterface:
+    """Store source identity and decoding metadata shared by extracted files.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     filename: str | None = None
     file_extension: str | None = None
     file_path: str | None = None
@@ -243,7 +271,13 @@ class FileMetadataInterface:
     detected_encoding: str | None = None
 
     def populate_from_path(self, path: str | Path | None) -> None:
-        """Populate file metadata fields from a path."""
+        """Populate source metadata from a filesystem path.
+
+        Args:
+            path: Source path used to populate filename and folder fields.
+
+        Existing fields are replaced only when a path is supplied.
+        """
         if path is None:
             return
         p = Path(path)
@@ -255,11 +289,22 @@ class FileMetadataInterface:
         )
 
     def to_dict(self) -> dict:
+        """Convert this value to a plain dictionary.
+
+        Returns:
+            A dictionary containing the dataclass fields and their values.
+        """
         return asdict(self)
 
 
 @dataclass
 class TableInterface(Protocol):
+    """Define the tabular-data contract exposed by extraction results.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     @abstractmethod
     def get_table(self) -> list[list[typing.Any]]:
         """Return the table data as a list of rows.
@@ -272,77 +317,150 @@ class TableInterface(Protocol):
 
     @abstractmethod
     def get_dim(self) -> TableDim:
-        """Return the table dimensions (rows, columns)."""
+        """Calculate the dimensions of the table.
+
+        Returns:
+            Row and column counts for the current table data.
+        """
         pass
 
 
 class ImageInterface(Protocol):
+    """Define access to an extracted image and its descriptive metadata.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
 
     @abstractmethod
     def get_bytes(self) -> io.BytesIO:
-        """Returns the bytes of the image as a BytesIO object."""
+        """Return a readable buffer containing the image payload.
+
+        Returns:
+            The image data positioned for reading by the caller.
+        """
         pass
 
     @abstractmethod
     def get_content_type(self) -> str:
-        """Returns the content type of the image as a string."""
+        """Return the media type reported for the image.
+
+        Returns:
+            A MIME-style content type, or an empty string when unknown.
+        """
         pass
 
     @abstractmethod
     def get_caption(self) -> str:
-        """Returns the caption of the image as a string."""
+        """Return the human-readable caption associated with the image.
+
+        Returns:
+            Caption text, or an empty string when none was extracted.
+        """
         pass
 
     @abstractmethod
     def get_description(self) -> str:
-        """Returns the descriptive text of the image as a string."""
+        """Return accessibility or descriptive text for the image.
+
+        Returns:
+            Image description text, or an empty string when unavailable.
+        """
         pass
 
     @abstractmethod
     def get_metadata(self) -> ImageMetadata:
+        """Return metadata describing this document object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         pass
 
 
 @dataclass
 class UnitMetadataInterface(Protocol):
+    """Mark metadata objects associated with one structural extraction unit.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     unit_number: int
 
 
 class UnitInterface(Protocol):
+    """Define a structural unit of extracted text, images, tables, and metadata.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
 
     @abstractmethod
     def get_text(self) -> str:
-        """Returns the text of the units as a string."""
+        """Return the text represented by this document unit.
+
+        Returns:
+            Extracted text in reading order.
+        """
         ...
 
     @abstractmethod
     def get_images(self) -> list[ImageInterface]:
-        """Returns the images of the units as a list."""
+        """Return images associated with this document unit.
+
+        Returns:
+            A new list containing the unit image objects.
+        """
         ...
 
     @abstractmethod
     def get_tables(self) -> list[TableData]:
-        """Returns the images of the units as a list."""
+        """Return tables associated with this document unit.
+
+        Returns:
+            A new list containing the unit table objects.
+        """
         ...
 
     @abstractmethod
     def get_metadata(self) -> UnitMetadataInterface:
-        """Returns (additional) metadata of a unit."""
+        """Return metadata describing this document object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         ...
 
     @abstractmethod
     def to_json(self) -> dict:
-        """Returns a JSON-serializable dictionary representation."""
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
 
 
 @dataclass
 class TableDim:
+    """Store the row and column dimensions of a table.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     rows: int = 0
     columns: int = 0
 
 
 @dataclass
 class TableData(TableInterface):
+    """Represent a generic two-dimensional table returned by an extractor.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     data: list[list[typing.Any]] = field(default_factory=list)
 
     def __eq__(self, other: object) -> bool:
@@ -354,10 +472,19 @@ class TableData(TableInterface):
         return super().__eq__(other)
 
     def get_table(self) -> list[list[typing.Any]]:
-        """Return table data as a list of rows."""
+        """Return the table as rows of cell values.
+
+        Returns:
+            A two-dimensional list whose outer items are rows.
+        """
         return self.data
 
     def get_dim(self) -> TableDim:
+        """Calculate the dimensions of the table.
+
+        Returns:
+            Row and column counts for the current table data.
+        """
         rows = len(self.data)
         columns = max((len(row) for row in self.data), default=0)
         return TableDim(rows=rows, columns=columns)
@@ -382,29 +509,59 @@ class ImageMetadata:
     height: Optional[int] = None
 
     def to_dict(self) -> dict:
-        """Return a dictionary representation of the metadata."""
+        """Convert this value to a plain dictionary.
+
+        Returns:
+            A dictionary containing the dataclass fields and their values.
+        """
         return asdict(self)
 
     def to_json(self) -> dict:
-        """Return a JSON-serializable dictionary representation."""
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
     @property
     def unit_index(self) -> Optional[int]:
-        """Alias for unit_number for backward compatibility."""
+        """Return the legacy unit_index compatibility alias.
+
+        Returns:
+            The corresponding canonical metadata value.
+        """
         return self.unit_number
 
     @unit_index.setter
     def unit_index(self, value: Optional[int]) -> None:
+        """Set the legacy unit_index compatibility alias.
+
+        Args:
+            value: Replacement value for the compatibility property.
+
+        This updates the corresponding canonical metadata field.
+        """
         self.unit_number = value
 
     @property
     def image_index(self) -> int:
-        """Alias for image_number for backward compatibility."""
+        """Return the legacy image_index compatibility alias.
+
+        Returns:
+            The corresponding canonical metadata value.
+        """
         return self.image_number
 
     @image_index.setter
     def image_index(self, value: int) -> None:
+        """Set the legacy image_index compatibility alias.
+
+        Args:
+            value: Replacement value for the compatibility property.
+
+        This updates the corresponding canonical metadata field.
+        """
         self.image_number = value
 
     # Dict-like access for backward compatibility
@@ -419,7 +576,15 @@ class ImageMetadata:
         return hasattr(self, key)
 
     def get(self, key: str, default: typing.Any = None) -> typing.Any:
-        """Dict-style get method for backward compatibility."""
+        """Look up an image metadata field without raising for a missing key.
+
+        Args:
+            key: Metadata key to look up.
+            default: Value returned when the metadata key is absent.
+
+        Returns:
+            The stored value, or the supplied default when the key is absent.
+        """
         return getattr(self, key, default)
 
 
@@ -432,45 +597,100 @@ def _join_unit_text(units: typing.Iterable[UnitInterface]) -> str:
 #########
 @dataclass
 class EmailUnitMetadata(UnitMetadataInterface):
+    """Describe the structural position of one unit in a email message.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     unit_number: int
     body_type: str
 
 
 @dataclass
 class EmailUnit(UnitInterface):
+    """Represent one structural text unit from a email message.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     text: str
     body_type: str = ""  # plain|html|empty
 
     def get_text(self) -> str:
+        """Return the text represented by this email message unit.
+
+        Returns:
+            Extracted text in reading order.
+        """
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
+        """Return images associated with this email message unit.
+
+        Returns:
+            A new list containing the unit image objects.
+        """
         return []
 
     def get_tables(self) -> list[TableData]:
+        """Return tables associated with this email message unit.
+
+        Returns:
+            A new list containing the unit table objects.
+        """
         return []
 
     def get_metadata(self) -> UnitMetadataInterface:
+        """Return metadata describing this email message object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return EmailUnitMetadata(unit_number=1, body_type=self.body_type)
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
 @dataclass
 class EmailAddress:
+    """Represent an email participant with an optional display name and address.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     name: str = ""
     address: str = ""
 
 
 @dataclass
 class EmailMetadata(FileMetadataInterface):
+    """Store metadata extracted from a email message.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     date: str = ""
     message_id: str = ""
 
 
 @dataclass
 class EmailAttachment:
+    """Keep attachment identity, media type, payload, and routing support status together.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     filename: str
     mime_type: str
     data: io.BytesIO
@@ -479,6 +699,12 @@ class EmailAttachment:
 
 @dataclass
 class EmailContent(ExtractionInterface):
+    """Aggregate the structured extraction result for a email message.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     from_email: EmailAddress
     subject: str = ""
     in_reply_to: str = ""
@@ -499,6 +725,14 @@ class EmailContent(ExtractionInterface):
         self, *, ignore_images: bool = False
     ) -> typing.Iterator[UnitInterface]:
         # ignore_images is a no-op for emails (no images supported)
+        """Yield structural text units from this email message.
+
+        Args:
+            ignore_images: Exclude image objects from yielded units when true.
+
+        Yields:
+            Units in source reading order.
+        """
         if self.body_plain:
             yield EmailUnit(text=self.body_plain, body_type="plain")
             return
@@ -509,10 +743,20 @@ class EmailContent(ExtractionInterface):
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
         # not supported
+        """Yield images extracted from this email message.
+
+        Yields:
+            Image objects in source order.
+        """
         yield from ()
         return
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        """Yield tables extracted from this email message.
+
+        Yields:
+            Table objects in source order.
+        """
         yield from ()
         return
 
@@ -581,12 +825,27 @@ class EmailContent(ExtractionInterface):
                 attachment.data.seek(0)
 
     def get_full_text(self) -> str:
+        """Build the default full-text representation of this email message.
+
+        Returns:
+            Extracted unit text joined in source order.
+        """
         return _join_unit_text(self.iterate_units())
 
     def get_metadata(self) -> EmailMetadata:
+        """Return metadata describing this email message object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return self.metadata
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
@@ -597,6 +856,12 @@ class EmailContent(ExtractionInterface):
 
 @dataclass
 class DocUnit(UnitInterface):
+    """Represent one structural text unit from a legacy Word document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     text: str
     unit_number: int = 1
     location: list[str] = field(default_factory=list)
@@ -606,15 +871,35 @@ class DocUnit(UnitInterface):
     tables: list[TableData] = field(default_factory=list)
 
     def get_text(self) -> str:
+        """Return the text represented by this legacy Word document unit.
+
+        Returns:
+            Extracted text in reading order.
+        """
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
+        """Return images associated with this legacy Word document unit.
+
+        Returns:
+            A new list containing the unit image objects.
+        """
         return list(self.images)
 
     def get_tables(self) -> list[TableData]:
+        """Return tables associated with this legacy Word document unit.
+
+        Returns:
+            A new list containing the unit table objects.
+        """
         return list(self.tables)
 
     def get_metadata(self) -> DocUnitMeta:
+        """Return metadata describing this legacy Word document object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return DocUnitMeta(
             unit_number=self.unit_number,
             location=list(self.location),
@@ -623,11 +908,22 @@ class DocUnit(UnitInterface):
         )
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
 @dataclass
 class DocUnitMeta(UnitMetadataInterface):
+    """Describe the structural position of one unit in a legacy Word document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     unit_number: int = 1
     location: list[str] = field(default_factory=list)
     heading_level: int | None = None
@@ -636,6 +932,12 @@ class DocUnitMeta(UnitMetadataInterface):
 
 @dataclass
 class DocMetadata(FileMetadataInterface):
+    """Store metadata extracted from a legacy Word document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     title: str = ""
     author: str = ""
     subject: str = ""
@@ -650,6 +952,12 @@ class DocMetadata(FileMetadataInterface):
 
 @dataclass
 class DocImage(ImageInterface):
+    """Represent an image extracted from a legacy Word document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     image_index: int
     content_type: str
     data: Optional[io.BytesIO] = None
@@ -661,21 +969,46 @@ class DocImage(ImageInterface):
     unit_number: Optional[int] = None
 
     def get_bytes(self) -> io.BytesIO:
+        """Return a readable buffer containing the image payload.
+
+        Returns:
+            The image data positioned for reading by the caller.
+        """
         if self.data is None:
             return io.BytesIO()
         self.data.seek(0)
         return self.data
 
     def get_content_type(self) -> str:
+        """Return the media type reported for the image.
+
+        Returns:
+            A MIME-style content type, or an empty string when unknown.
+        """
         return self.content_type.strip()
 
     def get_caption(self) -> str:
+        """Return the human-readable caption associated with the image.
+
+        Returns:
+            Caption text, or an empty string when none was extracted.
+        """
         return self.caption.strip()
 
     def get_description(self) -> str:
+        """Return accessibility or descriptive text for the image.
+
+        Returns:
+            Image description text, or an empty string when unavailable.
+        """
         return self.description.strip()
 
     def get_metadata(self) -> ImageMetadata:
+        """Return metadata describing this legacy Word document object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return ImageMetadata(
             image_number=self.image_index,
             content_type=self.content_type,
@@ -687,6 +1020,12 @@ class DocImage(ImageInterface):
 
 @dataclass
 class DocContent(ExtractionInterface):
+    """Aggregate the structured extraction result for a legacy Word document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     main_text: str = ""
     footnotes: str = ""
     headers_footers: str = ""
@@ -698,6 +1037,14 @@ class DocContent(ExtractionInterface):
     def iterate_units(
         self, *, ignore_images: bool = False
     ) -> typing.Iterator[UnitInterface]:
+        """Yield structural text units from this legacy Word document.
+
+        Args:
+            ignore_images: Exclude image objects from yielded units when true.
+
+        Yields:
+            Units in source reading order.
+        """
         lines = [line.rstrip() for line in (self.main_text or "").splitlines()]
         if not lines:
             unit_images: list[DocImage] = []
@@ -876,23 +1223,47 @@ class DocContent(ExtractionInterface):
             yield unit
 
     def get_full_text(self) -> str:
-        """The full text of the document including a document title from the metadata if any are provided"""
+        """Build the default full-text representation of this legacy Word document.
+
+        Returns:
+            Extracted unit text joined in source order.
+        """
         return (
             self.metadata.title + "\n" + _join_unit_text(self.iterate_units())
         ).strip()
 
     def get_metadata(self) -> FileMetadataInterface:
+        """Return metadata describing this legacy Word document object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return self.metadata
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        """Yield images extracted from this legacy Word document.
+
+        Yields:
+            Image objects in source order.
+        """
         for img in self.images:
             yield img
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        """Yield tables extracted from this legacy Word document.
+
+        Yields:
+            Table objects in source order.
+        """
         for table in self.tables:
             yield TableData(data=table)
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
@@ -903,6 +1274,12 @@ class DocContent(ExtractionInterface):
 
 @dataclass
 class DocxUnit(UnitInterface):
+    """Represent one structural text unit from a WordprocessingML document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     text: str
     unit_number: int = 1
     location: list[str] = field(default_factory=list)
@@ -912,15 +1289,35 @@ class DocxUnit(UnitInterface):
     tables: list[TableData] = field(default_factory=list)
 
     def get_text(self) -> str:
+        """Return the text represented by this WordprocessingML document unit.
+
+        Returns:
+            Extracted text in reading order.
+        """
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
+        """Return images associated with this WordprocessingML document unit.
+
+        Returns:
+            A new list containing the unit image objects.
+        """
         return list(self.images)
 
     def get_tables(self) -> list[TableData]:
+        """Return tables associated with this WordprocessingML document unit.
+
+        Returns:
+            A new list containing the unit table objects.
+        """
         return list(self.tables)
 
     def get_metadata(self) -> UnitMetadataInterface:
+        """Return metadata describing this WordprocessingML document object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return DocxUnitMetadata(
             unit_number=self.unit_number,
             location=list(self.location),
@@ -929,11 +1326,22 @@ class DocxUnit(UnitInterface):
         )
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
 @dataclass
 class DocxUnitMetadata(UnitMetadataInterface):
+    """Describe the structural position of one unit in a WordprocessingML document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     unit_number: int
     location: list[str] = field(default_factory=list)
     heading_level: int | None = None
@@ -942,6 +1350,12 @@ class DocxUnitMetadata(UnitMetadataInterface):
 
 @dataclass
 class DocxMetadata(FileMetadataInterface):
+    """Store metadata extracted from a WordprocessingML document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     title: str = ""
     author: str = ""
     subject: str = ""
@@ -956,6 +1370,12 @@ class DocxMetadata(FileMetadataInterface):
 
 @dataclass
 class DocxRun:
+    """Represent one styled run of text from a WordprocessingML paragraph.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     text: str = ""
     bold: Optional[bool] = None
     italic: Optional[bool] = None
@@ -967,6 +1387,12 @@ class DocxRun:
 
 @dataclass
 class DocxParagraph:
+    """Represent a WordprocessingML paragraph and its structural context.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     text: str = ""
     style: Optional[str] = None
     alignment: Optional[str] = None
@@ -976,12 +1402,24 @@ class DocxParagraph:
 
 @dataclass
 class DocxHeaderFooter:
+    """Represent text extracted from a document header or footer.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     type: str = ""
     text: str = ""
 
 
 @dataclass
 class DocxImage(ImageInterface):
+    """Represent an image extracted from a WordprocessingML document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     rel_id: str = ""
     filename: str = ""
     content_type: str = ""
@@ -996,26 +1434,46 @@ class DocxImage(ImageInterface):
     anchor_paragraph_indices: list[int] = field(default_factory=list)
 
     def get_bytes(self) -> io.BytesIO:
-        """Returns the bytes of the image as a BytesIO object."""
+        """Return a readable buffer containing the image payload.
+
+        Returns:
+            The image data positioned for reading by the caller.
+        """
         if self.data is None:
             return io.BytesIO()
         self.data.seek(0)
         return self.data
 
     def get_content_type(self) -> str:
-        """Returns the content type of the image as a string."""
+        """Return the media type reported for the image.
+
+        Returns:
+            A MIME-style content type, or an empty string when unknown.
+        """
         return self.content_type.strip()
 
     def get_caption(self) -> str:
-        """Returns the caption of the image as a string."""
+        """Return the human-readable caption associated with the image.
+
+        Returns:
+            Caption text, or an empty string when none was extracted.
+        """
         return self.caption.strip()
 
     def get_description(self) -> str:
-        """Returns the descriptive text of the image as a string."""
+        """Return accessibility or descriptive text for the image.
+
+        Returns:
+            Image description text, or an empty string when unavailable.
+        """
         return self.description.strip()
 
     def get_metadata(self) -> ImageMetadata:
-        """Returns the metadata of the image."""
+        """Return metadata describing this WordprocessingML document object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return ImageMetadata(
             image_number=self.image_index,
             content_type=self.content_type,
@@ -1027,18 +1485,36 @@ class DocxImage(ImageInterface):
 
 @dataclass
 class DocxHyperlink:
+    """Represent visible hyperlink text and its target URL.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     text: str = ""
     url: str = ""
 
 
 @dataclass
 class DocxNote:
+    """Represent a footnote or endnote extracted from a document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     id: str = ""
     text: str = ""
 
 
 @dataclass
 class DocxComment:
+    """Represent a Word comment and its authoring metadata.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     id: str = ""
     author: str = ""
     date: str = ""
@@ -1047,6 +1523,12 @@ class DocxComment:
 
 @dataclass
 class DocxSection:
+    """Describe page and margin settings for one Word document section.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     page_width_inches: Optional[float] = None
     page_height_inches: Optional[float] = None
     left_margin_inches: Optional[float] = None
@@ -1058,6 +1540,12 @@ class DocxSection:
 
 @dataclass
 class DocxFormula:
+    """Represent an Office Math expression converted to LaTeX.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     latex: str = ""
     is_display: bool = (
         False  # True for display equations ($$...$$), False for inline ($...$)
@@ -1066,6 +1554,12 @@ class DocxFormula:
 
 @dataclass
 class DocxContent(ExtractionInterface):
+    """Aggregate the structured extraction result for a WordprocessingML document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     metadata: DocxMetadata = field(default_factory=DocxMetadata)
     paragraphs: List[DocxParagraph] = field(default_factory=list)
     tables: List[List[List[str]]] = field(default_factory=list)
@@ -1085,6 +1579,14 @@ class DocxContent(ExtractionInterface):
     def iterate_units(
         self, *, ignore_images: bool = False
     ) -> typing.Iterator[UnitInterface]:
+        """Yield structural text units from this WordprocessingML document.
+
+        Args:
+            ignore_images: Exclude image objects from yielded units when true.
+
+        Yields:
+            Units in source reading order.
+        """
         heading_re = re.compile(
             r"^(heading|überschrift)\s*(\d+)?\b", flags=re.IGNORECASE
         )
@@ -1275,21 +1777,45 @@ class DocxContent(ExtractionInterface):
         )
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        """Yield images extracted from this WordprocessingML document.
+
+        Yields:
+            Image objects in source order.
+        """
         for img in self.images:
             yield img
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        """Yield tables extracted from this WordprocessingML document.
+
+        Yields:
+            Table objects in source order.
+        """
         for table in self.tables:
             yield TableData(data=table)
 
     def get_full_text(self) -> str:
-        """Get full text of the document."""
+        """Build the default full-text representation of this WordprocessingML document.
+
+        Returns:
+            Extracted unit text joined in source order.
+        """
         return self.full_text
 
     def get_metadata(self) -> DocxMetadata:
+        """Return metadata describing this WordprocessingML document object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return self.metadata
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
@@ -1309,29 +1835,66 @@ class PdfUnitMetadata(UnitMetadataInterface):
 
 @dataclass
 class PdfUnit(UnitInterface):
+    """Represent one structural text unit from a PDF document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     page_number: int
     text: str
     images: list[ImageInterface] = field(default_factory=list)
     tables: list[TableData] = field(default_factory=list)
 
     def get_text(self) -> str:
+        """Return the text represented by this PDF document unit.
+
+        Returns:
+            Extracted text in reading order.
+        """
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
+        """Return images associated with this PDF document unit.
+
+        Returns:
+            A new list containing the unit image objects.
+        """
         return list(self.images)
 
     def get_tables(self) -> list[TableData]:
+        """Return tables associated with this PDF document unit.
+
+        Returns:
+            A new list containing the unit table objects.
+        """
         return list(self.tables)
 
     def get_metadata(self) -> PdfUnitMetadata:
+        """Return metadata describing this PDF document object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return PdfUnitMetadata(unit_number=self.page_number)
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
 @dataclass
 class PdfImage(ImageInterface):
+    """Represent an image extracted from a PDF document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     image_index: int = 0
     name: str = ""
     caption: str = ""
@@ -1347,25 +1910,46 @@ class PdfImage(ImageInterface):
     unit_number: Optional[int] = None
 
     def get_bytes(self) -> io.BytesIO:
-        """Returns the bytes of the image as a BytesIO object."""
+        """Return a readable buffer containing the image payload.
+
+        Returns:
+            The image data positioned for reading by the caller.
+        """
         if self.data is None:
             return io.BytesIO()
         self.data.seek(0)
         return self.data
 
     def get_content_type(self) -> str:
-        """Returns the content type of the image as a string."""
+        """Return the media type reported for the image.
+
+        Returns:
+            A MIME-style content type, or an empty string when unknown.
+        """
         return self.content_type.strip()
 
     def get_caption(self) -> str:
-        """Returns the caption of the image as a string."""
+        """Return the human-readable caption associated with the image.
+
+        Returns:
+            Caption text, or an empty string when none was extracted.
+        """
         return self.caption.strip()
 
     def get_description(self) -> str:
-        """Returns the descriptive text of the image as a string."""
+        """Return accessibility or descriptive text for the image.
+
+        Returns:
+            Image description text, or an empty string when unavailable.
+        """
         return self.description.strip()
 
     def get_metadata(self) -> ImageMetadata:
+        """Return metadata describing this PDF document object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return ImageMetadata(
             image_number=self.image_index,
             content_type=self.get_content_type(),
@@ -1377,6 +1961,12 @@ class PdfImage(ImageInterface):
 
 @dataclass
 class PdfPage:
+    """Keep the text, images, and tables extracted from one PDF page.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     text: str = ""
     images: List[PdfImage] = field(default_factory=list)
     tables: List[List[List[str]]] = field(default_factory=list)
@@ -1384,17 +1974,37 @@ class PdfPage:
 
 @dataclass
 class PdfMetadata(FileMetadataInterface):
+    """Store metadata extracted from a PDF document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     total_pages: int = 0
 
 
 @dataclass
 class PdfContent(ExtractionInterface):
+    """Aggregate the structured extraction result for a PDF document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     pages: List[PdfPage] = field(default_factory=list)
     metadata: PdfMetadata = field(default_factory=PdfMetadata)
 
     def iterate_units(
         self, *, ignore_images: bool = False
     ) -> typing.Iterator[UnitInterface]:
+        """Yield structural text units from this PDF document.
+
+        Args:
+            ignore_images: Exclude image objects from yielded units when true.
+
+        Yields:
+            Units in source reading order.
+        """
         for page_number, page in enumerate(self.pages, start=1):
             yield PdfUnit(
                 page_number=page_number,
@@ -1404,12 +2014,27 @@ class PdfContent(ExtractionInterface):
             )
 
     def get_full_text(self) -> str:
+        """Build the default full-text representation of this PDF document.
+
+        Returns:
+            Extracted unit text joined in source order.
+        """
         return _join_unit_text(self.iterate_units())
 
     def get_metadata(self) -> PdfMetadata:
+        """Return metadata describing this PDF document object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return self.metadata
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        """Yield images extracted from this PDF document.
+
+        Yields:
+            Image objects in source order.
+        """
         for page in self.pages:
             for img in page.images:
                 yield img
@@ -1429,6 +2054,11 @@ class PdfContent(ExtractionInterface):
                 yield TableData(data=table)
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
@@ -1448,26 +2078,63 @@ class PlainUnitMetadata(UnitMetadataInterface):
 
 @dataclass
 class PlainTextUnit(UnitInterface):
+    """Represent one structural text unit from a plain-text document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     text: str
 
     def get_text(self) -> str:
+        """Return the text represented by this plain-text document unit.
+
+        Returns:
+            Extracted text in reading order.
+        """
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
+        """Return images associated with this plain-text document unit.
+
+        Returns:
+            A new list containing the unit image objects.
+        """
         return []
 
     def get_tables(self) -> list[TableData]:
+        """Return tables associated with this plain-text document unit.
+
+        Returns:
+            A new list containing the unit table objects.
+        """
         return []
 
     def get_metadata(self) -> PlainUnitMetadata:
+        """Return metadata describing this plain-text document object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return PlainUnitMetadata(unit_number=1)
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
 @dataclass
 class PlainTextContent(ExtractionInterface):
+    """Aggregate the structured extraction result for a plain-text document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     content: str = ""
     metadata: FileMetadataInterface = field(default_factory=FileMetadataInterface)
 
@@ -1475,19 +2142,47 @@ class PlainTextContent(ExtractionInterface):
         self, *, ignore_images: bool = False
     ) -> typing.Iterator[UnitInterface]:
         # ignore_images is a no-op for plain text (no images supported)
+        """Yield structural text units from this plain-text document.
+
+        Args:
+            ignore_images: Exclude image objects from yielded units when true.
+
+        Yields:
+            Units in source reading order.
+        """
         yield PlainTextUnit(text=self.content.strip())
 
     def get_full_text(self) -> str:
+        """Build the default full-text representation of this plain-text document.
+
+        Returns:
+            Extracted unit text joined in source order.
+        """
         return _join_unit_text(self.iterate_units())
 
     def get_metadata(self) -> FileMetadataInterface:
+        """Return metadata describing this plain-text document object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return self.metadata
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        """Yield images extracted from this plain-text document.
+
+        Yields:
+            Image objects in source order.
+        """
         yield from ()
         return
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        """Yield tables extracted from this plain-text document.
+
+        Yields:
+            Table objects in source order.
+        """
         yield from ()
         return
 
@@ -1495,6 +2190,11 @@ class PlainTextContent(ExtractionInterface):
         self.content = self.content.strip()
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
@@ -1514,27 +2214,64 @@ class CsvUnitMetadata(UnitMetadataInterface):
 
 @dataclass
 class CsvUnit(UnitInterface):
+    """Represent one structural text unit from a delimited text document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     text: str
     tables: list[TableData] = field(default_factory=list)
 
     def get_text(self) -> str:
+        """Return the text represented by this delimited text document unit.
+
+        Returns:
+            Extracted text in reading order.
+        """
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
+        """Return images associated with this delimited text document unit.
+
+        Returns:
+            A new list containing the unit image objects.
+        """
         return []
 
     def get_tables(self) -> list[TableData]:
+        """Return tables associated with this delimited text document unit.
+
+        Returns:
+            A new list containing the unit table objects.
+        """
         return list(self.tables)
 
     def get_metadata(self) -> CsvUnitMetadata:
+        """Return metadata describing this delimited text document object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return CsvUnitMetadata(unit_number=1)
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
 @dataclass
 class CsvContent(ExtractionInterface):
+    """Aggregate the structured extraction result for a delimited text document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     content: str = ""
     table: TableData = field(default_factory=TableData)
     metadata: FileMetadataInterface = field(default_factory=FileMetadataInterface)
@@ -1542,24 +2279,57 @@ class CsvContent(ExtractionInterface):
     def iterate_units(
         self, *, ignore_images: bool = False
     ) -> typing.Iterator[UnitInterface]:
+        """Yield structural text units from this delimited text document.
+
+        Args:
+            ignore_images: Exclude image objects from yielded units when true.
+
+        Yields:
+            Units in source reading order.
+        """
         tables = [self.table] if self.table.data else []
         yield CsvUnit(text=self.content.strip(), tables=tables)
 
     def get_full_text(self) -> str:
+        """Build the default full-text representation of this delimited text document.
+
+        Returns:
+            Extracted unit text joined in source order.
+        """
         return _join_unit_text(self.iterate_units())
 
     def get_metadata(self) -> FileMetadataInterface:
+        """Return metadata describing this delimited text document object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return self.metadata
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        """Yield images extracted from this delimited text document.
+
+        Yields:
+            Image objects in source order.
+        """
         yield from ()
         return
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        """Yield tables extracted from this delimited text document.
+
+        Yields:
+            Table objects in source order.
+        """
         if self.table.data:
             yield self.table
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
@@ -1579,26 +2349,63 @@ class HtmlUnitMetadata(UnitMetadataInterface):
 
 @dataclass
 class HtmlUnit(UnitInterface):
+    """Represent one structural text unit from a HTML document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     text: str
 
     def get_text(self) -> str:
+        """Return the text represented by this HTML document unit.
+
+        Returns:
+            Extracted text in reading order.
+        """
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
+        """Return images associated with this HTML document unit.
+
+        Returns:
+            A new list containing the unit image objects.
+        """
         return []
 
     def get_tables(self) -> list[TableData]:
+        """Return tables associated with this HTML document unit.
+
+        Returns:
+            A new list containing the unit table objects.
+        """
         return []
 
     def get_metadata(self) -> HtmlUnitMetadata:
+        """Return metadata describing this HTML document object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return HtmlUnitMetadata(unit_number=1)
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
 @dataclass
 class HtmlMetadata(FileMetadataInterface):
+    """Store metadata extracted from a HTML document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     title: str = ""
     language: str = ""
     charset: str = ""
@@ -1609,6 +2416,12 @@ class HtmlMetadata(FileMetadataInterface):
 
 @dataclass
 class HtmlContent(ExtractionInterface):
+    """Aggregate the structured extraction result for a HTML document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     content: str = ""
     tables: List[List[List[str]]] = field(default_factory=list)
     headings: List[Dict[str, str]] = field(
@@ -1623,23 +2436,56 @@ class HtmlContent(ExtractionInterface):
         self, *, ignore_images: bool = False
     ) -> typing.Iterator[UnitInterface]:
         # ignore_images is a no-op for HTML (no images in units)
+        """Yield structural text units from this HTML document.
+
+        Args:
+            ignore_images: Exclude image objects from yielded units when true.
+
+        Yields:
+            Units in source reading order.
+        """
         yield HtmlUnit(text=self.content.strip())
 
     def get_full_text(self) -> str:
+        """Build the default full-text representation of this HTML document.
+
+        Returns:
+            Extracted unit text joined in source order.
+        """
         return _join_unit_text(self.iterate_units())
 
     def get_metadata(self) -> HtmlMetadata:
+        """Return metadata describing this HTML document object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return self.metadata
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        """Yield images extracted from this HTML document.
+
+        Yields:
+            Image objects in source order.
+        """
         yield from ()
         return
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        """Yield tables extracted from this HTML document.
+
+        Yields:
+            Table objects in source order.
+        """
         for table in self.tables:
             yield TableData(data=table)
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
@@ -1678,18 +2524,43 @@ class PptUnit(UnitInterface):
     images: list["PptImage"] = field(default_factory=list)
 
     def get_text(self) -> str:
+        """Return the text represented by this legacy PowerPoint deck unit.
+
+        Returns:
+            Extracted text in reading order.
+        """
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
+        """Return images associated with this legacy PowerPoint deck unit.
+
+        Returns:
+            A new list containing the unit image objects.
+        """
         return list(self.images)
 
     def get_tables(self) -> list[TableData]:
+        """Return tables associated with this legacy PowerPoint deck unit.
+
+        Returns:
+            A new list containing the unit table objects.
+        """
         return []
 
     def get_metadata(self) -> PptUnitMetadata:
+        """Return metadata describing this legacy PowerPoint deck object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return PptUnitMetadata(unit_number=self.slide_number, title=self.title)
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
@@ -1708,21 +2579,46 @@ class PptImage(ImageInterface):
     slide_number: int = 0
 
     def get_bytes(self) -> io.BytesIO:
+        """Return a readable buffer containing the image payload.
+
+        Returns:
+            The image data positioned for reading by the caller.
+        """
         if self.data is None:
             return io.BytesIO()
         self.data.seek(0)
         return self.data
 
     def get_content_type(self) -> str:
+        """Return the media type reported for the image.
+
+        Returns:
+            A MIME-style content type, or an empty string when unknown.
+        """
         return self.content_type.strip()
 
     def get_caption(self) -> str:
+        """Return the human-readable caption associated with the image.
+
+        Returns:
+            Caption text, or an empty string when none was extracted.
+        """
         return self.caption.strip()
 
     def get_description(self) -> str:
+        """Return accessibility or descriptive text for the image.
+
+        Returns:
+            Image description text, or an empty string when unavailable.
+        """
         return self.description.strip()
 
     def get_metadata(self) -> ImageMetadata:
+        """Return metadata describing this legacy PowerPoint deck object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return ImageMetadata(
             image_number=self.image_index,
             content_type=self.content_type,
@@ -1766,7 +2662,11 @@ class PptTextBlock:
 
     @property
     def type_name(self) -> str:
-        """Human-readable text type name."""
+        """Return the normalized name of this text-block type.
+
+        Returns:
+            A stable string suitable for serialization and diagnostics.
+        """
         type_names = {
             PPT_TEXT_TYPE_TITLE: "title",
             PPT_TEXT_TYPE_BODY: "body",
@@ -1796,7 +2696,11 @@ class PptSlideContent:
 
     @property
     def text_combined(self) -> str:
-        """All text from this slide combined."""
+        """Combine the primary text fragments for this slide.
+
+        Returns:
+            Slide text assembled in extraction order.
+        """
         parts = []
         if self.title:
             parts.append(self.title)
@@ -1806,14 +2710,22 @@ class PptSlideContent:
 
     @property
     def unit_text(self) -> str:
-        """Text content emitted for a slide unit, excluding the slide title."""
+        """Build the text exposed when this slide is used as a unit.
+
+        Returns:
+            Slide body text with supported annotations included.
+        """
         parts = []
         parts.extend(self.body_text)
         parts.extend(self.other_text)
         return "\n".join(parts)
 
     def to_dict(self) -> dict[str, typing.Any]:
-        """Convert to dictionary representation."""
+        """Convert this value to a plain dictionary.
+
+        Returns:
+            A dictionary containing the dataclass fields and their values.
+        """
         return {
             "slide_number": self.slide_number,
             "title": self.title,
@@ -1838,7 +2750,14 @@ class PptContent(ExtractionInterface):
     def iterate_units(
         self, *, ignore_images: bool = False
     ) -> typing.Iterator[UnitInterface]:
-        """Iterate over slide text, yielding combined text per slide."""
+        """Yield structural text units from this legacy PowerPoint deck.
+
+        Args:
+            ignore_images: Exclude image objects from yielded units when true.
+
+        Yields:
+            Units in source reading order.
+        """
         for slide in self.slides:
             yield PptUnit(
                 slide_number=slide.slide_number,
@@ -1848,30 +2767,56 @@ class PptContent(ExtractionInterface):
             )
 
     def get_full_text(self) -> str:
-        """Full text of the slide deck as one single block of text"""
+        """Build the default full-text representation of this legacy PowerPoint deck.
+
+        Returns:
+            Extracted unit text joined in source order.
+        """
         texts = [slide.text_combined.strip() for slide in self.slides]
         return "\n".join(text for text in texts if text)
 
     def get_metadata(self) -> PptMetadata:
-        """Returns the metadata of the extracted file."""
+        """Return metadata describing this legacy PowerPoint deck object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return self.metadata
 
     @property
     def slide_count(self) -> int:
-        """Number of slides extracted."""
+        """Return the number of slides in the presentation.
+
+        Returns:
+            Count of extracted slide objects.
+        """
         return len(self.slides)
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
-        """Iterate over images from all slides."""
+        """Yield images extracted from this legacy PowerPoint deck.
+
+        Yields:
+            Image objects in source order.
+        """
         for slide in self.slides:
             for img in slide.images:
                 yield img
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        """Yield tables extracted from this legacy PowerPoint deck.
+
+        Yields:
+            Table objects in source order.
+        """
         yield from ()
         return
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
@@ -1890,6 +2835,12 @@ class PptxUnitMetadata(UnitMetadataInterface):
 
 @dataclass
 class PptxUnit(UnitInterface):
+    """Represent one structural text unit from a PresentationML deck.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     slide_number: int
     text: str
     title: str = ""
@@ -1897,23 +2848,54 @@ class PptxUnit(UnitInterface):
     tables: list[TableData] = field(default_factory=list)
 
     def get_text(self) -> str:
+        """Return the text represented by this PresentationML deck unit.
+
+        Returns:
+            Extracted text in reading order.
+        """
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
+        """Return images associated with this PresentationML deck unit.
+
+        Returns:
+            A new list containing the unit image objects.
+        """
         return list(self.images)
 
     def get_tables(self) -> list[TableData]:
+        """Return tables associated with this PresentationML deck unit.
+
+        Returns:
+            A new list containing the unit table objects.
+        """
         return list(self.tables)
 
     def get_metadata(self) -> PptxUnitMetadata:
+        """Return metadata describing this PresentationML deck object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return PptxUnitMetadata(unit_number=self.slide_number, title=self.title)
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
 @dataclass
 class PptxMetadata(FileMetadataInterface):
+    """Store metadata extracted from a PresentationML deck.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     title: str = ""
     subject: str = ""
     author: str = ""
@@ -1928,6 +2910,12 @@ class PptxMetadata(FileMetadataInterface):
 
 @dataclass
 class PptxImage(ImageInterface):
+    """Represent an image extracted from a PresentationML deck.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     image_index: int = 0
     filename: str = ""
     content_type: str = ""
@@ -1940,15 +2928,30 @@ class PptxImage(ImageInterface):
     slide_number: int = 0
 
     def get_bytes(self) -> io.BytesIO:
+        """Return a readable buffer containing the image payload.
+
+        Returns:
+            The image data positioned for reading by the caller.
+        """
         if self.data is None:
             return io.BytesIO()
         self.data.seek(0)
         return self.data
 
     def get_content_type(self) -> str:
+        """Return the media type reported for the image.
+
+        Returns:
+            A MIME-style content type, or an empty string when unknown.
+        """
         return self.content_type
 
     def get_metadata(self) -> ImageMetadata:
+        """Return metadata describing this PresentationML deck object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return ImageMetadata(
             image_number=self.image_index,
             content_type=self.content_type,
@@ -1958,20 +2961,42 @@ class PptxImage(ImageInterface):
         )
 
     def get_caption(self) -> str:
+        """Return the human-readable caption associated with the image.
+
+        Returns:
+            Caption text, or an empty string when none was extracted.
+        """
         return self.caption
 
     def get_description(self) -> str:
+        """Return accessibility or descriptive text for the image.
+
+        Returns:
+            Image description text, or an empty string when unavailable.
+        """
         return self.description
 
 
 @dataclass
 class PptxFormula:
+    """Represent a slide formula converted from Office Math to LaTeX.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     latex: str = ""
     is_display: bool = False  # True for display equations, False for inline
 
 
 @dataclass
 class PptxComment:
+    """Represent a presentation comment and its authoring information.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     author: str = ""
     text: str = ""
     date: str = ""
@@ -1979,6 +3004,12 @@ class PptxComment:
 
 @dataclass
 class PptxSlide:
+    """Aggregate extracted content and optional annotations for one presentation slide.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     slide_number: int = 0
     title: str = ""
     footer: str = ""
@@ -1995,7 +3026,14 @@ class PptxSlide:
         self,
         include_image_captions: bool = False,
     ) -> str:
-        """Get slide text with formulas included and optional image captions."""
+        """Return the text represented by this PresentationML deck unit.
+
+        Args:
+            include_image_captions: Append available image descriptions when true.
+
+        Returns:
+            Extracted text in reading order.
+        """
         parts = [self.base_text] if self.base_text else []
 
         for formula in self.formulas:
@@ -2014,12 +3052,26 @@ class PptxSlide:
 
 @dataclass
 class PptxContent(ExtractionInterface):
+    """Aggregate the structured extraction result for a PresentationML deck.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     metadata: PptxMetadata = field(default_factory=PptxMetadata)
     slides: List[PptxSlide] = field(default_factory=list)
 
     def iterate_units(
         self, *, ignore_images: bool = False
     ) -> typing.Iterator[UnitInterface]:
+        """Yield structural text units from this PresentationML deck.
+
+        Args:
+            ignore_images: Exclude image objects from yielded units when true.
+
+        Yields:
+            Units in source reading order.
+        """
         for slide in self.slides:
             yield PptxUnit(
                 slide_number=slide.slide_number,
@@ -2048,20 +3100,39 @@ class PptxContent(ExtractionInterface):
         ).strip()
 
     def get_metadata(self) -> PptxMetadata:
-        """Returns the metadata of the extracted file."""
+        """Return metadata describing this PresentationML deck object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return self.metadata
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        """Yield images extracted from this PresentationML deck.
+
+        Yields:
+            Image objects in source order.
+        """
         for slide in self.slides:
             for img in slide.images:
                 yield img
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        """Yield tables extracted from this PresentationML deck.
+
+        Yields:
+            Table objects in source order.
+        """
         for slide in self.slides:
             for table in slide.tables:
                 yield TableData(data=table)
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
@@ -2072,12 +3143,24 @@ class PptxContent(ExtractionInterface):
 
 @dataclass
 class XlsUnitMetadata(UnitMetadataInterface):
+    """Describe the structural position of one unit in a legacy Excel workbook.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     unit_number: int
     sheet_name: str
 
 
 @dataclass
 class XlsUnit(UnitInterface):
+    """Represent one structural text unit from a legacy Excel workbook.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     sheet_number: int
     sheet_name: str
     text: str
@@ -2085,20 +3168,45 @@ class XlsUnit(UnitInterface):
     images: list[XlsImage] = field(default_factory=list)
 
     def get_text(self) -> str:
+        """Return the text represented by this legacy Excel workbook unit.
+
+        Returns:
+            Extracted text in reading order.
+        """
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
+        """Return images associated with this legacy Excel workbook unit.
+
+        Returns:
+            A new list containing the unit image objects.
+        """
         return list(self.images)
 
     def get_tables(self) -> list[TableData]:
+        """Return tables associated with this legacy Excel workbook unit.
+
+        Returns:
+            A new list containing the unit table objects.
+        """
         return list(self.tables)
 
     def get_metadata(self) -> XlsUnitMetadata:
+        """Return metadata describing this legacy Excel workbook object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return XlsUnitMetadata(
             unit_number=self.sheet_number, sheet_name=self.sheet_name
         )
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
@@ -2116,21 +3224,46 @@ class XlsImage(ImageInterface):
     description: str = ""
 
     def get_bytes(self) -> io.BytesIO:
+        """Return a readable buffer containing the image payload.
+
+        Returns:
+            The image data positioned for reading by the caller.
+        """
         if self.data is None:
             return io.BytesIO()
         self.data.seek(0)
         return self.data
 
     def get_content_type(self) -> str:
+        """Return the media type reported for the image.
+
+        Returns:
+            A MIME-style content type, or an empty string when unknown.
+        """
         return self.content_type.strip()
 
     def get_caption(self) -> str:
+        """Return the human-readable caption associated with the image.
+
+        Returns:
+            Caption text, or an empty string when none was extracted.
+        """
         return self.caption.strip()
 
     def get_description(self) -> str:
+        """Return accessibility or descriptive text for the image.
+
+        Returns:
+            Image description text, or an empty string when unavailable.
+        """
         return self.description.strip()
 
     def get_metadata(self) -> ImageMetadata:
+        """Return metadata describing this legacy Excel workbook object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return ImageMetadata(
             image_number=self.image_index,
             content_type=self.content_type,
@@ -2142,6 +3275,12 @@ class XlsImage(ImageInterface):
 
 @dataclass
 class XlsMetadata(FileMetadataInterface):
+    """Store metadata extracted from a legacy Excel workbook.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     title: str = ""
     author: str = ""
     subject: str = ""
@@ -2153,11 +3292,22 @@ class XlsMetadata(FileMetadataInterface):
 
 @dataclass
 class XlsSheet(TableInterface):
+    """Represent one worksheet and its tabular content in a legacy Excel workbook.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     name: str = ""
     data: List[Dict[str, typing.Any]] = field(default_factory=list)
     text: str = ""
 
     def get_table(self) -> list[list[typing.Any]]:
+        """Return the table as rows of cell values.
+
+        Returns:
+            A two-dimensional list whose outer items are rows.
+        """
         if not self.data:
             return []
         headers = list(self.data[0].keys())
@@ -2167,6 +3317,11 @@ class XlsSheet(TableInterface):
         return rows
 
     def get_dim(self) -> TableDim:
+        """Calculate the dimensions of the table.
+
+        Returns:
+            Row and column counts for the current table data.
+        """
         table = self.get_table()
         rows = len(table)
         columns = max((len(row) for row in table), default=0)
@@ -2175,6 +3330,12 @@ class XlsSheet(TableInterface):
 
 @dataclass
 class XlsContent(ExtractionInterface):
+    """Aggregate the structured extraction result for a legacy Excel workbook.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     metadata: XlsMetadata = field(default_factory=XlsMetadata)
     sheets: List[XlsSheet] = field(default_factory=list)
     images: List[XlsImage] = field(default_factory=list)
@@ -2183,6 +3344,14 @@ class XlsContent(ExtractionInterface):
     def iterate_units(
         self, *, ignore_images: bool = False
     ) -> typing.Iterator[UnitInterface]:
+        """Yield structural text units from this legacy Excel workbook.
+
+        Args:
+            ignore_images: Exclude image objects from yielded units when true.
+
+        Yields:
+            Units in source reading order.
+        """
         for sheet_index, sheet in enumerate(self.sheets, start=1):
             table = sheet.get_table()
             normalized_table = (
@@ -2206,22 +3375,45 @@ class XlsContent(ExtractionInterface):
             )
 
     def get_full_text(self) -> str:
+        """Build the default full-text representation of this legacy Excel workbook.
+
+        Returns:
+            Extracted unit text joined in source order.
+        """
         return self.full_text.strip()
 
     def get_metadata(self) -> XlsMetadata:
-        """Returns the metadata of the extracted file."""
+        """Return metadata describing this legacy Excel workbook object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return self.metadata
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
-        """Iterate over images from the workbook."""
+        """Yield images extracted from this legacy Excel workbook.
+
+        Yields:
+            Image objects in source order.
+        """
         for img in self.images:
             yield img
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        """Yield tables extracted from this legacy Excel workbook.
+
+        Yields:
+            Table objects in source order.
+        """
         for sheet in self.sheets:
             yield sheet
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
@@ -2232,6 +3424,12 @@ class XlsContent(ExtractionInterface):
 
 @dataclass
 class XlsxUnitMetadata(UnitMetadataInterface):
+    """Describe the structural position of one unit in a modern Excel workbook.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     unit_number: int
     sheet_number: int
     sheet_name: str
@@ -2239,6 +3437,12 @@ class XlsxUnitMetadata(UnitMetadataInterface):
 
 @dataclass
 class XlsxUnit(UnitInterface):
+    """Represent one structural text unit from a modern Excel workbook.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     sheet_index: int
     sheet_name: str
     text: str
@@ -2246,15 +3450,35 @@ class XlsxUnit(UnitInterface):
     tables: list[TableData] = field(default_factory=list)
 
     def get_text(self) -> str:
+        """Return the text represented by this modern Excel workbook unit.
+
+        Returns:
+            Extracted text in reading order.
+        """
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
+        """Return images associated with this modern Excel workbook unit.
+
+        Returns:
+            A new list containing the unit image objects.
+        """
         return list(self.images)
 
     def get_tables(self) -> list[TableData]:
+        """Return tables associated with this modern Excel workbook unit.
+
+        Returns:
+            A new list containing the unit table objects.
+        """
         return list(self.tables)
 
     def get_metadata(self) -> XlsxUnitMetadata:
+        """Return metadata describing this modern Excel workbook object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return XlsxUnitMetadata(
             unit_number=self.sheet_index,
             sheet_name=self.sheet_name,
@@ -2262,11 +3486,22 @@ class XlsxUnit(UnitInterface):
         )
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
 @dataclass
 class XlsxMetadata(FileMetadataInterface):
+    """Store metadata extracted from a modern Excel workbook.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     title: str = ""
     description: str = ""
     creator: str = ""
@@ -2280,6 +3515,12 @@ class XlsxMetadata(FileMetadataInterface):
 
 @dataclass
 class XlsxImage(ImageInterface):
+    """Represent an image extracted from a modern Excel workbook.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     image_index: int = 0
     sheet_index: int = 0  # 0-based index of the sheet containing this image
     filename: str = ""
@@ -2292,26 +3533,46 @@ class XlsxImage(ImageInterface):
     description: str = ""  # Alt text / description for accessibility
 
     def get_bytes(self) -> io.BytesIO:
-        """Returns the bytes of the image as a BytesIO object."""
+        """Return a readable buffer containing the image payload.
+
+        Returns:
+            The image data positioned for reading by the caller.
+        """
         if self.data is None:
             return io.BytesIO()
         self.data.seek(0)
         return self.data
 
     def get_content_type(self) -> str:
-        """Returns the content type of the image as a string."""
+        """Return the media type reported for the image.
+
+        Returns:
+            A MIME-style content type, or an empty string when unknown.
+        """
         return self.content_type
 
     def get_caption(self) -> str:
-        """Returns the caption of the image as a string."""
+        """Return the human-readable caption associated with the image.
+
+        Returns:
+            Caption text, or an empty string when none was extracted.
+        """
         return self.caption
 
     def get_description(self) -> str:
-        """Returns the descriptive text of the image as a string."""
+        """Return accessibility or descriptive text for the image.
+
+        Returns:
+            Image description text, or an empty string when unavailable.
+        """
         return self.description
 
     def get_metadata(self) -> ImageMetadata:
-        """Returns the metadata of the image."""
+        """Return metadata describing this modern Excel workbook object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return ImageMetadata(
             image_number=self.image_index,
             content_type=self.content_type,
@@ -2323,15 +3584,31 @@ class XlsxImage(ImageInterface):
 
 @dataclass
 class XlsxSheet(TableInterface):
+    """Represent one worksheet and its tabular content in a modern Excel workbook.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     name: str = ""
     data: List[List[typing.Any]] = field(default_factory=list)
     text: str = ""
     images: List[XlsxImage] = field(default_factory=list)
 
     def get_table(self) -> list[list[typing.Any]]:
+        """Return the table as rows of cell values.
+
+        Returns:
+            A two-dimensional list whose outer items are rows.
+        """
         return self.data
 
     def get_dim(self) -> TableDim:
+        """Calculate the dimensions of the table.
+
+        Returns:
+            Row and column counts for the current table data.
+        """
         rows = len(self.data)
         columns = max((len(row) for row in self.data), default=0)
         return TableDim(rows=rows, columns=columns)
@@ -2339,12 +3616,26 @@ class XlsxSheet(TableInterface):
 
 @dataclass
 class XlsxContent(ExtractionInterface):
+    """Aggregate the structured extraction result for a modern Excel workbook.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     metadata: XlsxMetadata = field(default_factory=XlsxMetadata)
     sheets: List[XlsxSheet] = field(default_factory=list)
 
     def iterate_units(
         self, *, ignore_images: bool = False
     ) -> typing.Iterator[UnitInterface]:
+        """Yield structural text units from this modern Excel workbook.
+
+        Args:
+            ignore_images: Exclude image objects from yielded units when true.
+
+        Yields:
+            Units in source reading order.
+        """
         for sheet_index, sheet in enumerate(self.sheets, start=1):
             yield XlsxUnit(
                 sheet_index=sheet_index,
@@ -2355,23 +3646,46 @@ class XlsxContent(ExtractionInterface):
             )
 
     def get_full_text(self) -> str:
+        """Build the default full-text representation of this modern Excel workbook.
+
+        Returns:
+            Extracted unit text joined in source order.
+        """
         return _join_unit_text(self.iterate_units())
 
     def get_metadata(self) -> XlsxMetadata:
-        """Returns the metadata of the extracted file."""
+        """Return metadata describing this modern Excel workbook object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return self.metadata
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        """Yield images extracted from this modern Excel workbook.
+
+        Yields:
+            Image objects in source order.
+        """
         for sheet in self.sheets:
             for img in sheet.images:
                 yield img
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
-        """A single sheet is considered a full table"""
+        """Yield tables extracted from this modern Excel workbook.
+
+        Yields:
+            Table objects in source order.
+        """
         for sheet in self.sheets:
             yield sheet
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
@@ -2443,26 +3757,46 @@ class OpenDocumentImage(ImageInterface):
     unit_number: Optional[int] = None  # Page/slide number (None for ODT/ODS)
 
     def get_bytes(self) -> io.BytesIO:
-        """Returns the bytes of the image as a BytesIO object."""
+        """Return a readable buffer containing the image payload.
+
+        Returns:
+            The image data positioned for reading by the caller.
+        """
         if self.data is None:
             return io.BytesIO()
         self.data.seek(0)
         return self.data
 
     def get_content_type(self) -> str:
-        """Returns the content type of the image as a string."""
+        """Return the media type reported for the image.
+
+        Returns:
+            A MIME-style content type, or an empty string when unknown.
+        """
         return self.content_type
 
     def get_caption(self) -> str:
-        """Returns the caption of the image as a string."""
+        """Return the human-readable caption associated with the image.
+
+        Returns:
+            Caption text, or an empty string when none was extracted.
+        """
         return self.caption
 
     def get_description(self) -> str:
-        """Returns the descriptive text of the image as a string."""
+        """Return accessibility or descriptive text for the image.
+
+        Returns:
+            Image description text, or an empty string when unavailable.
+        """
         return self.description
 
     def get_metadata(self) -> ImageMetadata:
-        """Returns the metadata of the image."""
+        """Return metadata describing this OpenDocument file object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         width_px = _odf_length_to_px(self.width)
         height_px = _odf_length_to_px(self.height)
         return ImageMetadata(
@@ -2481,27 +3815,64 @@ class OpenDocumentImage(ImageInterface):
 
 @dataclass
 class OdgUnitMetadata(UnitMetadataInterface):
+    """Describe the structural position of one unit in a OpenDocument drawing.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     unit_number: int
 
 
 @dataclass
 class OdgUnit(UnitInterface):
+    """Represent one structural text unit from a OpenDocument drawing.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     text: str
     images: list[OpenDocumentImage] = field(default_factory=list)
 
     def get_text(self) -> str:
+        """Return the text represented by this OpenDocument drawing unit.
+
+        Returns:
+            Extracted text in reading order.
+        """
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
+        """Return images associated with this OpenDocument drawing unit.
+
+        Returns:
+            A new list containing the unit image objects.
+        """
         return list(self.images)
 
     def get_tables(self) -> list[TableData]:
+        """Return tables associated with this OpenDocument drawing unit.
+
+        Returns:
+            A new list containing the unit table objects.
+        """
         return []
 
     def get_metadata(self) -> OdgUnitMetadata:
+        """Return metadata describing this OpenDocument drawing object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return OdgUnitMetadata(unit_number=1)
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
@@ -2516,26 +3887,59 @@ class OdgContent(ExtractionInterface):
     def iterate_units(
         self, *, ignore_images: bool = False
     ) -> typing.Iterator[UnitInterface]:
+        """Yield structural text units from this OpenDocument drawing.
+
+        Args:
+            ignore_images: Exclude image objects from yielded units when true.
+
+        Yields:
+            Units in source reading order.
+        """
         yield OdgUnit(
             text=self.full_text.strip(),
             images=[] if ignore_images else list(self.images),
         )
 
     def get_full_text(self) -> str:
+        """Build the default full-text representation of this OpenDocument drawing.
+
+        Returns:
+            Extracted unit text joined in source order.
+        """
         return _join_unit_text(self.iterate_units())
 
     def get_metadata(self) -> OpenDocumentMetadata:
+        """Return metadata describing this OpenDocument drawing object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return self.metadata
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        """Yield images extracted from this OpenDocument drawing.
+
+        Yields:
+            Image objects in source order.
+        """
         for img in self.images:
             yield img
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        """Yield tables extracted from this OpenDocument drawing.
+
+        Yields:
+            Table objects in source order.
+        """
         yield from ()
         return
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
@@ -2546,26 +3950,63 @@ class OdgContent(ExtractionInterface):
 
 @dataclass
 class OdfUnitMetadata(UnitMetadataInterface):
+    """Describe the structural position of one unit in a OpenDocument formula.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     unit_number: int
 
 
 @dataclass
 class OdfUnit(UnitInterface):
+    """Represent one structural text unit from a OpenDocument formula.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     text: str
 
     def get_text(self) -> str:
+        """Return the text represented by this OpenDocument formula unit.
+
+        Returns:
+            Extracted text in reading order.
+        """
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
+        """Return images associated with this OpenDocument formula unit.
+
+        Returns:
+            A new list containing the unit image objects.
+        """
         return []
 
     def get_tables(self) -> list[TableData]:
+        """Return tables associated with this OpenDocument formula unit.
+
+        Returns:
+            A new list containing the unit table objects.
+        """
         return []
 
     def get_metadata(self) -> OdfUnitMetadata:
+        """Return metadata describing this OpenDocument formula object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return OdfUnitMetadata(unit_number=1)
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
@@ -2580,23 +4021,56 @@ class OdfContent(ExtractionInterface):
         self, *, ignore_images: bool = False
     ) -> typing.Iterator[UnitInterface]:
         # ignore_images is a no-op for ODF (no images supported)
+        """Yield structural text units from this OpenDocument formula.
+
+        Args:
+            ignore_images: Exclude image objects from yielded units when true.
+
+        Yields:
+            Units in source reading order.
+        """
         yield OdfUnit(text=self.full_text.strip())
 
     def get_full_text(self) -> str:
+        """Build the default full-text representation of this OpenDocument formula.
+
+        Returns:
+            Extracted unit text joined in source order.
+        """
         return _join_unit_text(self.iterate_units())
 
     def get_metadata(self) -> OpenDocumentMetadata:
+        """Return metadata describing this OpenDocument formula object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return self.metadata
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        """Yield images extracted from this OpenDocument formula.
+
+        Yields:
+            Image objects in source order.
+        """
         yield from ()
         return
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        """Yield tables extracted from this OpenDocument formula.
+
+        Yields:
+            Table objects in source order.
+        """
         yield from ()
         return
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
@@ -2617,15 +4091,35 @@ class OdpUnit(UnitInterface):
     tables: list[TableData] = field(default_factory=list)
 
     def get_text(self) -> str:
+        """Return the text represented by this OpenDocument presentation unit.
+
+        Returns:
+            Extracted text in reading order.
+        """
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
+        """Return images associated with this OpenDocument presentation unit.
+
+        Returns:
+            A new list containing the unit image objects.
+        """
         return list(self.images)
 
     def get_tables(self) -> list[TableData]:
+        """Return tables associated with this OpenDocument presentation unit.
+
+        Returns:
+            A new list containing the unit table objects.
+        """
         return list(self.tables)
 
     def get_metadata(self) -> OdpUnitMetadata:
+        """Return metadata describing this OpenDocument presentation object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return OdpUnitMetadata(
             unit_number=self.slide_number,
             title=self.title,
@@ -2634,6 +4128,11 @@ class OdpUnit(UnitInterface):
         )
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
@@ -2663,7 +4162,11 @@ class OdpSlide:
 
     @property
     def text_combined(self) -> str:
-        """All text from this slide combined."""
+        """Combine the primary text fragments for this slide.
+
+        Returns:
+            Slide text assembled in extraction order.
+        """
         parts = []
         if self.title:
             parts.append(self.title)
@@ -2673,7 +4176,11 @@ class OdpSlide:
 
     @property
     def unit_text(self) -> str:
-        """Text emitted for the slide unit, excluding the slide title."""
+        """Build the text exposed when this slide is used as a unit.
+
+        Returns:
+            Slide body text with supported annotations included.
+        """
         parts = []
         parts.extend(self.body_text)
         parts.extend(self.other_text)
@@ -2690,7 +4197,14 @@ class OdpContent(ExtractionInterface):
     def iterate_units(
         self, *, ignore_images: bool = False
     ) -> typing.Iterator[UnitInterface]:
-        """Iterate over slides, yielding combined text per slide."""
+        """Yield structural text units from this OpenDocument presentation.
+
+        Args:
+            ignore_images: Exclude image objects from yielded units when true.
+
+        Yields:
+            Units in source reading order.
+        """
         for slide in self.slides:
             yield OdpUnit(
                 slide_number=slide.slide_number,
@@ -2702,30 +4216,57 @@ class OdpContent(ExtractionInterface):
             )
 
     def get_full_text(self) -> str:
-        """Get full text of all slides."""
+        """Build the default full-text representation of this OpenDocument presentation.
+
+        Returns:
+            Extracted unit text joined in source order.
+        """
         texts = [slide.text_combined.strip() for slide in self.slides]
         return "\n".join(text for text in texts if text)
 
     def get_metadata(self) -> OpenDocumentMetadata:
-        """Returns the metadata of the extracted file."""
+        """Return metadata describing this OpenDocument presentation object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return self.metadata
 
     @property
     def slide_count(self) -> int:
-        """Number of slides extracted."""
+        """Return the number of slides in the presentation.
+
+        Returns:
+            Count of extracted slide objects.
+        """
         return len(self.slides)
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        """Yield images extracted from this OpenDocument presentation.
+
+        Yields:
+            Image objects in source order.
+        """
         for slides in self.slides:
             for img in slides.images:
                 yield img
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        """Yield tables extracted from this OpenDocument presentation.
+
+        Yields:
+            Table objects in source order.
+        """
         for slide in self.slides:
             for table in slide.tables:
                 yield TableData(data=table)
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
@@ -2736,6 +4277,12 @@ class OdpContent(ExtractionInterface):
 
 @dataclass
 class OdsUnit(UnitInterface):
+    """Represent one structural text unit from a OpenDocument spreadsheet.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     sheet_number: int
     sheet_name: str
     text: str
@@ -2743,15 +4290,35 @@ class OdsUnit(UnitInterface):
     tables: list[TableData] = field(default_factory=list)
 
     def get_text(self) -> str:
+        """Return the text represented by this OpenDocument spreadsheet unit.
+
+        Returns:
+            Extracted text in reading order.
+        """
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
+        """Return images associated with this OpenDocument spreadsheet unit.
+
+        Returns:
+            A new list containing the unit image objects.
+        """
         return list(self.images)
 
     def get_tables(self) -> list[TableData]:
+        """Return tables associated with this OpenDocument spreadsheet unit.
+
+        Returns:
+            A new list containing the unit table objects.
+        """
         return list(self.tables)
 
     def get_metadata(self) -> OdsUnitMetadata:
+        """Return metadata describing this OpenDocument spreadsheet object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return OdsUnitMetadata(
             unit_number=self.sheet_number,
             sheet_number=self.sheet_number,
@@ -2759,11 +4326,22 @@ class OdsUnit(UnitInterface):
         )
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
 @dataclass
 class OdsUnitMetadata(UnitMetadataInterface):
+    """Describe the structural position of one unit in a OpenDocument spreadsheet.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     unit_number: int
     sheet_number: int
     sheet_name: str
@@ -2780,9 +4358,19 @@ class OdsSheet(TableInterface):
     images: List[OpenDocumentImage] = field(default_factory=list)
 
     def get_table(self) -> list[list[typing.Any]]:
+        """Return the table as rows of cell values.
+
+        Returns:
+            A two-dimensional list whose outer items are rows.
+        """
         return self.data
 
     def get_dim(self) -> TableDim:
+        """Calculate the dimensions of the table.
+
+        Returns:
+            Row and column counts for the current table data.
+        """
         rows = len(self.data)
         columns = max((len(row) for row in self.data), default=0)
         return TableDim(rows=rows, columns=columns)
@@ -2798,7 +4386,14 @@ class OdsContent(ExtractionInterface):
     def iterate_units(
         self, *, ignore_images: bool = False
     ) -> typing.Iterator[UnitInterface]:
-        """Iterate over sheets, yielding text per sheet."""
+        """Yield structural text units from this OpenDocument spreadsheet.
+
+        Args:
+            ignore_images: Exclude image objects from yielded units when true.
+
+        Yields:
+            Units in source reading order.
+        """
         for sheet_index, sheet in enumerate(self.sheets, start=1):
             yield OdsUnit(
                 sheet_number=sheet_index,
@@ -2809,29 +4404,55 @@ class OdsContent(ExtractionInterface):
             )
 
     def get_full_text(self) -> str:
-        """Get full text of all sheets."""
+        """Build the default full-text representation of this OpenDocument spreadsheet.
+
+        Returns:
+            Extracted unit text joined in source order.
+        """
         return _join_unit_text(self.iterate_units())
 
     def get_metadata(self) -> OpenDocumentMetadata:
-        """Returns the metadata of the extracted file."""
+        """Return metadata describing this OpenDocument spreadsheet object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return self.metadata
 
     @property
     def sheet_count(self) -> int:
-        """Number of sheets extracted."""
+        """Return the number of worksheets in the workbook.
+
+        Returns:
+            Count of extracted sheet objects.
+        """
         return len(self.sheets)
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        """Yield images extracted from this OpenDocument spreadsheet.
+
+        Yields:
+            Image objects in source order.
+        """
         for sheet in self.sheets:
             for img in sheet.images:
                 yield img
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
-        """Ods is a spreadsheet format. The entire sheet is returned as table object"""
+        """Yield tables extracted from this OpenDocument spreadsheet.
+
+        Yields:
+            Table objects in source order.
+        """
         for sheet in self.sheets:
             yield sheet
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
@@ -2842,6 +4463,12 @@ class OdsContent(ExtractionInterface):
 
 @dataclass
 class OdtUnit(UnitInterface):
+    """Represent one structural text unit from a OpenDocument text document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     text: str
     unit_number: int
     heading_level: int | None = None
@@ -2853,15 +4480,35 @@ class OdtUnit(UnitInterface):
     tables: list[TableData] = field(default_factory=list)
 
     def get_text(self) -> str:
+        """Return the text represented by this OpenDocument text document unit.
+
+        Returns:
+            Extracted text in reading order.
+        """
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
+        """Return images associated with this OpenDocument text document unit.
+
+        Returns:
+            A new list containing the unit image objects.
+        """
         return list(self.images)
 
     def get_tables(self) -> list[TableData]:
+        """Return tables associated with this OpenDocument text document unit.
+
+        Returns:
+            A new list containing the unit table objects.
+        """
         return list(self.tables)
 
     def get_metadata(self) -> OdtUnitMetadata:
+        """Return metadata describing this OpenDocument text document object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return OdtUnitMetadata(
             unit_number=self.unit_number,
             heading_level=self.heading_level,
@@ -2872,11 +4519,22 @@ class OdtUnit(UnitInterface):
         )
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
 @dataclass
 class OdtUnitMetadata(UnitMetadataInterface):
+    """Describe the structural position of one unit in a OpenDocument text document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     unit_number: int
     heading_level: int | None = None
     heading_path: list[str] = field(default_factory=list)
@@ -2948,9 +4606,19 @@ class OdtTable(TableInterface):
     data: List[List[str]] = field(default_factory=list)
 
     def get_table(self) -> list[list[typing.Any]]:
+        """Return the table as rows of cell values.
+
+        Returns:
+            A two-dimensional list whose outer items are rows.
+        """
         return self.data
 
     def get_dim(self) -> TableDim:
+        """Calculate the dimensions of the table.
+
+        Returns:
+            Row and column counts for the current table data.
+        """
         rows = len(self.data)
         columns = max((len(row) for row in self.data), default=0)
         return TableDim(rows=rows, columns=columns)
@@ -2982,6 +4650,12 @@ class OdtContent(ExtractionInterface):
         Units are built from paragraph runs separated by headings (paragraphs with
         an outline level). Heading text itself becomes part of the unit heading
         path and is not included in the unit body text.
+
+        Args:
+            ignore_images: Omit document images from the yielded units when true.
+
+        Yields:
+            ``OdtUnit`` objects in document order, with heading context attached.
         """
         base_heading_path = [self.metadata.title] if self.metadata.title else []
         units: list[OdtUnit] = []
@@ -3157,22 +4831,45 @@ class OdtContent(ExtractionInterface):
             yield unit
 
     def get_full_text(self) -> str:
-        """Get full text of the document."""
+        """Build the default full-text representation of this OpenDocument text document.
+
+        Returns:
+            Extracted unit text joined in source order.
+        """
         return self.full_text
 
     def get_metadata(self) -> OpenDocumentMetadata:
-        """Returns the metadata of the extracted file."""
+        """Return metadata describing this OpenDocument text document object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return self.metadata
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
+        """Yield images extracted from this OpenDocument text document.
+
+        Yields:
+            Image objects in source order.
+        """
         for img in self.images:
             yield img
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
+        """Yield tables extracted from this OpenDocument text document.
+
+        Yields:
+            Table objects in source order.
+        """
         for table in self.tables:
             yield table
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
@@ -3183,32 +4880,69 @@ class OdtContent(ExtractionInterface):
 
 @dataclass
 class RtfUnitMetadata(UnitMetadataInterface):
+    """Describe the structural position of one unit in a Rich Text Format document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     unit_number: int
     page_number: int
 
 
 @dataclass
 class RtfUnit(UnitInterface):
+    """Represent one structural text unit from a Rich Text Format document.
+
+    Instances are returned by extractors and remain JSON-serializable through
+    the shared serialization helpers.
+    """
+
     page_number: int
     text: str
     images: List[RtfImage] = field(default_factory=list)
     tables: List[RtfTable] = field(default_factory=list)
 
     def get_text(self) -> str:
+        """Return the text represented by this Rich Text Format document unit.
+
+        Returns:
+            Extracted text in reading order.
+        """
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
+        """Return images associated with this Rich Text Format document unit.
+
+        Returns:
+            A new list containing the unit image objects.
+        """
         return list(self.images)
 
     def get_tables(self) -> list[TableData]:
+        """Return tables associated with this Rich Text Format document unit.
+
+        Returns:
+            A new list containing the unit table objects.
+        """
         return [TableData(data=t.data) for t in self.tables]
 
     def get_metadata(self) -> RtfUnitMetadata:
+        """Return metadata describing this Rich Text Format document object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return RtfUnitMetadata(
             unit_number=self.page_number, page_number=self.page_number
         )
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
@@ -3234,7 +4968,11 @@ class RtfColor:
 
     @property
     def hex_color(self) -> str:
-        """Return color as hex string (#RRGGBB)."""
+        """Format this color as a hexadecimal RGB value.
+
+        Returns:
+            A six-digit uppercase RGB string prefixed with a hash sign.
+        """
         return f"#{self.red:02x}{self.green:02x}{self.blue:02x}"
 
 
@@ -3350,28 +5088,48 @@ class RtfImage(ImageInterface):
     }
 
     def get_bytes(self) -> io.BytesIO:
-        """Returns the bytes of the image as a BytesIO object."""
+        """Return a readable buffer containing the image payload.
+
+        Returns:
+            The image data positioned for reading by the caller.
+        """
         if self.data is None:
             return io.BytesIO()
         self.data.seek(0)
         return self.data
 
     def get_content_type(self) -> str:
-        """Returns the content type of the image as a string."""
+        """Return the media type reported for the image.
+
+        Returns:
+            A MIME-style content type, or an empty string when unknown.
+        """
         return self._CONTENT_TYPES.get(
             self.image_type.lower(), "application/octet-stream"
         )
 
     def get_caption(self) -> str:
-        """Returns the caption of the image as a string."""
+        """Return the human-readable caption associated with the image.
+
+        Returns:
+            Caption text, or an empty string when none was extracted.
+        """
         return self.caption.strip()
 
     def get_description(self) -> str:
-        """Returns the descriptive text of the image as a string."""
+        """Return accessibility or descriptive text for the image.
+
+        Returns:
+            Image description text, or an empty string when unavailable.
+        """
         return self.description.strip()
 
     def get_metadata(self) -> ImageMetadata:
-        """Returns the metadata of the image."""
+        """Return metadata describing this Rich Text Format document object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         # Convert twips to pixels (approximately 1/20 point, 96 dpi)
         # 1 twip = 1/1440 inch, at 96 dpi: pixels = twips * 96 / 1440 = twips / 15
         width_px = self.width // 15 if self.width > 0 else None
@@ -3394,11 +5152,19 @@ class RtfTable(TableInterface):
     page_number: Optional[int] = None  # Page where table appears (if known)
 
     def get_table(self) -> list[list[typing.Any]]:
-        """Return the table data as a list of rows."""
+        """Return the table as rows of cell values.
+
+        Returns:
+            A two-dimensional list whose outer items are rows.
+        """
         return self.data
 
     def get_dim(self) -> TableDim:
-        """Return the table dimensions (rows, columns)."""
+        """Calculate the dimensions of the table.
+
+        Returns:
+            Row and column counts for the current table data.
+        """
         rows = len(self.data)
         columns = max((len(row) for row in self.data), default=0)
         return TableDim(rows=rows, columns=columns)
@@ -3452,6 +5218,12 @@ class RtfContent(ExtractionInterface):
         RTF documents are split on explicit page breaks (\\page).
         If no page breaks exist, yields the full document as a single unit.
         Images and tables are distributed to units based on their page_number.
+
+        Args:
+            ignore_images: Omit page images from the yielded units when true.
+
+        Yields:
+            ``RtfUnit`` objects for each non-empty explicit or inferred page.
         """
         # Group images and tables by page number
         images_by_page: dict[int, List[RtfImage]] = {}
@@ -3497,26 +5269,47 @@ class RtfContent(ExtractionInterface):
                 )
 
     def get_full_text(self) -> str:
-        """Full text of the RTF document as one single block of text."""
+        """Build the default full-text representation of this Rich Text Format document.
+
+        Returns:
+            Extracted unit text joined in source order.
+        """
         if self.full_text:
             return self.full_text
         return _join_unit_text(self.iterate_units())
 
     def get_metadata(self) -> RtfMetadata:
-        """Returns the metadata of the extracted file."""
+        """Return metadata describing this Rich Text Format document object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return self.metadata
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
-        """Iterate over all images in the document."""
+        """Yield images extracted from this Rich Text Format document.
+
+        Yields:
+            Image objects in source order.
+        """
         for img in self.images:
             yield img
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
-        """Iterate over all tables in the document."""
+        """Yield tables extracted from this Rich Text Format document.
+
+        Yields:
+            Table objects in source order.
+        """
         for tbl in self.tables:
             yield tbl
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
@@ -3546,15 +5339,35 @@ class EpubChapter(UnitInterface):
     tables: List[List[List[str]]] = field(default_factory=list)
 
     def get_text(self) -> str:
+        """Return the text represented by this EPUB publication unit.
+
+        Returns:
+            Extracted text in reading order.
+        """
         return self.text
 
     def get_images(self) -> list[ImageInterface]:
+        """Return images associated with this EPUB publication unit.
+
+        Returns:
+            A new list containing the unit image objects.
+        """
         return list(self.images)
 
     def get_tables(self) -> list[TableData]:
+        """Return tables associated with this EPUB publication unit.
+
+        Returns:
+            A new list containing the unit table objects.
+        """
         return [TableData(data=t) for t in self.tables]
 
     def get_metadata(self) -> EpubUnitMetadata:
+        """Return metadata describing this EPUB publication object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return EpubUnitMetadata(
             unit_number=self.chapter_number,
             href=self.href,
@@ -3562,6 +5375,11 @@ class EpubChapter(UnitInterface):
         )
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)
 
 
@@ -3579,21 +5397,46 @@ class EpubImage(ImageInterface):
     unit_number: Optional[int] = None  # Chapter number where image is referenced
 
     def get_bytes(self) -> io.BytesIO:
+        """Return a readable buffer containing the image payload.
+
+        Returns:
+            The image data positioned for reading by the caller.
+        """
         if self.data is None:
             return io.BytesIO()
         self.data.seek(0)
         return self.data
 
     def get_content_type(self) -> str:
+        """Return the media type reported for the image.
+
+        Returns:
+            A MIME-style content type, or an empty string when unknown.
+        """
         return self.content_type.strip()
 
     def get_caption(self) -> str:
+        """Return the human-readable caption associated with the image.
+
+        Returns:
+            Caption text, or an empty string when none was extracted.
+        """
         return ""
 
     def get_description(self) -> str:
+        """Return accessibility or descriptive text for the image.
+
+        Returns:
+            Image description text, or an empty string when unavailable.
+        """
         return ""
 
     def get_metadata(self) -> ImageMetadata:
+        """Return metadata describing this EPUB publication object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return ImageMetadata(
             image_number=self.image_index,
             content_type=self.content_type,
@@ -3637,7 +5480,14 @@ class EpubContent(ExtractionInterface):
     def iterate_units(
         self, *, ignore_images: bool = False
     ) -> typing.Iterator[UnitInterface]:
-        """Iterate over chapters in reading order."""
+        """Yield structural text units from this EPUB publication.
+
+        Args:
+            ignore_images: Exclude image objects from yielded units when true.
+
+        Yields:
+            Units in source reading order.
+        """
         for chapter in self.chapters:
             if ignore_images:
                 # Yield a copy with empty images
@@ -3653,22 +5503,44 @@ class EpubContent(ExtractionInterface):
                 yield chapter
 
     def iterate_images(self) -> typing.Generator[ImageInterface, None, None]:
-        """Iterate over all images in the EPUB."""
+        """Yield images extracted from this EPUB publication.
+
+        Yields:
+            Image objects in source order.
+        """
         for img in self.images:
             yield img
 
     def iterate_tables(self) -> typing.Generator[TableInterface, None, None]:
-        """Iterate over all tables across all chapters."""
+        """Yield tables extracted from this EPUB publication.
+
+        Yields:
+            Table objects in source order.
+        """
         for chapter in self.chapters:
             for table in chapter.tables:
                 yield TableData(data=table)
 
     def get_full_text(self) -> str:
-        """Full text of the EPUB as a single string."""
+        """Build the default full-text representation of this EPUB publication.
+
+        Returns:
+            Extracted unit text joined in source order.
+        """
         return _join_unit_text(self.iterate_units())
 
     def get_metadata(self) -> EpubMetadata:
+        """Return metadata describing this EPUB publication object.
+
+        Returns:
+            The format-specific metadata instance.
+        """
         return self.metadata
 
     def to_json(self) -> dict:
+        """Serialize this value into the public JSON-compatible schema.
+
+        Returns:
+            A dictionary containing the type marker and serialized fields.
+        """
         return serialize_extraction(self)

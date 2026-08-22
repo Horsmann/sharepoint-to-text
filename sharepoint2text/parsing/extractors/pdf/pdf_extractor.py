@@ -175,14 +175,52 @@ _AES_FALLBACK_IMAGE_SKIP_THRESHOLD_BYTES = 10 * 1024 * 1024
 
 
 class PageLike(Protocol):
-    def extract_text(self, *args: Any, **kwargs: Any) -> str: ...
+    """Describe the minimal PDF page behavior required by the extractor.
 
-    def get(self, key: str, default: Any = None) -> Any: ...
+    The protocol keeps page parsing testable without coupling helpers to a
+    specific pypdf page implementation.
+    """
 
-    def get_contents(self) -> Any: ...
+    def extract_text(self, *args: Any, **kwargs: Any) -> str:
+        """Extract visible text from this PDF page.
+
+        Args:
+            *args: Positional options forwarded to the PDF implementation.
+            **kwargs: Keyword options forwarded to the PDF implementation.
+
+        Returns:
+            Visible page text in content-stream order.
+        """
+        ...
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Return a page dictionary value with an optional default.
+
+        Args:
+            key: Dictionary-style key requested by the caller.
+            default: Fallback returned when the requested key is absent.
+
+        Returns:
+            Stored value or the supplied default.
+        """
+        ...
+
+    def get_contents(self) -> Any:
+        """Return the PDF content stream associated with this page.
+
+        Returns:
+            Page content stream object.
+        """
+        ...
 
     @property
-    def pdf(self) -> Any: ...
+    def pdf(self) -> Any:
+        """Return the owning PDF reader object.
+
+        Returns:
+            Owning PDF reader object.
+        """
+        ...
 
 
 def _open_pdf_reader(file_like: io.BytesIO) -> PdfReader:

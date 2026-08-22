@@ -128,7 +128,11 @@ class SharePointFileMetadata:
     custom_fields: dict[str, Any] | None = None
 
     def get_full_path(self) -> str:
-        """Get the full path of the file including parent path."""
+        """Get the full path of the file including parent path.
+
+        Returns:
+            Drive-relative path including parent folders.
+        """
         if self.parent_path:
             return f"{self.parent_path}/{self.name}"
         return self.name
@@ -284,7 +288,11 @@ class SharePointRestClient:
         self._site_id: str | None = None
 
     def fetch_access_token(self) -> str:
-        """Request an app-only access token from Entra ID."""
+        """Request an app-only access token from Entra ID.
+
+        Returns:
+            Bearer access token returned by Entra ID.
+        """
         token_url = _TOKEN_ENDPOINT_TEMPLATE.format(
             tenant_id=self._credentials.tenant_id
         )
@@ -330,7 +338,11 @@ class SharePointRestClient:
         }
 
     def get_site_id(self) -> str:
-        """Get the Graph API site ID from the site URL."""
+        """Get the Graph API site ID from the site URL.
+
+        Returns:
+            Microsoft Graph site identifier.
+        """
         if self._site_id is not None:
             return self._site_id
 

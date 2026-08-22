@@ -268,21 +268,33 @@ class _DocxContext(OOXMLZipContext):
 
     @property
     def document_body(self) -> ET.Element | None:
-        """Get the document body element."""
+        """Get the document body element.
+
+        Returns:
+            Document body element.
+        """
         if self._document_root is None:
             return None
         return self._document_root.find(W_BODY)
 
     @property
     def relationships(self) -> dict[str, dict]:
-        """Get cached relationships."""
+        """Get cached relationships.
+
+        Returns:
+            Relationship mapping for the main document.
+        """
         if self._relationships is None:
             self._relationships = self._parse_relationships()
         return self._relationships
 
     @property
     def styles(self) -> dict[str, str]:
-        """Get cached style map (style_id -> style_name)."""
+        """Get cached style map (style_id -> style_name).
+
+        Returns:
+            Style identifier to display-name mapping.
+        """
         if self._styles is None:
             self._styles = {}
             if self._styles_root is not None:

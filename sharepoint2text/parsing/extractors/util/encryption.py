@@ -14,6 +14,14 @@ def _has_ole_encryption_stream(ole: olefile.OleFileIO) -> bool:
 
 
 def is_ooxml_encrypted(file_like: io.BytesIO) -> bool:
+    """Return whether an OOXML package is actually an encrypted OLE container.
+
+    Args:
+        file_like: Seekable binary stream containing the source document.
+
+    Returns:
+        True when the stream is an encrypted OOXML container.
+    """
     file_like.seek(0)
     if olefile.isOleFile(file_like):
         file_like.seek(0)
@@ -26,6 +34,14 @@ def is_ooxml_encrypted(file_like: io.BytesIO) -> bool:
 
 
 def is_odf_encrypted(file_like: io.BytesIO) -> bool:
+    """Return whether an OpenDocument package declares encrypted content.
+
+    Args:
+        file_like: Seekable binary stream containing the source document.
+
+    Returns:
+        True when encryption metadata is present.
+    """
     file_like.seek(0)
     if not zipfile.is_zipfile(file_like):
         file_like.seek(0)
@@ -48,6 +64,14 @@ def is_odf_encrypted(file_like: io.BytesIO) -> bool:
 
 
 def is_xls_encrypted(file_like: io.BytesIO) -> bool:
+    """Return whether a legacy Excel workbook uses document encryption.
+
+    Args:
+        file_like: Seekable binary stream containing the source document.
+
+    Returns:
+        True when workbook encryption markers are present.
+    """
     file_like.seek(0)
     if not olefile.isOleFile(file_like):
         file_like.seek(0)
@@ -81,6 +105,14 @@ def is_xls_encrypted(file_like: io.BytesIO) -> bool:
 
 
 def is_ppt_encrypted(file_like: io.BytesIO) -> bool:
+    """Return whether a legacy PowerPoint file uses document encryption.
+
+    Args:
+        file_like: Seekable binary stream containing the source document.
+
+    Returns:
+        True when presentation encryption markers are present.
+    """
     file_like.seek(0)
     if not olefile.isOleFile(file_like):
         file_like.seek(0)

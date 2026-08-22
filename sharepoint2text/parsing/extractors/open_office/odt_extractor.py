@@ -170,21 +170,40 @@ class _OdtContext(ZipContext):
 
     @property
     def content_root(self) -> ET.Element | None:
-        """Get cached content.xml root."""
+        """Get cached content.xml root.
+
+        Returns:
+            Parsed content root element.
+        """
         return self._content_root
 
     @property
     def meta_root(self) -> ET.Element | None:
-        """Get cached meta.xml root."""
+        """Get cached meta.xml root.
+
+        Returns:
+            Parsed metadata root element.
+        """
         return self._meta_root
 
     @property
     def styles_root(self) -> ET.Element | None:
-        """Get cached styles.xml root."""
+        """Get cached styles.xml root.
+
+        Returns:
+            Parsed styles root element.
+        """
         return self._styles_root
 
     def open_file(self, path: str) -> io.BufferedReader:
-        """Open a file from the ZIP archive."""
+        """Open a file from the ZIP archive.
+
+        Args:
+            path: Package-relative path of the embedded member.
+
+        Returns:
+            Readable binary stream for the member.
+        """
         return self.open_stream(path)  # type: ignore[no-any-return]
 
 

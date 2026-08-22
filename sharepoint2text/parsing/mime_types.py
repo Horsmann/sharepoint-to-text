@@ -47,6 +47,14 @@ MIME_TYPE_MAPPING = {
 
 
 def is_supported_mime_type(mime_type: str | None) -> bool:
+    """Return whether a MIME type maps to a registered extractor.
+
+    Args:
+        mime_type: MIME type to check. ``None`` and empty strings are unsupported.
+
+    Returns:
+        True when the normalized media type is supported.
+    """
     if not mime_type:
         return False
     return mime_type in MIME_TYPE_MAPPING

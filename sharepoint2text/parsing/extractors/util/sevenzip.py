@@ -888,7 +888,19 @@ class SevenZipReader:
         targets: List[str],
         source_file: Optional[BinaryIO] = None,
     ) -> None:
-        """Extract only the requested files to the specified directory."""
+        """Extract only the requested files to the specified directory.
+
+        Args:
+            path: Destination directory for extracted members.
+            targets: Archive member names to extract.
+            source_file: Optional archive stream used instead of the reader default.
+
+        Returns:
+            None after the requested archive members are written.
+
+        Raises:
+            Bad7zFile: If an archive member cannot be decoded or written safely.
+        """
         if not path or not isinstance(path, str):
             raise ValueError("Path must be a non-empty string")
 
@@ -1118,7 +1130,18 @@ class SevenZipFile:
         self._reader.extractall(path, source_file=self._file)
 
     def extract(self, path: str, targets: List[str]) -> None:
-        """Extract only the requested files to the specified directory."""
+        """Extract only the requested files to the specified directory.
+
+        Args:
+            path: Destination directory for extracted members.
+            targets: Archive member names to extract.
+
+        Returns:
+            None after the requested archive members are written.
+
+        Raises:
+            Bad7zFile: If an archive member cannot be decoded or written safely.
+        """
         if self._reader is None:
             raise Bad7zFile("Archive not opened")
         self._reader.extract(path, targets, source_file=self._file)

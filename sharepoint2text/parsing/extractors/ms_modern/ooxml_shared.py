@@ -40,7 +40,15 @@ JPEG_SOF_MARKERS = frozenset(
 
 
 def get_element_text(root: XmlElement | None, tag: str) -> str | None:
-    """Extract text from an element if it exists and has text content."""
+    """Extract text from an element if it exists and has text content.
+
+    Args:
+        root: XML element below which to search, or ``None``.
+        tag: ElementTree search path or qualified element name.
+
+    Returns:
+        Concatenated descendant text.
+    """
     if root is None:
         return None
     elem = root.find(tag)
@@ -55,7 +63,17 @@ def get_image_content_type(
     fallback_unknown: str = "image/unknown",
     fallback_to_extension: bool = False,
 ) -> str:
-    """Guess MIME type from filename extension."""
+    """Guess MIME type from filename extension.
+
+    Args:
+        filename: Package member name whose extension identifies the format.
+        fallback_unknown: Content type returned when the extension is unknown.
+        fallback_to_extension: Return ``image/<extension>`` for unknown non-empty
+            extensions when true.
+
+    Returns:
+        MIME-style image content type.
+    """
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext in IMAGE_CONTENT_TYPE_MAP:
         return IMAGE_CONTENT_TYPE_MAP[ext]
@@ -65,7 +83,15 @@ def get_image_content_type(
 
 
 def get_image_pixel_dimensions(image_data: bytes) -> tuple[int | None, int | None]:
-    """Best-effort extraction of pixel dimensions from common raster formats."""
+    """Best-effort extraction of pixel dimensions from common raster formats.
+
+    Args:
+        image_data: Encoded PNG, GIF, BMP, or JPEG payload.
+
+    Returns:
+        ``(width, height)`` in pixels. Either value is ``None`` when dimensions
+        cannot be determined from the supported headers.
+    """
     if not image_data:
         return None, None
 
@@ -117,11 +143,17 @@ def extract_omml_formulas(
     omath_tag: str,
     converter: Callable[[XmlElement], str],
 ) -> list[tuple[str, bool]]:
-    """
-    Extract formulas from OMML XML.
+    """Extract formulas from an Office Math XML subtree.
 
-    Returns tuples of (latex, is_display), where is_display=True means the
-    formula came from an oMathPara container.
+    Args:
+        root: XML subtree to search for Office Math elements.
+        omath_para_tag: Fully qualified tag for display-math containers.
+        omath_tag: Fully qualified tag for individual math expressions.
+        converter: Function that converts an Office Math element to LaTeX.
+
+    Returns:
+        ``(latex, is_display)`` pairs in document order. ``is_display`` is true
+        when the expression came from an ``oMathPara`` container.
     """
     formulas: list[tuple[str, bool]] = []
     omath_in_para: set[int] = set()
@@ -149,21 +181,54 @@ class OOXMLZipContext(ZipContext):
     """Shared ZIP context for OOXML-based formats (DOCX, PPTX, XLSX)."""
 
     def read_xml_root_if_exists(self, path: str) -> XmlElement | None:
+        """Parse an XML package member when it exists.
+
+        Args:
+            path: Package-relative XML member path.
+
+        Returns:
+            Parsed root element, or None when absent.
+        """
         if not self.exists(path):
             return None
         return self.read_xml_root(path)
 
     def read_bytes_if_exists(self, path: str) -> bytes | None:
+        """Read a binary package member when it exists.
+
+        Args:
+            path: Package-relative binary member path.
+
+        Returns:
+            Member bytes, or None when absent.
+        """
         if not self.exists(path):
             return None
         return self.read_bytes(path)
 
     def read_text_if_exists(self, path: str) -> str | None:
+        """Read a text package member when it exists.
+
+        Args:
+            path: Package-relative text member path.
+
+        Returns:
+            Decoded text, or None when absent.
+        """
         if not self.exists(path):
             return None
         return self.read_text(path)
 
     def read_relationships_if_exists(self, rels_path: str) -> list[dict[str, str]]:
+        """Parse an OOXML relationships part when it exists.
+
+        Args:
+            rels_path: Package-relative path of the relationships part.
+
+        Returns:
+            Relationship dictionaries in source order, or an empty list when
+            the part is absent.
+        """
         rels_root = self.read_xml_root_if_exists(rels_path)
         if rels_root is None:
             return []

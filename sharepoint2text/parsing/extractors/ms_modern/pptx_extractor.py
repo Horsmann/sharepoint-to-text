@@ -248,13 +248,24 @@ class _PptxContext(OOXMLZipContext):
 
     @property
     def slide_order(self) -> list[str]:
-        """Get ordered list of slide paths."""
+        """Get ordered list of slide paths.
+
+        Returns:
+            Slide package paths in presentation order.
+        """
         if self._slide_order is None:
             self._slide_order = self._compute_slide_order()
         return self._slide_order
 
     def get_slide_root(self, slide_path: str) -> ET.Element | None:
-        """Get cached slide XML root."""
+        """Get cached slide XML root.
+
+        Args:
+            slide_path: Package-relative path of the slide XML part.
+
+        Returns:
+            Parsed slide root element.
+        """
         if slide_path not in self._slide_roots:
             root = self.read_xml_root_if_exists(slide_path)
             if root is None:
@@ -263,7 +274,14 @@ class _PptxContext(OOXMLZipContext):
         return self._slide_roots.get(slide_path)
 
     def get_slide_relationships(self, slide_path: str) -> dict[str, dict[str, str]]:
-        """Get cached relationships for a slide."""
+        """Get cached relationships for a slide.
+
+        Args:
+            slide_path: Package-relative path of the slide XML part.
+
+        Returns:
+            Relationship mapping for the slide.
+        """
         if slide_path in self._slide_relationships:
             return self._slide_relationships[slide_path]
 
@@ -284,7 +302,14 @@ class _PptxContext(OOXMLZipContext):
         return relationships
 
     def get_comment_root(self, slide_number: int) -> ET.Element | None:
-        """Get cached comment XML root for a slide."""
+        """Get cached comment XML root for a slide.
+
+        Args:
+            slide_number: One-based slide number used in the comment-part name.
+
+        Returns:
+            Parsed comment root, or None when no comment part exists.
+        """
         if slide_number in self._missing_comment_numbers:
             return None
         comment_file = f"ppt/comments/comment{slide_number}.xml"

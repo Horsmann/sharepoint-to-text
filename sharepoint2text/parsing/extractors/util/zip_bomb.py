@@ -83,7 +83,11 @@ def set_zip_bomb_limits(limits: ZipBombLimits) -> None:
 
 
 def reset_zip_bomb_limits() -> None:
-    """Restore the process-wide ZIP-bomb limits to the library defaults."""
+    """Restore the process-wide ZIP-bomb limits to the library defaults.
+
+    Returns:
+        None.
+    """
     global _active_limits
     with _active_limits_lock:
         _active_limits = DEFAULT_ZIP_BOMB_LIMITS

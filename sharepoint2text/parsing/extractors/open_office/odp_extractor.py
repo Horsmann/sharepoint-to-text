@@ -216,10 +216,20 @@ class _OdpContext(ZipContext):
 
     @property
     def content_root(self) -> ET.Element | None:
+        """Return the parsed root of the OpenDocument content part.
+
+        Returns:
+            Parsed content root element.
+        """
         return self._content_root
 
     @property
     def meta_root(self) -> ET.Element | None:
+        """Return the parsed root of the OpenDocument metadata part.
+
+        Returns:
+            Parsed metadata root element.
+        """
         return self._meta_root
 
 

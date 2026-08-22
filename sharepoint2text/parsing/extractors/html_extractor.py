@@ -208,6 +208,15 @@ class _HtmlTreeBuilder(HTMLParser):
         self.last_closed: Optional[Dict] = None
 
     def handle_starttag(self, tag: str, attrs: List[Tuple[str, Optional[str]]]) -> None:
+        """Record an opening markup element in the extraction tree.
+
+        Args:
+            tag: Normalized HTML element name supplied by the parser.
+            attrs: Element attributes as name and optional-value pairs.
+
+        Returns:
+            None.
+        """
         tag = tag.lower()
         attrs_dict = {k: v for k, v in attrs if v is not None}
 
@@ -234,6 +243,14 @@ class _HtmlTreeBuilder(HTMLParser):
             self.last_closed = node
 
     def handle_endtag(self, tag: str) -> None:
+        """Close the active markup element when its tag matches.
+
+        Args:
+            tag: Normalized HTML element name supplied by the parser.
+
+        Returns:
+            None.
+        """
         tag = tag.lower()
 
         if self.skip_depth > 0:
@@ -245,6 +262,14 @@ class _HtmlTreeBuilder(HTMLParser):
             self.last_closed = self.stack.pop()
 
     def handle_data(self, data: str) -> None:
+        """Attach character data to the active markup node.
+
+        Args:
+            data: Text or comment content supplied by the parser.
+
+        Returns:
+            None.
+        """
         if self.skip_depth > 0:
             return
 
@@ -256,10 +281,23 @@ class _HtmlTreeBuilder(HTMLParser):
             self.stack[-1]["text"] += data
 
     def handle_comment(self, data: str) -> None:
-        # Ignore comments
+        """Ignore markup comments during text extraction.
+
+        Args:
+            data: Text or comment content supplied by the parser.
+
+        Returns:
+            None.
+        """
+        # Comments are intentionally excluded from the extracted text.
         pass
 
     def get_tree(self) -> Dict:
+        """Return the mutable markup tree assembled by the parser.
+
+        Returns:
+            Root node of the parsed markup tree.
+        """
         return self.root
 
 
@@ -552,7 +590,14 @@ class _HtmlTextExtractor:
         return result
 
     def extract(self, path: Optional[str] = None) -> str:
-        """Extract and return the full text content."""
+        """Extract and return the full text content.
+
+        Args:
+            path: Optional source path used to populate HTML metadata.
+
+        Returns:
+            Extracted document text with block-level structure preserved.
+        """
         self._extract_metadata(path)
         self._extract_headings()
         self._extract_links()
