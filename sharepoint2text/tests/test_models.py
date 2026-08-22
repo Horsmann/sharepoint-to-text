@@ -136,6 +136,29 @@ def test_v2_codec_round_trips_binary_and_nested_documents() -> None:
     assert document_from_json(document_to_json(document, binary="base64")) == document
 
 
+def test_v2_codec_has_no_default_binary_decode_limit() -> None:
+    """Decode binary payloads without an implicit cumulative size ceiling."""
+
+    class ReportedLargeBase64(str):
+        """Simulate encoded data larger than the former limit without allocating it."""
+
+        def __len__(self) -> int:
+            """Report a size beyond the former 100 MiB decoded-data ceiling."""
+            return 140 * 1024 * 1024
+
+    document = _rich_document()
+    payload = document_to_dict(document, binary="base64")
+    body = cast(dict[str, JsonValue], payload["document"])
+    units = cast(list[JsonValue], body["units"])
+    unit = cast(dict[str, JsonValue], units[0])
+    images = cast(list[JsonValue], unit["images"])
+    image = cast(dict[str, JsonValue], images[0])
+    image["data"] = ReportedLargeBase64(cast(str, image["data"]))
+
+    assert document_from_dict(payload) == document
+    assert document_from_dict(payload, max_binary_bytes=None) == document
+
+
 def test_v2_codec_omits_binary_by_default() -> None:
     """Verify the default schema contains no implicit binary payloads."""
     payload = document_to_dict(_rich_document())

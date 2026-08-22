@@ -25,7 +25,7 @@ from sharepoint2text.parsing.models.core import (
 BinaryMode = Literal["omit", "base64"]
 SCHEMA_NAME = "sharepoint2text.extraction"
 SCHEMA_VERSION = 2
-DEFAULT_MAX_BINARY_BYTES = 100 * 1024 * 1024
+DEFAULT_MAX_BINARY_BYTES: int | None = None
 _UNIT_KINDS = {
     "document",
     "section",
@@ -39,9 +39,9 @@ _UNIT_KINDS = {
 
 @dataclass
 class _DecodeState:
-    """Track the cumulative binary allocation made while decoding."""
+    """Track cumulative binary allocation and an optional decoding ceiling."""
 
-    maximum_bytes: int
+    maximum_bytes: int | None
     decoded_bytes: int = 0
 
 
@@ -326,19 +326,21 @@ def _string_list(value: JsonValue, path: str) -> list[str]:
 
 
 def _decode_binary(value: JsonValue, path: str, state: _DecodeState) -> bytes | None:
-    """Decode a base64 field subject to a cumulative allocation limit."""
+    """Decode a base64 field subject to an optional cumulative allocation limit."""
     if value is None:
         return None
     encoded = _required_string(value, path)
-    maximum_encoded = 4 * math.ceil((state.maximum_bytes - state.decoded_bytes) / 3)
-    if len(encoded) > maximum_encoded:
-        raise ValueError(f"Decoded binary data exceeds {state.maximum_bytes} bytes")
+    if state.maximum_bytes is not None:
+        remaining_bytes = state.maximum_bytes - state.decoded_bytes
+        maximum_encoded = 4 * math.ceil(remaining_bytes / 3)
+        if len(encoded) > maximum_encoded:
+            raise ValueError(f"Decoded binary data exceeds {state.maximum_bytes} bytes")
     try:
         decoded = base64.b64decode(encoded, validate=True)
     except (binascii.Error, ValueError) as error:
         raise ValueError(f"{path} is not valid base64") from error
     state.decoded_bytes += len(decoded)
-    if state.decoded_bytes > state.maximum_bytes:
+    if state.maximum_bytes is not None and state.decoded_bytes > state.maximum_bytes:
         raise ValueError(f"Decoded binary data exceeds {state.maximum_bytes} bytes")
     return decoded
 
@@ -537,26 +539,30 @@ def _document_body_from_dict(
 
 
 def document_from_dict(
-    data: dict[str, JsonValue], *, max_binary_bytes: int = DEFAULT_MAX_BINARY_BYTES
+    data: dict[str, JsonValue],
+    *,
+    max_binary_bytes: int | None = DEFAULT_MAX_BINARY_BYTES,
 ) -> ExtractedDocument:
     """Decode and validate a version-2 extraction document.
 
     Args:
         data: Versioned extraction envelope.
-        max_binary_bytes: Maximum cumulative decoded payload size.
+        max_binary_bytes: Optional maximum cumulative decoded payload size.
+            ``None`` decodes the complete payload without a size ceiling.
 
     Returns:
         Validated normalized document.
 
     Raises:
-        ValueError: If the schema is invalid, unsupported, or exceeds the binary limit.
+        ValueError: If the schema is invalid, unsupported, or exceeds an
+            explicitly configured binary limit.
 
     Example:
         >>> original = ExtractedDocument(format="txt")
         >>> document_from_dict(document_to_dict(original)) == original
         True
     """
-    if max_binary_bytes < 0:
+    if max_binary_bytes is not None and max_binary_bytes < 0:
         raise ValueError("max_binary_bytes must not be negative")
     if data.get("schema") != SCHEMA_NAME:
         raise ValueError(f"Unsupported extraction schema: {data.get('schema')!r}")
@@ -585,19 +591,23 @@ def document_to_json(
 
 
 def document_from_json(
-    value: str, *, max_binary_bytes: int = DEFAULT_MAX_BINARY_BYTES
+    value: str,
+    *,
+    max_binary_bytes: int | None = DEFAULT_MAX_BINARY_BYTES,
 ) -> ExtractedDocument:
     """Decode a normalized document from a JSON string.
 
     Args:
         value: JSON extraction envelope.
-        max_binary_bytes: Maximum cumulative decoded payload size.
+        max_binary_bytes: Optional maximum cumulative decoded payload size.
+            ``None`` decodes the complete payload without a size ceiling.
 
     Returns:
         Validated normalized document.
 
     Raises:
-        ValueError: If JSON or the extraction schema is invalid.
+        ValueError: If JSON or the extraction schema is invalid, or an
+            explicitly configured binary limit is exceeded.
     """
     try:
         parsed: object = json.loads(value)

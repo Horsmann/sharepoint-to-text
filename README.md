@@ -257,9 +257,10 @@ base64 text. `document_to_json` returns compact JSON directly; use
 object is needed. For archives and `.mbox` inputs, serialize each yielded
 `ExtractedDocument` as its own envelope or put those envelopes in a JSON list.
 
-Decoding rejects unknown schema versions, malformed input, invalid base64, and
-cumulative binary data above 100 MiB by default. Use `max_binary_bytes` to
-impose a stricter boundary.
+Decoding rejects unknown schema versions, malformed input, and invalid base64.
+Binary payload size is unlimited by default so complete serialized extraction
+results can be restored. When decoding untrusted input, pass `max_binary_bytes`
+to impose a cumulative allocation boundary.
 
 ## Attachments
 
