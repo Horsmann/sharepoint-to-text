@@ -10,12 +10,80 @@ from pathlib import Path
 from typing import Iterator, Sequence, TextIO
 
 import sharepoint2text
+from sharepoint2text.parsing.extractors.util.zip_bomb import (
+    _ZIP_BOMB_CHECKS_DISABLED,
+    DEFAULT_ZIP_BOMB_LIMITS,
+    ZipBombLimits,
+)
 from sharepoint2text.parsing.models import (
     BinaryMode,
     ExtractedDocument,
     JsonValue,
     document_to_dict,
 )
+
+_MIN_ZIP_BOMB_LIMIT_MULTIPLIER = 2
+_MAX_ZIP_BOMB_LIMIT_MULTIPLIER = 10
+_DEFAULT_ZIP_BOMB_LIMIT_MULTIPLIER = 1
+_DISABLED_ZIP_BOMB_LIMIT_VALUE = "none"
+
+
+def _parse_zip_bomb_limit_multiplier(value: str) -> int | None:
+    """Parse a ZIP-bomb limit multiplier supplied on the command line.
+
+    Args:
+        value: Integer text from 2 through 10, or ``none`` to disable checks.
+
+    Returns:
+        The validated multiplier, or ``None`` when checks should be disabled.
+
+    Raises:
+        argparse.ArgumentTypeError: If the value is outside the accepted forms.
+    """
+    if value.casefold() == _DISABLED_ZIP_BOMB_LIMIT_VALUE:
+        return None
+
+    try:
+        multiplier = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "must be a whole integer from 2 through 10, or 'none'"
+        ) from exc
+
+    if not (
+        _MIN_ZIP_BOMB_LIMIT_MULTIPLIER <= multiplier <= _MAX_ZIP_BOMB_LIMIT_MULTIPLIER
+    ):
+        raise argparse.ArgumentTypeError(
+            "must be a whole integer from 2 through 10, or 'none'"
+        )
+    return multiplier
+
+
+def _build_zip_bomb_limits(multiplier: int | None) -> ZipBombLimits:
+    """Build the CLI's uniformly scaled ZIP-bomb limits.
+
+    Args:
+        multiplier: Scale factor, or ``None`` to disable ZIP-bomb checks.
+
+    Returns:
+        Default limits with every threshold multiplied, or the internal
+        disabled-checks marker.
+    """
+    if multiplier is None:
+        return _ZIP_BOMB_CHECKS_DISABLED
+
+    defaults = DEFAULT_ZIP_BOMB_LIMITS
+    return ZipBombLimits(
+        max_entries=defaults.max_entries * multiplier,
+        max_total_uncompressed_bytes=(
+            defaults.max_total_uncompressed_bytes * multiplier
+        ),
+        max_single_uncompressed_bytes=(
+            defaults.max_single_uncompressed_bytes * multiplier
+        ),
+        max_total_compression_ratio=(defaults.max_total_compression_ratio * multiplier),
+        max_entry_compression_ratio=(defaults.max_entry_compression_ratio * multiplier),
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -109,6 +177,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Maximum input file size in MiB (default: 100). "
             "Use 0 to disable size checks."
+        ),
+    )
+    parser.add_argument(
+        "--zip-bomb-limit-multiplier",
+        type=_parse_zip_bomb_limit_multiplier,
+        default=_DEFAULT_ZIP_BOMB_LIMIT_MULTIPLIER,
+        metavar="2..10|none",
+        help=(
+            "Multiply every default ZIP-bomb limit by a whole integer from 2 "
+            "through 10. Use 'none' to disable ZIP-bomb checks (trusted input only)."
         ),
     )
     return parser
@@ -359,6 +437,7 @@ def _process_folder_to_folder(
         ignore_images=not args.include_images,
         include_attachments=not args.no_attachments,
         recursive=not args.no_recursive,
+        zip_bomb_limits=_build_zip_bomb_limits(args.zip_bomb_limit_multiplier),
     ):
         source_path_str = result.source.path
         if not source_path_str:
@@ -412,6 +491,7 @@ def _get_file_results(
             max_file_size=max_file_size_bytes,
             ignore_images=not args.include_images,
             include_attachments=not args.no_attachments,
+            zip_bomb_limits=_build_zip_bomb_limits(args.zip_bomb_limit_multiplier),
         )
     )
 
@@ -444,6 +524,7 @@ def _get_folder_results(
             ignore_images=not args.include_images,
             include_attachments=not args.no_attachments,
             recursive=not args.no_recursive,
+            zip_bomb_limits=_build_zip_bomb_limits(args.zip_bomb_limit_multiplier),
         )
     )
 

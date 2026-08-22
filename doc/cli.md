@@ -142,6 +142,25 @@ sharepoint2text --file trusted.pdf --max-file-size-mb 0
 Zero disables the file-size check. Archive decompression protections remain
 separate.
 
+## ZIP-Bomb Limits
+
+For a trusted ZIP, Office, or OpenDocument file that exceeds the default
+ZIP-bomb thresholds, multiply every default threshold by the same whole number:
+
+```bash
+sharepoint2text --file trusted-export.zip --zip-bomb-limit-multiplier 2
+```
+
+The multiplier must be an integer from `2` through `10`. To disable ZIP-bomb
+checks entirely for trusted input, use the literal value `none`:
+
+```bash
+sharepoint2text --file trusted-export.zip --zip-bomb-limit-multiplier none
+```
+
+Omitting the option preserves the default protections. Disabling them can allow
+a malicious archive to exhaust memory or disk resources.
+
 ## Option Reference
 
 | Option | Short | Description |
@@ -156,6 +175,7 @@ separate.
 | `--include-images` | `-i` | Extract images and encode binary data as base64 |
 | `--no-attachments` | `-n` | Omit email attachment records and payloads |
 | `--max-file-size-mb N` | `-m` | Maximum input size; default 100, zero disables |
+| `--zip-bomb-limit-multiplier N` | | Multiply all ZIP-bomb limits by 2..10; `none` disables |
 | `--version` | `-v` | Print the installed version |
 | `--help` | `-h` | Show command help |
 

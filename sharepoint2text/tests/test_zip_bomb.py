@@ -11,6 +11,7 @@ import sharepoint2text
 from sharepoint2text import ZipBombLimits, read_bytes, read_file, read_many
 from sharepoint2text.parsing.exceptions import ExtractionZipBombError
 from sharepoint2text.parsing.extractors.util.zip_bomb import (
+    _ZIP_BOMB_CHECKS_DISABLED,
     validate_zip_bytesio,
 )
 
@@ -76,6 +77,20 @@ def test_explicit_limits_are_honored_by_low_level_helpers() -> None:
         ),
         source="explicit",
     )
+
+
+def test_zip_bomb_detection_can_be_disabled_for_one_call() -> None:
+    """The CLI marker should bypass ZIP-bomb heuristics for trusted input."""
+    buffer = _make_zip_bytesio({"a.txt": b"A" * 10_000})
+
+    validate_zip_bytesio(
+        buffer,
+        limits=_ZIP_BOMB_CHECKS_DISABLED,
+        source="disabled",
+    )
+
+    with pytest.raises(ExtractionZipBombError):
+        validate_zip_bytesio(buffer, source="defaults-restored")
 
 
 def test_read_bytes_limits_apply_only_to_one_call() -> None:
@@ -251,4 +266,5 @@ def test_limit_error_message_points_to_per_call_argument() -> None:
 
     message = str(excinfo.value)
     assert "zip_bomb_limits" in message
+    assert "--zip-bomb-limit-multiplier" in message
     assert "[test]" in message

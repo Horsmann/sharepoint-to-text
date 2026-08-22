@@ -28,10 +28,19 @@ class ZipBombLimits:
 
 DEFAULT_ZIP_BOMB_LIMITS = ZipBombLimits()
 
+
+class _ZipBombChecksDisabled(ZipBombLimits):
+    """Mark a scoped extraction call whose ZIP-bomb checks are disabled."""
+
+
+_ZIP_BOMB_CHECKS_DISABLED = _ZipBombChecksDisabled()
+
 # Guidance appended to every "limit exceeded" error so callers know how to
 # raise the threshold for trusted files.
 _LIMIT_HINT = (
-    "If this file is trusted, raise the relevant threshold via "
+    "If this file is trusted, use --zip-bomb-limit-multiplier 2..10 in the "
+    "CLI (or 'none' to disable ZIP-bomb checks), "
+    "or raise the relevant threshold via "
     "the zip_bomb_limits argument on sharepoint2text.read_file(), "
     "sharepoint2text.read_bytes(), or sharepoint2text.read_many() "
     "(see ZipBombLimits for the available fields)."
@@ -144,6 +153,9 @@ def validate_zipfile(
             container cannot be inspected.
     """
     limits = _resolve_limits(limits)
+    if isinstance(limits, _ZipBombChecksDisabled):
+        return
+
     try:
         infos = zf.infolist()
     except (zipfile.BadZipFile, OSError, RuntimeError) as exc:

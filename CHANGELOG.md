@@ -23,6 +23,8 @@ For upgrade instructions, see
 - Add Markdown rendering for normalized documents.
 - Add isolated per-call `zip_bomb_limits` configuration to `read_file`,
   `read_bytes`, and `read_many`.
+- Add `--zip-bomb-limit-multiplier` to uniformly relax or disable CLI ZIP-bomb
+  limits for trusted input.
 
 ### Removed
 - Remove the format-specific result types, direct format-reader exports,

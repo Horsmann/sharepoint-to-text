@@ -6,8 +6,18 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 import sharepoint2text
-from sharepoint2text.cli import _serialize_results, main
+from sharepoint2text.cli import (
+    _build_zip_bomb_limits,
+    _parse_zip_bomb_limit_multiplier,
+    _serialize_results,
+    main,
+)
+from sharepoint2text.parsing.extractors.util.zip_bomb import (
+    DEFAULT_ZIP_BOMB_LIMITS,
+)
 from sharepoint2text.parsing.models import document_to_dict
 
 PLAIN_PATH = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
@@ -146,6 +156,141 @@ def test_cli_respects_max_file_size_override(capsys: Any, tmp_path: Path) -> Non
     captured = capsys.readouterr()
     assert exit_code == 0
     assert captured.out == "hello\n"
+
+
+def test_cli_zip_bomb_multiplier_scales_every_default() -> None:
+    """Verify one multiplier is blindly applied to every ZIP-bomb threshold."""
+    multiplier = 3
+
+    limits = _build_zip_bomb_limits(multiplier)
+
+    assert limits.max_entries == DEFAULT_ZIP_BOMB_LIMITS.max_entries * multiplier
+    assert (
+        limits.max_total_uncompressed_bytes
+        == DEFAULT_ZIP_BOMB_LIMITS.max_total_uncompressed_bytes * multiplier
+    )
+    assert (
+        limits.max_single_uncompressed_bytes
+        == DEFAULT_ZIP_BOMB_LIMITS.max_single_uncompressed_bytes * multiplier
+    )
+    assert (
+        limits.max_total_compression_ratio
+        == DEFAULT_ZIP_BOMB_LIMITS.max_total_compression_ratio * multiplier
+    )
+    assert (
+        limits.max_entry_compression_ratio
+        == DEFAULT_ZIP_BOMB_LIMITS.max_entry_compression_ratio * multiplier
+    )
+
+
+def test_cli_zip_bomb_multiplier_default_preserves_limits() -> None:
+    """Verify an omitted option keeps every default threshold unchanged."""
+    assert _build_zip_bomb_limits(1) == DEFAULT_ZIP_BOMB_LIMITS
+
+
+def test_cli_zip_bomb_multiplier_accepts_none_case_insensitively() -> None:
+    """Verify the literal disable value maps to the disabled-check marker."""
+    assert _parse_zip_bomb_limit_multiplier("None") is None
+
+
+@pytest.mark.parametrize(("value", "expected"), [("2", 2), ("10", 10)])
+def test_cli_accepts_zip_bomb_multiplier_boundaries(
+    value: str,
+    expected: int,
+) -> None:
+    """Verify both inclusive multiplier boundaries are accepted."""
+    assert _parse_zip_bomb_limit_multiplier(value) == expected
+
+
+@pytest.mark.parametrize("value", ["1", "11", "2.5", "disabled"])
+def test_cli_rejects_invalid_zip_bomb_multipliers(
+    value: str,
+    capsys: Any,
+) -> None:
+    """Verify only whole multipliers from 2 through 10 or none are accepted."""
+    exit_code = main(
+        [
+            "--file",
+            str(PLAIN_PATH),
+            "--zip-bomb-limit-multiplier",
+            value,
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    assert "whole integer from 2 through 10, or 'none'" in captured.err
+
+
+@pytest.mark.parametrize(
+    ("cli_value", "expected_multiplier"),
+    [("3", 3), ("None", None)],
+)
+def test_cli_forwards_zip_bomb_setting_to_single_file(
+    cli_value: str,
+    expected_multiplier: int | None,
+    capsys: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify the CLI passes scaled or disabled limits into file extraction."""
+    received_limits: list[sharepoint2text.ZipBombLimits | None] = []
+    original_read_file = sharepoint2text.read_file
+
+    def recording_read_file(path: Any, **kwargs: Any) -> Any:
+        received_limits.append(kwargs.get("zip_bomb_limits"))
+        return original_read_file(path, **kwargs)
+
+    monkeypatch.setattr(sharepoint2text, "read_file", recording_read_file)
+
+    exit_code = main(
+        [
+            "--file",
+            str(PLAIN_PATH),
+            "--zip-bomb-limit-multiplier",
+            cli_value,
+        ]
+    )
+    capsys.readouterr()
+
+    assert exit_code == 0
+    assert received_limits == [_build_zip_bomb_limits(expected_multiplier)]
+
+
+@pytest.mark.parametrize("mirror_output", [False, True])
+def test_cli_forwards_zip_bomb_multiplier_to_folder_modes(
+    mirror_output: bool,
+    capsys: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify combined and mirrored folder modes pass the same scaled limits."""
+    input_folder = tmp_path / "input"
+    input_folder.mkdir()
+    (input_folder / "sample.txt").write_text("hello", encoding="utf-8")
+    received_limits: list[sharepoint2text.ZipBombLimits | None] = []
+    original_read_many = sharepoint2text.read_many
+
+    def recording_read_many(path: Any, **kwargs: Any) -> Any:
+        received_limits.append(kwargs.get("zip_bomb_limits"))
+        return original_read_many(path, **kwargs)
+
+    monkeypatch.setattr(sharepoint2text, "read_many", recording_read_many)
+    argv = [
+        "--folder",
+        str(input_folder),
+        "--zip-bomb-limit-multiplier",
+        "4",
+    ]
+    if mirror_output:
+        output_folder = tmp_path / "output"
+        output_folder.mkdir()
+        argv.extend(["--output", str(output_folder)])
+
+    exit_code = main(argv)
+    capsys.readouterr()
+
+    assert exit_code == 0
+    assert received_limits == [_build_zip_bomb_limits(4)]
 
 
 def test_cli_folder_json_is_a_streamed_v2_array(capsys: Any) -> None:
