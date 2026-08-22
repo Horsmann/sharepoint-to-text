@@ -329,7 +329,6 @@ def test_archive_spools_large_entry_instead_of_skipping(monkeypatch: Any) -> Non
             buffer_size=original_config.buffer_size,
             max_memory_size=original_config.max_memory_size,
             max_workers=original_config.max_workers,
-            enable_parallel=original_config.enable_parallel,
             enable_caching=original_config.enable_caching,
             enable_streaming=original_config.enable_streaming,
         )

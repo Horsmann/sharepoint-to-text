@@ -10,8 +10,7 @@ Performance Optimizations:
 2. Memory-efficient streaming for large files
 3. Cached file type detection to avoid repeated imports
 4. Optimized magic bytes detection with minimal I/O
-5. Parallel processing support for batch operations
-6. Lazy evaluation and generator-based processing
+5. Lazy evaluation and generator-based processing
 
 Design Principles:
 ------------------
@@ -143,7 +142,6 @@ class ArchiveConfig:
         max_memory_size: Maximum number of bytes to keep in memory before
             archive-member buffers roll over to a temporary file on disk.
         max_workers: Reserved for future batch-parallel extraction support.
-        enable_parallel: Reserved for future batch-parallel extraction support.
         enable_caching: Enable extractor/type lookup caches.
         enable_streaming: Keep archive processing in a streaming style where
             possible.
@@ -152,7 +150,6 @@ class ArchiveConfig:
     buffer_size: int = BUFFER_SIZE
     max_memory_size: int = MAX_MEMORY_SIZE
     max_workers: int = MAX_WORKERS
-    enable_parallel: bool = True
     enable_caching: bool = True
     enable_streaming: bool = True
 
@@ -165,20 +162,27 @@ def configure_archive_extraction(
     buffer_size: Optional[int] = None,
     max_memory_size: Optional[int] = None,
     max_workers: Optional[int] = None,
-    enable_parallel: Optional[bool] = None,
     enable_caching: Optional[bool] = None,
     enable_streaming: Optional[bool] = None,
 ) -> None:
-    """Configure archive extraction performance parameters."""
+    """Configure archive extraction performance parameters.
+
+    Args:
+        buffer_size: Chunk size used while copying archive members.
+        max_memory_size: Memory threshold before member buffers roll to disk.
+        max_workers: Reserved worker limit for future batch processing.
+        enable_caching: Whether to cache file support and extractor lookups.
+        enable_streaming: Whether to process archive members incrementally.
+
+    Returns:
+        None.
+    """
     global _config
 
     _config = ArchiveConfig(
         buffer_size=buffer_size or _config.buffer_size,
         max_memory_size=max_memory_size or _config.max_memory_size,
         max_workers=max_workers or _config.max_workers,
-        enable_parallel=(
-            enable_parallel if enable_parallel is not None else _config.enable_parallel
-        ),
         enable_caching=(
             enable_caching if enable_caching is not None else _config.enable_caching
         ),

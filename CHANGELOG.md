@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dependencies updated to latest version
 - Require `pyxlsb` for row-accurate `.xlsb` extraction instead of silently
   falling back to an incomplete shared-string representation
+- Remove the unimplemented `enable_parallel` archive extraction option
 
 ## [Released]
 
