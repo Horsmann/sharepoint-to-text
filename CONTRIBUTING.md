@@ -1,6 +1,7 @@
 # Contributing to sharepoint-to-text
 
-Thank you for your interest in contributing to sharepoint-to-text! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to sharepoint-to-text. This document
+provides guidelines and instructions for contributing.
 
 ## Getting Started
 
@@ -39,6 +40,12 @@ Thank you for your interest in contributing to sharepoint-to-text! This document
 uv run pytest
 ```
 
+### Type Checking
+
+```bash
+uv run mypy .
+```
+
 ### Code Formatting
 
 This project uses [Black](https://github.com/psf/black) for code formatting:
@@ -70,7 +77,7 @@ uv run pre-commit run --all-files
 
 3. Write or update tests as needed.
 
-4. Ensure all tests pass before submitting.
+4. Ensure `uv run pytest` and `uv run mypy .` both pass before submitting.
 
 ### Commit Messages
 
@@ -97,48 +104,75 @@ If you want to add support for a new file format:
 
 1. Create a new extractor module in `sharepoint2text/parsing/extractors/`:
    - Follow the naming convention: `{format}_extractor.py`
-   - Implement a `read_{format}(file_like: io.BytesIO, path: str | None = None)` function
-   - Return a **generator** yielding one or more typed dataclasses that implement `ExtractionInterface`
-   - Populate file metadata via `metadata.populate_from_path(path)` when `path` is provided
+   - Implement a fully typed
+     `read_{format}(file_like: BinaryIO, path: str | None = None)` generator.
+   - Yield one or more internal parser records compatible with
+     `ExtractionRecord` from `sharepoint2text/parsing/extractors/_records.py`.
+   - Populate source metadata from `path` when it is available.
+   - Keep parser-specific records internal; public entry points normalize them
+     to `ExtractedDocument`.
    - Keep behavior consistent with existing extractors:
      - Single-document formats yield exactly one item (e.g., `.pdf`, `.docx`)
      - Multi-item formats yield multiple items (notably `.mbox`, one per email)
 
 2. Update `sharepoint2text/parsing/router.py`:
-   - Add the extension → extractor registration in `_EXTRACTOR_REGISTRY`
-   - If needed, add a MIME type entry in `sharepoint2text/parsing/mime_types.py` so MIME-based detection can route too
-   - If your extension has common aliases (e.g., `.htm` vs `.html`), add an alias in the router so detection is OS-independent
+   - Register the extension and internal extractor key in `_EXTRACTOR_REGISTRY`.
+   - Add a literal import case to `_load_registered_extractor`; this is the extractor allowlist.
+   - Add aliases to `_EXTENSION_ALIASES` or `_COMPOUND_EXTENSIONS` when needed.
+   - Add MIME routing in `sharepoint2text/parsing/mime_types.py` when a stable media type exists.
 
-3. Add tests in `sharepoint2text/tests/`:
+3. Update normalization when the new record needs explicit handling:
+   - Add its fallback format mapping or unit kind in `sharepoint2text/parsing/_normalization.py`.
+   - Map useful scalar details to namespaced `properties` keys.
+   - Preserve canonical ownership: assets assigned to a unit must not also
+     appear in document-level collections.
+
+4. Add tests in `sharepoint2text/tests/`:
    - Create test fixtures in `sharepoint2text/tests/resources/`
-   - Add extraction tests in `test_extractions.py`
-   - Add router tests in `test_router.py`
-   - If your output supports `to_json()`, add a round-trip check (serialize → deserialize) in `test_serialization.py`
+   - Add extractor coverage to the relevant module under `sharepoint2text/tests/extractors/`.
+   - Add extension, alias, and MIME routing coverage to `test_router.py`.
+   - Add a public-boundary check to `test_integration.py` when appropriate,
+     confirming `read_file` or `read_bytes` yields `ExtractedDocument`.
+   - Add codec coverage to `test_models.py` only when the normalized model or
+     version-2 wire schema changes.
 
-4. Update documentation:
+5. Update documentation:
    - Add the format to the README.md supported formats table
-   - Document the return type and what `iterate_units()` yields (unit text + unit metadata) for the format
+   - Add its cardinality, unit shape, and caveats to `doc/format-matrix.md`.
+   - Document any format-specific namespaced properties consumers may rely on.
 
 ## Code Style Guidelines
 
-- Follow PEP 8 guidelines
-- Use type hints for function parameters and return values
-- Write docstrings for public functions and classes
-- Keep functions focused and reasonably sized
+- Follow PEP 8 guidelines.
+- Add complete type hints to every function signature.
+- Write docstrings for all public functions and classes.
+- Keep functions focused and reasonably sized.
+- Use explicit exception handling; do not add bare `except:` blocks.
 
 ## Design Notes
 
-- **Prefer dataclasses** for extraction outputs. They work with `to_json()`/`from_json()` via the shared serialization layer in `sharepoint2text/parsing/extractors/serialization.py`.
-- **Keep routing deterministic**: extension-based routing should work regardless of platform MIME databases; MIME routing is a helpful secondary path.
-- **Use library exceptions** from `sharepoint2text/parsing/exceptions.py` for user-facing failure modes:
+- **Keep the public model normalized**: all public extraction entry points yield
+  `ExtractedDocument`. Format-specific parser records belong in `_records.py`
+  and remain internal.
+- **Use the centralized codec**: serialize normalized documents with
+  `document_to_dict`, `document_to_json`, `document_from_dict`, and
+  `document_from_json` from `sharepoint2text.parsing.models`.
+- **Keep routing deterministic**: extension-based routing should work regardless
+  of platform MIME databases; MIME routing is a secondary path.
+- **Namespace format-specific properties**: use keys such as `xlsx.hidden`
+  rather than adding format-specific public fields.
+- **Use library exceptions** from `sharepoint2text/parsing/exceptions.py` for
+  user-facing failure modes:
   - `ExtractionFileFormatNotSupportedError` for unsupported formats
   - `ExtractionFileEncryptedError` for password-protected/encrypted content
-  - `LegacyMicrosoftParsingError` for legacy Office parsing failures
+  - `ExtractionLegacyMicrosoftParsingError` for legacy Office parsing failures
+  - `ExtractionZipBombError` for unsafe ZIP-based input
   - `ExtractionFailedError` for unexpected extraction failures (usually wrapped by `read_file`)
 
 ## Notes on uv
 
-This repository uses `uv.lock` and dependency groups. For development (tests/linting), use `uv sync --all-groups`.
+This repository uses `uv.lock` and dependency groups. For development tests and
+tooling, use `uv sync --all-groups`.
 
 ## Reporting Issues
 

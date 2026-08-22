@@ -407,14 +407,35 @@ The extraction API works independently of SharePoint. The optional
 to the same normalized API:
 
 ```python
-import sharepoint2text
+import os
 
-data = client.download_file(file_meta.id)
-for document in sharepoint2text.read_bytes(data, extension=file_meta.name):
+import sharepoint2text
+from sharepoint2text.sharepoint_io import (
+    EntraIDAppCredentials,
+    SharePointRestClient,
+)
+
+credentials = EntraIDAppCredentials(
+    tenant_id=os.environ["sp_tenant_id"],
+    client_id=os.environ["sp_client_id"],
+    client_secret=os.environ["sp_client_secret"],
+)
+client = SharePointRestClient(
+    site_url=os.environ["sp_site_url"],
+    credentials=credentials,
+)
+
+file_path = "Documents/report.pdf"
+data = client.download_file_by_path(file_path)
+for document in sharepoint2text.read_bytes(data, extension=file_path):
     print(document.full_text)
 ```
 
-See [sharepoint2text/sharepoint_io/SETUP.md](sharepoint2text/sharepoint_io/SETUP.md).
+The client itself uses the Python standard library. The optional `.env` setup
+helper additionally requires `python-dotenv`; it is included by the repository's
+development dependency group but not by a normal package installation. See
+[sharepoint2text/sharepoint_io/SETUP.md](sharepoint2text/sharepoint_io/SETUP.md)
+for permission setup, environment configuration, and installation options.
 
 ## Operational Constraints
 

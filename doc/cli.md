@@ -126,7 +126,9 @@ documents are written together rather than overwriting one another.
 
 ## Attachments
 
-Email attachment records are included by default. Omit them with:
+Email attachment records are included by default, but their byte payloads are
+omitted from JSON unless `--include-binary` is set. Omit the records entirely
+with:
 
 ```bash
 sharepoint2text --file message.eml --no-attachments
