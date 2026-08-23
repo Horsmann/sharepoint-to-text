@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 tc = TestCase()
 tc.maxDiff = None
 
+_PptxImageMetadata = tuple[int, int, str, int | None, int | None]
+
 
 def _assert_image(
     image: ImageAsset,
@@ -27,8 +29,8 @@ def _assert_image(
     number: int,
     unit_number: int,
     media_type: str,
-    width: int,
-    height: int,
+    width: int | None,
+    height: int | None,
     format_name: str,
 ) -> None:
     tc.assertEqual(number, image.number)
@@ -36,6 +38,20 @@ def _assert_image(
     tc.assertEqual(media_type, image.media_type)
     tc.assertEqual(width, image.width)
     tc.assertEqual(height, image.height)
+
+
+def _assert_pptx_image(image: ImageAsset, expected: _PptxImageMetadata) -> None:
+    """Assert image number, slide number, media type, width, and height."""
+    number, slide_number, media_type, width, height = expected
+    _assert_image(
+        image,
+        number=number,
+        unit_number=slide_number,
+        media_type=media_type,
+        width=width,
+        height=height,
+        format_name="pptx",
+    )
 
 
 ####################
@@ -435,8 +451,33 @@ def test_read_pptx_5_full() -> None:
 
     # units
     tc.assertEqual(15, len(pptx.units))
+    expected_text_boundaries = [
+        ("Italy’s credit outlo", "ngs.com\nOctober 2022"),
+        ("Italy’s credit outlo", "s over the long term"),
+        ("Italy’s credit outlo", "&P, Moody’s, Fitch\n3"),
+        ("Italy’s credit outlo", "irs, Scope Ratings\n4"),
+        ("Italy’s credit outlo", "ond, Scope Ratings\n5"),
+        ("Italy’s credit outlo", "ond, Scope Ratings\n6"),
+        ("Italy’s credit outlo", "nce, Scope Ratings\n7"),
+        ("Italy’s credit outlo", "ion, Scope Ratings\n8"),
+        ("Italy’s credit outlo", "ond, Scope Ratings\n9"),
+        ("Italy’s credit outlo", "nd, Scope Ratings\n10"),
+        ("Italy’s credit outlo", " growth potential\n11"),
+        ("Annex: Documentation", " housing methodology"),
+        ("Headquarters\x0bBERLIN\x0b", "ww.scopeexplorer.com"),
+        ("About Scope Group\nSc", "tive consistency.\n14"),
+        ("Disclaimer\n“Scope Gr", "e +49 30 27891-0.\n15"),
+    ]
+    for unit, (expected_start, expected_end) in zip(
+        pptx.units, expected_text_boundaries, strict=True
+    ):
+        tc.assertEqual(expected_start, unit.text[:20])
+        tc.assertEqual(expected_end, unit.text[-20:])
+
     # 0
     tc.assertEqual(2, len(pptx.units[0].images))
+    _assert_pptx_image(pptx.units[0].images[0], (1, 1, "image/jpeg", 302, 149))
+    _assert_pptx_image(pptx.units[0].images[1], (2, 1, "image/png", 1104, 605))
     tc.assertIsNone(pptx.units[0].title)
     tc.assertListEqual(
         [
@@ -451,20 +492,35 @@ def test_read_pptx_5_full() -> None:
     tc.assertEqual(0, len(pptx.units[1].images))
     # 2
     tc.assertEqual(1, len(pptx.units[2].images))
+    _assert_pptx_image(pptx.units[2].images[0], (1, 3, "image/x-emf", None, None))
     # 3
     tc.assertEqual(2, len(pptx.units[3].images))
+    _assert_pptx_image(pptx.units[3].images[0], (1, 4, "image/x-emf", None, None))
+    _assert_pptx_image(pptx.units[3].images[1], (2, 4, "image/x-emf", None, None))
     # 4
     tc.assertEqual(2, len(pptx.units[4].images))
+    _assert_pptx_image(pptx.units[4].images[0], (1, 5, "image/x-emf", None, None))
+    _assert_pptx_image(pptx.units[4].images[1], (2, 5, "image/x-emf", None, None))
     # 5
     tc.assertEqual(2, len(pptx.units[5].images))
+    _assert_pptx_image(pptx.units[5].images[0], (1, 6, "image/x-emf", None, None))
+    _assert_pptx_image(pptx.units[5].images[1], (2, 6, "image/x-emf", None, None))
     # 6
     tc.assertEqual(2, len(pptx.units[6].images))
+    _assert_pptx_image(pptx.units[6].images[0], (1, 7, "image/x-emf", None, None))
+    _assert_pptx_image(pptx.units[6].images[1], (2, 7, "image/x-emf", None, None))
     # 7
     tc.assertEqual(2, len(pptx.units[7].images))
+    _assert_pptx_image(pptx.units[7].images[0], (1, 8, "image/x-emf", None, None))
+    _assert_pptx_image(pptx.units[7].images[1], (2, 8, "image/x-emf", None, None))
     # 8
     tc.assertEqual(2, len(pptx.units[8].images))
+    _assert_pptx_image(pptx.units[8].images[0], (1, 9, "image/x-emf", None, None))
+    _assert_pptx_image(pptx.units[8].images[1], (2, 9, "image/x-emf", None, None))
     # 9
     tc.assertEqual(2, len(pptx.units[9].images))
+    _assert_pptx_image(pptx.units[9].images[0], (1, 10, "image/x-emf", None, None))
+    _assert_pptx_image(pptx.units[9].images[1], (2, 10, "image/x-emf", None, None))
     # 10
     tc.assertEqual(0, len(pptx.units[10].images))
     # 11
