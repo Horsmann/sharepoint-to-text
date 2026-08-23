@@ -262,7 +262,10 @@ class ExtractedDocument:
             >>> document.full_text
             'Hello'
         """
-        return "\n".join(unit.text for unit in self.units if unit.text)
+        rendered_text = self.properties.get("document.full_text")
+        if isinstance(rendered_text, str):
+            return rendered_text
+        return "\n".join(unit.text for unit in self.units if unit.text).strip()
 
     def iter_images(self) -> Iterator[ImageAsset]:
         """Yield unit-owned and then document-level images without copying.

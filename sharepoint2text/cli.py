@@ -289,14 +289,13 @@ def _add_binary_extraction_argument(group: argparse._ArgumentGroup) -> None:
     group.add_argument(
         "-i",
         "--include-binary",
-        "--include-images",
         dest="include_binary",
         action="store_true",
         help=(
             "Encode image and attachment payloads as base64. Image metadata is "
             "included even when binary payloads are omitted. "
             "Requires --json or --json-unit and can increase processing time and "
-            "output size. --include-images is retained as a compatibility alias."
+            "output size."
         ),
     )
 

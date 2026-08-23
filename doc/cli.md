@@ -100,8 +100,7 @@ sharepoint2text --file report.pdf --json --include-binary
 sharepoint2text -f report.pdf -u -i
 ```
 
-`--include-binary` requires `--json` or `--json-unit`. The former
-`--include-images` spelling remains available as a compatibility alias.
+`--include-binary` requires `--json` or `--json-unit`.
 
 ### File and folder destinations
 
@@ -188,8 +187,7 @@ a malicious archive to exhaust memory or disk resources.
 | `--help` | `-h` | Show command help |
 
 `--suffixes` and `--no-recursive` require folder input. `--json` and
-`--json-unit` are mutually exclusive. `--include-images` is a compatibility
-alias for `--include-binary`.
+`--json-unit` are mutually exclusive.
 
 ## Exit Codes
 

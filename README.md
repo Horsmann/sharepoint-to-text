@@ -503,7 +503,7 @@ sharepoint2text --folder ./docs --suffixes .docx,.pdf --output ./extracted/
 
 Mirrored folder output writes one output file per input source. When an input
 such as `.mbox` yields multiple documents, they are kept together in that
-file. `--include-images` remains available as an alias for `--include-binary`.
+file.
 
 See [doc/cli.md](doc/cli.md) for the complete option reference.
 

@@ -43,7 +43,7 @@ Python Standard Library only:
 
 Extracted Content
 -----------------
-Returns HtmlParserOutput (same as HTML extractor):
+Returns a canonical document (same model as the HTML extractor):
     - content: Full text extracted from HTML
     - tables: Structured table data
     - headings: Document headings
@@ -89,8 +89,9 @@ from email.message import Message
 from typing import Any, Generator, Optional
 
 from sharepoint2text.parsing.exceptions import ExtractionError, ExtractionFailedError
-from sharepoint2text.parsing.extractors._records import HtmlMetadata, HtmlParserOutput
+from sharepoint2text.parsing.extractors._model import source_metadata
 from sharepoint2text.parsing.extractors.html_extractor import read_html
+from sharepoint2text.parsing.models import ContentUnit, ExtractedDocument
 
 logger = logging.getLogger(__name__)
 
@@ -231,7 +232,7 @@ def _extract_from_mhtml(content: bytes) -> Optional[bytes]:
 
 def read_mhtml(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[HtmlParserOutput, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Extract content from an MHTML (MIME HTML) web archive file.
 
@@ -243,11 +244,11 @@ def read_mhtml(
         file_like: BytesIO object containing the complete MHTML file data.
             The stream position is reset to the beginning before reading.
         path: Optional filesystem path to the source file. If provided,
-            populates file metadata in the returned HtmlParserOutput.
+            populates source metadata in the returned document.
         ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
-        HtmlParserOutput: Single HtmlParserOutput object containing:
+        ExtractedDocument: Single canonical MHTML document containing:
             - content: Extracted text from the HTML
             - tables: Structured table data
             - headings: Document headings (h1-h6)
@@ -276,9 +277,11 @@ def read_mhtml(
             logger.warning(
                 "No HTML content found in MHTML file: %s", path or "<in-memory>"
             )
-            metadata = HtmlMetadata()
-            metadata.populate_from_path(path)
-            yield HtmlParserOutput(content="", metadata=metadata)
+            yield ExtractedDocument(
+                format="mhtml",
+                source=source_metadata(path),
+                units=[ContentUnit(number=1, kind="document")],
+            )
             return
 
         # Use the HTML extractor to process the content
@@ -286,9 +289,10 @@ def read_mhtml(
         for result in read_html(html_buffer, path=path):
             logger.debug(
                 "Extracted MHTML: characters=%d, tables=%d",
-                len(result.content),
-                len(result.tables),
+                len(result.full_text),
+                len(list(result.iter_tables())),
             )
+            result.format = "mhtml"
             yield result
 
     except ExtractionError:

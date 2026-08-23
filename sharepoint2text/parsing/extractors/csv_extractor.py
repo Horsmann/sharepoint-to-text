@@ -6,9 +6,8 @@ Extracts structured tabular content from CSV and TSV files with automatic
 encoding and dialect detection.
 
 Unlike the plain text extractor, this module parses the delimited structure
-and returns a ``CsvParserOutput`` object whose ``iterate_tables()`` yields a
-``TableData`` instance suitable for downstream processing (DataFrames,
-Markdown rendering, etc.).
+and returns a canonical document with a table suitable for downstream
+processing (DataFrames, Markdown rendering, etc.).
 
 Encoding Detection
 ------------------
@@ -29,22 +28,25 @@ Dependencies
 Extracted Content
 -----------------
     - content: Full text (decoded, unmodified)
-    - table: ``TableData`` with each row as a list of cell strings
-    - metadata: ``SourceRecord`` with detected_encoding
+    - table: canonical table with each row as a list of cell strings
+    - source: canonical source metadata with detected encoding
 """
 
 import csv
 import io
 import logging
-from typing import Any, Generator
+from pathlib import Path
+from typing import Any, Generator, cast
 
 from charset_normalizer import from_bytes
 
 from sharepoint2text.parsing.exceptions import ExtractionError, ExtractionFailedError
-from sharepoint2text.parsing.extractors._records import (
-    CsvParserOutput,
-    SourceRecord,
-    TableData,
+from sharepoint2text.parsing.extractors._model import source_metadata
+from sharepoint2text.parsing.models import (
+    CellValue,
+    ContentUnit,
+    ExtractedDocument,
+    Table,
 )
 
 logger = logging.getLogger(__name__)
@@ -83,7 +85,7 @@ def read_csv(
     path: str | None = None,
     *,
     ignore_images: bool = False,
-) -> Generator[CsvParserOutput, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """Extract structured content from a CSV or TSV file.
 
     Args:
@@ -92,7 +94,7 @@ def read_csv(
         ignore_images: Unused, accepted for interface consistency.
 
     Yields:
-        A single ``CsvParserOutput`` with both the raw text and a ``TableData``.
+        A single canonical document with both the raw text and table data.
     """
     try:
         file_like.seek(0)
@@ -123,20 +125,25 @@ def read_csv(
             for row in reader:
                 rows.append(row)
 
-        metadata = SourceRecord()
-        metadata.populate_from_path(path)
-        metadata.detected_encoding = detected_encoding
-
         logger.debug(
             "Extracted delimited text: rows=%d, encoding=%s",
             len(rows),
             detected_encoding,
         )
 
-        yield CsvParserOutput(
-            content=text,
-            table=TableData(data=rows),
-            metadata=metadata,
+        source_format = Path(path).suffix.lower().lstrip(".") if path else "csv"
+        tables = [Table(rows=cast(list[list[CellValue]], rows))] if rows else []
+        yield ExtractedDocument(
+            format=source_format or "csv",
+            source=source_metadata(path, encoding=detected_encoding),
+            units=[
+                ContentUnit(
+                    number=1,
+                    kind="document",
+                    text=text,
+                    tables=tables,
+                )
+            ],
         )
     except ExtractionError:
         raise

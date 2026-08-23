@@ -64,7 +64,6 @@ EXPECTED_CLI_OPTIONS = {
     "--output",
     "-i",
     "--include-binary",
-    "--include-images",
     "-n",
     "--no-attachments",
     "-m",
@@ -118,7 +117,7 @@ def test_cli_outputs_full_text_by_default(capsys: Any) -> None:
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert captured.out == f"{expected}\n"
+    assert captured.out == (expected if expected.endswith("\n") else f"{expected}\n")
 
 
 def test_cli_extracts_docx_package_with_doc_extension(capsys: Any) -> None:
@@ -226,7 +225,7 @@ def test_cli_omits_binary_payloads_by_default(capsys: Any) -> None:
 
 def test_cli_encodes_binary_payloads_when_requested(capsys: Any) -> None:
     """Verify requested images use plain base64 strings in v2 JSON."""
-    exit_code = main(["--json", "--include-images", "--file", str(IMAGE_PDF_PATH)])
+    exit_code = main(["--json", "--include-binary", "--file", str(IMAGE_PDF_PATH)])
     captured = capsys.readouterr()
     body = _body(json.loads(captured.out)[0])
     images = [image for unit in body["units"] for image in unit["images"]]
@@ -257,13 +256,13 @@ def test_cli_no_attachments_removes_attachment_records(capsys: Any) -> None:
     assert body["attachments"] == []
 
 
-def test_cli_rejects_include_images_without_json(capsys: Any) -> None:
-    """Verify binary extraction requires a structured output mode."""
+def test_cli_rejects_removed_include_images_option(capsys: Any) -> None:
+    """Verify the removed version 1 binary option is no longer accepted."""
     exit_code = main(["--include-images", "--file", str(PLAIN_PATH)])
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "requires --json or --json-unit" in captured.err
+    assert "unsupported arguments" in captured.err
 
 
 def test_cli_rejects_unknown_arguments(capsys: Any) -> None:

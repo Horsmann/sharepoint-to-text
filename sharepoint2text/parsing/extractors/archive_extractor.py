@@ -57,13 +57,13 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFileEncryptedError,
     ExtractionFileTooLargeError,
 )
-from sharepoint2text.parsing.extractors._records import ExtractionRecord
 from sharepoint2text.parsing.extractors.util.sevenzip import (
     Bad7zFile,
     FileInfo,
     SevenZipFile,
 )
 from sharepoint2text.parsing.extractors.util.zip_bomb import open_zipfile
+from sharepoint2text.parsing.models import ExtractedDocument
 
 logger = logging.getLogger(__name__)
 
@@ -385,7 +385,7 @@ def _process_archive_entry(
     basename: str,
     ignore_images: bool = False,
     include_attachments: bool = True,
-) -> Generator[ExtractionRecord, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Process a single archive entry with optimized memory usage.
 
@@ -398,7 +398,7 @@ def _process_archive_entry(
         include_attachments: If False, omit attachments from archived emails.
 
     Yields:
-        ExtractionRecord objects
+        Canonical extracted documents.
     """
     try:
         # Build path that includes archive context
@@ -457,7 +457,7 @@ def _extract_from_zip_optimized(
     *,
     ignore_images: bool = False,
     include_attachments: bool = True,
-) -> Generator[ExtractionRecord, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Optimized ZIP extraction with single-pass processing.
 
@@ -468,7 +468,7 @@ def _extract_from_zip_optimized(
         include_attachments: If False, omit attachments from archived emails.
 
     Yields:
-        ExtractionRecord objects for each supported file in the archive.
+        Canonical documents for each supported file in the archive.
     """
     try:
         with open_zipfile(
@@ -538,7 +538,7 @@ def _extract_from_tar_optimized(
     *,
     ignore_images: bool = False,
     include_attachments: bool = True,
-) -> Generator[ExtractionRecord, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Optimized TAR extraction with streaming support.
 
@@ -550,7 +550,7 @@ def _extract_from_tar_optimized(
         include_attachments: If False, omit attachments from archived emails.
 
     Yields:
-        ExtractionRecord objects for each supported file in the archive.
+        Canonical documents for each supported file in the archive.
     """
     try:
         with tarfile.open(fileobj=file_like, mode=mode) as tf:  # type: ignore[call-overload]
@@ -629,7 +629,7 @@ def _extract_from_7z_optimized(
     *,
     ignore_images: bool = False,
     include_attachments: bool = True,
-) -> Generator[ExtractionRecord, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Optimized 7z extraction with file size limits.
 
@@ -640,7 +640,7 @@ def _extract_from_7z_optimized(
         include_attachments: If False, omit attachments from archived emails.
 
     Yields:
-        ExtractionRecord objects for each supported file in the archive.
+        Canonical documents for each supported file in the archive.
 
     Raises:
         ExtractionFileTooLargeError: If the archive exceeds MAX_7Z_FILE_SIZE.
@@ -749,7 +749,7 @@ def _process_7z_files_sequential(
     *,
     ignore_images: bool = False,
     include_attachments: bool = True,
-) -> Generator[ExtractionRecord, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """Process extracted 7z members sequentially.
 
     Args:
@@ -808,7 +808,7 @@ def read_archive(
     *,
     ignore_images: bool = False,
     include_attachments: bool = True,
-) -> Generator[ExtractionRecord, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Optimized entry point for archive extraction.
 
@@ -822,13 +822,13 @@ def read_archive(
         include_attachments: If False, omit attachments from archived emails.
 
     Yields:
-        ExtractionRecord: Extraction results for each supported file.
+        Canonical extraction results for each supported file.
 
     Example:
         >>> import io
         >>> with open("archive.zip", "rb") as f:
         ...     for content in read_archive(io.BytesIO(f.read())):
-        ...         print(f"Extracted: {content.get_metadata().filename}")
+        ...         print(f"Extracted: {content.source.filename}")
     """
     source_path = path or "<in-memory>"
     start_time = time.perf_counter()

@@ -87,7 +87,7 @@ import mimetypes
 import re
 from functools import lru_cache
 from html.parser import HTMLParser
-from typing import Any, Dict, Generator, List, Optional, Tuple
+from typing import Any, Dict, Generator, List, Optional, Tuple, cast
 
 from sharepoint2text.parsing import _defused_xml as ET
 from sharepoint2text.parsing.exceptions import (
@@ -95,13 +95,17 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
     ExtractionFileEncryptedError,
 )
-from sharepoint2text.parsing.extractors._records import (
-    EpubChapter,
-    EpubImage,
-    EpubMetadata,
-    EpubParserOutput,
-)
+from sharepoint2text.parsing.extractors._model import source_metadata
 from sharepoint2text.parsing.extractors.util.zip_context import ZipContext
+from sharepoint2text.parsing.models import (
+    CellValue,
+    ContentUnit,
+    DocumentMetadata,
+    ExtractedDocument,
+    ImageAsset,
+    JsonValue,
+    Table,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -340,7 +344,8 @@ class _EpubContext(ZipContext):
         self._opf_root: Optional[ET.Element] = None
         self._manifest: Dict[str, Dict[str, str]] = {}  # id -> {href, media-type}
         self._spine: List[str] = []  # List of manifest item IDs in reading order
-        self._metadata: EpubMetadata = EpubMetadata()
+        self._metadata = DocumentMetadata()
+        self._metadata_properties: dict[str, str] = {}
 
         self._parse_container()
         if self._opf_path:
@@ -408,20 +413,37 @@ class _EpubContext(ZipContext):
             return (elem.text or "").strip() if elem is not None else ""
 
         self._metadata.title = get_dc("title")
-        self._metadata.creator = get_dc("creator")
+        self._metadata.author = get_dc("creator") or None
         self._metadata.language = get_dc("language")
-        self._metadata.identifier = get_dc("identifier")
-        self._metadata.publisher = get_dc("publisher")
-        self._metadata.date = get_dc("date")
-        self._metadata.description = get_dc("description")
-        self._metadata.subject = get_dc("subject")
-        self._metadata.rights = get_dc("rights")
-        self._metadata.contributor = get_dc("contributor")
+        identifier = get_dc("identifier")
+        publisher = get_dc("publisher")
+        self._metadata.created = get_dc("date") or None
+        self._metadata.subject = get_dc("subject") or get_dc("description") or None
+        rights = get_dc("rights")
+        contributor = get_dc("contributor")
+        self._metadata_properties.update(
+            {
+                key: value
+                for key, value in {
+                    "epub.identifier": identifier,
+                    "epub.publisher": publisher,
+                    "epub.rights": rights,
+                    "epub.contributor": contributor,
+                }.items()
+                if value
+            }
+        )
+        description = get_dc("description")
+        if description:
+            self._metadata_properties["epub.description"] = description
 
         # Get EPUB version from package element
         package = self._opf_root
         if package.tag.endswith("package") or package.tag == "package":
-            self._metadata.epub_version = package.get("version", "")
+            version = package.get("version", "")
+            if version:
+                self._metadata_properties["epub.epub_version"] = version
+        self._metadata.properties = dict(self._metadata_properties)
 
     def _parse_manifest(self) -> None:
         """Parse the manifest section of OPF."""
@@ -522,7 +544,7 @@ class _EpubContext(ZipContext):
         return self._spine
 
     @property
-    def metadata(self) -> EpubMetadata:
+    def metadata(self) -> DocumentMetadata:
         """Return metadata parsed from the EPUB package document.
 
         Returns:
@@ -536,7 +558,7 @@ def _extract_chapter(
     item_id: str,
     chapter_number: int,
     image_counter: int,
-) -> Tuple[Optional[EpubChapter], int, List[EpubImage]]:
+) -> Tuple[Optional[ContentUnit], int, List[ImageAsset]]:
     """
     Extract content from a single chapter (content document).
 
@@ -596,23 +618,24 @@ def _extract_chapter(
 
     # Extract image references from this chapter
     # (We'll collect the actual image data separately from manifest)
-    chapter_images: List[EpubImage] = []
+    chapter_images: List[ImageAsset] = []
 
-    chapter = EpubChapter(
-        chapter_number=chapter_number,
-        href=href,
-        title=title,
+    chapter = ContentUnit(
+        number=chapter_number,
+        kind="chapter",
+        properties={"epub.href": href},
+        title=title or None,
         text=text,
         images=chapter_images,
-        tables=tables,
+        tables=[Table(rows=cast(list[list[CellValue]], table)) for table in tables],
     )
 
     return chapter, image_counter, chapter_images
 
 
-def _extract_images(ctx: _EpubContext) -> List[EpubImage]:
+def _extract_images(ctx: _EpubContext) -> List[ImageAsset]:
     """Extract all images from the EPUB manifest."""
-    images: List[EpubImage] = []
+    images: List[ImageAsset] = []
     image_counter = 0
 
     for item_id, item in ctx.manifest.items():
@@ -628,12 +651,15 @@ def _extract_images(ctx: _EpubContext) -> List[EpubImage]:
             image_counter += 1
             data = ctx.read_bytes(href)
             images.append(
-                EpubImage(
-                    image_index=image_counter,
-                    href=href,
-                    content_type=media_type,
-                    data=io.BytesIO(data),
-                    size_bytes=len(data),
+                ImageAsset(
+                    number=image_counter,
+                    filename=href,
+                    media_type=media_type,
+                    data=data,
+                    properties={
+                        "epub.href": href,
+                        "epub.size_bytes": len(data),
+                    },
                 )
             )
         except (KeyError, OSError, ValueError) as e:
@@ -756,7 +782,7 @@ def _is_epub_encrypted(ctx: _EpubContext) -> bool:
 
 def read_epub(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[EpubParserOutput, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Extract all relevant content from an EPUB eBook file.
 
@@ -772,11 +798,11 @@ def read_epub(
             The stream position is reset to the beginning before reading.
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
-            returned EpubParserOutput.metadata.
+            returned document source metadata.
         ignore_images: If True, skip image extraction.
 
     Yields:
-        EpubParserOutput: Single EpubParserOutput object containing:
+        ExtractedDocument: Single canonical EPUB document containing:
             - metadata: EpubMetadata with title, author, language, etc.
             - chapters: List of EpubChapter objects in reading order
             - images: List of EpubImage objects with binary data
@@ -808,10 +834,9 @@ def read_epub(
                 )
 
             metadata = ctx.metadata
-            metadata.populate_from_path(path)
 
             # Extract chapters in spine order
-            chapters: List[EpubChapter] = []
+            chapters: List[ContentUnit] = []
             image_counter = 0
             chapter_number = 0
 
@@ -839,11 +864,14 @@ def read_epub(
             len(toc),
         )
 
-        yield EpubParserOutput(
+        properties = {"epub.toc": toc} if toc else {}
+        yield ExtractedDocument(
+            format="epub",
+            source=source_metadata(path),
             metadata=metadata,
-            chapters=chapters,
-            images=images,
-            toc=toc,
+            units=chapters,
+            document_images=images,
+            properties=cast(dict[str, JsonValue], properties),
         )
     except ExtractionError:
         raise

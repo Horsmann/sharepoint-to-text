@@ -92,13 +92,10 @@ from email.utils import parsedate_to_datetime
 from typing import Any, Generator
 
 from sharepoint2text.parsing.exceptions import ExtractionError, ExtractionFailedError
-from sharepoint2text.parsing.extractors._records import (
-    EmailAddress,
-    EmailAttachment,
-    EmailMetadata,
-    EmailParserOutput,
-)
+from sharepoint2text.parsing.extractors._model import source_metadata
+from sharepoint2text.parsing.extractors.mail._model import Address, build_email_document
 from sharepoint2text.parsing.mime_types import is_supported_mime_type
+from sharepoint2text.parsing.models import Attachment, ExtractedDocument
 
 logger = logging.getLogger(__name__)
 
@@ -215,7 +212,7 @@ def decode_header_value(value: str | None) -> str:
     return "".join(decoded_parts)
 
 
-def parse_email_address(addr_string: str | None) -> EmailAddress:
+def parse_email_address(addr_string: str | None) -> Address:
     """
     Parse a single email address string into an EmailAddress object.
 
@@ -245,13 +242,13 @@ def parse_email_address(addr_string: str | None) -> EmailAddress:
         - Malformed addresses return empty fields rather than raising exceptions
     """
     if not addr_string:
-        return EmailAddress()
+        return "", ""
 
     name, address = email.utils.parseaddr(addr_string)
-    return EmailAddress(name=decode_header_value(name), address=address)
+    return decode_header_value(name), address
 
 
-def parse_email_addresses(addr_string: str | None) -> list[EmailAddress]:
+def parse_email_addresses(addr_string: str | None) -> list[Address]:
     """
     Parse a comma-separated list of email addresses.
 
@@ -285,7 +282,7 @@ def parse_email_addresses(addr_string: str | None) -> list[EmailAddress]:
     result = []
     for name, addr in addresses:
         if addr:  # Only include if there's an actual address
-            result.append(EmailAddress(name=decode_header_value(name), address=addr))
+            result.append((decode_header_value(name), addr))
     return result
 
 
@@ -428,7 +425,7 @@ def _get_attachment_payload(part: email.message.Message) -> bytes:
     return b""
 
 
-def _extract_attachments(message: email.message.Message) -> list[EmailAttachment]:
+def _extract_attachments(message: email.message.Message) -> list[Attachment]:
     """Extract MIME attachment metadata and payloads from an mbox message.
 
     Args:
@@ -437,7 +434,7 @@ def _extract_attachments(message: email.message.Message) -> list[EmailAttachment
     Returns:
         Attachments in MIME traversal order with rewound byte streams.
     """
-    attachments: list[EmailAttachment] = []
+    attachments: list[Attachment] = []
     for part in message.walk():
         raw_filename = part.get_filename()
         if part.get_content_disposition() != "attachment" and not raw_filename:
@@ -445,13 +442,15 @@ def _extract_attachments(message: email.message.Message) -> list[EmailAttachment
 
         filename = decode_header_value(raw_filename) or "attachment"
         mime_type = part.get_content_type() or "application/octet-stream"
-        data = io.BytesIO(_get_attachment_payload(part))
+        data = _get_attachment_payload(part)
         attachments.append(
-            EmailAttachment(
+            Attachment(
                 filename=filename,
-                mime_type=mime_type,
+                media_type=mime_type,
                 data=data,
-                is_supported_mime_type=is_supported_mime_type(mime_type),
+                properties={
+                    "email.is_supported_mime_type": is_supported_mime_type(mime_type)
+                },
             )
         )
     return attachments
@@ -459,12 +458,12 @@ def _extract_attachments(message: email.message.Message) -> list[EmailAttachment
 
 def parse_email_message(
     message: email.message.Message, *, include_attachments: bool = True
-) -> EmailParserOutput:
+) -> ExtractedDocument:
     """
-    Parse an email.message.Message into an EmailParserOutput dataclass.
+    Parse an email.message.Message into a canonical document.
 
     Consolidates all message parsing into a single function that extracts
-    headers, addresses, and body content into the standard EmailParserOutput
+    headers, addresses, and body content into the standard canonical model
     structure.
 
     Args:
@@ -472,7 +471,7 @@ def parse_email_message(
         include_attachments: If True, extract MIME attachment payloads.
 
     Returns:
-        EmailParserOutput: Fully populated dataclass with all extracted data.
+        ExtractedDocument: Fully populated canonical document.
 
     Implementation Notes:
         - Date is parsed via parsedate_to_datetime and converted to ISO format
@@ -492,11 +491,6 @@ def parse_email_message(
     parsed_date = _parse_message_date(message.get("Date"))
 
     # Build metadata with date and message ID
-    metadata = EmailMetadata(
-        date=parsed_date,
-        message_id=decode_header_value(message.get("Message-ID", "")),
-    )
-
     # Parse all address fields
     from_email = parse_email_address(message.get("From"))
     to_emails = parse_email_addresses(message.get("To"))
@@ -505,18 +499,21 @@ def parse_email_message(
     reply_to = parse_email_addresses(message.get("Reply-To"))
     attachments = _extract_attachments(message) if include_attachments else []
 
-    return EmailParserOutput(
-        from_email=from_email,
+    return build_email_document(
+        source_format="mbox",
+        path=None,
+        sender=from_email,
         subject=decode_header_value(message.get("Subject")),
         in_reply_to=decode_header_value(message.get("In-Reply-To", "")),
         reply_to=reply_to,
-        to_emails=to_emails,
-        to_cc=to_cc,
-        to_bcc=to_bcc,
+        recipients=to_emails,
+        cc=to_cc,
+        bcc=to_bcc,
         body_plain=body_plain,
         body_html=body_html,
         attachments=attachments,
-        metadata=metadata,
+        date=parsed_date,
+        message_id=decode_header_value(message.get("Message-ID", "")),
     )
 
 
@@ -526,24 +523,24 @@ def read_mbox_format_mail(
     *,
     ignore_images: bool = False,
     include_attachments: bool = True,
-) -> Generator[EmailParserOutput, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Read all emails from an mbox format file.
 
     Primary entry point for mbox extraction. Iterates through all messages
-    in the mailbox and yields EmailParserOutput objects for each.
+    in the mailbox and yields canonical documents for each.
 
     Args:
         file_like: BytesIO object containing complete mbox file data.
             The entire mbox content, potentially containing many messages.
         path: Optional filesystem path to source file. If provided, populates
             file metadata (filename, extension, folder) in each returned
-            EmailParserOutput.metadata. Useful for batch processing and auditing.
+            source metadata. Useful for batch processing and auditing.
         ignore_images: If True, skip image extraction (not applicable for this format).
         include_attachments: If True, extract and store MIME attachment payloads.
 
     Yields:
-        EmailParserOutput: One object per message in the mbox. Order matches
+        ExtractedDocument: One document per message in the mbox. Order matches
             the order of messages in the file.
 
     Raises:
@@ -593,8 +590,7 @@ def read_mbox_format_mail(
                 include_attachments=include_attachments,
             )
 
-            if path:
-                m.metadata.populate_from_path(path)
+            m.source = source_metadata(path)
 
             message_count += 1
             yield m

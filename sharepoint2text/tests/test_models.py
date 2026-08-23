@@ -269,6 +269,6 @@ def test_render_markdown_uses_normalized_units_and_tables() -> None:
 
     rendered = render_markdown(document)
 
-    assert rendered.startswith("## People\n\nNames")
+    assert rendered.startswith("Names\n\n## Tables")
     assert "| Name |" in rendered
     assert "| Ada  |" in rendered

@@ -5,8 +5,8 @@ import os
 from typing import Any, BinaryIO, Callable, Generator, cast
 
 from sharepoint2text.parsing.exceptions import ExtractionFileFormatNotSupportedError
-from sharepoint2text.parsing.extractors._records import ExtractionRecord
 from sharepoint2text.parsing.mime_types import MIME_TYPE_MAPPING
+from sharepoint2text.parsing.models import ExtractedDocument
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +107,7 @@ _SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
 )
 
 ExtractorFunction = Callable[
-    [BinaryIO, str | None], Generator[ExtractionRecord, Any, None]
+    [BinaryIO, str | None], Generator[ExtractedDocument, Any, None]
 ]
 
 
@@ -257,7 +257,7 @@ def _get_extractor_for_type(
     file_type: str,
     ignore_images: bool = False,
     include_attachments: bool = True,
-) -> Callable[[BinaryIO, str | None], Generator[ExtractionRecord, Any, None]]:
+) -> ExtractorFunction:
     """
     Return the extractor function for a file type using lazy import.
 
@@ -404,7 +404,7 @@ def _get_extractor(
     ignore_images: bool = False,
     force_plain_text: bool = False,
     include_attachments: bool = True,
-) -> Callable[[BinaryIO, str | None], Generator[ExtractionRecord, Any, None]]:
+) -> ExtractorFunction:
     """
     Analyze a path/filename and return the appropriate extractor callable.
 
@@ -422,7 +422,7 @@ def _get_extractor(
 
     Returns:
         Extractor function with signature ``(binary stream, path) -> Generator`` that
-        yields one or more ``ExtractionRecord`` results.
+        yields one or more canonical ``ExtractedDocument`` results.
 
     Raises:
         ExtractionFileFormatNotSupportedError: If no extractor exists for the file type.

@@ -32,20 +32,12 @@ def _current_pypdf_limits() -> dict[str, object]:
 
 def _failing_extractor(
     file_like: BinaryIO, path: str | None
-) -> Generator[object, None, None]:
+) -> Generator[ExtractedDocument, None, None]:
     """Fail while asserting that the relaxed limit is active."""
     del file_like, path
     assert set(_current_pypdf_limits().values()) == {sys.maxsize}
     raise ValueError("simulated PDF failure")
     yield  # pragma: no cover
-
-
-def _normalize_document(
-    record: object, *, include_image_data: bool = True
-) -> ExtractedDocument:
-    """Convert a fake extractor record into a public document."""
-    del record, include_image_data
-    return ExtractedDocument(format="pdf")
 
 
 @dataclass
@@ -59,7 +51,7 @@ class _ConcurrentLimitProbe:
 
     def extract(
         self, file_like: BinaryIO, path: str | None
-    ) -> Generator[object, None, None]:
+    ) -> Generator[ExtractedDocument, None, None]:
         """Record active limits and pause the relaxed extraction."""
         del path
         marker = file_like.read()
@@ -69,7 +61,7 @@ class _ConcurrentLimitProbe:
             assert self.release_relaxed.wait(timeout=2)
         else:
             self.strict_started.set()
-        yield object()
+        yield ExtractedDocument(format="pdf")
 
 
 def _run_concurrent_extractions(probe: _ConcurrentLimitProbe) -> None:
@@ -140,8 +132,6 @@ def test_concurrent_pdf_calls_cannot_observe_relaxed_limits(
     monkeypatch.setattr(
         extraction_api, "_get_extractor", lambda *args, **kwargs: probe.extract
     )
-    monkeypatch.setattr(extraction_api, "_normalize_record", _normalize_document)
-
     _run_concurrent_extractions(probe)
 
     assert set(probe.observed_limits[b"relaxed"].values()) == {sys.maxsize}

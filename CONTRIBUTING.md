@@ -106,11 +106,10 @@ If you want to add support for a new file format:
    - Follow the naming convention: `{format}_extractor.py`
    - Implement a fully typed
      `read_{format}(file_like: BinaryIO, path: str | None = None)` generator.
-   - Yield one or more internal parser records compatible with
-     `ExtractionRecord` from `sharepoint2text/parsing/extractors/_records.py`.
-   - Populate source metadata from `path` when it is available.
-   - Keep parser-specific records internal; public entry points normalize them
-     to `ExtractedDocument`.
+   - Yield one or more `ExtractedDocument` instances directly.
+   - Populate canonical source metadata from `path` when it is available.
+   - Use small private parser-state structures only where required; do not add
+     format-specific result models or conversion adapters.
    - Keep behavior consistent with existing extractors:
      - Single-document formats yield exactly one item (e.g., `.pdf`, `.docx`)
      - Multi-item formats yield multiple items (notably `.mbox`, one per email)
@@ -121,8 +120,7 @@ If you want to add support for a new file format:
    - Add aliases to `_EXTENSION_ALIASES` or `_COMPOUND_EXTENSIONS` when needed.
    - Add MIME routing in `sharepoint2text/parsing/mime_types.py` when a stable media type exists.
 
-3. Update normalization when the new record needs explicit handling:
-   - Add its fallback format mapping or unit kind in `sharepoint2text/parsing/_normalization.py`.
+3. Build the canonical document in the extractor:
    - Map useful scalar details to namespaced `properties` keys.
    - Preserve canonical ownership: assets assigned to a unit must not also
      appear in document-level collections.
@@ -151,9 +149,8 @@ If you want to add support for a new file format:
 
 ## Design Notes
 
-- **Keep the public model normalized**: all public extraction entry points yield
-  `ExtractedDocument`. Format-specific parser records belong in `_records.py`
-  and remain internal.
+- **Use one extraction model**: all extractors and public extraction entry points
+  yield `ExtractedDocument` directly. Do not add format-specific result types.
 - **Use the centralized codec**: serialize normalized documents with
   `document_to_dict`, `document_to_json`, `document_from_dict`, and
   `document_from_json` from `sharepoint2text.parsing.models`.

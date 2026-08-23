@@ -306,7 +306,7 @@ Plain-text CLI usage remains broadly similar. JSON consumers must be updated:
   rather than a raw unit object with separate `unit_metadata` and
   `file_metadata` keys;
 - `--include-binary` controls base64 encoding of binary image and attachment
-  payloads; `--include-images` remains available as a compatibility alias;
+  payloads; the former `--include-images` option has been removed;
 - attachments remain records on their parent document and are not recursively
   emitted as additional documents;
 - `--no-attachments` omits attachment records and payloads.

@@ -8,24 +8,18 @@ RTF is a cross-platform document format using plain text with control words.
 import io
 import logging
 import re
-from typing import Any, Generator
+from typing import Any, Generator, cast
 
 from sharepoint2text.parsing.exceptions import ExtractionError, ExtractionFailedError
-from sharepoint2text.parsing.extractors._records import (
-    RtfAnnotation,
-    RtfBookmark,
-    RtfColor,
-    RtfField,
-    RtfFont,
-    RtfFootnote,
-    RtfHeaderFooter,
-    RtfHyperlink,
-    RtfImage,
-    RtfMetadata,
-    RtfParagraph,
-    RtfParserOutput,
-    RtfStyle,
-    RtfTable,
+from sharepoint2text.parsing.extractors._model import source_metadata
+from sharepoint2text.parsing.models import (
+    Annotation,
+    ContentUnit,
+    DocumentMetadata,
+    ExtractedDocument,
+    ImageAsset,
+    JsonValue,
+    Table,
 )
 
 logger = logging.getLogger(__name__)
@@ -259,20 +253,19 @@ class _RtfParser:
         self.data = data
 
         # Extracted data
-        self.fonts: list[RtfFont] = []
-        self.colors: list[RtfColor] = []
-        self.styles: list[RtfStyle] = []
-        self.metadata = RtfMetadata()
-        self.paragraphs: list[RtfParagraph] = []
-        self.headers: list[RtfHeaderFooter] = []
-        self.footers: list[RtfHeaderFooter] = []
-        self.hyperlinks: list[RtfHyperlink] = []
-        self.bookmarks: list[RtfBookmark] = []
-        self.fields: list[RtfField] = []
-        self.images: list[RtfImage] = []
-        self.tables: list[RtfTable] = []
-        self.footnotes: list[RtfFootnote] = []
-        self.annotations: list[RtfAnnotation] = []
+        self.fonts: list[dict[str, JsonValue]] = []
+        self.colors: list[dict[str, JsonValue]] = []
+        self.styles: list[dict[str, JsonValue]] = []
+        self.metadata = DocumentMetadata()
+        self.paragraphs: list[str] = []
+        self.headers: list[Annotation] = []
+        self.footers: list[Annotation] = []
+        self.hyperlinks: list[Annotation] = []
+        self.fields: list[Annotation] = []
+        self.images: list[ImageAsset] = []
+        self.tables: list[Table] = []
+        self.footnotes: list[Annotation] = []
+        self.annotations: list[Annotation] = []
         self.pages: list[str] = []
         self.raw_text_blocks: list[str] = []
         self._special_char_patterns: list[tuple[re.Pattern[str], str]] = [
@@ -285,7 +278,7 @@ class _RtfParser:
             for keyword, char in self.SPECIAL_CHARS.items()
         ]
 
-    def parse(self) -> RtfParserOutput:
+    def parse(self) -> ExtractedDocument:
         """Parse the RTF document and return extracted content.
 
         Returns:
@@ -296,7 +289,7 @@ class _RtfParser:
 
             if not text.startswith("{\\rtf"):
                 logger.warning("Not a valid RTF file - missing RTF header")
-                return RtfParserOutput(full_text=text)
+                return self._build_document(text)
 
             self._extract_fonts(text)
             self._extract_colors(text)
@@ -310,35 +303,71 @@ class _RtfParser:
             self._extract_tables(text)
             self._extract_footnotes(text)
 
-            full_text = "\n".join(p.text for p in self.paragraphs if p.text.strip())
-
-            return RtfParserOutput(
-                metadata=self.metadata,
-                fonts=self.fonts,
-                colors=self.colors,
-                styles=self.styles,
-                paragraphs=self.paragraphs,
-                headers=self.headers,
-                footers=self.footers,
-                hyperlinks=self.hyperlinks,
-                bookmarks=self.bookmarks,
-                fields=self.fields,
-                images=self.images,
-                tables=self.tables,
-                footnotes=self.footnotes,
-                annotations=self.annotations,
-                pages=self.pages,
-                full_text=full_text,
-                raw_text_blocks=self.raw_text_blocks,
-            )
+            full_text = "\n".join(p for p in self.paragraphs if p.strip())
+            return self._build_document(full_text)
         except (UnicodeDecodeError, ValueError, re.error) as e:
             logger.warning("RTF parsing failed; using plain-text fallback: %s", e)
             try:
                 text = self._decode_rtf()
                 plain = self._strip_rtf_simple(text)
-                return RtfParserOutput(full_text=plain)
+                return self._build_document(plain)
             except (UnicodeDecodeError, ValueError):
-                return RtfParserOutput()
+                return self._build_document("")
+
+    def _build_document(self, full_text: str) -> ExtractedDocument:
+        """Assemble a canonical RTF document from parser state."""
+        annotations = [
+            *self.headers,
+            *self.footers,
+            *self.hyperlinks,
+            *self.fields,
+            *self.footnotes,
+            *self.annotations,
+        ]
+        page_texts = self.pages or [full_text]
+        units = [
+            ContentUnit(
+                number=page_number,
+                kind="page",
+                text=page_text,
+                title=self.metadata.title,
+                images=[
+                    image
+                    for image in self.images
+                    if image.properties.get("rtf.page_number", 1) == page_number
+                ],
+                tables=[
+                    table
+                    for table in self.tables
+                    if table.properties.get("rtf.page_number", 1) == page_number
+                ],
+            )
+            for page_number, page_text in enumerate(page_texts, start=1)
+            if page_text.strip()
+        ]
+        unit_numbers = {unit.number for unit in units}
+        return ExtractedDocument(
+            format="rtf",
+            metadata=self.metadata,
+            units=units,
+            document_images=[
+                image
+                for image in self.images
+                if image.properties.get("rtf.page_number", 1) not in unit_numbers
+            ],
+            document_tables=[
+                table
+                for table in self.tables
+                if table.properties.get("rtf.page_number", 1) not in unit_numbers
+            ],
+            document_annotations=annotations,
+            properties={
+                "rtf.fonts": cast(JsonValue, self.fonts),
+                "rtf.colors": cast(JsonValue, self.colors),
+                "rtf.styles": cast(JsonValue, self.styles),
+                "document.full_text": full_text,
+            },
+        )
 
     def _decode_rtf(self) -> str:
         """Decode RTF bytes to string, handling various encodings."""
@@ -357,13 +386,13 @@ class _RtfParser:
 
         for m in _RE_FONT.finditer(match.group(1)):
             self.fonts.append(
-                RtfFont(
-                    font_id=int(m.group(1)),
-                    font_family=m.group(2) or "",
-                    font_name=m.group(5).strip(),
-                    charset=int(m.group(3)) if m.group(3) else 0,
-                    pitch=int(m.group(4)) if m.group(4) else 0,
-                )
+                {
+                    "id": int(m.group(1)),
+                    "family": m.group(2) or "",
+                    "name": m.group(5).strip(),
+                    "charset": int(m.group(3)) if m.group(3) else 0,
+                    "pitch": int(m.group(4)) if m.group(4) else 0,
+                }
             )
 
     def _extract_colors(self, text: str) -> None:
@@ -374,12 +403,12 @@ class _RtfParser:
 
         for idx, m in enumerate(_RE_COLOR.finditer(match.group(1))):
             self.colors.append(
-                RtfColor(
-                    index=idx,
-                    red=int(m.group(1)),
-                    green=int(m.group(2)),
-                    blue=int(m.group(3)),
-                )
+                {
+                    "index": idx,
+                    "red": int(m.group(1)),
+                    "green": int(m.group(2)),
+                    "blue": int(m.group(3)),
+                }
             )
 
     def _extract_styles(self, text: str) -> None:
@@ -396,13 +425,13 @@ class _RtfParser:
                 style_type = "table"
 
             self.styles.append(
-                RtfStyle(
-                    style_id=int(m.group(1)),
-                    style_type=style_type,
-                    style_name=m.group(4).strip(),
-                    based_on=int(m.group(2)) if m.group(2) else None,
-                    next_style=int(m.group(3)) if m.group(3) else None,
-                )
+                {
+                    "id": int(m.group(1)),
+                    "type": style_type,
+                    "name": m.group(4).strip(),
+                    "based_on": int(m.group(2)) if m.group(2) else None,
+                    "next": int(m.group(3)) if m.group(3) else None,
+                }
             )
 
     def _extract_metadata(self, text: str) -> None:
@@ -429,13 +458,20 @@ class _RtfParser:
         self.metadata.title = get_value(r"\{\\title\s+([^}]*)\}")
         self.metadata.subject = get_value(r"\{\\subject\s+([^}]*)\}")
         self.metadata.author = get_value(r"\{\\author\s+([^}]*)\}")
-        self.metadata.keywords = get_value(r"\{\\keywords\s+([^}]*)\}")
-        self.metadata.comments = get_value(r"\{\\comment\s+([^}]*)\}")
-        self.metadata.operator = get_value(r"\{\\operator\s+([^}]*)\}")
-        self.metadata.category = get_value(r"\{\\[*]?\\?category\s+([^}]*)\}")
-        self.metadata.manager = get_value(r"\{\\manager\s+([^}]*)\}")
-        self.metadata.company = get_value(r"\{\\company\s+([^}]*)\}")
-        self.metadata.doc_comment = get_value(r"\{\\doccomm\s+([^}]*)\}")
+        keywords = get_value(r"\{\\keywords\s+([^}]*)\}")
+        self.metadata.keywords = [
+            value.strip() for value in keywords.split(",") if value.strip()
+        ]
+        for key, pattern in [
+            ("comments", r"\{\\comment\s+([^}]*)\}"),
+            ("operator", r"\{\\operator\s+([^}]*)\}"),
+            ("category", r"\{\\[*]?\\?category\s+([^}]*)\}"),
+            ("manager", r"\{\\manager\s+([^}]*)\}"),
+            ("company", r"\{\\company\s+([^}]*)\}"),
+            ("document_comment", r"\{\\doccomm\s+([^}]*)\}"),
+        ]:
+            if value := get_value(pattern):
+                self.metadata.properties[f"rtf.{key}"] = value
 
         # Numeric metadata
         for pattern, attr in [
@@ -448,7 +484,7 @@ class _RtfParser:
         ]:
             m = re.search(pattern, info)
             if m:
-                setattr(self.metadata, attr, int(m.group(1)))
+                self.metadata.properties[f"rtf.{attr}"] = int(m.group(1))
 
         # Dates
         for pattern, attr in [
@@ -465,7 +501,12 @@ class _RtfParser:
             for match in pattern.finditer(text):
                 extracted = self._strip_rtf_simple(match.group(1)).strip()
                 if extracted:
-                    hf = RtfHeaderFooter(type=hf_type, text=extracted)
+                    kind = "header" if "header" in hf_type else "footer"
+                    hf = Annotation(
+                        kind=kind,
+                        text=extracted,
+                        properties={"rtf.type": hf_type},
+                    )
                     if "header" in hf_type:
                         self.headers.append(hf)
                     else:
@@ -482,7 +523,7 @@ class _RtfParser:
         for para_text in extracted.split("\n"):
             cleaned = para_text.strip()
             if cleaned:
-                self.paragraphs.append(RtfParagraph(text=cleaned))
+                self.paragraphs.append(cleaned)
                 self.raw_text_blocks.append(cleaned)
 
     def _extract_hyperlinks(self, text: str) -> None:
@@ -491,7 +532,9 @@ class _RtfParser:
             url = match.group(1).strip()
             link_text = self._strip_rtf_simple(match.group(2)).strip()
             if url:
-                self.hyperlinks.append(RtfHyperlink(text=link_text, url=url))
+                self.hyperlinks.append(
+                    Annotation(kind="hyperlink", text=link_text, target=url)
+                )
 
     def _extract_fields(self, text: str) -> None:
         """Extract fields (page numbers, dates, etc.) from RTF."""
@@ -516,10 +559,13 @@ class _RtfParser:
                 field_type = "toc"
 
             self.fields.append(
-                RtfField(
-                    field_type=field_type,
-                    field_instruction=instruction,
-                    field_result=result,
+                Annotation(
+                    kind="field",
+                    text=result,
+                    properties={
+                        "rtf.type": field_type,
+                        "rtf.instruction": instruction,
+                    },
                 )
             )
 
@@ -558,13 +604,13 @@ class _RtfParser:
                     pass
 
             self.images.append(
-                RtfImage(
-                    image_type=img_type,
+                ImageAsset(
+                    number=idx,
+                    media_type=f"image/{img_type}" if img_type != "unknown" else None,
                     width=width,
                     height=height,
-                    data=io.BytesIO(data) if data else None,
-                    image_index=idx,
-                    page_number=page_num,
+                    data=data,
+                    properties={"rtf.page_number": page_num},
                 )
             )
 
@@ -633,10 +679,12 @@ class _RtfParser:
         for row in rows:
             row.extend([""] * (max_cols - len(row)))
         self.tables.append(
-            RtfTable(
-                data=rows,
-                table_index=idx,
-                page_number=_get_page_for_position(start_pos, page_breaks),
+            Table(
+                rows=cast(Any, rows),
+                properties={
+                    "rtf.index": idx,
+                    "rtf.page_number": _get_page_for_position(start_pos, page_breaks),
+                },
             )
         )
 
@@ -657,7 +705,13 @@ class _RtfParser:
         for idx, match in enumerate(_RE_FOOTNOTE.finditer(text), 1):
             footnote_text = self._strip_rtf_simple(match.group(1)).strip()
             if footnote_text:
-                self.footnotes.append(RtfFootnote(id=idx, text=footnote_text))
+                self.footnotes.append(
+                    Annotation(
+                        kind="footnote",
+                        text=footnote_text,
+                        properties={"rtf.id": idx},
+                    )
+                )
 
     def _remove_ignorable_groups(self, text: str) -> str:
         """Remove ignorable/binary groups for simple text extraction."""
@@ -860,12 +914,12 @@ class _RtfParser:
 
 def read_rtf(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[RtfParserOutput, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Extract content from an RTF file.
 
     Uses a generator pattern for API consistency. RTF files yield exactly one
-    RtfParserOutput object containing text, pages, metadata, and document elements.
+    canonical extraction result containing text, metadata, and document elements.
 
     Args:
         ignore_images: If True, skip image extraction (not applicable for this format).
@@ -876,7 +930,10 @@ def read_rtf(
 
         parser = _RtfParser(data)
         content = parser.parse()
-        content.metadata.populate_from_path(path)
+        content.source = source_metadata(path)
+        if ignore_images:
+            for unit in content.units:
+                unit.images.clear()
 
         yield content
     except ExtractionError:

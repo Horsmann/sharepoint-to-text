@@ -30,10 +30,10 @@ For upgrade instructions, see
   `read_bytes`, and `read_many`.
 - Add `--zip-bomb-limit-multiplier` to uniformly relax or disable CLI ZIP-bomb
   limits for trusted input.
-- Add `--include-binary` as the accurately named CLI option for image and
-  attachment payloads while retaining `--include-images` as an alias.
+- Add `--include-binary` as the CLI option for image and attachment payloads.
 
 ### Removed
+- Remove the former `--include-images` CLI option.
 - Remove the format-specific result types, direct format-reader exports,
   conversion adapters, class-name-based serialization, and their module paths.
 - Remove the process-wide `get_zip_bomb_limits`, `set_zip_bomb_limits`, and

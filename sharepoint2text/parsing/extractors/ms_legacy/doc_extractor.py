@@ -115,6 +115,7 @@ import logging
 import re
 import struct
 import zipfile
+from dataclasses import dataclass, field
 from typing import Any, Generator, List, Optional
 
 import olefile  # type: ignore[import-untyped]
@@ -124,15 +125,165 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFileEncryptedError,
     ExtractionLegacyMicrosoftParsingError,
 )
-from sharepoint2text.parsing.extractors._records import (
-    DocImage,
-    DocMetadata,
-    DocParserOutput,
-    DocxParserOutput,
-)
+from sharepoint2text.parsing.extractors._model import source_metadata
 from sharepoint2text.parsing.extractors.ms_modern.docx_extractor import read_docx
+from sharepoint2text.parsing.models import (
+    Annotation,
+    ContentUnit,
+    DocumentMetadata,
+    ExtractedDocument,
+    ImageAsset,
+    JsonValue,
+    Table,
+)
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _DocContent:
+    """Store transient binary Word content before canonical assembly."""
+
+    main_text: str = ""
+    footnotes: str = ""
+    headers_footers: str = ""
+    annotations: str = ""
+    images: list[ImageAsset] = field(default_factory=list)
+    tables: list[Table] = field(default_factory=list)
+    metadata: DocumentMetadata = field(default_factory=DocumentMetadata)
+
+
+def _legacy_heading_level(line: str) -> int | None:
+    """Return the inferred structural level for a legacy Word text line."""
+    lowered = line.strip().lower()
+    if not lowered:
+        return None
+    if (
+        lowered.startswith(("title", "titel"))
+        or lowered.endswith(" title")
+        or lowered.endswith(" titel")
+    ):
+        return 0
+    if lowered.startswith(("sub-section", "subsection")):
+        return 3
+    if lowered.startswith("section"):
+        return 2
+    if lowered.startswith("chapter") or lowered == "intro":
+        return 1
+    return None
+
+
+class _DocUnitAssembler:
+    """Group flattened legacy Word content into canonical heading units."""
+
+    def __init__(self, document: _DocContent) -> None:
+        self.document = document
+        self.table_index = 0
+        self.pending_tables: list[Table] = []
+        self.heading_stack: list[tuple[int, str]] = []
+        self.current_level: int | None = None
+        self.current_path: list[str] = []
+        self.current_lines: list[str] = []
+        self.current_tables: list[Table] = []
+        self.units: list[ContentUnit] = []
+
+    def consume_table(self, line: str) -> bool:
+        """Consume a flattened table line when it matches the next table."""
+        if self.table_index >= len(self.document.tables):
+            return False
+        tokens = [token for token in line.split() if token]
+        flat = [
+            cell for row in self.document.tables[self.table_index].rows for cell in row
+        ]
+        if not tokens or tokens != flat:
+            return False
+        self.pending_tables.append(self.document.tables[self.table_index])
+        self.table_index += 1
+        return True
+
+    def flush(self) -> None:
+        """Append the current non-empty section to the unit list."""
+        text = "\n".join(line for line in self.current_lines if line).strip()
+        if text or self.current_tables:
+            properties: dict[str, JsonValue] = {}
+            if self.current_level is not None:
+                properties["doc.heading_level"] = self.current_level
+            self.units.append(
+                ContentUnit(
+                    number=len(self.units) + 1,
+                    kind="section",
+                    text=text,
+                    title=self.current_path[-1] if self.current_path else None,
+                    heading_path=list(self.current_path),
+                    tables=list(self.current_tables),
+                    properties=properties,
+                )
+            )
+        self.current_lines = []
+        self.current_tables = []
+
+    def start_heading(self, line: str, level: int) -> None:
+        """Start a section for one inferred heading line."""
+        self.flush()
+        while self.heading_stack and self.heading_stack[-1][0] >= level:
+            self.heading_stack.pop()
+        self.heading_stack.append((level, line.strip()))
+        self.current_level = level
+        self.current_path = [text for _, text in self.heading_stack if text]
+        if self.pending_tables:
+            self.current_tables.extend(self.pending_tables)
+            self.pending_tables = []
+
+    def finish(self) -> list[ContentUnit]:
+        """Flush remaining content and assign unanchored images."""
+        self.current_tables.extend(self.pending_tables)
+        self.pending_tables = []
+        self.flush()
+        for image in self.document.images:
+            owner = next(
+                (
+                    unit
+                    for unit in reversed(self.units)
+                    if unit.properties.get("doc.heading_level") == 1
+                ),
+                self.units[-1],
+            )
+            image.properties["doc.unit_number"] = owner.number
+            owner.images.append(image)
+        return self.units
+
+
+def _build_doc_units(document: _DocContent) -> list[ContentUnit]:
+    """Build canonical sections while retaining legacy heading grouping."""
+    assembler = _DocUnitAssembler(document)
+    found_heading = False
+    for raw_line in document.main_text.splitlines():
+        line = raw_line.rstrip()
+        if assembler.consume_table(line):
+            continue
+        level = _legacy_heading_level(line)
+        if level is not None:
+            found_heading = True
+            assembler.start_heading(line, level)
+        elif line.strip():
+            assembler.current_lines.append(line.strip())
+    if found_heading:
+        return assembler.finish()
+
+    text = document.main_text.strip()
+    for image in document.images:
+        image.properties["doc.unit_number"] = 1
+    return [
+        ContentUnit(
+            number=1,
+            kind="document",
+            text=text,
+            title=document.metadata.title,
+            images=document.images,
+            tables=document.tables,
+        )
+    ]
+
 
 # =============================================================================
 # FIB (File Information Block) Constants
@@ -209,7 +360,7 @@ def _is_docx_package(file_like: io.BytesIO) -> bool:
 
 def read_doc(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[DocParserOutput | DocxParserOutput, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Extract content from a Word document carrying a legacy .doc extension.
 
@@ -225,17 +376,17 @@ def read_doc(
             The stream position is reset to the beginning before reading.
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
-            returned DocParserOutput.metadata. Useful for batch processing.
+            returned document source metadata. Useful for batch processing.
         ignore_images: If True, skip image extraction.
 
     Yields:
-        DocParserOutput | DocxParserOutput: A single format-appropriate object.
+        ExtractedDocument: A single canonical document.
             Legacy DOC output contains:
             - main_text: Primary document body text
             - footnotes: Footnote text (if any)
             - headers_footers: Header and footer text (if any)
             - annotations: Comment/annotation text (if any)
-            - metadata: DocMetadata with title, author, dates, counts
+            - metadata: canonical title, author, dates, and counts
 
     Raises:
         LegacyMicrosoftParsingError: For various parsing failures:
@@ -271,16 +422,34 @@ def read_doc(
         with _DocReader(file_like, ignore_images=ignore_images) as doc:
             document = doc.read()
             document.metadata = doc.get_metadata()
-            document.metadata.populate_from_path(path)
 
             text_len = len(document.main_text)
             logger.debug(
                 "Extracted DOC: characters=%d, words=%d",
                 text_len,
-                document.metadata.num_words or len(document.main_text.split()),
+                document.metadata.properties.get("doc.num_words")
+                or len(document.main_text.split()),
             )
-
-            yield document
+            annotations = [
+                Annotation(kind=kind, text=text)
+                for kind, text in [
+                    ("footnote", document.footnotes),
+                    ("header_footer", document.headers_footers),
+                    ("comment", document.annotations),
+                ]
+                if text
+            ]
+            full_text = "\n".join(
+                part for part in (document.metadata.title, document.main_text) if part
+            ).strip()
+            yield ExtractedDocument(
+                format="doc",
+                source=source_metadata(path),
+                metadata=document.metadata,
+                units=_build_doc_units(document),
+                document_annotations=annotations,
+                properties={"document.full_text": full_text},
+            )
     except ExtractionError:
         raise
     except (OSError, struct.error, UnicodeDecodeError, ValueError) as exc:
@@ -308,7 +477,7 @@ class _DocReader:
     Attributes:
         file_like: Input BytesIO containing the DOC file
         ole: OleFileIO instance for container access
-        _content: Cached DocParserOutput after first parse
+        _content: Cached transient decoded content after first parse
         _is_unicode: Detected encoding (True=UTF-16LE, False=CP1252)
         _text_start: Detected offset where text begins in stream
 
@@ -328,7 +497,7 @@ class _DocReader:
         """
         self.file_like = file_like
         self.ole = None
-        self._content: Optional[DocParserOutput] = None
+        self._content: _DocContent | None = None
         self._is_unicode: Optional[bool] = None
         self._text_start: Optional[int] = None
         self._ignore_images = ignore_images
@@ -373,7 +542,7 @@ class _DocReader:
         return bmp_header + dib_data
 
     @staticmethod
-    def _extract_images_from_word_document(word_doc: bytes) -> List[DocImage]:
+    def _extract_images_from_word_document(word_doc: bytes) -> list[ImageAsset]:
         """
         Extract embedded images from the WordDocument stream.
 
@@ -387,7 +556,7 @@ class _DocReader:
           reflect scaling applied in the document.
         - Duplicates are removed by content hash and low-entropy filtering.
         """
-        images: List[DocImage] = []
+        images: list[ImageAsset] = []
         seen_hashes: set[str] = set()
         image_counter = 0
 
@@ -462,26 +631,26 @@ class _DocReader:
             seen_hashes.add(digest)
             image_counter += 1
             images.append(
-                DocImage(
-                    image_index=image_counter,
-                    content_type="image/bmp",
-                    data=io.BytesIO(bmp_data) if bmp_data else None,
-                    size_bytes=len(bmp_data),
+                ImageAsset(
+                    number=image_counter,
+                    media_type="image/bmp",
+                    data=bmp_data or None,
                     width=abs_width,
                     height=abs_height,
+                    properties={"doc.size_bytes": len(bmp_data)},
                 )
             )
             i += dib_len
 
         images = _DocReader._filter_low_entropy_images(images)
         for idx, image in enumerate(images, start=1):
-            image.image_index = idx
+            image.number = idx
         return images
 
     @staticmethod
-    def _extract_png_images_from_bytes(data: bytes) -> List[DocImage]:
+    def _extract_png_images_from_bytes(data: bytes) -> list[ImageAsset]:
         signature = b"\x89PNG\r\n\x1a\n"
-        images: List[DocImage] = []
+        images: list[ImageAsset] = []
         seen_hashes: set[str] = set()
         image_counter = 0
 
@@ -521,13 +690,13 @@ class _DocReader:
                             seen_hashes.add(digest)
                             image_counter += 1
                             images.append(
-                                DocImage(
-                                    image_index=image_counter,
-                                    content_type="image/png",
-                                    data=io.BytesIO(png_bytes) if png_bytes else None,
-                                    size_bytes=len(png_bytes),
+                                ImageAsset(
+                                    number=image_counter,
+                                    media_type="image/png",
+                                    data=png_bytes or None,
                                     width=width,
                                     height=height,
+                                    properties={"doc.size_bytes": len(png_bytes)},
                                 )
                             )
                         break
@@ -539,9 +708,9 @@ class _DocReader:
         return images
 
     @staticmethod
-    def _extract_simple_tables_from_text(text: str) -> List[List[List[str]]]:
+    def _extract_simple_tables_from_text(text: str) -> list[Table]:
         """Best-effort table extraction from flattened legacy DOC text."""
-        tables: List[List[List[str]]] = []
+        tables: list[Table] = []
         for line in (text or "").splitlines():
             tokens = [t for t in line.split() if t]
             if len(tokens) < 4 or len(tokens) % 2 != 0:
@@ -555,11 +724,11 @@ class _DocReader:
                 continue
             if not all(re.fullmatch(r"\d+(?:[.,]\d+)?", v) for v in values):
                 continue
-            tables.append([headers, values])
+            tables.append(Table(rows=[list(headers), list(values)]))
         return tables
 
     @staticmethod
-    def _filter_low_entropy_images(images: List[DocImage]) -> List[DocImage]:
+    def _filter_low_entropy_images(images: list[ImageAsset]) -> list[ImageAsset]:
         """Filter likely mask/placeholder bitmaps when duplicates exist.
 
         Assumptions/limits:
@@ -570,14 +739,16 @@ class _DocReader:
         if len(images) < 2:
             return images
 
-        grouped: dict[tuple[Optional[int], Optional[int], int, str], List[DocImage]] = (
-            {}
-        )
+        grouped: dict[
+            tuple[int | None, int | None, int, str | None], list[ImageAsset]
+        ] = {}
         for image in images:
-            key = (image.width, image.height, image.size_bytes, image.content_type)
+            raw_size = image.properties.get("doc.size_bytes", 0)
+            size_bytes = raw_size if isinstance(raw_size, int) else 0
+            key = (image.width, image.height, size_bytes, image.media_type)
             grouped.setdefault(key, []).append(image)
 
-        filtered: List[DocImage] = []
+        filtered: list[ImageAsset] = []
         for group in grouped.values():
             if len(group) == 1:
                 filtered.extend(group)
@@ -585,8 +756,7 @@ class _DocReader:
 
             diversities = []
             for image in group:
-                data_bytes = image.data.read() if image.data else b""
-                image.data.seek(0) if image.data else None
+                data_bytes = image.data or b""
                 payload = (
                     data_bytes[54:]
                     if data_bytes.startswith(b"BM") and len(data_bytes) > 54
@@ -640,7 +810,7 @@ class _DocReader:
                 captions.append(cleaned)
         return captions
 
-    def _parse_content(self) -> DocParserOutput:
+    def _parse_content(self) -> _DocContent:
         """
         Parse the WordDocument stream and extract all text content.
 
@@ -648,7 +818,7 @@ class _DocReader:
         validates the file format, and extracts text from all regions.
 
         Returns:
-            DocParserOutput: Populated dataclass with main_text, footnotes,
+            Decoded content with main text, footnotes,
                 headers_footers, and annotations.
 
         Raises:
@@ -721,7 +891,7 @@ class _DocReader:
         atn_data = word_doc[pos : pos + ccp_atn * mult] if ccp_atn > 0 else b""
 
         if self._ignore_images:
-            images: List[DocImage] = []
+            images: list[ImageAsset] = []
         else:
             images = self._extract_images_from_word_document(word_doc)
             table_stream = self._get_stream("1Table") or self._get_stream("0Table")
@@ -730,11 +900,10 @@ class _DocReader:
                 images.extend(self._extract_png_images_from_bytes(table_stream))
 
             # De-duplicate across sources and normalize indices.
-            dedup: List[DocImage] = []
+            dedup: list[ImageAsset] = []
             seen_hashes: set[str] = set()
             for image in images:
-                data_bytes = image.data.read() if image.data else b""
-                image.data.seek(0) if image.data else None
+                data_bytes = image.data or b""
                 digest = hashlib.sha256(data_bytes).hexdigest() if data_bytes else ""
                 if digest and digest in seen_hashes:
                     continue
@@ -743,7 +912,7 @@ class _DocReader:
                 dedup.append(image)
             images = dedup
             for idx, image in enumerate(images, start=1):
-                image.image_number = idx
+                image.number = idx
 
         main_text = self._clean_text(main_data.decode(encoding, errors="replace"))
         footnotes_text = (
@@ -773,7 +942,7 @@ class _DocReader:
 
         tables = self._extract_simple_tables_from_text(main_text)
 
-        self._content = DocParserOutput(
+        self._content = _DocContent(
             main_text=main_text,
             footnotes=footnotes_text,
             headers_footers=headers_text,
@@ -784,7 +953,7 @@ class _DocReader:
 
         return self._content
 
-    def read(self) -> DocParserOutput:
+    def read(self) -> _DocContent:
         """
         Extract and return all text content from the document.
 
@@ -792,7 +961,7 @@ class _DocReader:
         (if not already done) and returns the complete content.
 
         Returns:
-            DocParserOutput: Dataclass with all extracted text regions.
+            Decoded content with all extracted text regions.
         """
         return self._parse_content()
 
@@ -828,8 +997,8 @@ class _DocReader:
         """
         return self._parse_content().annotations
 
-    def get_all_parts(self) -> DocParserOutput:
-        """Get all document parts as a DocParserOutput dataclass.
+    def get_all_parts(self) -> _DocContent:
+        """Get all decoded document parts.
 
         Returns:
             Structured legacy Word result containing every decoded text part.
@@ -932,7 +1101,7 @@ class _DocReader:
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
 
-    def get_metadata(self) -> DocMetadata:
+    def get_metadata(self) -> DocumentMetadata:
         """
         Extract document metadata from OLE SummaryInformation stream.
 
@@ -940,19 +1109,19 @@ class _DocReader:
         document properties stored in the OLE container.
 
         Returns:
-            DocMetadata: Populated metadata including:
+            DocumentMetadata: Populated metadata including:
                 - title, author, subject, keywords
                 - last_saved_by, create_time, last_saved_time
                 - num_pages, num_words, num_chars
 
         Notes:
-            - Returns empty DocMetadata if OLE is not open or extraction fails
+            - Returns empty metadata if OLE is not open or extraction fails
             - Dates are converted to ISO format strings
             - Text fields are decoded from bytes as UTF-8
             - Failures are logged at debug level but don't raise exceptions
         """
         if not self.ole:
-            return DocMetadata()
+            return DocumentMetadata()
         try:
             m = self.ole.get_metadata()
 
@@ -961,25 +1130,32 @@ class _DocReader:
                     return val.decode("utf-8", errors="replace")
                 return str(val) if val else ""
 
-            return DocMetadata(
+            properties: dict[str, JsonValue] = {
+                "doc.last_saved_by": decode(m.last_saved_by),
+                "doc.num_pages": m.num_pages,
+                "doc.num_words": m.num_words,
+                "doc.num_chars": m.num_chars,
+            }
+            return DocumentMetadata(
                 title=decode(m.title),
                 author=decode(m.author),
                 subject=decode(m.subject),
-                keywords=decode(m.keywords),
-                last_saved_by=decode(m.last_saved_by),
-                create_time=(
+                keywords=[
+                    value.strip()
+                    for value in decode(m.keywords).split(",")
+                    if value.strip()
+                ],
+                created=(
                     m.create_time.isoformat()
                     if isinstance(m.create_time, datetime.datetime)
                     else ""
                 ),
-                last_saved_time=(
+                modified=(
                     m.last_saved_time.isoformat()
                     if isinstance(m.last_saved_time, datetime.datetime)
                     else ""
                 ),
-                num_pages=m.num_pages,
-                num_words=m.num_words,
-                num_chars=m.num_chars,
+                properties=properties,
             )
         except (
             OSError,
@@ -989,4 +1165,4 @@ class _DocReader:
             ValueError,
         ) as e:
             logger.debug("Failed to extract DOC metadata: %s", e)
-            return DocMetadata()
+            return DocumentMetadata()

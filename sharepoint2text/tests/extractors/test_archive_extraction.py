@@ -14,12 +14,9 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFileTooLargeError,
     ExtractionZipBombError,
 )
-from sharepoint2text.parsing.extractors._records import (
-    EpubParserOutput,
-    PlainTextParserOutput,
-)
 from sharepoint2text.parsing.extractors.archive_extractor import read_archive
 from sharepoint2text.parsing.extractors.util.sevenzip import FileInfo
+from sharepoint2text.parsing.models import ExtractedDocument
 from sharepoint2text.tests.extractors.utils import (
     read_file_to_file_like,
     tar_bytes_to_file_like,
@@ -39,18 +36,18 @@ def test_read_zip_archive_1() -> None:
     # Should extract 2 text files from the archive
     tc.assertEqual(2, len(results))
 
-    # All results should be PlainTextParserOutput
+    # All results should be ExtractedDocument
     for result in results:
-        tc.assertIsInstance(result, PlainTextParserOutput)
+        tc.assertIsInstance(result, ExtractedDocument)
 
     # Check that we got the expected content
-    texts = [r.get_full_text() for r in results]
+    texts = [r.full_text for r in results]
     tc.assertTrue(any("This is a test document" in t for t in texts))
     tc.assertTrue(any("Another file in the archive" in t for t in texts))
 
     # Check that metadata includes archive path
     for result in results:
-        tc.assertIn("test_archive.zip!/", result.get_metadata().file_path or "")
+        tc.assertIn("test_archive.zip!/", result.source.path or "")
 
 
 def test_read_zip_archive_2() -> None:
@@ -60,8 +57,8 @@ def test_read_zip_archive_2() -> None:
     path = "sharepoint2text/tests/resources/archives/sample.zip"
     results = list(read_archive(file_like=read_file_to_file_like(path=path), path=path))
     tc.assertEqual(2, len(results))
-    tc.assertTrue(isinstance(results[0], PlainTextParserOutput))
-    tc.assertTrue(isinstance(results[1], EpubParserOutput))
+    tc.assertTrue(isinstance(results[0], ExtractedDocument))
+    tc.assertTrue(isinstance(results[1], ExtractedDocument))
 
 
 def test_read_zip_archive_rejects_zip_bomb_ratio() -> None:
@@ -88,12 +85,12 @@ def test_read_tar_archive() -> None:
     # Should extract 2 text files from the archive
     tc.assertEqual(2, len(results))
 
-    # All results should be PlainTextParserOutput
+    # All results should be ExtractedDocument
     for result in results:
-        tc.assertIsInstance(result, PlainTextParserOutput)
+        tc.assertIsInstance(result, ExtractedDocument)
 
     # Check that we got the expected content
-    texts = [r.get_full_text() for r in results]
+    texts = [r.full_text for r in results]
     tc.assertTrue(any("This is a test document" in t for t in texts))
     tc.assertTrue(any("Another file in the tar archive" in t for t in texts))
 
@@ -141,8 +138,8 @@ def test_read_7zip_archive() -> None:
     results = list(read_archive(file_like=read_file_to_file_like(path=path), path=path))
 
     tc.assertEqual(2, len(results))
-    tc.assertTrue(isinstance(results[0], PlainTextParserOutput))
-    tc.assertTrue(isinstance(results[1], EpubParserOutput))
+    tc.assertTrue(isinstance(results[0], ExtractedDocument))
+    tc.assertTrue(isinstance(results[1], ExtractedDocument))
 
 
 def test_7zip_file_size_limit() -> None:
@@ -197,8 +194,8 @@ def test_read_tar_gz_archive() -> None:
     tc.assertEqual(1, len(results))
 
     result = results[0]
-    tc.assertIsInstance(result, PlainTextParserOutput)
-    tc.assertIn("This is a test document", result.get_full_text())
+    tc.assertIsInstance(result, ExtractedDocument)
+    tc.assertIn("This is a test document", result.full_text)
 
 
 def test_tar_member_is_not_subject_to_legacy_fifty_megabyte_cap(
@@ -216,7 +213,7 @@ def test_tar_member_is_not_subject_to_legacy_fifty_megabyte_cap(
     results = list(read_archive(tar_buffer, path="complete.tar"))
 
     tc.assertEqual(1, len(results))
-    tc.assertEqual("complete content", results[0].get_full_text())
+    tc.assertEqual("complete content", results[0].full_text)
 
 
 def test_archived_email_honors_include_attachments_false() -> None:
@@ -259,7 +256,7 @@ def test_archive_skips_nested_archives() -> None:
 
     # Should only extract the outer.txt, not the nested.zip
     tc.assertEqual(1, len(results))
-    tc.assertIn("outer content", results[0].get_full_text())
+    tc.assertIn("outer content", results[0].full_text)
 
 
 def test_archive_skips_hidden_files() -> None:
@@ -276,7 +273,7 @@ def test_archive_skips_hidden_files() -> None:
 
     # Should only extract visible.txt
     tc.assertEqual(1, len(results))
-    tc.assertIn("visible content", results[0].get_full_text())
+    tc.assertIn("visible content", results[0].full_text)
 
 
 def test_archive_skips_zip_symbolic_links() -> None:
@@ -293,7 +290,7 @@ def test_archive_skips_zip_symbolic_links() -> None:
     results = list(read_archive(zip_buffer, path="symlinks.zip"))
 
     tc.assertEqual(1, len(results))
-    tc.assertIn("visible content", results[0].get_full_text())
+    tc.assertIn("visible content", results[0].full_text)
 
 
 def test_archive_skips_tar_symbolic_links() -> None:
@@ -314,7 +311,7 @@ def test_archive_skips_tar_symbolic_links() -> None:
     results = list(read_archive(tar_buffer, path="symlinks.tar"))
 
     tc.assertEqual(1, len(results))
-    tc.assertIn("visible content", results[0].get_full_text())
+    tc.assertIn("visible content", results[0].full_text)
 
 
 def test_archive_skips_images() -> None:
@@ -326,10 +323,10 @@ def test_archive_skips_images() -> None:
         )
     )
     tc.assertEqual(2, len(results))
-    tc.assertEqual("#\nApache sample", results[0].get_full_text())
-    tc.assertEqual("Hello World", results[1].get_full_text())
-    tc.assertEqual([], list(results[0].iterate_images()))
-    tc.assertEqual([], list(results[1].iterate_images()))
+    tc.assertEqual("#\nApache sample", results[0].full_text)
+    tc.assertEqual("Hello World", results[1].full_text)
+    tc.assertEqual([], list(results[0].iter_images()))
+    tc.assertEqual([], list(results[1].iter_images()))
 
     path = "sharepoint2text/tests/resources/archives/with_images.zip"
     results = list(
@@ -338,8 +335,8 @@ def test_archive_skips_images() -> None:
         )
     )
     tc.assertEqual(2, len(results))
-    tc.assertEqual(1, len(list(results[0].iterate_images())))
-    tc.assertEqual(1, len(list(results[1].iterate_images())))
+    tc.assertEqual(1, len(list(results[0].iter_images())))
+    tc.assertEqual(1, len(list(results[1].iter_images())))
 
 
 def test_archive_spools_large_entry_instead_of_skipping(monkeypatch: Any) -> None:
@@ -396,8 +393,8 @@ def test_archive_spools_large_entry_instead_of_skipping(monkeypatch: Any) -> Non
         )
 
     tc.assertEqual(1, len(results))
-    tc.assertIsInstance(results[0], PlainTextParserOutput)
-    tc.assertIn("Line 0", results[0].get_full_text())
+    tc.assertIsInstance(results[0], ExtractedDocument)
+    tc.assertIn("Line 0", results[0].full_text)
     tc.assertTrue(any(rolled_states))
 
 
@@ -453,7 +450,7 @@ def test_archive_skips_7z_symbolic_links(monkeypatch: Any) -> None:
     results = list(read_archive(seven_zip_buffer, path="symlinks.7z"))
 
     tc.assertEqual(1, len(results))
-    tc.assertIn("visible content", results[0].get_full_text())
+    tc.assertIn("visible content", results[0].full_text)
 
 
 # =============================================================================
@@ -528,7 +525,7 @@ def test_zip_archive_skips_path_traversal_entries() -> None:
 
     # Only the safe file should be extracted
     tc.assertEqual(1, len(results))
-    tc.assertIn("safe content", results[0].get_full_text())
+    tc.assertIn("safe content", results[0].full_text)
 
 
 def test_zip_archive_skips_absolute_path_entries() -> None:
@@ -546,7 +543,7 @@ def test_zip_archive_skips_absolute_path_entries() -> None:
 
     # Only the safe file should be extracted
     tc.assertEqual(1, len(results))
-    tc.assertIn("normal content", results[0].get_full_text())
+    tc.assertIn("normal content", results[0].full_text)
 
 
 def test_tar_archive_skips_path_traversal_entries() -> None:
@@ -576,7 +573,7 @@ def test_tar_archive_skips_path_traversal_entries() -> None:
 
     # Only the safe file should be extracted
     tc.assertEqual(1, len(results))
-    tc.assertIn("safe content", results[0].get_full_text())
+    tc.assertIn("safe content", results[0].full_text)
 
 
 def test_tar_archive_skips_absolute_path_entries() -> None:
@@ -600,7 +597,7 @@ def test_tar_archive_skips_absolute_path_entries() -> None:
 
     # Only the safe file should be extracted
     tc.assertEqual(1, len(results))
-    tc.assertIn("normal content", results[0].get_full_text())
+    tc.assertIn("normal content", results[0].full_text)
 
 
 def test_tar_gz_archive_skips_path_traversal() -> None:
@@ -623,7 +620,7 @@ def test_tar_gz_archive_skips_path_traversal() -> None:
     results = list(read_archive(tar_buffer, path="traversal.tar.gz"))
 
     tc.assertEqual(1, len(results))
-    tc.assertIn("safe compressed content", results[0].get_full_text())
+    tc.assertIn("safe compressed content", results[0].full_text)
 
 
 def test_archive_path_traversal_logs_warning(caplog: Any) -> None:
@@ -708,7 +705,7 @@ def test_7z_archive_skips_path_traversal_entries(monkeypatch: Any) -> None:
     results = list(read_archive(seven_zip_buffer, path="traversal.7z"))
 
     tc.assertEqual(1, len(results))
-    tc.assertIn("safe content", results[0].get_full_text())
+    tc.assertIn("safe content", results[0].full_text)
 
 
 def test_sevenzip_safe_join_rejects_traversal() -> None:

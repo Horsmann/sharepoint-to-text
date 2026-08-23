@@ -16,15 +16,13 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Callable, Generator, Iterator, TypeVar
 
-from sharepoint2text.parsing._normalization import (
-    _normalize_record,
-)
 from sharepoint2text.parsing.exceptions import (
     ExtractionError,
     ExtractionFailedError,
     ExtractionFileFormatNotSupportedError,
     ExtractionFileTooLargeError,
 )
+from sharepoint2text.parsing.extractors._model import omit_image_data
 from sharepoint2text.parsing.extractors.util.zip_bomb import (
     ZipBombLimits,
     _validate_zip_bomb_limits,
@@ -624,7 +622,7 @@ def _iter_file(
             documents_extracted = 0
             for result in _iterate_with_zip_bomb_limits(records, zip_bomb_limits):
                 documents_extracted += 1
-                yield _normalize_record(result, include_image_data=include_image_data)
+                yield result if include_image_data else omit_image_data(result)
             logger.debug(
                 "Extracted file: %s (%d document%s)",
                 path,
@@ -844,7 +842,7 @@ def _iter_bytes(
         documents_extracted = 0
         for result in _iterate_with_zip_bomb_limits(records, zip_bomb_limits):
             documents_extracted += 1
-            yield _normalize_record(result, include_image_data=include_image_data)
+            yield result if include_image_data else omit_image_data(result)
         logger.debug(
             "Extracted in-memory file: %s (%d document%s)",
             plan.virtual_path,

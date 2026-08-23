@@ -1,10 +1,38 @@
 from __future__ import annotations
 
 import mimetypes
+import re
 from functools import lru_cache
 
 from sharepoint2text.parsing import _defused_xml as ET
-from sharepoint2text.parsing.extractors._records import OpenDocumentMetadata
+from sharepoint2text.parsing.models import DocumentMetadata
+
+_ODF_LENGTH_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*([a-zA-Z]+)?\s*$")
+
+
+def odf_length_to_px(length: str | None) -> int | None:
+    """Convert an OpenDocument length to pixels at 96 DPI.
+
+    Args:
+        length: Numeric CSS-style length, or ``None``.
+
+    Returns:
+        Rounded pixel length for supported absolute units.
+    """
+    if not length or (match := _ODF_LENGTH_RE.match(length)) is None:
+        return None
+    value = float(match.group(1))
+    unit = (match.group(2) or "px").lower()
+    factors = {
+        "px": 1.0,
+        "in": 96.0,
+        "cm": 96.0 / 2.54,
+        "mm": 96.0 / 25.4,
+        "pt": 96.0 / 72.0,
+        "pc": 16.0,
+    }
+    factor = factors.get(unit)
+    return int(round(value * factor)) if factor is not None else None
 
 
 @lru_cache(maxsize=512)
@@ -22,7 +50,7 @@ def guess_content_type(path: str) -> str:
 
 def extract_odf_metadata(
     meta_root: ET.Element | None, ns: dict[str, str]
-) -> OpenDocumentMetadata:
+) -> DocumentMetadata:
     """Extract common document properties from OpenDocument metadata XML.
 
     Args:
@@ -32,7 +60,7 @@ def extract_odf_metadata(
     Returns:
         Common OpenDocument metadata fields.
     """
-    metadata = OpenDocumentMetadata()
+    metadata = DocumentMetadata()
     if meta_root is None:
         return metadata
 
@@ -46,7 +74,7 @@ def extract_odf_metadata(
 
     description = meta_elem.find("dc:description", ns)
     if description is not None and description.text:
-        metadata.description = description.text
+        metadata.subject = description.text
 
     subject = meta_elem.find("dc:subject", ns)
     if subject is not None and subject.text:
@@ -54,11 +82,11 @@ def extract_odf_metadata(
 
     creator = meta_elem.find("dc:creator", ns)
     if creator is not None and creator.text:
-        metadata.creator = creator.text
+        metadata.author = creator.text
 
     date = meta_elem.find("dc:date", ns)
     if date is not None and date.text:
-        metadata.date = date.text
+        metadata.modified = date.text
 
     language = meta_elem.find("dc:language", ns)
     if language is not None and language.text:
@@ -66,30 +94,34 @@ def extract_odf_metadata(
 
     keywords = meta_elem.find("meta:keyword", ns)
     if keywords is not None and keywords.text:
-        metadata.keywords = keywords.text
+        metadata.keywords = [
+            item.strip()
+            for item in keywords.text.replace(";", ",").split(",")
+            if item.strip()
+        ]
 
     initial_creator = meta_elem.find("meta:initial-creator", ns)
     if initial_creator is not None and initial_creator.text:
-        metadata.initial_creator = initial_creator.text
+        metadata.properties["odf.initial_creator"] = initial_creator.text
 
     creation_date = meta_elem.find("meta:creation-date", ns)
     if creation_date is not None and creation_date.text:
-        metadata.creation_date = creation_date.text
+        metadata.created = creation_date.text
 
     editing_cycles = meta_elem.find("meta:editing-cycles", ns)
     if editing_cycles is not None and editing_cycles.text:
         try:
-            metadata.editing_cycles = int(editing_cycles.text)
+            metadata.properties["odf.editing_cycles"] = int(editing_cycles.text)
         except ValueError:
             pass
 
     editing_duration = meta_elem.find("meta:editing-duration", ns)
     if editing_duration is not None and editing_duration.text:
-        metadata.editing_duration = editing_duration.text
+        metadata.properties["odf.editing_duration"] = editing_duration.text
 
     generator = meta_elem.find("meta:generator", ns)
     if generator is not None and generator.text:
-        metadata.generator = generator.text
+        metadata.properties["odf.generator"] = generator.text
 
     return metadata
 

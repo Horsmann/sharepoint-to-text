@@ -32,7 +32,7 @@ Extracted Content
 -----------------
 The extractor produces:
     - content: Full text content as a single string (decoded using detected encoding)
-    - metadata: SourceRecord with file information including detected_encoding
+    - source: Canonical file information including detected encoding
 
 The content is returned as-is without modification, preserving:
     - Line endings (\\n, \\r\\n, \\r)
@@ -67,22 +67,21 @@ Maintenance Notes
 -----------------
 - Uses charset_normalizer for encoding detection
 - Falls back to UTF-8 with errors="replace" if detection fails
-- SourceRecord provides basic file info population
+- Source metadata provides basic file identity
 - Generator pattern for API consistency with other extractors
 - Content returned unmodified (no stripping or normalization)
 """
 
 import io
 import logging
+from pathlib import Path
 from typing import Any, Generator
 
 from charset_normalizer import from_bytes
 
 from sharepoint2text.parsing.exceptions import ExtractionError, ExtractionFailedError
-from sharepoint2text.parsing.extractors._records import (
-    PlainTextParserOutput,
-    SourceRecord,
-)
+from sharepoint2text.parsing.extractors._model import source_metadata
+from sharepoint2text.parsing.models import ContentUnit, ExtractedDocument
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +131,7 @@ def _detect_and_decode(content: bytes) -> tuple[str, str]:
 
 def read_plain_text(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[PlainTextParserOutput, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Extract content from a plain text file with automatic encoding detection.
 
@@ -149,13 +148,13 @@ def read_plain_text(
             Can contain either bytes or str (bytes is typical).
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
-            returned PlainTextParserOutput.metadata.
+            returned document source metadata.
         ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
-        PlainTextParserOutput: Single PlainTextParserOutput object containing:
+        ExtractedDocument: Single canonical document containing:
             - content: Full text content as a string
-            - metadata: SourceRecord with file information and
+            - source: canonical file information and
               detected_encoding field
 
     Note:
@@ -184,11 +183,12 @@ def read_plain_text(
             text = content
             detected_encoding = "utf-8"  # Already a string, assume UTF-8
 
-        metadata = SourceRecord()
-        metadata.populate_from_path(path)
-        metadata.detected_encoding = detected_encoding
-
-        yield PlainTextParserOutput(content=text, metadata=metadata)
+        source_format = Path(path).suffix.lower().lstrip(".") if path else "txt"
+        yield ExtractedDocument(
+            format=source_format or "txt",
+            source=source_metadata(path, encoding=detected_encoding),
+            units=[ContentUnit(number=1, kind="document", text=text.strip())],
+        )
     except ExtractionError:
         raise
     except (OSError, UnicodeDecodeError, ValueError, TypeError) as exc:

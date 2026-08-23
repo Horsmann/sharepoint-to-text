@@ -24,18 +24,21 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
     ExtractionFileEncryptedError,
 )
-from sharepoint2text.parsing.extractors._records import (
-    OdgParserOutput,
-    OpenDocumentImage,
-    OpenDocumentMetadata,
-)
+from sharepoint2text.parsing.extractors._model import source_metadata
 from sharepoint2text.parsing.extractors.open_office._shared import (
     element_text,
     extract_odf_metadata,
     guess_content_type,
+    odf_length_to_px,
 )
 from sharepoint2text.parsing.extractors.util.encryption import is_odf_encrypted
 from sharepoint2text.parsing.extractors.util.zip_context import ZipContext
+from sharepoint2text.parsing.models import (
+    ContentUnit,
+    DocumentMetadata,
+    ExtractedDocument,
+    ImageAsset,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +87,7 @@ def _get_text_recursive(element: ET.Element) -> str:
     )
 
 
-def _extract_metadata(meta_root: ET.Element | None) -> OpenDocumentMetadata:
+def _extract_metadata(meta_root: ET.Element | None) -> DocumentMetadata:
     """Extract metadata from meta.xml."""
     return extract_odf_metadata(meta_root, NS)
 
@@ -99,10 +102,8 @@ def _extract_full_text(drawing_root: ET.Element) -> str:
     return "\n".join(lines).strip()
 
 
-def _extract_images(
-    ctx: ZipContext, drawing_root: ET.Element
-) -> list[OpenDocumentImage]:
-    images: list[OpenDocumentImage] = []
+def _extract_images(ctx: ZipContext, drawing_root: ET.Element) -> list[ImageAsset]:
+    images: list[ImageAsset] = []
     processed_hrefs: set[str] = set()
     image_counter = 0
 
@@ -135,15 +136,14 @@ def _extract_images(
         image_counter += 1
         if href.startswith("http"):
             images.append(
-                OpenDocumentImage(
-                    href=href,
-                    name=name or href,
-                    width=width,
-                    height=height,
-                    image_index=image_counter,
-                    caption=caption,
-                    description=description,
-                    unit_number=None,
+                ImageAsset(
+                    number=image_counter,
+                    filename=name or href,
+                    width=odf_length_to_px(width),
+                    height=odf_length_to_px(height),
+                    caption=caption or None,
+                    description=description or None,
+                    properties={"odg.href": href},
                 )
             )
             continue
@@ -152,43 +152,38 @@ def _extract_images(
             if ctx.exists(href):
                 img_data = ctx.read_bytes(href)
                 images.append(
-                    OpenDocumentImage(
-                        href=href,
-                        name=name or href.split("/")[-1],
-                        content_type=guess_content_type(href),
-                        data=io.BytesIO(img_data),
-                        size_bytes=len(img_data),
-                        width=width,
-                        height=height,
-                        image_index=image_counter,
-                        caption=caption,
-                        description=description,
-                        unit_number=None,
+                    ImageAsset(
+                        number=image_counter,
+                        filename=name or href.split("/")[-1],
+                        media_type=guess_content_type(href),
+                        data=img_data,
+                        width=odf_length_to_px(width),
+                        height=odf_length_to_px(height),
+                        caption=caption or None,
+                        description=description or None,
+                        properties={"odg.href": href, "odg.size_bytes": len(img_data)},
                     )
                 )
             else:
                 images.append(
-                    OpenDocumentImage(
-                        href=href,
-                        name=name or href,
-                        width=width,
-                        height=height,
-                        image_index=image_counter,
-                        caption=caption,
-                        description=description,
-                        unit_number=None,
+                    ImageAsset(
+                        number=image_counter,
+                        filename=name or href,
+                        width=odf_length_to_px(width),
+                        height=odf_length_to_px(height),
+                        caption=caption or None,
+                        description=description or None,
+                        properties={"odg.href": href},
                     )
                 )
         except (KeyError, OSError, ValueError) as exc:
             images.append(
-                OpenDocumentImage(
-                    href=href,
-                    name=name or href,
-                    error=str(exc),
-                    image_index=image_counter,
-                    caption=caption,
-                    description=description,
-                    unit_number=None,
+                ImageAsset(
+                    number=image_counter,
+                    filename=name or href,
+                    caption=caption or None,
+                    description=description or None,
+                    properties={"odg.href": href, "odg.error": str(exc)},
                 )
             )
 
@@ -197,7 +192,7 @@ def _extract_images(
 
 def read_odg(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[OdgParserOutput, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Extract text, metadata, and basic images from an ODG drawing file.
 
@@ -230,11 +225,22 @@ def read_odg(
         finally:
             ctx.close()
 
-        metadata.populate_from_path(path)
         logger.debug(
             "Extracted ODG: characters=%d, images=%d", len(full_text), len(images)
         )
-        yield OdgParserOutput(metadata=metadata, full_text=full_text, images=images)
+        yield ExtractedDocument(
+            format="odg",
+            source=source_metadata(path),
+            metadata=metadata,
+            units=[
+                ContentUnit(
+                    number=1,
+                    kind="document",
+                    text=full_text,
+                    images=images,
+                )
+            ],
+        )
     except ExtractionError:
         raise
     except (KeyError, ET.ParseError, OSError, ValueError) as exc:

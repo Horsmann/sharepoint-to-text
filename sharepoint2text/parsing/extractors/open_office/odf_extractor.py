@@ -26,16 +26,18 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
     ExtractionFileEncryptedError,
 )
-from sharepoint2text.parsing.extractors._records import (
-    OdfParserOutput,
-    OpenDocumentMetadata,
-)
+from sharepoint2text.parsing.extractors._model import source_metadata
 from sharepoint2text.parsing.extractors.open_office._shared import (
     element_text,
     extract_odf_metadata,
 )
 from sharepoint2text.parsing.extractors.util.encryption import is_odf_encrypted
 from sharepoint2text.parsing.extractors.util.zip_context import ZipContext
+from sharepoint2text.parsing.models import (
+    ContentUnit,
+    DocumentMetadata,
+    ExtractedDocument,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +78,7 @@ def _get_text_recursive(element: ET.Element) -> str:
     )
 
 
-def _extract_metadata(meta_root: ET.Element | None) -> OpenDocumentMetadata:
+def _extract_metadata(meta_root: ET.Element | None) -> DocumentMetadata:
     """Extract metadata from meta.xml."""
     return extract_odf_metadata(meta_root, NS)
 
@@ -235,7 +237,7 @@ def _extract_full_text(content_root: ET.Element) -> str:
 
 def read_odf(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[OdfParserOutput, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Extract text and metadata from an ODF formula file.
 
@@ -264,9 +266,13 @@ def read_odf(
         finally:
             ctx.close()
 
-        metadata.populate_from_path(path)
         logger.debug("Extracted ODF: characters=%d", len(full_text))
-        yield OdfParserOutput(metadata=metadata, full_text=full_text)
+        yield ExtractedDocument(
+            format="odf",
+            source=source_metadata(path),
+            metadata=metadata,
+            units=[ContentUnit(number=1, kind="document", text=full_text)],
+        )
     except ExtractionError:
         raise
     except (KeyError, ET.ParseError, OSError, ValueError) as exc:

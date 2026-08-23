@@ -30,16 +30,30 @@ def _table_markdown(table: Table) -> str:
 
 
 def _unit_heading(unit: ContentUnit, multiple_units: bool) -> str | None:
-    """Choose a concise Markdown heading for a structural unit."""
-    if unit.heading_path:
-        level = min(len(unit.heading_path) + 1, 6)
+    """Choose the v1-compatible Markdown heading for a canonical unit."""
+    if not multiple_units:
+        return None
+    heading_level = next(
+        (
+            value
+            for key, value in unit.properties.items()
+            if key.endswith((".heading_level", ".outline_level"))
+            and isinstance(value, int)
+        ),
+        None,
+    )
+    if unit.heading_path and heading_level:
+        level = min(heading_level + 1, 6)
         return f"{'#' * level} {unit.heading_path[-1]}"
+    if unit.kind == "sheet" and unit.title:
+        return f"## {unit.title}"
     if unit.title:
         return f"## {unit.title}"
-    if multiple_units:
-        label = unit.kind.capitalize()
-        return f"## {label} {unit.number}"
-    return None
+    if unit.kind == "slide":
+        return f"## Slide {unit.number}"
+    if unit.kind == "page":
+        return f"## Page {unit.number}"
+    return f"## Section {unit.number}"
 
 
 def _render_unit(unit: ContentUnit, multiple_units: bool) -> list[str]:
@@ -50,9 +64,6 @@ def _render_unit(unit: ContentUnit, multiple_units: bool) -> list[str]:
         parts.append(heading)
     if unit.text.strip():
         parts.append(unit.text.strip())
-    parts.extend(
-        rendered for table in unit.tables if (rendered := _table_markdown(table))
-    )
     return parts
 
 
@@ -78,9 +89,12 @@ def render_markdown(document: ExtractedDocument) -> str:
     parts = [
         part for unit in document.units for part in _render_unit(unit, multiple_units)
     ]
-    parts.extend(
+    rendered_tables = [
         rendered
-        for table in document.document_tables
+        for table in document.iter_tables()
         if (rendered := _table_markdown(table))
-    )
+    ]
+    if rendered_tables:
+        parts.append("## Tables")
+        parts.extend(rendered_tables)
     return "\n\n".join(parts).strip()

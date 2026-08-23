@@ -75,18 +75,15 @@ from typing import Any, Generator
 from mailparser import parse_from_bytes  # type: ignore[import-untyped]
 
 from sharepoint2text.parsing.exceptions import ExtractionError, ExtractionFailedError
-from sharepoint2text.parsing.extractors._records import (
-    EmailAddress,
-    EmailAttachment,
-    EmailMetadata,
-    EmailParserOutput,
-)
+from sharepoint2text.parsing.extractors._model import source_metadata
+from sharepoint2text.parsing.extractors.mail._model import Address, build_email_document
 from sharepoint2text.parsing.mime_types import is_supported_mime_type
+from sharepoint2text.parsing.models import Attachment, ExtractedDocument
 
 logger = logging.getLogger(__name__)
 
 
-def _to_email_address(raw: Any) -> EmailAddress | None:
+def _to_email_address(raw: Any) -> Address | None:
     """Best-effort conversion of a mailparser address value to EmailAddress."""
     if raw is None:
         return None
@@ -100,18 +97,18 @@ def _to_email_address(raw: Any) -> EmailAddress | None:
                 name, address = parsed_name.strip(), parsed_addr.strip()
         if not (name or address):
             return None
-        return EmailAddress(name=name, address=address)
+        return name, address
 
     text = str(raw).strip()
     if not text:
         return None
     parsed_name, parsed_addr = email.utils.parseaddr(text)
     if parsed_addr:
-        return EmailAddress(name=parsed_name.strip(), address=parsed_addr.strip())
-    return EmailAddress(name=text, address="")
+        return parsed_name.strip(), parsed_addr.strip()
+    return text, ""
 
 
-def _parse_mailparser_address_list(raw: Any) -> list[EmailAddress]:
+def _parse_mailparser_address_list(raw: Any) -> list[Address]:
     """Normalize mailparser address collections to List[EmailAddress]."""
     if not raw:
         return []
@@ -120,21 +117,21 @@ def _parse_mailparser_address_list(raw: Any) -> list[EmailAddress]:
         result = []
         for entry in raw:
             addr = _to_email_address(entry)
-            if addr is not None and (addr.name or addr.address):
+            if addr is not None and (addr[0] or addr[1]):
                 result.append(addr)
         return result
 
     addr = _to_email_address(raw)
-    if addr is None or not (addr.name or addr.address):
+    if addr is None or not (addr[0] or addr[1]):
         return []
     return [addr]
 
 
 def _read_eml_format(
     payload: bytes, *, include_attachments: bool = True
-) -> EmailParserOutput:
+) -> ExtractedDocument:
     """
-    Parse raw EML file bytes and construct an EmailParserOutput object.
+    Parse raw EML bytes and construct a canonical document.
 
     This internal function performs the actual parsing work using mailparser,
     extracting headers, addresses, and body content into a structured format.
@@ -144,7 +141,7 @@ def _read_eml_format(
             file contents, including all headers and body parts.
 
     Returns:
-        EmailParserOutput: Populated dataclass with all extracted email data.
+        Canonical document with all extracted email data.
 
     Implementation Notes:
         - mailparser.from_ is normalized to a best-effort EmailAddress
@@ -162,7 +159,7 @@ def _read_eml_format(
 
     # Extract sender address - tolerate missing/malformed values in real-world data.
     from_candidates = _parse_mailparser_address_list(getattr(mail, "from_", None))
-    from_email = from_candidates[0] if from_candidates else EmailAddress()
+    from_email = from_candidates[0] if from_candidates else ("", "")
 
     # Extract recipient lists with robust normalization.
     to_emails = _parse_mailparser_address_list(getattr(mail, "to", None))
@@ -177,11 +174,6 @@ def _read_eml_format(
             date_str = mail.date.isoformat()
         except AttributeError:
             date_str = str(mail.date)
-
-    metadata = EmailMetadata(
-        date=date_str,
-        message_id=mail.message_id or "",
-    )
 
     # Body extraction - mailparser uses text_plain/text_html attributes
     # These may be lists (multipart) or single strings depending on structure
@@ -199,7 +191,7 @@ def _read_eml_format(
         else:
             body_html = str(mail.text_html)
 
-    attachments: list[EmailAttachment] = []
+    attachments: list[Attachment] = []
     if include_attachments:
         for attachment in getattr(mail, "attachments", None) or []:
             filename = attachment.get("filename") or "attachment"
@@ -223,29 +215,34 @@ def _read_eml_format(
                 else:
                     data = payload
 
-            data_stream = io.BytesIO(data)
-            data_stream.seek(0)
             attachments.append(
-                EmailAttachment(
+                Attachment(
                     filename=filename,
-                    mime_type=mime_type,
-                    data=data_stream,
-                    is_supported_mime_type=is_supported_mime_type(mime_type),
+                    media_type=mime_type,
+                    data=data,
+                    properties={
+                        "email.is_supported_mime_type": is_supported_mime_type(
+                            mime_type
+                        )
+                    },
                 )
             )
 
-    return EmailParserOutput(
+    return build_email_document(
+        source_format="eml",
+        path=None,
         subject=mail.subject or "",
-        from_email=from_email,
-        to_emails=to_emails,
-        to_cc=cc,
-        to_bcc=bcc,
+        sender=from_email,
+        recipients=to_emails,
+        cc=cc,
+        bcc=bcc,
         reply_to=reply_to,
         in_reply_to=mail.in_reply_to or "",
         body_plain=body_plain,
         body_html=body_html,
         attachments=attachments,
-        metadata=metadata,
+        date=date_str,
+        message_id=mail.message_id or "",
     )
 
 
@@ -255,12 +252,12 @@ def read_eml_format_mail(
     *,
     ignore_images: bool = False,
     include_attachments: bool = True,
-) -> Generator[EmailParserOutput, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """
-    Read an EML file and extract its content as EmailParserOutput.
+    Read an EML file and extract its content as a canonical document.
 
     Primary entry point for EML file extraction. Accepts a BytesIO object
-    containing the raw email data and yields EmailParserOutput objects.
+    containing the raw email data and yields canonical documents.
 
     This function uses a generator pattern for API consistency with other
     email extractors (mbox can contain multiple emails), even though EML
@@ -271,12 +268,12 @@ def read_eml_format_mail(
             The stream position is reset to the beginning before reading.
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
-            returned EmailParserOutput.metadata object. Useful for tracking
+            returned document source metadata. Useful for tracking
             source files in batch processing scenarios.
         ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
-        EmailParserOutput: Single EmailParserOutput object containing all extracted
+        ExtractedDocument: Single canonical document containing all extracted
             data. The generator will yield exactly one item for valid EML
             files.
 
@@ -305,8 +302,7 @@ def read_eml_format_mail(
             file_like.read(), include_attachments=include_attachments
         )
 
-        if path:
-            content.metadata.populate_from_path(path)
+        content.source = source_metadata(path)
 
         logger.debug(
             "Extracted EML: attachments=%d",
