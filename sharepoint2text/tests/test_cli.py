@@ -31,6 +31,9 @@ from sharepoint2text.parsing.models import (
 )
 
 PLAIN_PATH = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
+MISLABELED_DOCX_PATH = Path(
+    "sharepoint2text/tests/resources/legacy_ms/ECE-TRANS-2021-24e.DOC"
+).resolve()
 IMAGE_PDF_PATH = Path("sharepoint2text/tests/resources/pdf/multi_image.pdf").resolve()
 EMAIL_PATH = Path(
     "sharepoint2text/tests/resources/mails/msg_with_attachment.eml"
@@ -116,6 +119,16 @@ def test_cli_outputs_full_text_by_default(capsys: Any) -> None:
 
     assert exit_code == 0
     assert captured.out == f"{expected}\n"
+
+
+def test_cli_extracts_docx_package_with_doc_extension(capsys: Any) -> None:
+    """Verify content detection handles a DOCX package named with .DOC."""
+    exit_code = main(["--file", str(MISLABELED_DOCX_PATH)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert captured.out.startswith("United Nations\nECE/TRANS/2021/24")
+    assert captured.err == ""
 
 
 def test_cli_outputs_version_two_json(capsys: Any) -> None:
