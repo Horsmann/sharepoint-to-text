@@ -161,6 +161,7 @@ sharepoint2text.read_file(
     ignore_images=False,
     force_plain_text=False,
     include_attachments=True,
+    extract_annotations=False,
     zip_bomb_limits=None,
 )
 
@@ -173,6 +174,7 @@ sharepoint2text.read_bytes(
     ignore_images=False,
     force_plain_text=False,
     include_attachments=True,
+    extract_annotations=False,
     zip_bomb_limits=None,
 )
 
@@ -185,6 +187,7 @@ sharepoint2text.read_many(
     ignore_images=False,
     force_plain_text=False,
     include_attachments=True,
+    extract_annotations=False,
     recursive=True,
     on_file_result=None,
     zip_bomb_limits=None,

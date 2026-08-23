@@ -16,6 +16,7 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFileFormatNotSupportedError,
     ExtractionFileTooLargeError,
     ExtractionLegacyMicrosoftParsingError,
+    ExtractionPathTraversalError,
     ExtractionZipBombError,
 )
 from sharepoint2text.parsing.extractors.util.zip_bomb import (
@@ -50,6 +51,7 @@ __all__ = [
     "ExtractionFileFormatNotSupportedError",
     "ExtractionFileTooLargeError",
     "ExtractionLegacyMicrosoftParsingError",
+    "ExtractionPathTraversalError",
     "ExtractionZipBombError",
     "ImageAsset",
     "InvalidConfigurationError",

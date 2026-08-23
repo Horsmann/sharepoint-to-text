@@ -180,7 +180,10 @@ a malicious archive to exhaust memory or disk resources.
 | `--json` | `-j` | Emit version-2 document envelopes |
 | `--json-unit` | `-u` | Emit one version-2 envelope per unit |
 | `--include-binary` | `-i` | Encode image and attachment payloads as base64 |
+| `--no-images` | | Skip image extraction entirely |
 | `--no-attachments` | `-n` | Omit email attachment records and payloads |
+| `--extract-annotations` | `-a` | Include annotations (comments) for supported formats |
+| `--force-plain-text` | | Treat input as plain text regardless of detection |
 | `--max-file-size-mb N` | `-m` | Maximum input size; default 100, zero disables |
 | `--zip-bomb-limit-multiplier N` | `--zblm` | Multiply all ZIP-bomb limits by 2..10; `none` disables |
 | `--version` | `-v` | Print the installed version |

@@ -279,6 +279,8 @@ def _add_extraction_arguments(parser: argparse.ArgumentParser) -> None:
     _add_binary_extraction_argument(group)
     _add_image_extraction_argument(group)
     _add_attachment_extraction_argument(group)
+    _add_annotation_extraction_argument(group)
+    _add_force_plain_text_argument(group)
 
 
 def _add_binary_extraction_argument(group: argparse._ArgumentGroup) -> None:
@@ -332,6 +334,41 @@ def _add_attachment_extraction_argument(group: argparse._ArgumentGroup) -> None:
         help=(
             "Do not extract supported email attachments or include their "
             "records in the output."
+        ),
+    )
+
+
+def _add_annotation_extraction_argument(group: argparse._ArgumentGroup) -> None:
+    """Add the annotation extraction option.
+
+    Args:
+        group: Argument group that receives the annotation option.
+    """
+    group.add_argument(
+        "-a",
+        "--extract-annotations",
+        dest="extract_annotations",
+        action="store_true",
+        help=(
+            "Include annotations (comments) in the extracted content for "
+            "supported formats (docx, pptx)."
+        ),
+    )
+
+
+def _add_force_plain_text_argument(group: argparse._ArgumentGroup) -> None:
+    """Add the force plain text extraction option.
+
+    Args:
+        group: Argument group that receives the plain text option.
+    """
+    group.add_argument(
+        "--force-plain-text",
+        dest="force_plain_text",
+        action="store_true",
+        help=(
+            "Treat the input as plain text regardless of extension or MIME "
+            "type detection. Useful for unknown or custom plain-text formats."
         ),
     )
 
@@ -655,7 +692,9 @@ def _process_folder_to_folder(
         extract_all_supported=extract_all_supported,
         max_file_size=max_file_size_bytes,
         ignore_images=args.no_images,
+        force_plain_text=args.force_plain_text,
         include_attachments=not args.no_attachments,
+        extract_annotations=args.extract_annotations,
         recursive=not args.no_recursive,
         zip_bomb_limits=_build_zip_bomb_limits(args.zip_bomb_limit_multiplier),
     )
@@ -705,7 +744,9 @@ def _get_file_results(
             args.file,
             max_file_size=max_file_size_bytes,
             ignore_images=args.no_images,
+            force_plain_text=args.force_plain_text,
             include_attachments=not args.no_attachments,
+            extract_annotations=args.extract_annotations,
             zip_bomb_limits=_build_zip_bomb_limits(args.zip_bomb_limit_multiplier),
         )
     )
@@ -737,7 +778,9 @@ def _get_folder_results(
             extract_all_supported=extract_all_supported,
             max_file_size=max_file_size_bytes,
             ignore_images=args.no_images,
+            force_plain_text=args.force_plain_text,
             include_attachments=not args.no_attachments,
+            extract_annotations=args.extract_annotations,
             recursive=not args.no_recursive,
             zip_bomb_limits=_build_zip_bomb_limits(args.zip_bomb_limit_multiplier),
         )
