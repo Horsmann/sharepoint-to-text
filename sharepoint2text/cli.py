@@ -636,7 +636,9 @@ def _process_folder_to_folder(
         suffixes=suffixes,
         extract_all_supported=extract_all_supported,
         max_file_size=max_file_size_bytes,
-        ignore_images=not args.include_binary,
+        # ``--include-binary`` controls serialization, not image extraction:
+        # default JSON retains image metadata while omitting byte payloads.
+        ignore_images=False,
         include_attachments=not args.no_attachments,
         recursive=not args.no_recursive,
         zip_bomb_limits=_build_zip_bomb_limits(args.zip_bomb_limit_multiplier),
@@ -686,7 +688,9 @@ def _get_file_results(
         sharepoint2text.read_file(
             args.file,
             max_file_size=max_file_size_bytes,
-            ignore_images=not args.include_binary,
+            # Preserve image metadata in default JSON; serialization controls
+            # whether binary payloads are emitted.
+            ignore_images=False,
             include_attachments=not args.no_attachments,
             zip_bomb_limits=_build_zip_bomb_limits(args.zip_bomb_limit_multiplier),
         )
@@ -718,7 +722,9 @@ def _get_folder_results(
             suffixes=suffixes,
             extract_all_supported=extract_all_supported,
             max_file_size=max_file_size_bytes,
-            ignore_images=not args.include_binary,
+            # Preserve image metadata in default JSON; serialization controls
+            # whether binary payloads are emitted.
+            ignore_images=False,
             include_attachments=not args.no_attachments,
             recursive=not args.no_recursive,
             zip_bomb_limits=_build_zip_bomb_limits(args.zip_bomb_limit_multiplier),

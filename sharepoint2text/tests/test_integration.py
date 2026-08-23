@@ -62,6 +62,17 @@ def test_read_bytes_returns_a_normalized_document() -> None:
     assert result.full_text == "hello"
 
 
+def test_read_bytes_skips_image_extraction_when_requested() -> None:
+    """Avoid returning image records for an in-memory image-bearing document."""
+    path = (
+        Path(__file__).parent / "resources" / "modern_ms" / "document_with_image.docx"
+    )
+
+    result = next(read_bytes(path.read_bytes(), extension="docx", ignore_images=True))
+
+    assert list(result.iter_images()) == []
+
+
 def test_read_file_validates_missing_path_eagerly(tmp_path: Path) -> None:
     """Raise path validation errors when the public API is called."""
     with pytest.raises(FileNotFoundError):

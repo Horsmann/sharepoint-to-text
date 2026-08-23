@@ -5,7 +5,7 @@ from __future__ import annotations
 import mimetypes
 from pathlib import Path
 
-from sharepoint2text.parsing.models import ExtractedDocument, SourceMetadata
+from sharepoint2text.parsing.models import SourceMetadata
 
 
 def source_metadata(
@@ -43,20 +43,3 @@ def source_metadata(
         media_type=media_type or mimetypes.guess_type(source_path.name)[0],
         encoding=encoding,
     )
-
-
-def omit_image_data(document: ExtractedDocument) -> ExtractedDocument:
-    """Remove image payloads while retaining canonical image metadata.
-
-    Args:
-        document: Newly extracted document whose image bytes should be omitted.
-
-    Returns:
-        The same document after clearing every image payload.
-    """
-    for image in document.iter_images():
-        image.data = None
-    for attachment in document.attachments:
-        if attachment.extracted_document is not None:
-            omit_image_data(attachment.extracted_document)
-    return document

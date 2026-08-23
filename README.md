@@ -83,7 +83,7 @@ for unit in document.units:
 Typical units are pages, slides, sheets, chapters, messages, sections, or a
 single document unit.
 
-### Read images with or without binary data
+### Read images or skip their extraction
 
 Image extraction is enabled by default. `iter_images()` yields images owned by
 structural units followed by document-level images:
@@ -96,16 +96,14 @@ document = next(sharepoint2text.read_file("illustrated.docx"))
 for image in document.iter_images():
     print(image.filename, image.media_type, len(image.data or b""))
 
-document_without_image_data = next(
+document_without_images = next(
     sharepoint2text.read_file("illustrated.docx", ignore_images=True)
 )
-for image in document_without_image_data.iter_images():
-    assert image.data is None
-    print(image.width, image.height, image.ratio)
+assert list(document_without_images.iter_images()) == []
 ```
 
-`ignore_images=True` retains image records and their available dimensions while
-omitting binary image data. It is also available on `read_bytes` and `read_many`.
+`ignore_images=True` skips image extraction, so image records, dimensions, and
+binary data are unavailable. It is also available on `read_bytes` and `read_many`.
 
 ## Public Data Model
 
@@ -592,7 +590,7 @@ for permission setup, environment configuration, and installation options.
 - Encrypted inputs raise extraction errors.
 - Size and decompression safety limits remain enabled by default.
 
-Set `ignore_images=True` when image byte payloads are unnecessary. Process
+Set `ignore_images=True` when image content is unnecessary. Process
 `document.units` incrementally when structure matters.
 
 ## Development Validation

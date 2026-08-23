@@ -22,7 +22,6 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFileFormatNotSupportedError,
     ExtractionFileTooLargeError,
 )
-from sharepoint2text.parsing.extractors._model import omit_image_data
 from sharepoint2text.parsing.extractors.util.zip_bomb import (
     ZipBombLimits,
     _validate_zip_bomb_limits,
@@ -273,8 +272,8 @@ def read_many(
             ``force_plain_text=True``, extract every regular file. Default is False.
         max_file_size: Maximum file size in bytes (default: 100MB).
                       Set to 0 to disable size checking.
-        ignore_images: If True, omit image byte payloads while retaining image
-            metadata. Default is False.
+        ignore_images: If True, skip image extraction. Image records and
+            image-derived metadata are unavailable. Default is False.
         force_plain_text: If True, treat selected files as plain text, including
             files with unknown extensions in ``extract_all_supported`` mode.
         include_attachments: If False, skip email attachment extraction.
@@ -535,8 +534,8 @@ def read_file(
         path: Path to the file to read.
         max_file_size: Maximum file size in bytes (default: 100MB).
                       Set to 0 to disable size checking.
-        ignore_images: If True, omit image byte payloads while retaining image
-            metadata. Default is False.
+        ignore_images: If True, skip image extraction. Image records and
+            image-derived metadata are unavailable. Default is False.
         force_plain_text: If True, route extraction to plain text handling
                       regardless of extension/MIME detection.
                       Useful for unknown or custom plain-text file formats.
@@ -566,7 +565,7 @@ def read_file(
         >>> import sharepoint2text
         >>> for result in sharepoint2text.read_file("document.docx"):
         ...     print(result.full_text)
-        >>> # Retain image metadata without returning binary payloads
+        >>> # Skip image extraction entirely
         >>> for result in sharepoint2text.read_file("document.docx", ignore_images=True):
         ...     print(result.full_text)
     """
@@ -575,7 +574,7 @@ def read_file(
     _validate_file_size(source_path.stat().st_size, max_file_size)
     extractor = _get_extractor(
         str(source_path),
-        ignore_images=False,
+        ignore_images=ignore_images,
         force_plain_text=force_plain_text,
         include_attachments=include_attachments,
     )
@@ -587,7 +586,6 @@ def read_file(
         source_path,
         extractor,
         resolved_file_type=resolved_file_type,
-        include_image_data=not ignore_images,
         max_file_size=max_file_size,
         zip_bomb_limits=zip_bomb_limits,
     )
@@ -608,7 +606,6 @@ def _iter_file(
     extractor: ExtractorFunction,
     *,
     resolved_file_type: str | None,
-    include_image_data: bool,
     max_file_size: int,
     zip_bomb_limits: ZipBombLimits | None,
 ) -> Iterator[ExtractedDocument]:
@@ -622,7 +619,7 @@ def _iter_file(
             documents_extracted = 0
             for result in _iterate_with_zip_bomb_limits(records, zip_bomb_limits):
                 documents_extracted += 1
-                yield result if include_image_data else omit_image_data(result)
+                yield result
             logger.debug(
                 "Extracted file: %s (%d document%s)",
                 path,
@@ -660,8 +657,8 @@ def read_bytes(
         extension: File extension hint (for example ``"pdf"`` or ``".pdf"``).
         max_file_size: Maximum file size in bytes (default: 100MB).
                       Set to 0 to disable size checking.
-        ignore_images: If True, omit image byte payloads while retaining image
-            metadata. Default is False.
+        ignore_images: If True, skip image extraction. Image records and
+            image-derived metadata are unavailable. Default is False.
         force_plain_text: If True, route extraction to plain text handling
                       regardless of extension/MIME detection.
                       Useful for unknown or custom plain-text file formats.
@@ -709,14 +706,13 @@ def read_bytes(
     plan = _build_in_memory_plan(
         normalized_extension,
         normalized_mime_type,
-        ignore_images=False,
+        ignore_images=ignore_images,
         force_plain_text=force_plain_text,
         include_attachments=include_attachments,
     )
     return _iter_bytes(
         data,
         plan,
-        include_image_data=not ignore_images,
         max_file_size=max_file_size,
         zip_bomb_limits=zip_bomb_limits,
     )
@@ -827,7 +823,6 @@ def _iter_bytes(
     data: bytes | io.BytesIO,
     plan: _InMemoryExtractionPlan,
     *,
-    include_image_data: bool,
     max_file_size: int,
     zip_bomb_limits: ZipBombLimits | None,
 ) -> Iterator[ExtractedDocument]:
@@ -842,7 +837,7 @@ def _iter_bytes(
         documents_extracted = 0
         for result in _iterate_with_zip_bomb_limits(records, zip_bomb_limits):
             documents_extracted += 1
-            yield result if include_image_data else omit_image_data(result)
+            yield result
         logger.debug(
             "Extracted in-memory file: %s (%d document%s)",
             plan.virtual_path,
