@@ -79,10 +79,10 @@ def test_core_invariants_and_canonical_iteration() -> None:
                 images=[first],
                 tables=[unit_table],
             ),
-            ContentUnit(number=2, kind="page", text=""),
+            ContentUnit(
+                number=2, kind="page", text="", images=[second], tables=[document_table]
+            ),
         ],
-        document_images=[second],
-        document_tables=[document_table],
     )
 
     assert document.full_text == "first"
@@ -95,8 +95,8 @@ def test_core_invariants_and_canonical_iteration() -> None:
         ImageAsset(number=0)
 
 
-def test_document_collections_aggregate_the_same_unit_objects() -> None:
-    """Expose every unit-owned record through document convenience fields."""
+def test_document_iterators_yield_unit_records_in_order() -> None:
+    """Iterate over unit-owned records in document order."""
     first_image = ImageAsset(number=1, filename="first.png")
     second_image = ImageAsset(number=2, filename="second.png")
     first_table = Table(rows=[["first"]])
@@ -123,38 +123,24 @@ def test_document_collections_aggregate_the_same_unit_objects() -> None:
         ],
     )
 
-    assert document.document_images == [first_image, second_image]
-    assert document.document_tables == [first_table, second_table]
-    assert document.document_annotations == [first_annotation, second_annotation]
-    assert document.document_images[0] is document.units[0].images[0]
-    assert document.document_tables[1] is document.units[1].tables[0]
-    assert document.document_annotations[1] is document.units[1].annotations[0]
-    assert list(document.iter_images()) == document.document_images
-    assert list(document.iter_tables()) == document.document_tables
+    assert list(document.iter_images()) == [first_image, second_image]
+    assert list(document.iter_tables()) == [first_table, second_table]
+    assert list(document.iter_annotations()) == [first_annotation, second_annotation]
+    assert list(document.iter_images())[0] is document.units[0].images[0]
+    assert list(document.iter_tables())[1] is document.units[1].tables[0]
+    assert list(document.iter_annotations())[1] is document.units[1].annotations[0]
 
 
-def test_document_without_units_uses_itself_as_the_fallback_unit() -> None:
-    """Own document-level records in one default document unit."""
-    image = ImageAsset(number=1, filename="image.png")
-    table = Table(rows=[["cell"]])
-    annotation = Annotation(kind="note", text="context")
-
-    document = ExtractedDocument(
-        format="txt",
-        document_images=[image],
-        document_tables=[table],
-        document_annotations=[annotation],
-    )
+def test_document_without_units_creates_fallback_unit() -> None:
+    """Create a fallback document unit when no units are provided."""
+    document = ExtractedDocument(format="txt")
 
     assert len(document.units) == 1
     assert document.units[0].number == 1
     assert document.units[0].kind == "document"
-    assert document.units[0].images == [image]
-    assert document.units[0].tables == [table]
-    assert document.units[0].annotations == [annotation]
-    assert document.document_images[0] is document.units[0].images[0]
-    assert document.document_tables[0] is document.units[0].tables[0]
-    assert document.document_annotations[0] is document.units[0].annotations[0]
+    assert document.units[0].images == []
+    assert document.units[0].tables == []
+    assert document.units[0].annotations == []
 
 
 def test_source_serialization_omits_size_bytes() -> None:
@@ -225,9 +211,9 @@ def test_v2_codec_round_trips_binary_and_nested_documents() -> None:
     assert payload["version"] == 2
     assert restored == document
     assert document_from_json(document_to_json(document, binary="base64")) == document
-    assert restored.document_images[0] is restored.units[0].images[0]
-    assert restored.document_tables[0] is restored.units[0].tables[0]
-    assert restored.document_annotations[0] is restored.units[0].annotations[0]
+    assert list(restored.iter_images())[0] is restored.units[0].images[0]
+    assert list(restored.iter_tables())[0] is restored.units[0].tables[0]
+    assert list(restored.iter_annotations())[0] is restored.units[0].annotations[0]
 
 
 def test_v2_codec_has_no_default_binary_decode_limit() -> None:

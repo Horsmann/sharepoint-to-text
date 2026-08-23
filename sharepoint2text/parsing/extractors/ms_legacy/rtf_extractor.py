@@ -346,21 +346,42 @@ class _RtfParser:
             if page_text.strip()
         ]
         unit_numbers = {unit.number for unit in units}
+
+        # Collect unassigned images and tables
+        unassigned_images = [
+            image
+            for image in self.images
+            if image.properties.get("rtf.page_number", 1) not in unit_numbers
+        ]
+        unassigned_tables = [
+            table
+            for table in self.tables
+            if table.properties.get("rtf.page_number", 1) not in unit_numbers
+        ]
+
+        # Assign unassigned items and annotations to the first unit
+        if units:
+            units[0].images.extend(unassigned_images)
+            units[0].tables.extend(unassigned_tables)
+            units[0].annotations.extend(annotations)
+        elif unassigned_images or unassigned_tables or annotations:
+            # Create a document unit if no page units but we have content
+            units = [
+                ContentUnit(
+                    number=1,
+                    kind="document",
+                    text=full_text,
+                    title=self.metadata.title,
+                    images=unassigned_images,
+                    tables=unassigned_tables,
+                    annotations=annotations,
+                )
+            ]
+
         return ExtractedDocument(
             format="rtf",
             metadata=self.metadata,
             units=units,
-            document_images=[
-                image
-                for image in self.images
-                if image.properties.get("rtf.page_number", 1) not in unit_numbers
-            ],
-            document_tables=[
-                table
-                for table in self.tables
-                if table.properties.get("rtf.page_number", 1) not in unit_numbers
-            ],
-            document_annotations=annotations,
             properties={
                 "rtf.fonts": cast(JsonValue, self.fonts),
                 "rtf.colors": cast(JsonValue, self.colors),

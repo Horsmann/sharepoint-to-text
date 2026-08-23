@@ -130,9 +130,10 @@ def test_read_html__1() -> None:
         [["Name", "Age"], ["Alice", "25"], ["Bob", "30"]],
         list(html.iter_tables())[0].rows,
     )
+    all_annotations = list(html.iter_annotations())
     tc.assertListEqual(
         ["Wikipedia", "Google"],
-        [annotation.text for annotation in html.document_annotations],
+        [annotation.text for annotation in all_annotations],
     )
     tc.assertEqual(0, len(list(html.iter_images())))
     tc.assertEqual(1, len(list(html.iter_tables())))
@@ -143,7 +144,7 @@ def test_read_html__1() -> None:
 
     tc.assertListEqual(
         ["https://www.wikipedia.org", "https://www.google.com"],
-        [annotation.target for annotation in html.document_annotations],
+        [annotation.target for annotation in all_annotations],
     )
     tc.assertEqual(1, html.units[0].number)
     tc.assertEqual("document", html.units[0].kind)
@@ -471,9 +472,10 @@ def test_read_mhtml() -> None:
     )
 
     # Check link extraction
-    tc.assertEqual(1, len(result.document_annotations))
-    tc.assertEqual("link to example.com", result.document_annotations[0].text)
-    tc.assertEqual("https://example.com", result.document_annotations[0].target)
+    mhtml_annotations = list(result.iter_annotations())
+    tc.assertEqual(1, len(mhtml_annotations))
+    tc.assertEqual("link to example.com", mhtml_annotations[0].text)
+    tc.assertEqual("https://example.com", mhtml_annotations[0].target)
 
 
 def test_read_mhtml_preserves_v12_heading_records() -> None:

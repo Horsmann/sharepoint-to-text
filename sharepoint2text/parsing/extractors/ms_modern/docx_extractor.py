@@ -1089,6 +1089,18 @@ def read_docx(
             owned_image_ids = {id(image) for unit in units for image in unit.images}
             owned_table_ids = {id(table) for unit in units for table in unit.tables}
 
+            # Assign unowned images/tables and annotations to the first unit
+            unowned_images = [
+                image for image, _ in images if id(image) not in owned_image_ids
+            ]
+            unowned_tables = [
+                table for table in tables if id(table) not in owned_table_ids
+            ]
+            if units:
+                units[0].images.extend(unowned_images)
+                units[0].tables.extend(unowned_tables)
+                units[0].annotations.extend(annotations)
+
             # When extract_annotations=True, don't set document.full_text so
             # full_text is computed from unit texts, ensuring consistency
             properties: dict[str, JsonValue] = {
@@ -1103,13 +1115,6 @@ def read_docx(
                 source=source_metadata(path),
                 metadata=metadata,
                 units=units,
-                document_images=[
-                    image for image, _ in images if id(image) not in owned_image_ids
-                ],
-                document_tables=[
-                    table for table in tables if id(table) not in owned_table_ids
-                ],
-                document_annotations=annotations,
                 properties=properties,
             )
         finally:

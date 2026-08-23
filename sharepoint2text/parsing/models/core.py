@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from math import isfinite
-from typing import Iterator, Literal, TypeVar
+from typing import Iterator, Literal
 
 JsonScalar = str | int | float | bool | None
 JsonValue = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
@@ -18,29 +18,6 @@ UnitKind = Literal[
     "chapter",
     "message",
 ]
-_Record = TypeVar("_Record")
-
-
-def _normalize_document_records(
-    unit_records: list[list[_Record]], document_records: list[_Record]
-) -> list[_Record]:
-    """Move legacy document records to a unit and return the unit aggregate.
-
-    Args:
-        unit_records: Per-unit record collections in document order.
-        document_records: Records supplied through the document convenience field.
-
-    Returns:
-        Every unit-owned record in document order, preserving object identity.
-    """
-    aggregate = [record for records in unit_records for record in records]
-    if document_records != aggregate:
-        owned_record_ids = {id(record) for record in aggregate}
-        unit_records[-1].extend(
-            record for record in document_records if id(record) not in owned_record_ids
-        )
-        aggregate = [record for records in unit_records for record in records]
-    return aggregate
 
 
 @dataclass(slots=True)
@@ -251,9 +228,6 @@ class ExtractedDocument:
         source: Common source identity and decoding metadata.
         metadata: Common descriptive metadata.
         units: Structural content units in source order.
-        document_images: Convenience aggregate of all unit-owned images.
-        document_tables: Convenience aggregate of all unit-owned tables.
-        document_annotations: Convenience aggregate of all unit-owned annotations.
         attachments: Attached files in source order.
         properties: Small format-specific JSON values under namespaced keys.
     """
@@ -262,25 +236,13 @@ class ExtractedDocument:
     source: SourceMetadata = field(default_factory=SourceMetadata)
     metadata: DocumentMetadata = field(default_factory=DocumentMetadata)
     units: list[ContentUnit] = field(default_factory=list)
-    document_images: list[ImageAsset] = field(default_factory=list)
-    document_tables: list[Table] = field(default_factory=list)
-    document_annotations: list[Annotation] = field(default_factory=list)
     attachments: list[Attachment] = field(default_factory=list)
     properties: dict[str, JsonValue] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        """Create a fallback unit and normalize document convenience fields."""
+        """Create a fallback unit for documents without structural units."""
         if not self.units:
             self.units.append(ContentUnit(number=1, kind="document"))
-        self.document_images = _normalize_document_records(
-            [unit.images for unit in self.units], self.document_images
-        )
-        self.document_tables = _normalize_document_records(
-            [unit.tables for unit in self.units], self.document_tables
-        )
-        self.document_annotations = _normalize_document_records(
-            [unit.annotations for unit in self.units], self.document_annotations
-        )
 
     @property
     def full_text(self) -> str:
@@ -308,7 +270,8 @@ class ExtractedDocument:
         Yields:
             Unit-owned images in canonical document order.
         """
-        yield from self.document_images
+        for unit in self.units:
+            yield from unit.images
 
     def iter_tables(self) -> Iterator[Table]:
         """Yield all document tables without copying their records.
@@ -316,4 +279,14 @@ class ExtractedDocument:
         Yields:
             Unit-owned tables in canonical document order.
         """
-        yield from self.document_tables
+        for unit in self.units:
+            yield from unit.tables
+
+    def iter_annotations(self) -> Iterator[Annotation]:
+        """Yield all document annotations without copying their records.
+
+        Yields:
+            Unit-owned annotations in canonical document order.
+        """
+        for unit in self.units:
+            yield from unit.annotations

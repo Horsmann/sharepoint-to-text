@@ -185,19 +185,26 @@ def test_json_unit_preserves_document_level_content() -> None:
     """Verify every self-contained unit envelope retains parent-level records."""
     document = ExtractedDocument(
         format="test",
-        units=[ContentUnit(number=1, kind="document", text="body")],
-        document_images=[ImageAsset(number=1, filename="image.png")],
-        document_tables=[Table(rows=[["cell"]])],
-        document_annotations=[Annotation(kind="note", text="context")],
+        units=[
+            ContentUnit(
+                number=1,
+                kind="document",
+                text="body",
+                images=[ImageAsset(number=1, filename="image.png")],
+                tables=[Table(rows=[["cell"]])],
+                annotations=[Annotation(kind="note", text="context")],
+            )
+        ],
         attachments=[Attachment(filename="attachment.txt")],
     )
 
     payload = _serialize_unit_results([document], include_binary=False)
     body = _body(payload[0])
+    unit = body["units"][0]
 
-    assert body["document_images"]
-    assert body["document_tables"]
-    assert body["document_annotations"]
+    assert unit["images"]
+    assert unit["tables"]
+    assert unit["annotations"]
     assert body["attachments"]
 
 

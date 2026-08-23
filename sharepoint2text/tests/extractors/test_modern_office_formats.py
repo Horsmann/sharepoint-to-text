@@ -390,9 +390,9 @@ def test_read_pptx_3() -> None:
     path = "sharepoint2text/tests/resources/modern_ms/pptx_table.pptx"
     pptx: ExtractedDocument = next(read_pptx(read_file_to_file_like(path=path)))
 
-    tc.assertEqual(1, len(pptx.document_tables))
-    tc.assertEqual(1, len(list(pptx.iter_tables())))
-    table_1 = list(pptx.iter_tables())[0]
+    tables = list(pptx.iter_tables())
+    tc.assertEqual(1, len(tables))
+    table_1 = tables[0]
     tc.assertListEqual(
         [
             ["", "2020", "2021", "2022"],
@@ -403,7 +403,6 @@ def test_read_pptx_3() -> None:
         ],
         table_1.rows,
     )
-    tc.assertListEqual(pptx.document_tables[0].rows, table_1.rows)
     tc.assertEqual((5, 4), table_1.dimensions)
     tc.assertEqual(
         "2020\t2021\t2022\nA\t1\t2\t3\nB\t4\t5\t6\nC\t7\t8\t9\nD\t10\t11\t12",
@@ -447,7 +446,7 @@ def test_read_pptx_5_full() -> None:
     )
     tc.assertTrue(pptx.full_text.endswith("e +49 30 27891-0.\n15"))
 
-    tc.assertEqual(17, len(pptx.document_images))
+    tc.assertEqual(17, len(list(pptx.iter_images())))
 
     # units
     tc.assertEqual(15, len(pptx.units))
@@ -571,12 +570,9 @@ def test_read_docx_1() -> None:
     # test iterator
     tc.assertEqual(1, len(list(docx.units)))
 
-    tc.assertEqual(1, len(list(docx.iter_images())))
-    tc.assertEqual(1, len(docx.document_images))
-
     # images
     tc.assertEqual(1, len(list(docx.iter_images())))
-    tc.assertEqual(docx.document_images[0], docx.units[0].images[0])
+    tc.assertEqual(list(docx.iter_images())[0], docx.units[0].images[0])
 
     tc.assertEqual(7, len(list(docx.iter_tables())))
     image = list(docx.iter_images())[0]
@@ -604,10 +600,9 @@ def test_read_docx_2() -> None:
     )
     tc.assertEqual(docx.full_text, docx.units[0].text)
     tc.assertNotIn("Nice!", docx.full_text)
+    all_annotations = list(docx.iter_annotations())
     comments = [
-        annotation
-        for annotation in docx.document_annotations
-        if annotation.kind == "comment"
+        annotation for annotation in all_annotations if annotation.kind == "comment"
     ]
     tc.assertEqual(1, len(comments))
     tc.assertEqual("0", comments[0].properties["docx.id"])
@@ -616,22 +611,16 @@ def test_read_docx_2() -> None:
     tc.assertEqual("Nice!", comments[0].text)
 
     footnotes = [
-        annotation
-        for annotation in docx.document_annotations
-        if annotation.kind == "footnote"
+        annotation for annotation in all_annotations if annotation.kind == "footnote"
     ]
     tc.assertListEqual(["-2", "1"], [note.properties["docx.id"] for note in footnotes])
     tc.assertListEqual(["", "A simple footnote"], [note.text for note in footnotes])
 
     headers = [
-        annotation
-        for annotation in docx.document_annotations
-        if annotation.kind == "header"
+        annotation for annotation in all_annotations if annotation.kind == "header"
     ]
     footers = [
-        annotation
-        for annotation in docx.document_annotations
-        if annotation.kind == "footer"
+        annotation for annotation in all_annotations if annotation.kind == "footer"
     ]
     tc.assertListEqual(["My header"], [header.text for header in headers])
     tc.assertListEqual(
@@ -648,9 +637,7 @@ def test_read_docx_2() -> None:
 
     # formulas (with converted multiplication sign)
     formulas = [
-        annotation
-        for annotation in docx.document_annotations
-        if annotation.kind == "formula"
+        annotation for annotation in all_annotations if annotation.kind == "formula"
     ]
     tc.assertEqual(1, len(formulas))
     tc.assertEqual("\\frac{3}{4}\\times4=\\sqrt{9}", formulas[0].text)

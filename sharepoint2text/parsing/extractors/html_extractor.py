@@ -744,18 +744,24 @@ def read_html(
                 language=extractor.language or None,
                 properties=cast(dict[str, JsonValue], metadata_properties),
             ),
-            units=[ContentUnit(number=1, kind="document", text=text)],
-            document_tables=[
-                Table(rows=cast(list[list[CellValue]], table))
-                for table in extractor.tables
-            ],
-            document_annotations=[
-                Annotation(
-                    kind="hyperlink",
-                    text=link.get("text", ""),
-                    target=link.get("href") or None,
+            units=[
+                ContentUnit(
+                    number=1,
+                    kind="document",
+                    text=text,
+                    tables=[
+                        Table(rows=cast(list[list[CellValue]], table))
+                        for table in extractor.tables
+                    ],
+                    annotations=[
+                        Annotation(
+                            kind="hyperlink",
+                            text=link.get("text", ""),
+                            target=link.get("href") or None,
+                        )
+                        for link in extractor.links
+                    ],
                 )
-                for link in extractor.links
             ],
             properties={"html.headings": cast(JsonValue, extractor.headings)},
         )

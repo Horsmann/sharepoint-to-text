@@ -442,12 +442,15 @@ def read_doc(
             full_text = "\n".join(
                 part for part in (document.metadata.title, document.main_text) if part
             ).strip()
+            units = _build_doc_units(document)
+            # Assign annotations to the first unit
+            if units and annotations:
+                units[0].annotations.extend(annotations)
             yield ExtractedDocument(
                 format="doc",
                 source=source_metadata(path),
                 metadata=document.metadata,
-                units=_build_doc_units(document),
-                document_annotations=annotations,
+                units=units,
                 properties={"document.full_text": full_text},
             )
     except ExtractionError:

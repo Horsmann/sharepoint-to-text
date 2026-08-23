@@ -32,8 +32,9 @@ for table in document.iter_tables():
     print(table.rows)
 ```
 
-Assets normally belong to a unit. `document_images`, `document_tables`, and
-`document_annotations` contain only items that cannot be assigned reliably.
+All images, tables, and annotations belong to units. Use the iterator methods
+`document.iter_images()`, `document.iter_tables()`, and `document.iter_annotations()`
+to traverse all records across all units in document order.
 
 ## Attachments and Archives
 

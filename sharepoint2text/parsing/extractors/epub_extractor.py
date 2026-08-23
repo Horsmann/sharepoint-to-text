@@ -857,6 +857,10 @@ def read_epub(
         finally:
             ctx.close()
 
+        # Assign manifest images to the first chapter if chapters exist
+        if images and chapters:
+            chapters[0].images.extend(images)
+
         logger.debug(
             "Extracted EPUB: chapters=%d, images=%d, toc_entries=%d",
             len(chapters),
@@ -865,12 +869,16 @@ def read_epub(
         )
 
         properties = {"epub.toc": toc} if toc else {}
+        # If no chapters exist, create a document unit to hold images
+        units: List[ContentUnit] = chapters if chapters else []
+        if not chapters and images:
+            units = [ContentUnit(number=1, kind="document", images=images)]
+
         yield ExtractedDocument(
             format="epub",
             source=source_metadata(path),
             metadata=metadata,
-            units=chapters,
-            document_images=images,
+            units=units,
             properties=cast(dict[str, JsonValue], properties),
         )
     except ExtractionError:

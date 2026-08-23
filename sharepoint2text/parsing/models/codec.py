@@ -221,15 +221,6 @@ def _document_body_to_dict(
         "source": _source_to_dict(document.source),
         "metadata": _metadata_to_dict(document.metadata),
         "units": [_unit_to_dict(unit, binary) for unit in document.units],
-        "document_images": [
-            _image_to_dict(image, binary) for image in document.document_images
-        ],
-        "document_tables": [
-            _table_to_dict(table) for table in document.document_tables
-        ],
-        "document_annotations": [
-            _annotation_to_dict(item) for item in document.document_annotations
-        ],
         "attachments": [
             _attachment_to_dict(item, binary) for item in document.attachments
         ],
@@ -499,29 +490,6 @@ def _decode_units(data: dict[str, JsonValue], state: _DecodeState) -> list[Conte
     return [_unit_from_dict(item, path, state) for item, path in values]
 
 
-def _decode_document_images(
-    data: dict[str, JsonValue], state: _DecodeState
-) -> list[ImageAsset]:
-    """Decode the document-level image convenience aggregate."""
-    path = "document.document_images"
-    values = _objects(data.get("document_images", []), path)
-    return [_image_from_dict(item, item_path, state) for item, item_path in values]
-
-
-def _decode_document_tables(data: dict[str, JsonValue]) -> list[Table]:
-    """Decode the document-level table convenience aggregate."""
-    path = "document.document_tables"
-    values = _objects(data.get("document_tables", []), path)
-    return [_table_from_dict(item, item_path) for item, item_path in values]
-
-
-def _decode_document_annotations(data: dict[str, JsonValue]) -> list[Annotation]:
-    """Decode the document-level annotation convenience aggregate."""
-    path = "document.document_annotations"
-    values = _objects(data.get("document_annotations", []), path)
-    return [_annotation_from_dict(item, item_path) for item, item_path in values]
-
-
 def _decode_attachments(
     data: dict[str, JsonValue], state: _DecodeState
 ) -> list[Attachment]:
@@ -541,9 +509,6 @@ def _document_body_from_dict(
         source=_source_from_dict(source),
         metadata=_metadata_from_dict(metadata),
         units=_decode_units(data, state),
-        document_images=_decode_document_images(data, state),
-        document_tables=_decode_document_tables(data),
-        document_annotations=_decode_document_annotations(data),
         attachments=_decode_attachments(data, state),
         properties=_properties(data, "document"),
     )

@@ -85,8 +85,8 @@ single document unit.
 
 ### Read images or skip their extraction
 
-Image extraction is enabled by default. `iter_images()` yields images owned by
-structural units followed by document-level images:
+Image extraction is enabled by default. `iter_images()` yields all images owned by
+structural units in document order:
 
 ```python
 import sharepoint2text
@@ -117,9 +117,6 @@ ExtractedDocument
 │   ├── images: list[ImageAsset]
 │   ├── tables: list[Table]
 │   └── annotations: list[Annotation]
-├── document_images: list[ImageAsset]       (all unit images)
-├── document_tables: list[Table]            (all unit tables)
-├── document_annotations: list[Annotation]  (all unit annotations)
 └── attachments: list[Attachment]
 ```
 
@@ -141,10 +138,8 @@ Fields are accessed directly. For example, use `unit.text`, `unit.images`, and
 `document.metadata.author`. Binary payloads are immutable `bytes`.
 
 `document.full_text` joins non-empty unit text in source order.
-`document.document_images`, `document.document_tables`, and
-`document.document_annotations` provide document-wide aggregates of the same
-objects canonically owned by units. `document.iter_images()` and
-`document.iter_tables()` traverse those aggregates. A document without a
+`document.iter_images()`, `document.iter_tables()`, and `document.iter_annotations()`
+iterate over all records across all units in document order. A document without a
 structural unit receives one default unit with `kind="document"`.
 
 Format-specific scalar details live in namespaced `properties` dictionaries,

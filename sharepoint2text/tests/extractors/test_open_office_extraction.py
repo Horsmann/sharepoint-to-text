@@ -26,7 +26,7 @@ tc.maxDiff = None
 
 def _annotations(owner: ExtractedDocument | ContentUnit, kind: str) -> list[Annotation]:
     records = (
-        owner.document_annotations
+        list(owner.iter_annotations())
         if isinstance(owner, ExtractedDocument)
         else owner.annotations
     )

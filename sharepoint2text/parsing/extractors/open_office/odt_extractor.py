@@ -924,20 +924,25 @@ def read_odt(
             len(images),
         )
 
+        units = _build_units(paragraphs, full_text, metadata.title, images, tables)
+        all_annotations = [
+            *headers,
+            *footers,
+            *hyperlinks,
+            *footnotes,
+            *endnotes,
+            *annotations,
+            *bookmarks,
+        ]
+        # Assign annotations to the first unit
+        if units and all_annotations:
+            units[0].annotations.extend(all_annotations)
+
         yield ExtractedDocument(
             format="odt",
             source=source_metadata(path),
             metadata=metadata,
-            units=_build_units(paragraphs, full_text, metadata.title, images, tables),
-            document_annotations=[
-                *headers,
-                *footers,
-                *hyperlinks,
-                *footnotes,
-                *endnotes,
-                *annotations,
-                *bookmarks,
-            ],
+            units=units,
             properties={
                 "odt.styles": cast(Any, styles),
                 "document.full_text": full_text,

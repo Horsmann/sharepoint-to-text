@@ -67,9 +67,6 @@ The output is always an array. Each item is a version-2 envelope:
       },
       "metadata": {"keywords": [], "properties": {}},
       "units": [],
-      "document_images": [],
-      "document_tables": [],
-      "document_annotations": [],
       "attachments": [],
       "properties": {}
     }

@@ -92,11 +92,12 @@ ExtractedDocument
 │   ├── images: list[ImageAsset]
 │   ├── tables: list[Table]
 │   └── annotations: list[Annotation]
-├── document_images: list[ImageAsset]
-├── document_tables: list[Table]
-├── document_annotations: list[Annotation]
 └── attachments: list[Attachment]
 ```
+
+Images, tables, and annotations are accessed at the unit level. Use
+`document.iter_images()`, `document.iter_tables()`, and `document.iter_annotations()`
+to iterate over all records across all units in document order.
 
 Use `document.format` and `unit.kind` instead of checking a format-specific
 Python class. Typical unit kinds include `document`, `section`, `page`,
@@ -168,7 +169,7 @@ Common content is normalized as follows:
 - images become `ImageAsset` records with immutable `bytes` payloads;
 - comments, notes, formulas, hyperlinks, headers, footers, and similar records
   become `Annotation` records when supported;
-- unassigned assets live in the corresponding `document_*` collection;
+- all assets are owned by their respective units;
 - scalar format-specific details may be retained in namespaced `properties`.
 
 Parser-specific trees and mutable parser state are intentionally not part of
@@ -274,9 +275,6 @@ class-independent wire envelope:
     "source": {},
     "metadata": {"keywords": [], "properties": {}},
     "units": [],
-    "document_images": [],
-    "document_tables": [],
-    "document_annotations": [],
     "attachments": [],
     "properties": {}
   }
