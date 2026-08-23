@@ -10,7 +10,7 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionPathTraversalError,
     ExtractionZipBombError,
 )
-from sharepoint2text.parsing.router import get_extractor, is_supported_file
+from sharepoint2text.parsing.router import is_supported_file
 
 __all__ = [
     "ExtractionError",
@@ -21,6 +21,5 @@ __all__ = [
     "ExtractionLegacyMicrosoftParsingError",
     "ExtractionPathTraversalError",
     "ExtractionZipBombError",
-    "get_extractor",
     "is_supported_file",
 ]

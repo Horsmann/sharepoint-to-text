@@ -5,232 +5,533 @@ import itertools
 import json
 import os
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import Iterator, Sequence, TextIO
 
 import sharepoint2text
-from sharepoint2text.parsing.extractors.data_types import (
-    EmailContent,
-    ExtractionInterface,
+from sharepoint2text.parsing.extractors.util.zip_bomb import (
+    _ZIP_BOMB_CHECKS_DISABLED,
+    DEFAULT_ZIP_BOMB_LIMITS,
+    ZipBombLimits,
 )
-from sharepoint2text.parsing.extractors.serialization import serialize_extraction
+from sharepoint2text.parsing.models import (
+    BinaryMode,
+    ContentUnit,
+    ExtractedDocument,
+    JsonValue,
+    document_to_dict,
+)
+
+_MIN_ZIP_BOMB_LIMIT_MULTIPLIER = 2
+_MAX_ZIP_BOMB_LIMIT_MULTIPLIER = 10
+_DEFAULT_ZIP_BOMB_LIMIT_MULTIPLIER = 1
+_DISABLED_ZIP_BOMB_LIMIT_VALUE = "none"
+
+_CLI_DESCRIPTION = """\
+Extract normalized text and structure from supported files.
+
+Choose exactly one input source. Plain text is written by default; use --json
+or --json-unit for the stable version-2 JSON schema."""
+
+_CLI_EPILOG = """\
+examples:
+  sharepoint2text --file report.pdf
+  sharepoint2text --file report.pdf --json --include-binary
+  sharepoint2text --folder ./documents --suffixes .docx,.pdf
+  sharepoint2text --folder ./documents --output ./extracted
+
+Use --output with a file path to combine results, or with a directory path to
+write one .txt or .json file per input file while preserving subdirectories."""
+
+
+def _parse_zip_bomb_limit_multiplier(value: str) -> int | None:
+    """Parse a ZIP-bomb limit multiplier supplied on the command line.
+
+    Args:
+        value: Integer text from 2 through 10, or ``none`` to disable checks.
+
+    Returns:
+        The validated multiplier, or ``None`` when checks should be disabled.
+
+    Raises:
+        argparse.ArgumentTypeError: If the value is outside the accepted forms.
+    """
+    if value.casefold() == _DISABLED_ZIP_BOMB_LIMIT_VALUE:
+        return None
+
+    try:
+        multiplier = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            "must be a whole integer from 2 through 10, or 'none'"
+        ) from exc
+
+    if not (
+        _MIN_ZIP_BOMB_LIMIT_MULTIPLIER <= multiplier <= _MAX_ZIP_BOMB_LIMIT_MULTIPLIER
+    ):
+        raise argparse.ArgumentTypeError(
+            "must be a whole integer from 2 through 10, or 'none'"
+        )
+    return multiplier
+
+
+def _build_zip_bomb_limits(multiplier: int | None) -> ZipBombLimits:
+    """Build the CLI's uniformly scaled ZIP-bomb limits.
+
+    Args:
+        multiplier: Scale factor, or ``None`` to disable ZIP-bomb checks.
+
+    Returns:
+        Default limits with every threshold multiplied, or the internal
+        disabled-checks marker.
+    """
+    if multiplier is None:
+        return _ZIP_BOMB_CHECKS_DISABLED
+
+    defaults = DEFAULT_ZIP_BOMB_LIMITS
+    return ZipBombLimits(
+        max_entries=defaults.max_entries * multiplier,
+        max_total_uncompressed_bytes=(
+            defaults.max_total_uncompressed_bytes * multiplier
+        ),
+        max_single_uncompressed_bytes=(
+            defaults.max_single_uncompressed_bytes * multiplier
+        ),
+        max_total_compression_ratio=(defaults.max_total_compression_ratio * multiplier),
+        max_entry_compression_ratio=(defaults.max_entry_compression_ratio * multiplier),
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    """Build and return the command-line argument parser for the CLI."""
+    """Build the command-line argument parser.
+
+    Returns:
+        Parser containing every supported CLI option and its help text.
+    """
     parser = argparse.ArgumentParser(
         prog="sharepoint2text",
-        description="Extract file content and emit full text to stdout (or JSON with --json/--json-unit).",
+        description=_CLI_DESCRIPTION,
+        epilog=_CLI_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        add_help=False,
     )
-    parser.add_argument(
+    _add_general_arguments(parser)
+    _add_input_arguments(parser)
+    _add_output_arguments(parser)
+    _add_extraction_arguments(parser)
+    _add_safety_arguments(parser)
+    return parser
+
+
+def _add_general_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add help and version options to a CLI parser.
+
+    Args:
+        parser: Parser that receives the general options.
+    """
+    group = parser.add_argument_group("general options")
+    group.add_argument(
+        "-h",
+        "--help",
+        action="help",
+        help="Show this help information and exit.",
+    )
+    group.add_argument(
         "-v",
         "--version",
         action="version",
         version=f"%(prog)s {sharepoint2text.__version__}",
-        help="Show the version and exit.",
+        help="Show the installed sharepoint2text version and exit.",
     )
 
-    # Input source: either a single file or a folder
-    input_group = parser.add_mutually_exclusive_group(required=True)
+
+def _add_input_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add input selection and folder traversal options to a CLI parser.
+
+    Args:
+        parser: Parser that receives the input options.
+    """
+    group = parser.add_argument_group("input selection")
+    _add_input_source_arguments(group)
+    _add_folder_filter_arguments(group)
+
+
+def _add_input_source_arguments(group: argparse._ArgumentGroup) -> None:
+    """Add the mutually exclusive file and folder arguments.
+
+    Args:
+        group: Argument group that receives the input-source options.
+    """
+    input_group = group.add_mutually_exclusive_group(required=True)
     input_group.add_argument(
         "-f",
         "--file",
         type=Path,
-        help="Path to a single file to extract.",
+        metavar="FILE",
+        help="Extract one existing supported file.",
     )
     input_group.add_argument(
         "-d",
         "--folder",
         type=Path,
-        help="Path to a folder to extract files from (recursive by default).",
+        metavar="FOLDER",
+        help=(
+            "Extract supported files from a directory. Descends into "
+            "subdirectories by default."
+        ),
     )
-    parser.add_argument(
+
+
+def _add_folder_filter_arguments(group: argparse._ArgumentGroup) -> None:
+    """Add options that control folder traversal.
+
+    Args:
+        group: Argument group that receives the folder-only options.
+    """
+    group.add_argument(
         "-s",
         "--suffixes",
         type=str,
+        metavar="SUFFIX[,...]",
         help=(
-            "Comma-separated list of file suffixes to extract when using --folder "
-            "(e.g., '.docx,.pdf,.txt'). If omitted, all supported file types are extracted."
+            "Folder input only. Limit extraction to comma-separated suffixes "
+            "such as .docx,.pdf,txt; leading dots are optional. When omitted, "
+            "all supported file types are considered."
         ),
     )
-    parser.add_argument(
+    group.add_argument(
         "--no-recursive",
         dest="no_recursive",
         action="store_true",
-        help="When using --folder, only extract files in the top-level directory (no subdirectories).",
+        help=(
+            "Folder input only. Inspect the selected directory without "
+            "descending into subdirectories."
+        ),
     )
 
-    output_group = parser.add_mutually_exclusive_group()
+
+def _add_output_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add output format and destination options to a CLI parser.
+
+    Args:
+        parser: Parser that receives the output options.
+    """
+    group = parser.add_argument_group("output format and destination")
+    _add_json_output_arguments(group)
+    _add_output_destination_argument(group)
+
+
+def _add_json_output_arguments(group: argparse._ArgumentGroup) -> None:
+    """Add mutually exclusive structured-output options.
+
+    Args:
+        group: Argument group that receives the JSON output options.
+    """
+    output_group = group.add_mutually_exclusive_group()
     output_group.add_argument(
         "-j",
         "--json",
         action="store_true",
-        help="Emit structured JSON instead of plain full text (omits binary payloads by default).",
+        help=(
+            "Write a JSON array with one version-2 extraction envelope per "
+            "document. Binary payloads are omitted unless --include-binary is set."
+        ),
     )
     output_group.add_argument(
         "-u",
         "--json-unit",
         dest="json_unit",
         action="store_true",
-        help="Emit JSON for extracted text units instead of full extraction objects (omits binary payloads by default).",
+        help=(
+            "Write a JSON array with one version-2 extraction envelope per "
+            "content unit. Binary payloads are omitted unless --include-binary is set."
+        ),
     )
-    parser.add_argument(
+
+
+def _add_output_destination_argument(group: argparse._ArgumentGroup) -> None:
+    """Add the output destination option.
+
+    Args:
+        group: Argument group that receives the destination option.
+    """
+    group.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        metavar="PATH",
+        help=(
+            "Write to PATH instead of stdout. For folder input, a file path "
+            "combines results; an existing directory or new extensionless path "
+            "receives one .txt or .json file per input and preserves subdirectories."
+        ),
+    )
+
+
+def _add_extraction_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add content-selection options to a CLI parser.
+
+    Args:
+        parser: Parser that receives the extraction options.
+    """
+    group = parser.add_argument_group("extraction options")
+    _add_binary_extraction_argument(group)
+    _add_image_extraction_argument(group)
+    _add_attachment_extraction_argument(group)
+    _add_annotation_extraction_argument(group)
+    _add_force_plain_text_argument(group)
+
+
+def _add_binary_extraction_argument(group: argparse._ArgumentGroup) -> None:
+    """Add the binary-payload extraction option.
+
+    Args:
+        group: Argument group that receives the binary-payload option.
+    """
+    group.add_argument(
         "-i",
-        "--include-images",
-        dest="include_images",
+        "--include-binary",
+        dest="include_binary",
         action="store_true",
-        help="Extract images from the file and include image data as base64 blobs in JSON output (default: images are ignored for faster processing).",
+        help=(
+            "Encode image and attachment payloads as base64. Image metadata is "
+            "included even when binary payloads are omitted. "
+            "Requires --json or --json-unit and can increase processing time and "
+            "output size."
+        ),
     )
-    parser.add_argument(
+
+
+def _add_image_extraction_argument(group: argparse._ArgumentGroup) -> None:
+    """Add the image extraction suppression option.
+
+    Args:
+        group: Argument group that receives the image option.
+    """
+    group.add_argument(
+        "--no-images",
+        dest="no_images",
+        action="store_true",
+        help=(
+            "Skip image extraction entirely to reduce processing time. "
+            "No image records will be included in the output."
+        ),
+    )
+
+
+def _add_attachment_extraction_argument(group: argparse._ArgumentGroup) -> None:
+    """Add the email-attachment suppression option.
+
+    Args:
+        group: Argument group that receives the attachment option.
+    """
+    group.add_argument(
         "-n",
         "--no-attachments",
         dest="no_attachments",
         action="store_true",
-        help="For email files, exclude supported attachments from CLI extraction output.",
-    )
-    parser.add_argument(
-        "--output",
-        "-o",
-        type=Path,
         help=(
-            "Output path (default: stdout). "
-            "For single file extraction: specify a file path. "
-            "For folder extraction: specify either a file (all results combined) "
-            "or a folder (each file written separately, mirroring input structure)."
+            "Do not extract supported email attachments or include their "
+            "records in the output."
         ),
     )
-    parser.add_argument(
+
+
+def _add_annotation_extraction_argument(group: argparse._ArgumentGroup) -> None:
+    """Add the annotation extraction option.
+
+    Args:
+        group: Argument group that receives the annotation option.
+    """
+    group.add_argument(
+        "-a",
+        "--extract-annotations",
+        dest="extract_annotations",
+        action="store_true",
+        help=(
+            "Include annotations (comments) in the extracted content for "
+            "supported formats (docx, pptx)."
+        ),
+    )
+
+
+def _add_force_plain_text_argument(group: argparse._ArgumentGroup) -> None:
+    """Add the force plain text extraction option.
+
+    Args:
+        group: Argument group that receives the plain text option.
+    """
+    group.add_argument(
+        "--force-plain-text",
+        dest="force_plain_text",
+        action="store_true",
+        help=(
+            "Treat the input as plain text regardless of extension or MIME "
+            "type detection. Useful for unknown or custom plain-text formats."
+        ),
+    )
+
+
+def _add_safety_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add resource-limit options to a CLI parser.
+
+    Args:
+        parser: Parser that receives the safety options.
+    """
+    group = parser.add_argument_group("resource limits")
+    _add_file_size_limit_argument(group)
+    _add_zip_bomb_limit_argument(group)
+
+
+def _add_file_size_limit_argument(group: argparse._ArgumentGroup) -> None:
+    """Add the input file-size limit option.
+
+    Args:
+        group: Argument group that receives the file-size option.
+    """
+    group.add_argument(
         "-m",
         "--max-file-size-mb",
         type=float,
         default=100.0,
+        metavar="MIB",
         help=(
-            "Maximum input file size in MiB (default: 100). "
-            "Use 0 to disable size checks."
+            "Reject each input larger than this many MiB (default: 100). Use 0 "
+            "to disable only the input file-size check."
         ),
     )
-    return parser
+
+
+def _add_zip_bomb_limit_argument(group: argparse._ArgumentGroup) -> None:
+    """Add the ZIP-bomb threshold scaling option.
+
+    Args:
+        group: Argument group that receives the archive safety option.
+    """
+    group.add_argument(
+        "--zip-bomb-limit-multiplier",
+        "--zblm",
+        type=_parse_zip_bomb_limit_multiplier,
+        default=_DEFAULT_ZIP_BOMB_LIMIT_MULTIPLIER,
+        metavar="2..10|none",
+        help=(
+            "Scale every default ZIP-bomb threshold by a whole number from 2 "
+            "through 10. Omit this option to keep the defaults, or use 'none' "
+            "to disable the checks for trusted input only."
+        ),
+    )
 
 
 def _serialize_results(
-    results: list[ExtractionInterface], *, include_binary: bool
-) -> list[dict]:
-    """Serialize extraction results for ``--json`` output.
+    results: list[ExtractedDocument], *, include_binary: bool
+) -> list[dict[str, JsonValue]]:
+    """Serialize documents for ``--json`` output.
 
-    Always returns a list so output shape is stable regardless of result
-    cardinality (single file, archives, mbox, etc.).
+    Args:
+        results: Normalized documents to encode.
+        include_binary: Encode binary payloads as base64 when true.
+
+    Returns:
+        Version-2 schema envelopes in source order.
     """
-    return [
-        serialize_extraction(result, include_binary=include_binary)
-        for result in results
-    ]
+    binary: BinaryMode = "base64" if include_binary else "omit"
+    return [document_to_dict(result, binary=binary) for result in results]
 
 
 def _serialize_unit_results(
-    results: list[ExtractionInterface],
-    *,
-    include_binary: bool,
-    include_email_attachments: bool = False,
-) -> list[dict]:
-    """Serialize per-unit output for ``--json-unit`` mode.
+    results: list[ExtractedDocument], *, include_binary: bool
+) -> list[dict[str, JsonValue]]:
+    """Serialize one version-2 document envelope per content unit.
 
-    Returns a flat ``list[dict]`` with one dictionary per extracted unit.
-    Each entry includes the unit content, unit_metadata, and file_metadata.
+    Args:
+        results: Normalized documents whose units should be emitted.
+        include_binary: Encode binary payloads as base64 when true.
+
+    Returns:
+        Version-2 schema envelopes containing exactly one unit each.
     """
-    serialized_units = []
+    binary: BinaryMode = "base64" if include_binary else "omit"
+    serialized_units: list[dict[str, JsonValue]] = []
     for result in results:
-        file_metadata = serialize_extraction(
-            result.get_metadata(), include_binary=False
-        )
-        for extraction in _iter_result_tree(
-            result, include_email_attachments=include_email_attachments
-        ):
-            for unit in extraction.iterate_units():
-                unit_dict = serialize_extraction(unit, include_binary=include_binary)
-                unit_dict["unit_metadata"] = serialize_extraction(
-                    unit.get_metadata(), include_binary=False
-                )
-                unit_dict["file_metadata"] = file_metadata
-                serialized_units.append(unit_dict)
+        for unit in result.units:
+            unit_document = _document_for_unit(result, unit)
+            serialized_units.append(document_to_dict(unit_document, binary=binary))
     return serialized_units
 
 
-def _serialize_full_text(results: list[ExtractionInterface]) -> str:
-    """Join ``get_full_text()`` from all results using blank-line separators."""
-    return "\n\n".join(result.get_full_text().rstrip() for result in results).rstrip()
+def _document_for_unit(
+    document: ExtractedDocument, unit: ContentUnit
+) -> ExtractedDocument:
+    """Return a self-contained document containing one selected unit.
+
+    Args:
+        document: Parent document whose document-level records are retained.
+        unit: Single content unit to place in the returned document.
+
+    Returns:
+        A shallow copy containing only ``unit`` in its unit collection.
+    """
+    return replace(document, units=[unit])
 
 
-def _expand_email_results(
-    results: list[ExtractionInterface],
-) -> list[ExtractionInterface]:
-    """Expand email results with any supported extracted attachments."""
-    expanded: list[ExtractionInterface] = []
-    for result in results:
-        expanded.extend(_iter_result_tree(result, include_email_attachments=True))
-    return expanded
+def _serialize_full_text(results: list[ExtractedDocument]) -> str:
+    """Join normalized document text using blank-line separators.
 
+    Args:
+        results: Normalized documents to render.
 
-def _iter_result_tree(
-    result: ExtractionInterface, *, include_email_attachments: bool
-) -> Iterator[ExtractionInterface]:
-    """Yield a root result and optionally nested supported email attachments."""
-    yield result
-    if not include_email_attachments or not isinstance(result, EmailContent):
-        return
-    for attachment in result.iterate_supported_attachments():
-        yield from _iter_result_tree(attachment, include_email_attachments=True)
-
-
-def _strip_email_attachments(results: list[ExtractionInterface]) -> None:
-    """Remove parsed attachment metadata/payloads from email results in-place."""
-    for result in results:
-        if isinstance(result, EmailContent):
-            result.attachments = []
-
-
-def _iter_expanded_results(
-    results: Iterator[ExtractionInterface], *, include_email_attachments: bool
-) -> Iterator[ExtractionInterface]:
-    for result in results:
-        yield from _iter_result_tree(
-            result, include_email_attachments=include_email_attachments
-        )
+    Returns:
+        Combined plain text with trailing whitespace removed.
+    """
+    return "\n\n".join(result.full_text.rstrip() for result in results).rstrip()
 
 
 def _iter_serialized_results(
-    results: Iterator[ExtractionInterface], *, include_binary: bool
-) -> Iterator[dict]:
+    results: Iterator[ExtractedDocument], *, include_binary: bool
+) -> Iterator[dict[str, JsonValue]]:
+    """Yield version-2 document envelopes.
+
+    Args:
+        results: Normalized documents to encode.
+        include_binary: Encode binary payloads as base64 when true.
+
+    Yields:
+        Version-2 schema envelopes in source order.
+    """
+    binary: BinaryMode = "base64" if include_binary else "omit"
     for result in results:
-        yield serialize_extraction(result, include_binary=include_binary)
+        yield document_to_dict(result, binary=binary)
 
 
 def _iter_serialized_unit_results(
-    results: Iterator[ExtractionInterface],
-    *,
-    include_binary: bool,
-    include_email_attachments: bool = False,
-) -> Iterator[dict]:
-    """Yield serialized unit dictionaries including metadata.
+    results: Iterator[ExtractedDocument], *, include_binary: bool
+) -> Iterator[dict[str, JsonValue]]:
+    """Yield one version-2 document envelope per content unit.
 
-    Each yielded dict contains the unit content plus unit_metadata and file_metadata.
+    Args:
+        results: Normalized documents whose units should be emitted.
+        include_binary: Encode binary payloads as base64 when true.
+
+    Yields:
+        Version-2 schema envelopes containing exactly one unit each.
     """
+    binary: BinaryMode = "base64" if include_binary else "omit"
     for result in results:
-        file_metadata = serialize_extraction(
-            result.get_metadata(), include_binary=False
-        )
-        for extraction in _iter_result_tree(
-            result, include_email_attachments=include_email_attachments
-        ):
-            for unit in extraction.iterate_units():
-                unit_dict = serialize_extraction(unit, include_binary=include_binary)
-                unit_dict["unit_metadata"] = serialize_extraction(
-                    unit.get_metadata(), include_binary=False
-                )
-                unit_dict["file_metadata"] = file_metadata
-                yield unit_dict
+        for unit in result.units:
+            unit_document = _document_for_unit(result, unit)
+            yield document_to_dict(unit_document, binary=binary)
 
 
-def _write_json_array(items: Iterator[dict], output_stream: TextIO) -> None:
+def _write_json_array(
+    items: Iterator[dict[str, JsonValue]], output_stream: TextIO
+) -> None:
+    """Write JSON objects as one streaming array.
+
+    Args:
+        items: JSON-compatible objects to write.
+        output_stream: Text stream receiving the array.
+    """
     output_stream.write("[")
     first = True
     for item in items:
@@ -245,13 +546,19 @@ def _write_json_array(items: Iterator[dict], output_stream: TextIO) -> None:
 
 
 def _write_full_text(
-    results: Iterator[ExtractionInterface], output_stream: TextIO
+    results: Iterator[ExtractedDocument], output_stream: TextIO
 ) -> None:
+    """Write normalized document text with blank-line separators.
+
+    Args:
+        results: Normalized documents to render.
+        output_stream: Text stream receiving the output.
+    """
     first = True
     for result in results:
         if not first:
             output_stream.write("\n\n")
-        output_stream.write(result.get_full_text().rstrip())
+        output_stream.write(result.full_text.rstrip())
         first = False
     output_stream.write("\n")
 
@@ -293,62 +600,61 @@ def _compute_output_path(
     return output_folder / output_name
 
 
-def _write_single_result_to_file(
-    result: ExtractionInterface,
+def _write_results_to_file(
+    results: list[ExtractedDocument],
     output_path: Path,
     args: argparse.Namespace,
 ) -> None:
-    """Write a single extraction result to a file.
+    """Write every document from one source to a single output file.
 
     Args:
-        result: The extraction result to write.
+        results: Documents yielded from one source, in source order.
         output_path: The path to write to.
         args: CLI arguments for formatting options.
+
+    Raises:
+        ValueError: If ``results`` is empty.
     """
+    if not results:
+        raise ValueError("Cannot write an empty extraction result group")
+
     # Ensure parent directories exist
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     with open(output_path, "w", encoding="utf-8") as f:
         if args.json or args.json_unit:
-            include_binary = bool(args.include_images)
+            include_binary = bool(args.include_binary)
             if args.json_unit:
-                # Write units as JSON array with metadata
-                file_metadata = serialize_extraction(
-                    result.get_metadata(), include_binary=False
+                payload = _serialize_unit_results(
+                    results, include_binary=include_binary
                 )
-                payload = []
-                for unit in result.iterate_units():
-                    unit_dict = serialize_extraction(
-                        unit, include_binary=include_binary
-                    )
-                    unit_dict["unit_metadata"] = serialize_extraction(
-                        unit.get_metadata(), include_binary=False
-                    )
-                    unit_dict["file_metadata"] = file_metadata
-                    payload.append(unit_dict)
             else:
-                # Write full extraction as JSON (wrapped in array for consistency)
-                expanded = list(
-                    _iter_result_tree(
-                        result, include_email_attachments=not args.no_attachments
-                    )
-                )
-                payload = [
-                    serialize_extraction(r, include_binary=include_binary)
-                    for r in expanded
-                ]
+                payload = _serialize_results(results, include_binary=include_binary)
             json.dump(payload, f, indent=4)
             f.write("\n")
         else:
-            # Write plain text
-            expanded = list(
-                _iter_result_tree(
-                    result, include_email_attachments=not args.no_attachments
-                )
-            )
-            text_parts = [r.get_full_text().rstrip() for r in expanded]
-            f.write("\n\n".join(text_parts))
+            f.write(_serialize_full_text(results))
             f.write("\n")
+
+
+def _group_results_by_source(
+    results: Iterator[ExtractedDocument],
+) -> Iterator[tuple[Path, list[ExtractedDocument]]]:
+    """Group adjacent extraction documents that came from the same source.
+
+    Args:
+        results: Documents yielded in source order by ``read_many``.
+
+    Yields:
+        Source paths paired with all documents yielded from that source.
+    """
+
+    def source_path(document: ExtractedDocument) -> Path:
+        value = document.source.path or document.source.filename or "unknown"
+        return Path(value)
+
+    for path, grouped_results in itertools.groupby(results, key=source_path):
+        yield path, list(grouped_results)
 
 
 def _process_folder_to_folder(
@@ -380,32 +686,26 @@ def _process_folder_to_folder(
             raise ValueError("--suffixes must contain at least one valid suffix")
         extract_all_supported = False
 
-    # Use read_many but process each result individually
-    for result in sharepoint2text.read_many(
+    results = sharepoint2text.read_many(
         input_folder,
         suffixes=suffixes,
         extract_all_supported=extract_all_supported,
         max_file_size=max_file_size_bytes,
-        ignore_images=not args.include_images,
+        ignore_images=args.no_images,
+        force_plain_text=args.force_plain_text,
         include_attachments=not args.no_attachments,
+        extract_annotations=args.extract_annotations,
         recursive=not args.no_recursive,
-    ):
-        # Get the source file path from metadata
-        metadata = result.get_metadata()
-        source_path_str = metadata.file_path
-        if not source_path_str:
-            # Fallback to filename if full path not available
-            source_path_str = metadata.filename or "unknown"
-
-        source_path = Path(source_path_str)
-
+        zip_bomb_limits=_build_zip_bomb_limits(args.zip_bomb_limit_multiplier),
+    )
+    for source_path, source_results in _group_results_by_source(results):
         # Compute output path
         output_path = _compute_output_path(
             source_path, input_folder, output_folder, extension
         )
 
-        # Write the result
-        _write_single_result_to_file(result, output_path, args)
+        # Write every document yielded from the current source together.
+        _write_results_to_file(source_results, output_path, args)
         files_written += 1
         print(f"Extracted: {source_path} -> {output_path}", file=sys.stderr)
 
@@ -426,7 +726,7 @@ def _parse_suffixes(suffixes_str: str) -> list[str]:
 
 def _get_file_results(
     args: argparse.Namespace, max_file_size_bytes: int
-) -> Iterator[ExtractionInterface]:
+) -> Iterator[ExtractedDocument]:
     """Get extraction results for a single file."""
     file_path = Path(args.file)
     if not file_path.exists():
@@ -443,15 +743,18 @@ def _get_file_results(
         sharepoint2text.read_file(
             args.file,
             max_file_size=max_file_size_bytes,
-            ignore_images=not args.include_images,
+            ignore_images=args.no_images,
+            force_plain_text=args.force_plain_text,
             include_attachments=not args.no_attachments,
+            extract_annotations=args.extract_annotations,
+            zip_bomb_limits=_build_zip_bomb_limits(args.zip_bomb_limit_multiplier),
         )
     )
 
 
 def _get_folder_results(
     args: argparse.Namespace, max_file_size_bytes: int
-) -> Iterator[ExtractionInterface]:
+) -> Iterator[ExtractedDocument]:
     """Get extraction results for a folder."""
     folder_path = Path(args.folder)
     if not folder_path.exists():
@@ -474,9 +777,12 @@ def _get_folder_results(
             suffixes=suffixes,
             extract_all_supported=extract_all_supported,
             max_file_size=max_file_size_bytes,
-            ignore_images=not args.include_images,
+            ignore_images=args.no_images,
+            force_plain_text=args.force_plain_text,
             include_attachments=not args.no_attachments,
+            extract_annotations=args.extract_annotations,
             recursive=not args.no_recursive,
+            zip_bomb_limits=_build_zip_bomb_limits(args.zip_bomb_limit_multiplier),
         )
     )
 
@@ -490,8 +796,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     Returns:
         ``0`` on success, ``1`` on validation/extraction/serialization errors.
-        Parser-driven early exits (for example ``--help`` / ``--version``) return
-        the exit code produced by ``argparse``.
+        Parser-driven early exits return the code produced by ``argparse``; invalid
+        command syntax uses ``2``.
     """
     parser = _build_parser()
     try:
@@ -509,8 +815,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     try:
-        if args.include_images and not (args.json or args.json_unit):
-            raise ValueError("--include-images requires --json or --json-unit")
+        if args.include_binary and not (args.json or args.json_unit):
+            raise ValueError("--include-binary requires --json or --json-unit")
+        if args.include_binary and args.no_images:
+            raise ValueError("--include-binary and --no-images are incompatible")
         if args.max_file_size_mb < 0:
             raise ValueError("--max-file-size-mb must be >= 0")
         if args.suffixes and not args.folder:
@@ -583,31 +891,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             results = itertools.chain([first_result], results)
 
             if args.json or args.json_unit:
-                include_binary = bool(args.include_images)
+                include_binary = bool(args.include_binary)
                 payload_items = (
                     _iter_serialized_unit_results(
                         results,
                         include_binary=include_binary,
-                        include_email_attachments=not args.no_attachments,
                     )
                     if args.json_unit
                     else _iter_serialized_results(
-                        _iter_expanded_results(
-                            results,
-                            include_email_attachments=not args.no_attachments,
-                        ),
+                        results,
                         include_binary=include_binary,
                     )
                 )
                 _write_json_array(payload_items, output_stream)
             else:
-                _write_full_text(
-                    _iter_expanded_results(
-                        results,
-                        include_email_attachments=not args.no_attachments,
-                    ),
-                    output_stream,
-                )
+                _write_full_text(results, output_stream)
         finally:
             if output_file is not None:
                 output_file.close()
@@ -621,6 +919,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         RuntimeError,
         OSError,
         TypeError,
+        sharepoint2text.ExtractionError,
     ) as exc:
         print(f"sharepoint2text: {exc}", file=sys.stderr)
         return 1

@@ -22,20 +22,7 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFileEncryptedError,
     ExtractionLegacyMicrosoftParsingError,
 )
-from sharepoint2text.parsing.extractors.data_types import (
-    PPT_TEXT_TYPE_BODY,
-    PPT_TEXT_TYPE_CENTER_BODY,
-    PPT_TEXT_TYPE_CENTER_TITLE,
-    PPT_TEXT_TYPE_HALF_BODY,
-    PPT_TEXT_TYPE_NOTES,
-    PPT_TEXT_TYPE_QUARTER_BODY,
-    PPT_TEXT_TYPE_TITLE,
-    PptContent,
-    PptImage,
-    PptMetadata,
-    PptSlideContent,
-    PptTextBlock,
-)
+from sharepoint2text.parsing.extractors._model import source_metadata
 from sharepoint2text.parsing.extractors.util.encryption import is_ppt_encrypted
 from sharepoint2text.parsing.extractors.util.image_utils import (
     BLIP_INSTANCE_JPEG_2,
@@ -48,8 +35,25 @@ from sharepoint2text.parsing.extractors.util.image_utils import (
     get_image_dimensions,
     wrap_dib_as_bmp,
 )
+from sharepoint2text.parsing.models import (
+    Annotation,
+    ContentUnit,
+    DocumentMetadata,
+    ExtractedDocument,
+    ImageAsset,
+)
 
 logger = logging.getLogger(__name__)
+
+PPT_TEXT_TYPE_TITLE = 0
+PPT_TEXT_TYPE_BODY = 1
+PPT_TEXT_TYPE_NOTES = 2
+PPT_TEXT_TYPE_CENTER_BODY = 5
+PPT_TEXT_TYPE_CENTER_TITLE = 6
+PPT_TEXT_TYPE_HALF_BODY = 7
+PPT_TEXT_TYPE_QUARTER_BODY = 8
+
+_TextBlock = tuple[str, int | None]
 
 # =============================================================================
 # PPT Record Type Constants (from MS-PPT specification)
@@ -122,7 +126,7 @@ _PLACEHOLDER_PREFIXES = ("___PPT", "Click to edit")
 # =============================================================================
 
 
-class Record(NamedTuple):
+class _PptBinaryRecord(NamedTuple):
     """Parsed PPT record header with data."""
 
     rec_type: int
@@ -133,11 +137,11 @@ class Record(NamedTuple):
     end_offset: int
 
 
-def _iter_records(data: bytes, start: int = 0) -> Iterator[Record]:
+def _iter_records(data: bytes, start: int = 0) -> Iterator[_PptBinaryRecord]:
     """
     Iterate over PPT records in the data stream.
 
-    Yields Record namedtuples with parsed header information and data slice.
+    Yield private binary-record tuples with header information and a data slice.
     Skips malformed records with invalid lengths.
     """
     offset = start
@@ -162,7 +166,7 @@ def _iter_records(data: bytes, start: int = 0) -> Iterator[Record]:
         data_start = offset + min_size
         data_end = data_start + rec_len
 
-        yield Record(
+        yield _PptBinaryRecord(
             rec_type=rec_type,
             rec_instance=rec_instance,
             is_container=is_container,
@@ -185,15 +189,9 @@ def _decode_text(rec_type: int, data: bytes) -> str | None:
         return None
 
 
-def _make_text_block(text: str, text_type: int | None) -> PptTextBlock:
-    """Create a PptTextBlock with computed type flags."""
-    return PptTextBlock(
-        text=text,
-        text_type=text_type,
-        is_title=text_type in _TITLE_TYPES,
-        is_body=text_type in _BODY_TYPES,
-        is_notes=text_type == PPT_TEXT_TYPE_NOTES,
-    )
+def _make_text_block(text: str, text_type: int | None) -> _TextBlock:
+    """Pair extracted text with its optional PowerPoint placeholder type."""
+    return text, text_type
 
 
 def _clean_text(text: str) -> str:
@@ -229,20 +227,18 @@ def _clean_text(text: str) -> str:
 
 def read_ppt(
     file_like: BinaryIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[PptContent, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Extract text content and metadata from a legacy PowerPoint .ppt file.
 
     Uses a generator pattern for API consistency. PPT files yield exactly one
-    PptContent object containing slides, metadata, and extracted text.
+    canonical document containing slides, metadata, and extracted text.
 
     Args:
         file_like: BytesIO object containing the PPT file data.
         path: Optional path to the source file for metadata.
         ignore_images: If True, skip image extraction.
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering PPT extraction: %s", source_path)
     try:
         file_like.seek(0)
         file_like_binary: io.BytesIO = file_like  # type: ignore[assignment]
@@ -252,7 +248,12 @@ def read_ppt(
         content = _extract_ppt_content_structured(
             file_like_binary, ignore_images=ignore_images
         )
-        content.metadata.populate_from_path(path)
+        logger.debug(
+            "Extracted PPT: slides=%d, images=%d",
+            len(content.units),
+            sum(len(slide.images) for slide in content.units),
+        )
+        content.source = source_metadata(path)
         yield content
     except ExtractionError:
         raise
@@ -260,14 +261,12 @@ def read_ppt(
         raise ExtractionLegacyMicrosoftParsingError(
             "Failed to extract PPT file", cause=exc
         ) from exc
-    finally:
-        logger.info("Leaving PPT extraction: %s", source_path)
 
 
 def _extract_ppt_content_structured(
     file_like: BinaryIO, ignore_images: bool = False
-) -> PptContent:
-    """Extract content from PPT file into structured PptContent object."""
+) -> ExtractedDocument:
+    """Extract PPT content into a canonical document."""
     file_like.seek(0)
 
     if not olefile.isOleFile(file_like):
@@ -276,11 +275,8 @@ def _extract_ppt_content_structured(
         )
 
     file_like.seek(0)
-    content = PptContent()
-
     with olefile.OleFileIO(file_like) as ole:
-        content.streams = ole.listdir()
-        content.metadata = _extract_metadata(ole)
+        metadata = _extract_metadata(ole)
 
         if not ole.exists("PowerPoint Document"):
             raise ExtractionLegacyMicrosoftParsingError(
@@ -288,14 +284,25 @@ def _extract_ppt_content_structured(
             )
 
         stream_data = ole.openstream("PowerPoint Document").read()
-        _parse_ppt_document(stream_data, content)
+        slides = _parse_ppt_document(stream_data)
 
         if not ignore_images:
             images = _extract_images_from_pictures_stream(ole)
             if images:
-                _distribute_images_to_slides(content, images)
+                _distribute_images_to_slides(slides, images)
 
-    return content
+    slide_texts = [
+        "\n".join(part for part in (slide.title, slide.text) if part).strip()
+        for slide in slides
+    ]
+    return ExtractedDocument(
+        format="ppt",
+        metadata=metadata,
+        units=slides,
+        properties={
+            "document.full_text": "\n".join(text for text in slide_texts if text)
+        },
+    )
 
 
 # =============================================================================
@@ -303,9 +310,9 @@ def _extract_ppt_content_structured(
 # =============================================================================
 
 
-def _extract_metadata(ole: olefile.OleFileIO) -> PptMetadata:
+def _extract_metadata(ole: olefile.OleFileIO) -> DocumentMetadata:
     """Extract document metadata from OLE SummaryInformation stream."""
-    result = PptMetadata()
+    result = DocumentMetadata()
 
     try:
         meta = ole.get_metadata()
@@ -315,12 +322,16 @@ def _extract_metadata(ole: olefile.OleFileIO) -> PptMetadata:
                 return value.decode("utf-8", errors="replace")
             return str(value) if value else ""
 
-        # String fields
-        for field in (
-            "title",
-            "subject",
-            "author",
-            "keywords",
+        result.title = decode_if_bytes(getattr(meta, "title", None)) or None
+        result.subject = decode_if_bytes(getattr(meta, "subject", None)) or None
+        result.author = decode_if_bytes(getattr(meta, "author", None)) or None
+        keywords = decode_if_bytes(getattr(meta, "keywords", None))
+        result.keywords = [
+            item.strip()
+            for item in keywords.replace(";", ",").split(",")
+            if item.strip()
+        ]
+        property_fields = (
             "comments",
             "last_saved_by",
             "revision_number",
@@ -328,8 +339,11 @@ def _extract_metadata(ole: olefile.OleFileIO) -> PptMetadata:
             "company",
             "manager",
             "creating_application",
-        ):
-            setattr(result, field, decode_if_bytes(getattr(meta, field, None)))
+        )
+        for field in property_fields:
+            value = decode_if_bytes(getattr(meta, field, None))
+            if value:
+                result.properties[f"ppt.{field}"] = value
 
         # Date fields
         for src, dst in (("create_time", "created"), ("last_saved_time", "modified")):
@@ -345,10 +359,10 @@ def _extract_metadata(ole: olefile.OleFileIO) -> PptMetadata:
         ):
             val = getattr(meta, src, None)
             if val is not None:
-                setattr(result, dst, int(val))
+                result.properties[f"ppt.{dst}"] = int(val)
 
     except (OSError, AttributeError, TypeError, UnicodeDecodeError, ValueError) as e:
-        logger.debug(e)
+        logger.debug("Failed to extract PPT metadata: %s", e)
 
     return result
 
@@ -358,9 +372,9 @@ def _extract_metadata(ole: olefile.OleFileIO) -> PptMetadata:
 # =============================================================================
 
 
-def _parse_ppt_document(data: bytes, content: PptContent) -> None:
+def _parse_ppt_document(data: bytes) -> list[ContentUnit]:
     """
-    Parse the PowerPoint Document stream and populate PptContent.
+    Parse the PowerPoint Document stream and populate canonical content.
 
     Uses a multi-pass approach:
     1. Extract from SlideListWithText containers (most reliable)
@@ -373,62 +387,68 @@ def _parse_ppt_document(data: bytes, content: PptContent) -> None:
 
     # Build slides from SlideListWithText (primary source)
     if slide_list_has_text:
-        _build_slides_from_text_blocks(content, slide_list_texts)
+        slides = _build_slides_from_text_blocks(slide_list_texts)
     elif container_texts["slides"]:
-        _build_slides_from_text_blocks(content, container_texts["slides"])
+        slides = _build_slides_from_text_blocks(container_texts["slides"])
     elif slide_list_texts:
-        _build_slides_from_text_blocks(content, slide_list_texts)
+        slides = _build_slides_from_text_blocks(slide_list_texts)
+    else:
+        slides = []
 
     # Add notes from container parsing
-    if container_texts["notes"] and content.slides:
+    if container_texts["notes"] and slides:
         for i, notes_texts in enumerate(container_texts["notes"]):
-            if i < len(content.slides):
-                slide = content.slides[i]
-                existing_notes = set(slide.notes)
-                for block in notes_texts:
-                    if block.text not in existing_notes:
-                        slide.notes.append(block.text)
-
-    # Master slide text
-    for block in container_texts.get("master", []):
-        content.master_text.append(block.text)
+            if i < len(slides):
+                slide = slides[i]
+                existing_notes = {item.text for item in slide.annotations}
+                for block_text, _ in notes_texts:
+                    if block_text not in existing_notes:
+                        slide.annotations.append(
+                            Annotation(kind="note", text=block_text)
+                        )
 
     # Fallback: raw extraction if no text found
-    if not content.all_text:
+    if not slides:
         raw_texts = _extract_all_text_raw(data)
         if raw_texts:
-            content.all_text = raw_texts
-            slide = PptSlideContent(slide_number=1)
-            for text in raw_texts:
-                slide.other_text.append(text)
-                slide.all_text.append(PptTextBlock(text=text))
-            content.slides.append(slide)
+            slides = [ContentUnit(number=1, kind="slide", text="\n".join(raw_texts))]
+    return slides
 
 
 def _build_slides_from_text_blocks(
-    content: PptContent, slides_texts: list[list[PptTextBlock]]
-) -> None:
+    slides_texts: list[list[_TextBlock]],
+) -> list[ContentUnit]:
     """Build slide content from extracted text blocks."""
+    slides: list[ContentUnit] = []
     for slide_num, texts in enumerate(slides_texts, 1):
-        slide = PptSlideContent(slide_number=slide_num)
+        title: str | None = None
+        body_text: list[str] = []
+        other_text: list[str] = []
+        notes: list[Annotation] = []
 
-        for block in texts:
-            slide.all_text.append(block)
-            content.all_text.append(block.text)
-
-            if block.text_type in _TITLE_TYPES or block.is_title:
-                if not slide.title:
-                    slide.title = block.text
+        for block_text, text_type in texts:
+            if text_type in _TITLE_TYPES:
+                if title is None:
+                    title = block_text
                 else:
-                    slide.other_text.append(block.text)
-            elif block.text_type in _BODY_TYPES or block.is_body:
-                slide.body_text.append(block.text)
-            elif block.text_type == PPT_TEXT_TYPE_NOTES or block.is_notes:
-                slide.notes.append(block.text)
+                    other_text.append(block_text)
+            elif text_type in _BODY_TYPES:
+                body_text.append(block_text)
+            elif text_type == PPT_TEXT_TYPE_NOTES:
+                notes.append(Annotation(kind="note", text=block_text))
             else:
-                slide.other_text.append(block.text)
+                other_text.append(block_text)
 
-        content.slides.append(slide)
+        slides.append(
+            ContentUnit(
+                number=slide_num,
+                kind="slide",
+                title=title,
+                text="\n".join([*body_text, *other_text]),
+                annotations=notes,
+            )
+        )
+    return slides
 
 
 # =============================================================================
@@ -436,12 +456,12 @@ def _build_slides_from_text_blocks(
 # =============================================================================
 
 
-def _extract_slide_list_texts(data: bytes) -> list[list[PptTextBlock]]:
+def _extract_slide_list_texts(data: bytes) -> list[list[_TextBlock]]:
     """
     Extract text from SlideListWithText containers (instance 0 = slides).
     Most reliable source for slide text in presentation order.
     """
-    slides_text: list[list[PptTextBlock]] = []
+    slides_text: list[list[_TextBlock]] = []
 
     for record in _iter_records(data):
         if record.rec_type == RT_SLIDE_LIST_WITH_TEXT and record.rec_instance == 0:
@@ -450,10 +470,10 @@ def _extract_slide_list_texts(data: bytes) -> list[list[PptTextBlock]]:
     return slides_text
 
 
-def _parse_slide_list_container(data: bytes) -> list[list[PptTextBlock]]:
+def _parse_slide_list_container(data: bytes) -> list[list[_TextBlock]]:
     """Parse a SlideListWithText container to extract text organized by slide."""
-    slides: list[list[PptTextBlock]] = []
-    current_slide_text: list[PptTextBlock] = []
+    slides: list[list[_TextBlock]] = []
+    current_slide_text: list[_TextBlock] = []
     current_text_type: int | None = None
     started = False
     any_text_blocks = False  # Track if ANY text found in entire container
@@ -508,9 +528,9 @@ def _parse_containers(data: bytes) -> dict[str, list]:
 
     # Container tracking: list of (type, end_offset)
     container_stack: list[tuple[int, int]] = []
-    current_slide_texts: list[PptTextBlock] = []
-    current_notes_texts: list[PptTextBlock] = []
-    current_master_texts: list[PptTextBlock] = []
+    current_slide_texts: list[_TextBlock] = []
+    current_notes_texts: list[_TextBlock] = []
+    current_master_texts: list[_TextBlock] = []
     current_text_type: int | None = None
 
     in_slide = in_notes = in_master = False
@@ -598,22 +618,24 @@ def _extract_all_text_raw(data: bytes) -> list[str]:
 # =============================================================================
 
 
-def _distribute_images_to_slides(content: PptContent, images: list[PptImage]) -> None:
+def _distribute_images_to_slides(
+    slides: list[ContentUnit], images: list[ImageAsset]
+) -> None:
     """Distribute extracted images to slides round-robin."""
     if not images:
         return
 
-    if not content.slides:
-        content.slides.append(PptSlideContent(slide_number=1))
+    if not slides:
+        slides.append(ContentUnit(number=1, kind="slide"))
 
-    num_slides = len(content.slides)
+    num_slides = len(slides)
     for i, image in enumerate(images):
-        slide = content.slides[i % num_slides]
-        image.slide_number = slide.slide_number
+        slide = slides[i % num_slides]
+        image.properties["ppt.slide_number"] = slide.number
         slide.images.append(image)
 
 
-def _extract_images_from_pictures_stream(ole: olefile.OleFileIO) -> list[PptImage]:
+def _extract_images_from_pictures_stream(ole: olefile.OleFileIO) -> list[ImageAsset]:
     """Extract images from the Pictures stream (BLIP format)."""
     if not ole.exists("Pictures"):
         return []
@@ -621,13 +643,13 @@ def _extract_images_from_pictures_stream(ole: olefile.OleFileIO) -> list[PptImag
     try:
         data = ole.openstream("Pictures").read()
     except (OSError, IOError) as e:
-        logger.debug(f"Failed to read Pictures stream: {e}")
+        logger.debug("Failed to read PPT Pictures stream: %s", e)
         return []
 
     if len(data) < 25:
         return []
 
-    images: list[PptImage] = []
+    images: list[ImageAsset] = []
     seen_hashes: set[str] = set()
     image_index = 0
 
@@ -670,13 +692,13 @@ def _extract_images_from_pictures_stream(ole: olefile.OleFileIO) -> list[PptImag
         width, height = get_image_dimensions(image_data, detected[0])
 
         images.append(
-            PptImage(
-                image_index=image_index,
-                content_type=detected[1],
-                data=io.BytesIO(image_data) if image_data else None,
-                size_bytes=len(image_data),
+            ImageAsset(
+                number=image_index,
+                media_type=detected[1],
+                data=image_data or None,
                 width=width,
                 height=height,
+                properties={"ppt.size_bytes": len(image_data)},
             )
         )
 
@@ -688,7 +710,7 @@ def _extract_images_from_pictures_stream(ole: olefile.OleFileIO) -> list[PptImag
 # =============================================================================
 
 
-def _extract_ppt_metadata(file_like: BinaryIO) -> PptMetadata:
+def _extract_ppt_metadata(file_like: BinaryIO) -> DocumentMetadata:
     """Extract only metadata from a PPT file without parsing content."""
     file_like.seek(0)
 

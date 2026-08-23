@@ -10,8 +10,9 @@ extraction, without requiring the python-docx library.
 
 import io
 import logging
+import re
 from dataclasses import dataclass
-from typing import Any, Generator
+from typing import Any, Generator, cast
 
 from sharepoint2text.parsing import _defused_xml as ET
 from sharepoint2text.parsing.exceptions import (
@@ -19,19 +20,7 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
     ExtractionFileEncryptedError,
 )
-from sharepoint2text.parsing.extractors.data_types import (
-    DocxComment,
-    DocxContent,
-    DocxFormula,
-    DocxHeaderFooter,
-    DocxHyperlink,
-    DocxImage,
-    DocxMetadata,
-    DocxNote,
-    DocxParagraph,
-    DocxRun,
-    DocxSection,
-)
+from sharepoint2text.parsing.extractors._model import source_metadata
 from sharepoint2text.parsing.extractors.ms_modern.omml_to_latex import omml_to_latex
 from sharepoint2text.parsing.extractors.ms_modern.ooxml_namespaces import (
     _CP_CATEGORY,
@@ -71,7 +60,6 @@ from sharepoint2text.parsing.extractors.ms_modern.ooxml_namespaces import (
     W_HYPERLINK,
     W_I,
     W_ID,
-    W_JC,
     W_KEEPNEXT,
     W_LAST_RENDERED_PAGE_BREAK,
     W_LEFT,
@@ -82,10 +70,8 @@ from sharepoint2text.parsing.extractors.ms_modern.ooxml_namespaces import (
     W_PGSZ,
     W_PPR,
     W_PSTYLE,
-    W_R,
     W_RFONTS,
     W_RIGHT,
-    W_RPR,
     W_SECTPR,
     W_STYLE,
     W_STYLEID,
@@ -117,6 +103,15 @@ from sharepoint2text.parsing.extractors.ms_modern.ooxml_text_processing import (
     twips_to_inches,
 )
 from sharepoint2text.parsing.extractors.util.encryption import is_ooxml_encrypted
+from sharepoint2text.parsing.models import (
+    Annotation,
+    ContentUnit,
+    DocumentMetadata,
+    ExtractedDocument,
+    ImageAsset,
+    JsonValue,
+    Table,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -313,34 +308,39 @@ class _DocxContext(OOXMLZipContext):
 
 
 @dataclass
+class _ParagraphData:
+    """Store transient paragraph data used to build canonical content units."""
+
+    text: str
+    style: str | None
+    has_page_break: bool
+
+
+@dataclass
 class _DocxBodyAnalysis:
+    """Store the results of the single document-body traversal."""
+
     paragraph_elements: list[ET.Element]
-    paragraphs: list[DocxParagraph]
-    tables: list[list[list[str]]]
+    paragraphs: list[_ParagraphData]
+    tables: list[Table]
     table_anchor_paragraph_indices: list[int]
-    hyperlinks: list[DocxHyperlink]
-    formulas: list[DocxFormula]
-    sections: list[DocxSection]
+    hyperlinks: list[Annotation]
+    formulas: list[Annotation]
+    sections: list[dict[str, JsonValue]]
     full_text: str
 
 
 def _build_paragraph(
     paragraph: ET.Element,
     style_map: dict[str, str],
-) -> DocxParagraph:
-    """Extract a top-level paragraph with formatting and run information."""
+) -> _ParagraphData:
+    """Extract transient text and structural data from a top-level paragraph."""
     ppr = paragraph.find(W_PPR)
     style_id = None
-    alignment = None
-
     if ppr is not None:
         style_elem = ppr.find(W_PSTYLE)
         if style_elem is not None:
             style_id = style_elem.get(W_VAL)
-
-        jc_elem = ppr.find(W_JC)
-        if jc_elem is not None:
-            alignment = jc_elem.get(W_VAL)
 
     style_name = style_map.get(style_id, style_id) if style_id else None
 
@@ -348,35 +348,9 @@ def _build_paragraph(
         next(paragraph.iter(W_LAST_RENDERED_PAGE_BREAK), None) is not None
     )
 
-    runs: list[DocxRun] = []
-    paragraph_text_parts: list[str] = []
-    for run in paragraph.iter(W_R):
-        run_text = collect_text_from_element(run)
-        if not run_text:
-            continue
-        paragraph_text_parts.append(run_text)
-
-        bold, italic, underline, font_name, font_size, font_color = (
-            _parse_run_properties(run.find(W_RPR))
-        )
-
-        runs.append(
-            DocxRun(
-                text=run_text,
-                bold=bold,
-                italic=italic,
-                underline=underline,
-                font_name=font_name,
-                font_size=font_size,
-                font_color=font_color,
-            )
-        )
-
-    return DocxParagraph(
-        text="".join(paragraph_text_parts),
+    return _ParagraphData(
+        text=collect_text_from_element(paragraph),
         style=style_name,
-        alignment=alignment,
-        runs=runs,
         has_page_break=has_page_break,
     )
 
@@ -396,27 +370,32 @@ def _extract_table_data(table: ET.Element) -> list[list[str]]:
 def _extract_hyperlinks_from_element(
     element: ET.Element,
     rels: dict[str, dict],
-) -> list[DocxHyperlink]:
+) -> list[Annotation]:
     """Extract hyperlinks from a body subtree."""
-    hyperlinks: list[DocxHyperlink] = []
+    hyperlinks: list[Annotation] = []
     for hyperlink in element.iter(W_HYPERLINK):
         r_id = hyperlink.get(R_ID)
         if r_id and r_id in rels:
             rel_info = rels[r_id]
             if "hyperlink" in rel_info.get("type", "").lower():
                 hyperlinks.append(
-                    DocxHyperlink(
+                    Annotation(
+                        kind="hyperlink",
                         text=collect_text_from_element(hyperlink),
-                        url=rel_info.get("target", ""),
+                        target=rel_info.get("target", ""),
                     )
                 )
     return hyperlinks
 
 
-def _extract_formulas_from_element(element: ET.Element) -> list[DocxFormula]:
+def _extract_formulas_from_element(element: ET.Element) -> list[Annotation]:
     """Extract formulas from a body subtree."""
     return [
-        DocxFormula(latex=latex, is_display=is_display)
+        Annotation(
+            kind="formula",
+            text=latex,
+            properties={"docx.is_display": is_display},
+        )
         for latex, is_display in extract_omml_formulas(
             element,
             omath_para_tag=M_OMATHPARA,
@@ -440,33 +419,30 @@ def _collect_section_properties(
             section_properties.append(sect_pr)
 
 
-def _build_sections(section_properties: list[ET.Element]) -> list[DocxSection]:
-    """Build section objects from collected section property elements."""
-    sections: list[DocxSection] = []
-    for sect_pr in section_properties:
-        section = DocxSection()
-
-        pg_sz = sect_pr.find(W_PGSZ)
-        if pg_sz is not None:
-            if inches := _parse_twips_to_inches(pg_sz.get(W_W)):
-                section.page_width_inches = inches
-            if inches := _parse_twips_to_inches(pg_sz.get(W_H)):
-                section.page_height_inches = inches
-            orient = pg_sz.get(W_ORIENT)
-            if orient and orient != "portrait":
-                section.orientation = orient
-
-        pg_mar = sect_pr.find(W_PGMAR)
-        if pg_mar is not None:
-            for attr, tag in [
+def _build_sections(
+    section_properties: list[ET.Element],
+) -> list[dict[str, JsonValue]]:
+    """Convert Word section layout elements to JSON-compatible properties."""
+    sections: list[dict[str, JsonValue]] = []
+    for section_element in section_properties:
+        section: dict[str, JsonValue] = {}
+        page_size = section_element.find(W_PGSZ)
+        if page_size is not None:
+            section["page_width_inches"] = _parse_twips_to_inches(page_size.get(W_W))
+            section["page_height_inches"] = _parse_twips_to_inches(page_size.get(W_H))
+            orientation = page_size.get(W_ORIENT)
+            section["orientation"] = (
+                orientation if orientation and orientation != "portrait" else None
+            )
+        margins = section_element.find(W_PGMAR)
+        if margins is not None:
+            for name, tag in (
                 ("left_margin_inches", W_LEFT),
                 ("right_margin_inches", W_RIGHT),
                 ("top_margin_inches", W_TOP),
                 ("bottom_margin_inches", W_BOTTOM),
-            ]:
-                if inches := _parse_twips_to_inches(pg_mar.get(tag)):
-                    setattr(section, attr, inches)
-
+            ):
+                section[name] = _parse_twips_to_inches(margins.get(tag))
         sections.append(section)
     return sections
 
@@ -490,11 +466,11 @@ def _analyze_document_body(ctx: _DocxContext) -> _DocxBodyAnalysis:
     rels = ctx.relationships
 
     paragraph_elements: list[ET.Element] = []
-    paragraphs: list[DocxParagraph] = []
-    tables: list[list[list[str]]] = []
+    paragraphs: list[_ParagraphData] = []
+    tables: list[Table] = []
     table_anchor_paragraph_indices: list[int] = []
-    hyperlinks: list[DocxHyperlink] = []
-    formulas: list[DocxFormula] = []
+    hyperlinks: list[Annotation] = []
+    formulas: list[Annotation] = []
     full_text_parts: list[str] = []
     section_properties: list[ET.Element] = []
 
@@ -520,7 +496,7 @@ def _analyze_document_body(ctx: _DocxContext) -> _DocxBodyAnalysis:
 
         anchor = max(0, current_paragraph_index)
         for table in child.iter(W_TBL):
-            tables.append(_extract_table_data(table))
+            tables.append(Table(rows=cast(Any, _extract_table_data(table))))
             table_anchor_paragraph_indices.append(anchor)
 
         full_text_parts.extend(_extract_table_text(child, include_formulas=True))
@@ -549,9 +525,9 @@ def _analyze_document_body(ctx: _DocxContext) -> _DocxBodyAnalysis:
 # =============================================================================
 
 
-def _extract_metadata_from_context(ctx: _DocxContext) -> DocxMetadata:
+def _extract_metadata_from_context(ctx: _DocxContext) -> DocumentMetadata:
     """Extract document metadata from cached core.xml root."""
-    metadata = DocxMetadata()
+    metadata = DocumentMetadata()
     root = ctx._core_root
     if root is None:
         return metadata
@@ -561,62 +537,80 @@ def _extract_metadata_from_context(ctx: _DocxContext) -> DocxMetadata:
         (_DC_TITLE, "title"),
         (_DC_CREATOR, "author"),
         (_DC_SUBJECT, "subject"),
-        (_CP_KEYWORDS, "keywords"),
-        (_CP_CATEGORY, "category"),
-        (_DC_DESCRIPTION, "comments"),
         (_DCTERMS_CREATED, "created"),
         (_DCTERMS_MODIFIED, "modified"),
-        (_CP_LASTMODIFIEDBY, "last_modified_by"),
     ]
 
     for tag, attr in field_mappings:
         if text := get_element_text(root, tag):
             setattr(metadata, attr, text)
 
+    if keywords := get_element_text(root, _CP_KEYWORDS):
+        metadata.keywords = [
+            value.strip() for value in keywords.split(",") if value.strip()
+        ]
+
+    for tag, name in [
+        (_CP_CATEGORY, "category"),
+        (_DC_DESCRIPTION, "comments"),
+        (_CP_LASTMODIFIEDBY, "last_modified_by"),
+    ]:
+        if value := get_element_text(root, tag):
+            metadata.properties[f"docx.{name}"] = value
+
     revision_elem = root.find(_CP_REVISION)
     if revision_elem is not None and revision_elem.text:
         try:
-            metadata.revision = int(revision_elem.text)
+            metadata.properties["docx.revision"] = int(revision_elem.text)
         except ValueError:
             pass
 
     return metadata
 
 
-def _extract_notes_from_root(root: ET.Element | None, note_tag: str) -> list[DocxNote]:
+def _extract_notes_from_root(
+    root: ET.Element | None, note_tag: str, kind: str
+) -> list[Annotation]:
     """Extract notes (footnotes or endnotes) from an XML root element."""
     if root is None:
         return []
 
     return [
-        DocxNote(id=note.get(W_ID) or "", text=collect_text_from_element(note))
+        Annotation(
+            kind=kind,
+            text=collect_text_from_element(note),
+            properties={"docx.id": note.get(W_ID) or ""},
+        )
         for note in root.iter(note_tag)
         if (note.get(W_ID) or "") not in SKIP_NOTE_IDS
     ]
 
 
-def _extract_footnotes_from_context(ctx: _DocxContext) -> list[DocxNote]:
+def _extract_footnotes_from_context(ctx: _DocxContext) -> list[Annotation]:
     """Extract footnotes from cached footnotes.xml root."""
-    return _extract_notes_from_root(ctx._footnotes_root, W_FOOTNOTE)
+    return _extract_notes_from_root(ctx._footnotes_root, W_FOOTNOTE, "footnote")
 
 
-def _extract_endnotes_from_context(ctx: _DocxContext) -> list[DocxNote]:
+def _extract_endnotes_from_context(ctx: _DocxContext) -> list[Annotation]:
     """Extract endnotes from cached endnotes.xml root."""
-    return _extract_notes_from_root(ctx._endnotes_root, W_ENDNOTE)
+    return _extract_notes_from_root(ctx._endnotes_root, W_ENDNOTE, "endnote")
 
 
-def _extract_comments_from_context(ctx: _DocxContext) -> list[DocxComment]:
+def _extract_comments_from_context(ctx: _DocxContext) -> list[Annotation]:
     """Extract comments from cached comments.xml root."""
     root = ctx._comments_root
     if root is None:
         return []
 
     return [
-        DocxComment(
-            id=comment.get(W_ID) or "",
+        Annotation(
+            kind="comment",
             author=comment.get(W_AUTHOR) or "",
-            date=comment.get(W_DATE) or "",
             text=collect_text_from_element(comment),
+            properties={
+                "docx.id": comment.get(W_ID) or "",
+                "docx.date": comment.get(W_DATE) or "",
+            },
         )
         for comment in root.iter(W_COMMENT)
     ]
@@ -625,57 +619,6 @@ def _extract_comments_from_context(ctx: _DocxContext) -> list[DocxComment]:
 def _parse_twips_to_inches(value: str | None) -> float | None:
     """Convert twips string to inches, returning None on failure."""
     return twips_to_inches(value)
-
-
-def _extract_sections_from_context(ctx: _DocxContext) -> list[DocxSection]:
-    """Extract section properties (page layout) from cached document body."""
-    body = ctx.document_body
-    if body is None:
-        return []
-
-    sect_pr_elements: list[ET.Element] = []
-
-    # Sections in paragraphs
-    for p in body.iter(W_P):
-        ppr = p.find(W_PPR)
-        if ppr is not None:
-            sect_pr = ppr.find(W_SECTPR)
-            if sect_pr is not None:
-                sect_pr_elements.append(sect_pr)
-
-    # Final section at end of body
-    final_sect_pr = body.find(W_SECTPR)
-    if final_sect_pr is not None:
-        sect_pr_elements.append(final_sect_pr)
-
-    sections: list[DocxSection] = []
-    for sect_pr in sect_pr_elements:
-        section = DocxSection()
-
-        pg_sz = sect_pr.find(W_PGSZ)
-        if pg_sz is not None:
-            if inches := _parse_twips_to_inches(pg_sz.get(W_W)):
-                section.page_width_inches = inches
-            if inches := _parse_twips_to_inches(pg_sz.get(W_H)):
-                section.page_height_inches = inches
-            orient = pg_sz.get(W_ORIENT)
-            if orient and orient != "portrait":
-                section.orientation = orient
-
-        pg_mar = sect_pr.find(W_PGMAR)
-        if pg_mar is not None:
-            for attr, tag in [
-                ("left_margin_inches", W_LEFT),
-                ("right_margin_inches", W_RIGHT),
-                ("top_margin_inches", W_TOP),
-                ("bottom_margin_inches", W_BOTTOM),
-            ]:
-                if inches := _parse_twips_to_inches(pg_mar.get(tag)):
-                    setattr(section, attr, inches)
-
-        sections.append(section)
-
-    return sections
 
 
 def _determine_hf_type(path: str, rel_type: str) -> str:
@@ -691,10 +634,10 @@ def _determine_hf_type(path: str, rel_type: str) -> str:
 
 def _extract_header_footers_from_context(
     ctx: _DocxContext,
-) -> tuple[list[DocxHeaderFooter], list[DocxHeaderFooter]]:
+) -> tuple[list[Annotation], list[Annotation]]:
     """Extract headers and footers from cached header/footer XML roots."""
-    headers: list[DocxHeaderFooter] = []
-    footers: list[DocxHeaderFooter] = []
+    headers: list[Annotation] = []
+    footers: list[Annotation] = []
 
     for rel_info in ctx.relationships.values():
         rel_type = rel_info.get("type", "")
@@ -715,7 +658,11 @@ def _extract_header_footers_from_context(
         if not text:
             continue
 
-        hf_obj = DocxHeaderFooter(type=_determine_hf_type(hf_path, rel_type), text=text)
+        hf_obj = Annotation(
+            kind="header" if is_header else "footer",
+            text=text,
+            properties={"docx.type": _determine_hf_type(hf_path, rel_type)},
+        )
         if is_header:
             headers.append(hf_obj)
         else:
@@ -759,114 +706,10 @@ def _parse_run_properties(
     return (bold, italic, underline, font_name, font_size, font_color)
 
 
-def _extract_paragraphs_from_context(ctx: _DocxContext) -> list[DocxParagraph]:
-    """Extract paragraphs with formatting and run information."""
-    body = ctx.document_body
-    if body is None:
-        return []
-
-    style_map = ctx.styles
-    paragraphs: list[DocxParagraph] = []
-
-    for p in body.findall(W_P):
-        ppr = p.find(W_PPR)
-        style_id = None
-        alignment = None
-
-        if ppr is not None:
-            style_elem = ppr.find(W_PSTYLE)
-            if style_elem is not None:
-                style_id = style_elem.get(W_VAL)
-
-            jc_elem = ppr.find(W_JC)
-            if jc_elem is not None:
-                alignment = jc_elem.get(W_VAL)
-
-        style_name = style_map.get(style_id, style_id) if style_id else None
-
-        has_page_break = any(br.get(W_TYPE) == "page" for br in p.iter(W_BR)) or (
-            next(p.iter(W_LAST_RENDERED_PAGE_BREAK), None) is not None
-        )
-
-        # Extract runs
-        runs: list[DocxRun] = []
-        paragraph_text_parts: list[str] = []
-        for r in p.iter(W_R):
-            run_text = collect_text_from_element(r)
-            if not run_text:
-                continue
-            paragraph_text_parts.append(run_text)
-
-            bold, italic, underline, font_name, font_size, font_color = (
-                _parse_run_properties(r.find(W_RPR))
-            )
-
-            runs.append(
-                DocxRun(
-                    text=run_text,
-                    bold=bold,
-                    italic=italic,
-                    underline=underline,
-                    font_name=font_name,
-                    font_size=font_size,
-                    font_color=font_color,
-                )
-            )
-
-        paragraphs.append(
-            DocxParagraph(
-                text="".join(paragraph_text_parts),
-                style=style_name,
-                alignment=alignment,
-                runs=runs,
-                has_page_break=has_page_break,
-            )
-        )
-
-    return paragraphs
-
-
-def _extract_tables_from_context(
-    ctx: _DocxContext,
-) -> tuple[list[list[list[str]]], list[int]]:
-    """Extract tables as lists of lists of cell text."""
-    body = ctx.document_body
-    if body is None:
-        return [], []
-
-    tables: list[list[list[str]]] = []
-    table_anchor_paragraph_indices: list[int] = []
-    current_paragraph_index = -1
-
-    for child in list(body):
-        if child.tag == W_P:
-            current_paragraph_index += 1
-            continue
-        if child.tag != W_TBL:
-            continue
-
-        anchor = max(0, current_paragraph_index)
-
-        for tbl in child.iter(W_TBL):
-            table_data: list[list[str]] = []
-            for tr in tbl.findall(W_TR):
-                row_data: list[str] = []
-                for tc in tr.findall(W_TC):
-                    cell_paragraphs = [
-                        collect_text_from_element(p) for p in tc.iter(W_P)
-                    ]
-                    row_data.append("\n".join(cell_paragraphs))
-                table_data.append(row_data)
-            tables.append(table_data)
-            table_anchor_paragraph_indices.append(anchor)
-
-    return tables, table_anchor_paragraph_indices
-
-
 def _extract_images_from_context(
     ctx: _DocxContext,
     paragraphs: list[ET.Element] | None = None,
-) -> list[DocxImage]:
+) -> list[tuple[ImageAsset, list[int]]]:
     """Extract images with captions and descriptions."""
     rels = ctx.relationships
     body = ctx.document_body
@@ -927,7 +770,7 @@ def _extract_images_from_context(
                         )
 
     # Build image list
-    images: list[DocxImage] = []
+    images: list[tuple[ImageAsset, list[int]]] = []
     image_counter = 0
 
     for rel_id, rel_info in rels.items():
@@ -952,70 +795,193 @@ def _extract_images_from_context(
             width, height = get_image_pixel_dimensions(img_data)
 
             images.append(
-                DocxImage(
-                    rel_id=rel_id,
-                    filename=target.rsplit("/", 1)[-1],
-                    content_type=get_image_content_type(
-                        target, fallback_to_extension=True
+                (
+                    ImageAsset(
+                        number=image_counter,
+                        filename=target.rsplit("/", 1)[-1],
+                        media_type=get_image_content_type(
+                            target, fallback_to_extension=True
+                        ),
+                        data=img_data,
+                        width=width,
+                        height=height,
+                        caption=caption,
+                        description=description,
+                        properties={
+                            "docx.relationship_id": rel_id,
+                            "docx.size_bytes": len(img_data),
+                        },
                     ),
-                    data=io.BytesIO(img_data),
-                    size_bytes=len(img_data),
-                    width=width,
-                    height=height,
-                    image_index=image_counter,
-                    caption=caption,
-                    description=description,
-                    anchor_paragraph_indices=sorted(
-                        image_anchor_paragraph_indices.get(rel_id, set())
-                    ),
+                    sorted(image_anchor_paragraph_indices.get(rel_id, set())),
                 )
             )
         except (KeyError, ValueError, OSError, UnicodeDecodeError) as e:
-            logger.debug(f"Image extraction failed for rel_id {rel_id} - {e}")
-            images.append(DocxImage(rel_id=rel_id, error=str(e)))
+            logger.debug("Failed to extract DOCX image %s: %s", rel_id, e)
+            image_counter += 1
+            images.append(
+                (
+                    ImageAsset(
+                        number=image_counter,
+                        properties={
+                            "docx.relationship_id": rel_id,
+                            "docx.error": str(e),
+                        },
+                    ),
+                    [],
+                )
+            )
 
     return images
 
 
-def _extract_hyperlinks_from_context(ctx: _DocxContext) -> list[DocxHyperlink]:
-    """Extract hyperlinks from the document."""
-    body = ctx.document_body
-    if body is None:
-        return []
-
-    rels = ctx.relationships
-    hyperlinks: list[DocxHyperlink] = []
-
-    for hyperlink in body.iter(W_HYPERLINK):
-        r_id = hyperlink.get(R_ID)
-        if r_id and r_id in rels:
-            rel_info = rels[r_id]
-            if "hyperlink" in rel_info.get("type", "").lower():
-                hyperlinks.append(
-                    DocxHyperlink(
-                        text=collect_text_from_element(hyperlink),
-                        url=rel_info.get("target", ""),
-                    )
-                )
-
-    return hyperlinks
+def _heading_level(style: str | None) -> int | None:
+    """Return the structural heading level encoded by a Word style name."""
+    if not style:
+        return None
+    if re.match(r"^(title|titel)\b", style.strip(), flags=re.IGNORECASE):
+        return 0
+    match = re.match(
+        r"^(heading|überschrift)\s*(\d+)?\b", style.strip(), flags=re.IGNORECASE
+    )
+    if not match:
+        return None
+    return int(match.group(2) or "1")
 
 
-def _extract_formulas_from_context(ctx: _DocxContext) -> list[DocxFormula]:
-    """Extract all mathematical formulas from the document as LaTeX."""
-    body = ctx.document_body
-    if body is None:
-        return []
+def _build_content_units(
+    analysis: _DocxBodyAnalysis,
+    images_with_anchors: list[tuple[ImageAsset, list[int]]],
+    title: str | None,
+) -> list[ContentUnit]:
+    """Build canonical units by grouping paragraphs under Word headings."""
+    images_by_paragraph: dict[int, list[ImageAsset]] = {}
+    for image, anchors in images_with_anchors:
+        for anchor in anchors:
+            images_by_paragraph.setdefault(anchor, []).append(image)
+    tables_by_paragraph: dict[int, list[Table]] = {}
+    anchors = analysis.table_anchor_paragraph_indices
+    if len(anchors) != len(analysis.tables):
+        anchors = [0] * len(analysis.tables)
+    for table, anchor in zip(analysis.tables, anchors):
+        tables_by_paragraph.setdefault(anchor, []).append(table)
 
-    return [
-        DocxFormula(latex=latex, is_display=is_display)
-        for latex, is_display in extract_omml_formulas(
-            body,
-            omath_para_tag=M_OMATHPARA,
-            omath_tag=M_OMATH,
-            converter=omml_to_latex,
-        )
+    heading_indices = [
+        index
+        for index, paragraph in enumerate(analysis.paragraphs)
+        if _heading_level(paragraph.style) is not None
     ]
+    if not heading_indices:
+        return [
+            ContentUnit(
+                number=1,
+                kind="document",
+                text=analysis.full_text,
+                title=title,
+                images=[image for image, _ in images_with_anchors],
+                tables=list(analysis.tables),
+            )
+        ]
+
+    heading_index_set = set(heading_indices)
+    next_heading_for_index: list[int | None] = [None] * len(analysis.paragraphs)
+    next_heading: int | None = None
+    for index in range(len(analysis.paragraphs) - 1, -1, -1):
+        next_heading_for_index[index] = next_heading
+        if index in heading_index_set:
+            next_heading = index
+
+    heading_has_payload: dict[int, bool] = {}
+    for position, heading_index in enumerate(heading_indices):
+        end_index = (
+            heading_indices[position + 1] - 1
+            if position + 1 < len(heading_indices)
+            else len(analysis.paragraphs) - 1
+        )
+        heading_has_payload[heading_index] = any(
+            analysis.paragraphs[index].text.strip()
+            or images_by_paragraph.get(index)
+            or tables_by_paragraph.get(index)
+            for index in range(heading_index + 1, end_index + 1)
+        )
+
+    units: list[ContentUnit] = []
+    heading_stack: list[tuple[int, str]] = []
+    current_path: list[str] = []
+    current_level: int | None = None
+    current_lines: list[str] = []
+    current_start: int | None = None
+    current_has_payload = False
+
+    def flush_current(end_index: int, next_heading_level: int | None = None) -> None:
+        """Append the current heading unit when its structure should be retained."""
+        if not current_path or current_start is None:
+            return
+        unit_images: list[ImageAsset] = []
+        unit_tables: list[Table] = []
+        for paragraph_index in range(current_start, end_index + 1):
+            unit_images.extend(images_by_paragraph.get(paragraph_index, []))
+            unit_tables.extend(tables_by_paragraph.get(paragraph_index, []))
+        text = "\n".join(line for line in current_lines if line.strip()).strip()
+        if (
+            not text
+            and not unit_images
+            and not unit_tables
+            and next_heading_level is not None
+            and current_level is not None
+            and next_heading_level > current_level
+        ):
+            return
+        units.append(
+            ContentUnit(
+                number=len(units) + 1,
+                kind="section",
+                text=text,
+                title=current_path[-1],
+                heading_path=list(current_path),
+                images=unit_images,
+                tables=unit_tables,
+                properties={"docx.heading_level": current_level},
+            )
+        )
+
+    for paragraph_index, paragraph in enumerate(analysis.paragraphs):
+        level = _heading_level(paragraph.style)
+        if level is not None:
+            flush_current(paragraph_index - 1, level)
+            while heading_stack and heading_stack[-1][0] >= level:
+                heading_stack.pop()
+            heading_stack.append((level, paragraph.text.strip()))
+            current_path = [text for _, text in heading_stack if text]
+            current_level = level
+            current_lines = []
+            current_start = paragraph_index
+            current_has_payload = bool(
+                images_by_paragraph.get(paragraph_index)
+                or tables_by_paragraph.get(paragraph_index)
+            )
+            continue
+
+        if images_by_paragraph.get(paragraph_index) or tables_by_paragraph.get(
+            paragraph_index
+        ):
+            current_has_payload = True
+        if current_path and not current_has_payload and paragraph.has_page_break:
+            next_heading_index = next_heading_for_index[paragraph_index]
+            if next_heading_index is not None and heading_has_payload.get(
+                next_heading_index, False
+            ):
+                flush_current(paragraph_index)
+                current_start = paragraph_index + 1
+                current_lines = []
+                current_has_payload = False
+                continue
+        if paragraph.text.strip():
+            current_lines.append(paragraph.text.strip())
+            current_has_payload = True
+
+    if analysis.paragraphs:
+        flush_current(len(analysis.paragraphs) - 1)
+    return units
 
 
 # =============================================================================
@@ -1024,21 +990,24 @@ def _extract_formulas_from_context(ctx: _DocxContext) -> list[DocxFormula]:
 
 
 def read_docx(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[DocxContent, Any, None]:
+    file_like: io.BytesIO,
+    path: str | None = None,
+    *,
+    ignore_images: bool = False,
+    extract_annotations: bool = False,
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Extract all relevant content from a Word .docx file.
 
     Uses a generator pattern for API consistency. DOCX files yield exactly one
-    DocxContent object containing paragraphs, tables, images, metadata, etc.
+    canonical extraction result containing units, tables, images, and metadata.
 
     Args:
         file_like: BytesIO object containing the DOCX file data.
         path: Optional path to the source file for metadata.
         ignore_images: If True, skip image extraction.
+        extract_annotations: If True, include comments in full_text and unit.text.
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering DOCX extraction: %s", source_path)
     try:
         file_like.seek(0)
         if is_ooxml_encrypted(file_like):
@@ -1052,9 +1021,6 @@ def read_docx(
             body_analysis = _analyze_document_body(ctx)
             paragraphs = body_analysis.paragraphs
             tables = body_analysis.tables
-            table_anchor_paragraph_indices = (
-                body_analysis.table_anchor_paragraph_indices
-            )
             headers, footers = _extract_header_footers_from_context(ctx)
             images = (
                 []
@@ -1068,35 +1034,88 @@ def read_docx(
             endnotes = _extract_endnotes_from_context(ctx)
             formulas = body_analysis.formulas
             comments = _extract_comments_from_context(ctx)
-            sections = body_analysis.sections
-            styles = list({para.style for para in paragraphs if para.style})
-            full_text = body_analysis.full_text
-
-            metadata.populate_from_path(path)
-
             logger.debug(
-                "Extracted DOCX: %d paragraphs, %d tables, %d images",
+                "Extracted DOCX: paragraphs=%d, tables=%d, images=%d",
                 len(paragraphs),
                 len(tables),
                 len(images),
             )
 
-            yield DocxContent(
+            annotations = [
+                *headers,
+                *footers,
+                *hyperlinks,
+                *footnotes,
+                *endnotes,
+                *comments,
+                *formulas,
+            ]
+            units = _build_content_units(body_analysis, images, metadata.title)
+
+            # When extract_annotations=True, append comments to the last unit's text
+            # and let full_text be computed from unit texts for consistency
+            if extract_annotations and comments:
+                comment_lines = [
+                    f"[Comment: {c.author}@{c.properties.get('docx.date', '')}: {c.text}]"
+                    for c in comments
+                ]
+                if units:
+                    last_unit = units[-1]
+                    if last_unit.text:
+                        units[-1] = ContentUnit(
+                            number=last_unit.number,
+                            kind=last_unit.kind,
+                            text=last_unit.text + "\n" + "\n".join(comment_lines),
+                            title=last_unit.title,
+                            heading_path=list(last_unit.heading_path),
+                            images=list(last_unit.images),
+                            tables=list(last_unit.tables),
+                            annotations=list(last_unit.annotations),
+                            properties=dict(last_unit.properties),
+                        )
+                    else:
+                        units[-1] = ContentUnit(
+                            number=last_unit.number,
+                            kind=last_unit.kind,
+                            text="\n".join(comment_lines),
+                            title=last_unit.title,
+                            heading_path=list(last_unit.heading_path),
+                            images=list(last_unit.images),
+                            tables=list(last_unit.tables),
+                            annotations=list(last_unit.annotations),
+                            properties=dict(last_unit.properties),
+                        )
+
+            owned_image_ids = {id(image) for unit in units for image in unit.images}
+            owned_table_ids = {id(table) for unit in units for table in unit.tables}
+
+            # Assign unowned images/tables and annotations to the first unit
+            unowned_images = [
+                image for image, _ in images if id(image) not in owned_image_ids
+            ]
+            unowned_tables = [
+                table for table in tables if id(table) not in owned_table_ids
+            ]
+            if units:
+                units[0].images.extend(unowned_images)
+                units[0].tables.extend(unowned_tables)
+                units[0].annotations.extend(annotations)
+
+            # When extract_annotations=True, don't set document.full_text so
+            # full_text is computed from unit texts, ensuring consistency
+            properties: dict[str, JsonValue] = {
+                "docx.paragraph_count": len(paragraphs),
+                "docx.sections": cast(JsonValue, body_analysis.sections),
+            }
+            if not extract_annotations:
+                properties["document.full_text"] = body_analysis.full_text
+
+            yield ExtractedDocument(
+                format="docx",
+                source=source_metadata(path),
                 metadata=metadata,
-                paragraphs=paragraphs,
-                tables=tables,
-                table_anchor_paragraph_indices=table_anchor_paragraph_indices,
-                headers=headers,
-                footers=footers,
-                images=images,
-                hyperlinks=hyperlinks,
-                footnotes=footnotes,
-                endnotes=endnotes,
-                comments=comments,
-                sections=sections,
-                styles=styles,
-                formulas=formulas,
-                full_text=full_text,
+                units=units,
+                properties=properties,
             )
         finally:
             ctx.close()
@@ -1104,5 +1123,3 @@ def read_docx(
         raise
     except (KeyError, ET.ParseError, OSError, ValueError, UnicodeDecodeError) as exc:
         raise ExtractionFailedError("Failed to extract DOCX file", cause=exc) from exc
-    finally:
-        logger.info("Leaving DOCX extraction: %s", source_path)

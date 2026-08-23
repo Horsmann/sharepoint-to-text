@@ -97,12 +97,18 @@ import io
 import logging
 import re
 from html.parser import HTMLParser
-from typing import Any, Dict, Generator, List, Optional, Tuple
+from typing import Any, Dict, Generator, List, Optional, Tuple, cast
 
 from sharepoint2text.parsing.exceptions import ExtractionError, ExtractionFailedError
-from sharepoint2text.parsing.extractors.data_types import (
-    HtmlContent,
-    HtmlMetadata,
+from sharepoint2text.parsing.extractors._model import source_metadata
+from sharepoint2text.parsing.models import (
+    Annotation,
+    CellValue,
+    ContentUnit,
+    DocumentMetadata,
+    ExtractedDocument,
+    JsonValue,
+    Table,
 )
 
 logger = logging.getLogger(__name__)
@@ -309,7 +315,12 @@ class _HtmlTextExtractor:
         self.tables: List[List[List[str]]] = []
         self.headings: List[Dict[str, str]] = []
         self.links: List[Dict[str, str]] = []
-        self.metadata = HtmlMetadata()
+        self.title = ""
+        self.language = ""
+        self.charset = ""
+        self.description = ""
+        self.keywords = ""
+        self.author = ""
         # Performance optimization: cache frequently accessed nodes
         self._node_cache: Dict[Tuple[int, str], List[Dict]] = {}
         self._single_node_cache: Dict[Tuple[int, str], Optional[Dict]] = {}
@@ -456,19 +467,17 @@ class _HtmlTextExtractor:
 
     def _extract_metadata(self, path: Optional[str]) -> None:
         """Extract metadata from HTML document, optimized to avoid repeated tree walks."""
-        self.metadata.populate_from_path(path)
-
         # Extract title
         title_node = self._find_node(self.root, "title")
         if title_node:
-            self.metadata.title = self._get_node_text(title_node).strip()
+            self.title = self._get_node_text(title_node).strip()
 
         # Extract language from html tag
         html_node = self._find_node(self.root, "html")
         if html_node:
             lang = html_node.get("attrs", {}).get("lang", "")
             if lang:
-                self.metadata.language = lang
+                self.language = lang
 
         # Extract from meta tags using optimized collection
         meta_nodes: List[Dict] = []
@@ -479,24 +488,24 @@ class _HtmlTextExtractor:
 
             # charset
             if "charset" in attrs:
-                self.metadata.charset = attrs["charset"]
+                self.charset = attrs["charset"]
 
             # http-equiv content-type
             if attrs.get("http-equiv", "").lower() == "content-type":
                 content = attrs.get("content", "")
                 match = _RE_CHARSET_IN_CONTENT.search(content)
                 if match:
-                    self.metadata.charset = match.group(1)
+                    self.charset = match.group(1)
 
             # name-based meta tags
             name = attrs.get("name", "").lower()
             content = attrs.get("content", "")
             if name == "description" and content:
-                self.metadata.description = content
+                self.description = content
             elif name == "keywords" and content:
-                self.metadata.keywords = content
+                self.keywords = content
             elif name == "author" and content:
-                self.metadata.author = content
+                self.author = content
 
     def _collect_nodes_by_tag(self, node: Dict, tag: str, result: List) -> None:
         """Recursively collect all nodes with the given tag."""
@@ -623,7 +632,7 @@ class _HtmlTextExtractor:
 
 def read_html(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[HtmlContent, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Extract all relevant content from an HTML document.
 
@@ -639,11 +648,11 @@ def read_html(
             The stream position is reset to the beginning before reading.
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
-            returned HtmlContent.metadata.
+            returned document source metadata.
         ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
-        HtmlContent: Single HtmlContent object containing:
+        ExtractedDocument: Single canonical HTML document containing:
             - content: Full extracted text with formatting
             - tables: Structured table data as nested lists
             - headings: List of heading elements with level
@@ -651,7 +660,7 @@ def read_html(
             - metadata: HtmlMetadata with title, charset, etc.
 
     Note:
-        On parse failure, yields empty HtmlContent rather than raising.
+        On parse failure, yields an empty canonical document rather than raising.
         A warning is logged when parsing fails completely.
 
     Example:
@@ -660,13 +669,10 @@ def read_html(
         ...     data = io.BytesIO(f.read())
         ...     for doc in read_html(data, path="report.html"):
         ...         print(f"Title: {doc.metadata.title}")
-        ...         for heading in doc.headings:
+        ...         for heading in doc.properties["html.headings"]:
         ...             print(f"  {heading['level']}: {heading['text']}")
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering HTML extraction: %s", source_path)
     try:
-        logger.debug("Reading HTML file")
         file_like.seek(0)
 
         content = file_like.read()
@@ -699,12 +705,14 @@ def read_html(
             parser = _HtmlTreeBuilder()
             parser.feed(html_text)
             root = parser.get_tree()
-        except (ValueError, RecursionError):
+        except (ValueError, RecursionError) as exc:
             # Last resort: return empty content
-            logger.warning("Failed to parse HTML content")
-            metadata = HtmlMetadata()
-            metadata.populate_from_path(path)
-            yield HtmlContent(content="", metadata=metadata)
+            logger.warning("Failed to parse HTML; returning empty content: %s", exc)
+            yield ExtractedDocument(
+                format="html",
+                source=source_metadata(path, encoding=encoding),
+                units=[ContentUnit(number=1, kind="document")],
+            )
             return
 
         # Extract text content
@@ -712,22 +720,52 @@ def read_html(
         text = extractor.extract(path)
 
         logger.debug(
-            "Extracted HTML: %d characters, %d tables, %d links",
+            "Extracted HTML: characters=%d, tables=%d, links=%d",
             len(text),
             len(extractor.tables),
             len(extractor.links),
         )
 
-        yield HtmlContent(
-            content=text,
-            tables=extractor.tables,
-            headings=extractor.headings,
-            links=extractor.links,
-            metadata=extractor.metadata,
+        metadata_properties = (
+            {"html.charset": extractor.charset} if extractor.charset else {}
+        )
+        yield ExtractedDocument(
+            format="html",
+            source=source_metadata(path, encoding=encoding),
+            metadata=DocumentMetadata(
+                title=extractor.title or None,
+                author=extractor.author or None,
+                subject=extractor.description or None,
+                keywords=[
+                    item.strip()
+                    for item in re.split(r"[;,]", extractor.keywords)
+                    if item.strip()
+                ],
+                language=extractor.language or None,
+                properties=cast(dict[str, JsonValue], metadata_properties),
+            ),
+            units=[
+                ContentUnit(
+                    number=1,
+                    kind="document",
+                    text=text,
+                    tables=[
+                        Table(rows=cast(list[list[CellValue]], table))
+                        for table in extractor.tables
+                    ],
+                    annotations=[
+                        Annotation(
+                            kind="hyperlink",
+                            text=link.get("text", ""),
+                            target=link.get("href") or None,
+                        )
+                        for link in extractor.links
+                    ],
+                )
+            ],
+            properties={"html.headings": cast(JsonValue, extractor.headings)},
         )
     except ExtractionError:
         raise
     except (OSError, UnicodeDecodeError, LookupError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract HTML file", cause=exc) from exc
-    finally:
-        logger.info("Leaving HTML extraction: %s", source_path)

@@ -1,0 +1,882 @@
+"""
+Implement the package's extraction entry points.
+
+A Python library for extracting plain text content from files typically found
+in SharePoint repositories. Supports both modern Office Open XML formats and
+legacy binary formats, plus PDF documents.
+"""
+
+import io
+import logging
+import sys
+import threading
+from contextlib import contextmanager
+from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
+from typing import Callable, Generator, Iterator, TypeVar
+
+from sharepoint2text.parsing.exceptions import (
+    ExtractionError,
+    ExtractionFailedError,
+    ExtractionFileFormatNotSupportedError,
+    ExtractionFileTooLargeError,
+)
+from sharepoint2text.parsing.extractors.util.zip_bomb import (
+    ZipBombLimits,
+    _validate_zip_bomb_limits,
+    _zip_bomb_limits_scope,
+)
+from sharepoint2text.parsing.mime_types import MIME_TYPE_MAPPING
+from sharepoint2text.parsing.models import ExtractedDocument
+from sharepoint2text.parsing.router import (
+    ExtractorFunction,
+    _get_extractor,
+    _resolve_file_type,
+    is_supported_file,
+)
+
+logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
+
+# Default pypdf decompression limit (bytes). pypdf uses 75 MB internally.
+_PYPDF_DEFAULT_DECOMPRESSION_LIMIT = 75_000_000
+
+# Sentinel value to effectively disable pypdf limits.  pypdf checks
+# ``length > MAX_…`` so any stream smaller than this passes.  We cannot
+# use ``0`` because that would make *every* stream exceed the limit.
+# ``sys.maxsize`` is the platform's ``ssize_t`` max, accepted by zlib.
+_PYPDF_NO_LIMIT = sys.maxsize
+
+_PYPDF_LIMIT_ATTRIBUTES = (
+    "ZLIB_MAX_OUTPUT_LENGTH",
+    "LZW_MAX_OUTPUT_LENGTH",
+    "RUN_LENGTH_MAX_OUTPUT_LENGTH",
+    "JBIG2_MAX_OUTPUT_LENGTH",
+    "MAX_DECLARED_STREAM_LENGTH",
+    "MAX_ARRAY_BASED_STREAM_OUTPUT_LENGTH",
+)
+
+# pypdf exposes its limits as process-wide module globals. Serialize PDF
+# extraction while an override is active so concurrent calls cannot observe
+# another call's relaxed limits. An RLock keeps nested use in one thread safe.
+_PYPDF_LIMIT_LOCK = threading.RLock()
+
+
+@dataclass(slots=True)
+class _BatchStatistics:
+    """Track progress for one lazy folder extraction."""
+
+    files_found: int = 0
+    documents_extracted: int = 0
+    files_skipped: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class _InMemoryExtractionPlan:
+    """Describe validated routing for one in-memory extraction."""
+
+    extractor: ExtractorFunction
+    resolved_file_type: str
+    virtual_path: str
+
+
+def _pypdf_limit_target(max_file_size: int) -> int | None:
+    """Return the pypdf override required for one extraction call.
+
+    Args:
+        max_file_size: User-supplied input size limit in bytes. Zero disables
+            the limit.
+
+    Returns:
+        The process-wide pypdf limit to apply, or ``None`` to retain pypdf's
+        existing defaults.
+    """
+    if max_file_size == 0:
+        return _PYPDF_NO_LIMIT
+    if max_file_size > _PYPDF_DEFAULT_DECOMPRESSION_LIMIT:
+        return max_file_size
+    return None
+
+
+@contextmanager
+def _pypdf_limits_scope(max_file_size: int) -> Iterator[None]:
+    """Temporarily adjust and then restore pypdf decompression limits.
+
+    Args:
+        max_file_size: User-supplied input size limit in bytes. Zero disables
+            pypdf's decompression limits for the duration of this scope.
+
+    Yields:
+        Control while the per-call pypdf limits are active.
+    """
+    import pypdf.filters as _filters  # noqa: PLC0415
+
+    target = _pypdf_limit_target(max_file_size)
+    with _PYPDF_LIMIT_LOCK:
+        original_limits = {
+            attribute: getattr(_filters, attribute)
+            for attribute in _PYPDF_LIMIT_ATTRIBUTES
+            if hasattr(_filters, attribute)
+        }
+        try:
+            if target is not None:
+                for attribute in original_limits:
+                    setattr(_filters, attribute, target)
+            yield
+        finally:
+            for attribute, original_limit in original_limits.items():
+                setattr(_filters, attribute, original_limit)
+
+
+try:
+    __version__ = version("sharepoint-to-text")
+except PackageNotFoundError:  # pragma: no cover
+    __version__ = "unknown"
+
+
+class InvalidConfigurationError(ValueError):
+    """Raised when incompatible configuration options are provided."""
+
+
+@dataclass(frozen=True, slots=True)
+class BatchFileResult:
+    """Report the outcome of one selected file processed by ``read_many``.
+
+    Attributes:
+        path: Path of the selected top-level file.
+        documents_extracted: Number of documents yielded before completion or
+            a recoverable failure.
+        error: Recoverable extraction or I/O error, or ``None`` on success.
+
+    Example:
+        >>> from pathlib import Path
+        >>> result = BatchFileResult(Path("report.pdf"), 1)
+        >>> result.succeeded
+        True
+    """
+
+    path: Path
+    documents_extracted: int
+    error: Exception | None = None
+
+    def __post_init__(self) -> None:
+        """Reject a negative extracted-document count.
+
+        Raises:
+            ValueError: If ``documents_extracted`` is negative.
+        """
+        if self.documents_extracted < 0:
+            raise ValueError("documents_extracted must be non-negative")
+
+    @property
+    def succeeded(self) -> bool:
+        """Return whether the selected file completed without a recoverable error.
+
+        Returns:
+            ``True`` when ``error`` is ``None``.
+        """
+        return self.error is None
+
+
+def _iterate_with_zip_bomb_limits(
+    iterator: Iterator[_T],
+    limits: ZipBombLimits | None,
+) -> Generator[_T, None, None]:
+    """Advance an iterator under isolated ZIP-bomb limits.
+
+    Each iterator step leaves the scope before yielding control to the caller.
+    This ensures a suspended generator cannot expose its relaxed limits to
+    another extraction running in the same thread or task.
+
+    Args:
+        iterator: Underlying extractor iterator to advance.
+        limits: Per-call ZIP-bomb limits, or ``None`` for library defaults.
+
+    Yields:
+        Values produced by the underlying iterator.
+
+    Raises:
+        TypeError: If ``limits`` is neither ``None`` nor ``ZipBombLimits``.
+    """
+    try:
+        while True:
+            with _zip_bomb_limits_scope(limits):
+                try:
+                    value = next(iterator)
+                except StopIteration:
+                    return
+            yield value
+    finally:
+        close = getattr(iterator, "close", None)
+        if callable(close):
+            with _zip_bomb_limits_scope(limits):
+                close()
+
+
+def _iterate_with_pypdf_limits(
+    iterator: Iterator[_T], max_file_size: int
+) -> Generator[_T, None, None]:
+    """Advance a PDF iterator under isolated pypdf limits.
+
+    Args:
+        iterator: Underlying PDF extractor iterator to advance.
+        max_file_size: Per-call limit used to configure pypdf.
+
+    Yields:
+        Values produced by the PDF extractor after restoring global limits.
+    """
+    try:
+        while True:
+            with _pypdf_limits_scope(max_file_size):
+                try:
+                    value = next(iterator)
+                except StopIteration:
+                    return
+            yield value
+    finally:
+        close = getattr(iterator, "close", None)
+        if callable(close):
+            with _pypdf_limits_scope(max_file_size):
+                close()
+
+
+def read_many(
+    folder_path: str | Path,
+    suffixes: list[str] | None = None,
+    *,
+    extract_all_supported: bool = False,
+    max_file_size: int = 100 * 1024 * 1024,  # 100MB default
+    ignore_images: bool = False,
+    force_plain_text: bool = False,
+    include_attachments: bool = True,
+    extract_annotations: bool = False,
+    recursive: bool = True,
+    on_file_result: Callable[[BatchFileResult], None] | None = None,
+    zip_bomb_limits: ZipBombLimits | None = None,
+) -> Iterator[ExtractedDocument]:
+    """
+    Extract content from multiple files in a folder.
+
+    Traverses a folder (optionally recursively) and extracts content from files
+    matching the specified suffixes, or all supported files if extract_all_supported
+    is True.
+
+    Args:
+        folder_path: Path to the folder to traverse.
+        suffixes: List of file suffixes to extract (e.g., [".docx", ".pdf"]).
+                 Suffixes should include the leading dot.
+                 Required if extract_all_supported is False.
+        extract_all_supported: If True, extract all files with supported formats,
+            ignoring the suffixes parameter. When combined with
+            ``force_plain_text=True``, extract every regular file. Default is False.
+        max_file_size: Maximum file size in bytes (default: 100MB).
+                      Set to 0 to disable size checking.
+        ignore_images: If True, skip image extraction. Image records and
+            image-derived metadata are unavailable. Default is False.
+        force_plain_text: If True, treat selected files as plain text, including
+            files with unknown extensions in ``extract_all_supported`` mode.
+        include_attachments: If False, skip email attachment extraction.
+        extract_annotations: If True, include annotations (comments) in the
+            document text for supported formats (docx, pptx). When enabled,
+            ``full_text`` equals the concatenated unit texts.
+        recursive: If True, traverse subdirectories recursively. Default is True.
+        on_file_result: Optional callback invoked once after each selected file
+            completes or encounters a recoverable extraction/I/O error. The
+            callback receives its path, document count, and error. Callback
+            exceptions stop iteration.
+        zip_bomb_limits: ZIP-bomb limits for each selected file. When ``None``,
+            enforce the library defaults independently for every file.
+
+    Returns:
+        A lazy iterator of normalized documents from successfully extracted files.
+
+    Raises:
+        InvalidConfigurationError: If both suffixes are provided and
+            extract_all_supported is True.
+        ValueError: If neither suffixes nor extract_all_supported is specified.
+        NotADirectoryError: If folder_path is not a directory.
+        FileNotFoundError: If folder_path does not exist.
+        TypeError: If ``on_file_result`` is not callable, or if
+            ``zip_bomb_limits`` is not ``None`` or ``ZipBombLimits``.
+
+    Example:
+        >>> import sharepoint2text
+        >>> # Extract only Word and PDF files
+        >>> for result in sharepoint2text.read_many("/path/to/folder", [".docx", ".pdf"]):
+        ...     print(f"{result.source.path}: {len(result.full_text)} chars")
+        >>> # Extract all supported file types
+        >>> for result in sharepoint2text.read_many("/path/to/folder", extract_all_supported=True):
+        ...     print(result.full_text)
+    """
+    _validate_zip_bomb_limits(zip_bomb_limits)
+    if on_file_result is not None and not callable(on_file_result):
+        raise TypeError("on_file_result must be callable or None")
+    folder = Path(folder_path)
+    if not folder.exists():
+        raise FileNotFoundError(f"Folder not found: {folder_path}")
+    if not folder.is_dir():
+        raise NotADirectoryError(f"Path is not a directory: {folder_path}")
+
+    has_suffixes = suffixes is not None and len(suffixes) > 0
+    if has_suffixes and extract_all_supported:
+        raise InvalidConfigurationError(
+            "Cannot specify both 'suffixes' and 'extract_all_supported=True'. "
+            "Use either suffixes to filter specific file types, or "
+            "extract_all_supported=True to extract all supported formats."
+        )
+
+    if not has_suffixes and not extract_all_supported:
+        raise ValueError(
+            "Must specify either 'suffixes' (list of file extensions to extract) "
+            "or 'extract_all_supported=True' to extract all supported formats."
+        )
+
+    normalized_suffixes = _normalize_suffixes(suffixes if has_suffixes else None)
+    return _iter_many(
+        folder,
+        normalized_suffixes,
+        extract_all_supported=extract_all_supported,
+        max_file_size=max_file_size,
+        ignore_images=ignore_images,
+        force_plain_text=force_plain_text,
+        include_attachments=include_attachments,
+        extract_annotations=extract_annotations,
+        recursive=recursive,
+        on_file_result=on_file_result,
+        zip_bomb_limits=zip_bomb_limits,
+    )
+
+
+def _normalize_suffixes(suffixes: list[str] | None) -> set[str]:
+    """Return lower-case suffixes with a leading dot.
+
+    Args:
+        suffixes: User-provided suffix filters, or ``None``.
+
+    Returns:
+        Normalized suffix filters.
+    """
+    normalized_suffixes: set[str] = set()
+    for suffix in suffixes or []:
+        normalized = suffix.strip().lower()
+        normalized_suffixes.add(
+            normalized if normalized.startswith(".") else f".{normalized}"
+        )
+    return normalized_suffixes
+
+
+def _iter_many(
+    folder: Path,
+    normalized_suffixes: set[str],
+    *,
+    extract_all_supported: bool,
+    max_file_size: int,
+    ignore_images: bool,
+    force_plain_text: bool,
+    include_attachments: bool,
+    extract_annotations: bool,
+    recursive: bool,
+    on_file_result: Callable[[BatchFileResult], None] | None,
+    zip_bomb_limits: ZipBombLimits | None,
+) -> Iterator[ExtractedDocument]:
+    """Yield documents from a validated folder extraction request."""
+    statistics = _BatchStatistics()
+    logger.info(
+        "Starting batch extraction from folder: %s (recursive=%s, extract_all_supported=%s)",
+        folder,
+        recursive,
+        extract_all_supported,
+    )
+    for file_path in _iter_folder_files(folder, recursive=recursive):
+        statistics.files_found += 1
+        if not _should_process_file(
+            file_path,
+            normalized_suffixes,
+            extract_all_supported=extract_all_supported,
+            force_plain_text=force_plain_text,
+        ):
+            statistics.files_skipped += 1
+            continue
+        yield from _iter_batch_file(
+            file_path,
+            statistics,
+            max_file_size=max_file_size,
+            ignore_images=ignore_images,
+            force_plain_text=force_plain_text,
+            include_attachments=include_attachments,
+            extract_annotations=extract_annotations,
+            on_file_result=on_file_result,
+            zip_bomb_limits=zip_bomb_limits,
+        )
+    logger.info(
+        "Batch extraction complete: files_found=%d, documents_extracted=%d, "
+        "files_skipped=%d",
+        statistics.files_found,
+        statistics.documents_extracted,
+        statistics.files_skipped,
+    )
+
+
+def _iter_folder_files(folder: Path, *, recursive: bool) -> Iterator[Path]:
+    """Yield non-directory paths from a folder without eager enumeration."""
+    import glob as glob_module
+
+    pattern = "**/*" if recursive else "*"
+    for file_path_str in glob_module.iglob(str(folder / pattern), recursive=recursive):
+        file_path = Path(file_path_str)
+        if not file_path.is_dir():
+            yield file_path
+
+
+def _should_process_file(
+    file_path: Path,
+    normalized_suffixes: set[str],
+    *,
+    extract_all_supported: bool,
+    force_plain_text: bool,
+) -> bool:
+    """Return whether a discovered file matches the batch selection."""
+    if extract_all_supported:
+        supported = force_plain_text or is_supported_file(str(file_path))
+        if not supported:
+            logger.debug("Skipping unsupported file: %s", file_path)
+        return supported
+    path_lower = str(file_path).lower()
+    return any(path_lower.endswith(suffix) for suffix in normalized_suffixes)
+
+
+def _iter_batch_file(
+    file_path: Path,
+    statistics: _BatchStatistics,
+    *,
+    max_file_size: int,
+    ignore_images: bool,
+    force_plain_text: bool,
+    include_attachments: bool,
+    extract_annotations: bool,
+    on_file_result: Callable[[BatchFileResult], None] | None,
+    zip_bomb_limits: ZipBombLimits | None,
+) -> Iterator[ExtractedDocument]:
+    """Yield one selected file's documents while recording recoverable failures."""
+    documents_extracted = 0
+    try:
+        for result in read_file(
+            file_path,
+            max_file_size=max_file_size,
+            ignore_images=ignore_images,
+            force_plain_text=force_plain_text,
+            include_attachments=include_attachments,
+            extract_annotations=extract_annotations,
+            zip_bomb_limits=zip_bomb_limits,
+        ):
+            documents_extracted += 1
+            statistics.documents_extracted += 1
+            yield result
+    except (ExtractionError, OSError) as error:
+        _record_batch_failure(
+            file_path,
+            statistics,
+            documents_extracted=documents_extracted,
+            error=error,
+            on_file_result=on_file_result,
+        )
+    else:
+        _notify_file_result(
+            on_file_result,
+            file_path,
+            documents_extracted,
+            None,
+        )
+
+
+def _record_batch_failure(
+    file_path: Path,
+    statistics: _BatchStatistics,
+    *,
+    documents_extracted: int,
+    error: Exception,
+    on_file_result: Callable[[BatchFileResult], None] | None,
+) -> None:
+    """Log and report one recoverable batch-file failure."""
+    if isinstance(error, ExtractionError):
+        logger.warning("Failed to extract %s: %s", file_path, error)
+    else:
+        logger.warning("IO error reading %s: %s", file_path, error)
+    statistics.files_skipped += 1
+    _notify_file_result(
+        on_file_result,
+        file_path,
+        documents_extracted,
+        error,
+    )
+
+
+def _notify_file_result(
+    callback: Callable[[BatchFileResult], None] | None,
+    file_path: Path,
+    documents_extracted: int,
+    error: Exception | None,
+) -> None:
+    """Deliver one structured per-file result without retaining it."""
+    if callback is not None:
+        callback(BatchFileResult(file_path, documents_extracted, error))
+
+
+def read_file(
+    path: str | Path,
+    max_file_size: int = 100 * 1024 * 1024,  # 100MB default
+    *,
+    ignore_images: bool = False,
+    force_plain_text: bool = False,
+    include_attachments: bool = True,
+    extract_annotations: bool = False,
+    zip_bomb_limits: ZipBombLimits | None = None,
+) -> Iterator[ExtractedDocument]:
+    """
+    Read and extract content from a file.
+
+    Automatically detects the file type based on extension and uses
+    the appropriate extractor.
+
+    Args:
+        path: Path to the file to read.
+        max_file_size: Maximum file size in bytes (default: 100MB).
+                      Set to 0 to disable size checking.
+        ignore_images: If True, skip image extraction. Image records and
+            image-derived metadata are unavailable. Default is False.
+        force_plain_text: If True, route extraction to plain text handling
+                      regardless of extension/MIME detection.
+                      Useful for unknown or custom plain-text file formats.
+        include_attachments: If False, skip extracting/storing email attachment
+                      payloads for email file formats.
+        extract_annotations: If True, include annotations (comments) in the
+            document text for supported formats (docx, pptx). When enabled,
+            ``full_text`` equals the concatenated unit texts.
+        zip_bomb_limits: ZIP-bomb limits for this extraction call. When
+            ``None``, enforce the library defaults.
+
+    Returns:
+        A lazy iterator of normalized documents from the source file.
+
+    Raises:
+        sharepoint2text.parsing.exceptions.ExtractionFileFormatNotSupportedError:
+            If the file type is not supported.
+        sharepoint2text.parsing.exceptions.ExtractionFileEncryptedError:
+            If the file is encrypted or password-protected.
+        sharepoint2text.parsing.exceptions.ExtractionLegacyMicrosoftParsingError:
+            If parsing a legacy Office file fails.
+        sharepoint2text.parsing.exceptions.ExtractionFailedError:
+            If extraction fails for an unexpected reason (with `__cause__` set).
+        sharepoint2text.parsing.exceptions.ExtractionFileTooLargeError:
+            If the file exceeds the maximum allowed size.
+        FileNotFoundError: If the file does not exist.
+        TypeError: If ``zip_bomb_limits`` is not ``None`` or ``ZipBombLimits``.
+
+    Example:
+        >>> import sharepoint2text
+        >>> for result in sharepoint2text.read_file("document.docx"):
+        ...     print(result.full_text)
+        >>> # Skip image extraction entirely
+        >>> for result in sharepoint2text.read_file("document.docx", ignore_images=True):
+        ...     print(result.full_text)
+    """
+    _validate_zip_bomb_limits(zip_bomb_limits)
+    source_path = Path(path)
+    _validate_file_size(source_path.stat().st_size, max_file_size)
+    extractor = _get_extractor(
+        str(source_path),
+        ignore_images=ignore_images,
+        force_plain_text=force_plain_text,
+        include_attachments=include_attachments,
+        extract_annotations=extract_annotations,
+    )
+    resolved_file_type = _resolve_file_type(
+        source_path,
+        force_plain_text=force_plain_text,
+    )
+    return _iter_file(
+        source_path,
+        extractor,
+        resolved_file_type=resolved_file_type,
+        max_file_size=max_file_size,
+        zip_bomb_limits=zip_bomb_limits,
+    )
+
+
+def _validate_file_size(file_size: int, max_file_size: int) -> None:
+    """Reject content exceeding a positive configured size limit."""
+    if max_file_size > 0 and file_size > max_file_size:
+        raise ExtractionFileTooLargeError(
+            f"File size {file_size} bytes exceeds maximum allowed size of {max_file_size} bytes",
+            max_size=max_file_size,
+            actual_size=file_size,
+        )
+
+
+def _iter_file(
+    path: Path,
+    extractor: ExtractorFunction,
+    *,
+    resolved_file_type: str | None,
+    max_file_size: int,
+    zip_bomb_limits: ZipBombLimits | None,
+) -> Iterator[ExtractedDocument]:
+    """Open and lazily extract a validated filesystem source."""
+    logger.debug("Extracting file: %s", path)
+    with open(path, "rb") as file_like:
+        try:
+            records = extractor(file_like, str(path))
+            if resolved_file_type == "pdf":
+                records = _iterate_with_pypdf_limits(records, max_file_size)
+            documents_extracted = 0
+            for result in _iterate_with_zip_bomb_limits(records, zip_bomb_limits):
+                documents_extracted += 1
+                yield result
+            logger.debug(
+                "Extracted file: %s (%d document%s)",
+                path,
+                documents_extracted,
+                "" if documents_extracted == 1 else "s",
+            )
+        except ExtractionError:
+            raise
+        except (OSError, ValueError, TypeError, UnicodeDecodeError) as exc:
+            raise ExtractionFailedError(
+                f"Failed to extract file: {path}", cause=exc
+            ) from exc
+
+
+def read_bytes(
+    data: bytes | io.BytesIO,
+    *,
+    mime_type: str | None = None,
+    extension: str | None = None,
+    max_file_size: int = 100 * 1024 * 1024,  # 100MB default
+    ignore_images: bool = False,
+    force_plain_text: bool = False,
+    include_attachments: bool = True,
+    extract_annotations: bool = False,
+    zip_bomb_limits: ZipBombLimits | None = None,
+) -> Iterator[ExtractedDocument]:
+    """
+    Read and extract content from in-memory bytes.
+
+    This is an alternative to ``read_file`` for content that is already loaded
+    in memory. Routing is done via ``extension`` (preferred) or ``mime_type``.
+
+    Args:
+        data: Raw file bytes or a ``io.BytesIO`` buffer.
+        mime_type: MIME type hint (for example ``"application/pdf"``).
+        extension: File extension hint (for example ``"pdf"`` or ``".pdf"``).
+        max_file_size: Maximum file size in bytes (default: 100MB).
+                      Set to 0 to disable size checking.
+        ignore_images: If True, skip image extraction. Image records and
+            image-derived metadata are unavailable. Default is False.
+        force_plain_text: If True, route extraction to plain text handling
+                      regardless of extension/MIME detection.
+                      Useful for unknown or custom plain-text file formats.
+        include_attachments: If False, skip extracting/storing email attachment
+            payloads for email file formats.
+        extract_annotations: If True, include annotations (comments) in the
+            document text for supported formats (docx, pptx). When enabled,
+            ``full_text`` equals the concatenated unit texts.
+        zip_bomb_limits: ZIP-bomb limits for this extraction call. When
+            ``None``, enforce the library defaults.
+
+    Returns:
+        A lazy iterator of normalized documents from the in-memory source.
+
+    Raises:
+        ValueError: If both ``mime_type`` and ``extension`` are missing/empty,
+            unless ``force_plain_text=True``.
+        TypeError: If ``data`` has the wrong type or ``zip_bomb_limits`` is not
+            ``None`` or ``ZipBombLimits``.
+        sharepoint2text.parsing.exceptions.ExtractionFileFormatNotSupportedError:
+            If the provided extension/MIME type is unsupported.
+        sharepoint2text.parsing.exceptions.ExtractionFileEncryptedError:
+            If the file is encrypted or password-protected.
+        sharepoint2text.parsing.exceptions.ExtractionLegacyMicrosoftParsingError:
+            If parsing a legacy Office file fails.
+        sharepoint2text.parsing.exceptions.ExtractionFailedError:
+            If extraction fails for an unexpected reason (with ``__cause__`` set).
+        sharepoint2text.parsing.exceptions.ExtractionFileTooLargeError:
+            If the file exceeds the maximum allowed size.
+
+    Example:
+        >>> import sharepoint2text
+        >>> document = next(sharepoint2text.read_bytes(b"hello", extension="txt"))
+        >>> document.full_text
+        'hello'
+    """
+    _validate_zip_bomb_limits(zip_bomb_limits)
+    if not isinstance(data, (bytes, io.BytesIO)):
+        raise TypeError("data must be bytes or io.BytesIO")
+
+    normalized_extension = extension.strip().lower() if extension else ""
+    normalized_mime_type = mime_type.strip().lower() if mime_type else ""
+    if normalized_extension.startswith("."):
+        normalized_extension = normalized_extension[1:]
+
+    file_size = len(data) if isinstance(data, bytes) else data.getbuffer().nbytes
+    _validate_file_size(file_size, max_file_size)
+    plan = _build_in_memory_plan(
+        normalized_extension,
+        normalized_mime_type,
+        ignore_images=ignore_images,
+        force_plain_text=force_plain_text,
+        include_attachments=include_attachments,
+        extract_annotations=extract_annotations,
+    )
+    return _iter_bytes(
+        data,
+        plan,
+        max_file_size=max_file_size,
+        zip_bomb_limits=zip_bomb_limits,
+    )
+
+
+def _build_in_memory_plan(
+    extension: str,
+    mime_type: str,
+    *,
+    ignore_images: bool,
+    force_plain_text: bool,
+    include_attachments: bool,
+    extract_annotations: bool = False,
+) -> _InMemoryExtractionPlan:
+    """Return validated extractor routing for in-memory content."""
+    if force_plain_text:
+        return _plan_for_file_type(
+            "txt",
+            "in_memory.txt",
+            ignore_images=ignore_images,
+            force_plain_text=True,
+            include_attachments=include_attachments,
+            extract_annotations=extract_annotations,
+        )
+    if not extension and not mime_type:
+        raise ValueError("Either mime_type or extension must be provided")
+    extension_error: ExtractionFileFormatNotSupportedError | None = None
+    if extension:
+        try:
+            return _plan_for_extension(
+                extension,
+                ignore_images=ignore_images,
+                include_attachments=include_attachments,
+                extract_annotations=extract_annotations,
+            )
+        except ExtractionFileFormatNotSupportedError as error:
+            extension_error = error
+            if not mime_type:
+                raise
+    return _plan_for_mime_type(
+        mime_type,
+        extension_error=extension_error,
+        ignore_images=ignore_images,
+        include_attachments=include_attachments,
+        extract_annotations=extract_annotations,
+    )
+
+
+def _plan_for_extension(
+    extension: str,
+    *,
+    ignore_images: bool,
+    include_attachments: bool,
+    extract_annotations: bool = False,
+) -> _InMemoryExtractionPlan:
+    """Build an in-memory extraction plan from an extension hint."""
+    virtual_path = f"in_memory.{extension}"
+    resolved_file_type = _resolve_file_type(virtual_path)
+    extractor = _get_extractor(
+        virtual_path,
+        ignore_images=ignore_images,
+        include_attachments=include_attachments,
+        extract_annotations=extract_annotations,
+    )
+    if resolved_file_type is None:  # pragma: no cover - guarded by the router
+        raise ExtractionFileFormatNotSupportedError(
+            f"File type not supported for extension '{extension}'"
+        )
+    return _InMemoryExtractionPlan(extractor, resolved_file_type, virtual_path)
+
+
+def _plan_for_mime_type(
+    mime_type: str,
+    *,
+    extension_error: ExtractionFileFormatNotSupportedError | None,
+    ignore_images: bool,
+    include_attachments: bool,
+    extract_annotations: bool = False,
+) -> _InMemoryExtractionPlan:
+    """Build an in-memory extraction plan from a MIME type hint."""
+    resolved_file_type = MIME_TYPE_MAPPING.get(mime_type)
+    if resolved_file_type is None:
+        if extension_error is not None:
+            raise extension_error
+        raise ExtractionFileFormatNotSupportedError(
+            f"File type not supported for MIME type '{mime_type}'"
+        )
+    return _plan_for_file_type(
+        resolved_file_type,
+        f"in_memory.{resolved_file_type}",
+        ignore_images=ignore_images,
+        include_attachments=include_attachments,
+        extract_annotations=extract_annotations,
+    )
+
+
+def _plan_for_file_type(
+    resolved_file_type: str,
+    virtual_path: str,
+    *,
+    ignore_images: bool,
+    include_attachments: bool,
+    force_plain_text: bool = False,
+    extract_annotations: bool = False,
+) -> _InMemoryExtractionPlan:
+    """Build an in-memory plan for an already resolved file type."""
+    extractor = _get_extractor(
+        virtual_path,
+        ignore_images=ignore_images,
+        force_plain_text=force_plain_text,
+        include_attachments=include_attachments,
+        extract_annotations=extract_annotations,
+    )
+    return _InMemoryExtractionPlan(extractor, resolved_file_type, virtual_path)
+
+
+def _iter_bytes(
+    data: bytes | io.BytesIO,
+    plan: _InMemoryExtractionPlan,
+    *,
+    max_file_size: int,
+    zip_bomb_limits: ZipBombLimits | None,
+) -> Iterator[ExtractedDocument]:
+    """Lazily extract validated in-memory content."""
+    file_like = io.BytesIO(data) if isinstance(data, bytes) else data
+    file_like.seek(0)
+    logger.debug("Extracting in-memory file: %s", plan.virtual_path)
+    try:
+        records = plan.extractor(file_like, plan.virtual_path)
+        if plan.resolved_file_type == "pdf":
+            records = _iterate_with_pypdf_limits(records, max_file_size)
+        documents_extracted = 0
+        for result in _iterate_with_zip_bomb_limits(records, zip_bomb_limits):
+            documents_extracted += 1
+            yield result
+        logger.debug(
+            "Extracted in-memory file: %s (%d document%s)",
+            plan.virtual_path,
+            documents_extracted,
+            "" if documents_extracted == 1 else "s",
+        )
+    except ExtractionError:
+        raise
+    except (OSError, ValueError, TypeError, UnicodeDecodeError) as exc:
+        raise ExtractionFailedError(
+            f"Failed to extract in-memory data: {plan.virtual_path}",
+            cause=exc,
+        ) from exc

@@ -32,7 +32,7 @@ Extracted Content
 -----------------
 The extractor produces:
     - content: Full text content as a single string (decoded using detected encoding)
-    - metadata: FileMetadataInterface with file information including detected_encoding
+    - source: Canonical file information including detected encoding
 
 The content is returned as-is without modification, preserving:
     - Line endings (\\n, \\r\\n, \\r)
@@ -67,22 +67,21 @@ Maintenance Notes
 -----------------
 - Uses charset_normalizer for encoding detection
 - Falls back to UTF-8 with errors="replace" if detection fails
-- FileMetadataInterface provides basic file info population
+- Source metadata provides basic file identity
 - Generator pattern for API consistency with other extractors
 - Content returned unmodified (no stripping or normalization)
 """
 
 import io
 import logging
+from pathlib import Path
 from typing import Any, Generator
 
 from charset_normalizer import from_bytes
 
 from sharepoint2text.parsing.exceptions import ExtractionError, ExtractionFailedError
-from sharepoint2text.parsing.extractors.data_types import (
-    FileMetadataInterface,
-    PlainTextContent,
-)
+from sharepoint2text.parsing.extractors._model import source_metadata
+from sharepoint2text.parsing.models import ContentUnit, ExtractedDocument
 
 logger = logging.getLogger(__name__)
 
@@ -112,10 +111,9 @@ def _detect_and_decode(content: bytes) -> tuple[str, str]:
     if best_match is not None:
         encoding = best_match.encoding
         logger.debug(
-            "Detected encoding: %s (confidence: %.2f, aliases: %s)",
+            "Detected text encoding: %s (coherence=%.2f%%)",
             encoding,
             best_match.percent_coherence,
-            best_match.encoding_aliases,
         )
         try:
             # Use the detected encoding
@@ -133,7 +131,7 @@ def _detect_and_decode(content: bytes) -> tuple[str, str]:
 
 def read_plain_text(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[PlainTextContent, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Extract content from a plain text file with automatic encoding detection.
 
@@ -150,13 +148,13 @@ def read_plain_text(
             Can contain either bytes or str (bytes is typical).
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
-            returned PlainTextContent.metadata.
+            returned document source metadata.
         ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
-        PlainTextContent: Single PlainTextContent object containing:
+        ExtractedDocument: Single canonical document containing:
             - content: Full text content as a string
-            - metadata: FileMetadataInterface with file information and
+            - source: canonical file information and
               detected_encoding field
 
     Note:
@@ -174,10 +172,7 @@ def read_plain_text(
         ...         print(f"Lines: {len(lines)}")
         ...         print(f"First line: {lines[0] if lines else '(empty)'}")
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering plain text extraction: %s", source_path)
     try:
-        logger.debug("Reading plain text file")
         file_like.seek(0)
 
         content = file_like.read()
@@ -188,16 +183,15 @@ def read_plain_text(
             text = content
             detected_encoding = "utf-8"  # Already a string, assume UTF-8
 
-        metadata = FileMetadataInterface()
-        metadata.populate_from_path(path)
-        metadata.detected_encoding = detected_encoding
-
-        yield PlainTextContent(content=text, metadata=metadata)
+        source_format = Path(path).suffix.lower().lstrip(".") if path else "txt"
+        yield ExtractedDocument(
+            format=source_format or "txt",
+            source=source_metadata(path, encoding=detected_encoding),
+            units=[ContentUnit(number=1, kind="document", text=text.strip())],
+        )
     except ExtractionError:
         raise
     except (OSError, UnicodeDecodeError, ValueError, TypeError) as exc:
         raise ExtractionFailedError(
             "Failed to extract plain text file", cause=exc
         ) from exc
-    finally:
-        logger.info("Leaving plain text extraction: %s", source_path)

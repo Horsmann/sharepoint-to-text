@@ -90,9 +90,9 @@ Usage
     >>> with open("data.ods", "rb") as f:
     ...     for workbook in read_ods(io.BytesIO(f.read()), path="data.ods"):
     ...         print(f"Title: {workbook.metadata.title}")
-    ...         for sheet in workbook.sheets:
-    ...             print(f"Sheet: {sheet.name}")
-    ...             print(f"Rows: {len(sheet.data)}")
+    ...         for sheet in workbook.units:
+    ...             print(f"Sheet: {sheet.title}")
+    ...             print(f"Rows: {len(sheet.tables[0].data)}")
 
 See Also
 --------
@@ -110,7 +110,7 @@ Maintenance Notes
 
 import io
 import logging
-from typing import Any, Generator
+from typing import Any, Generator, cast
 
 from sharepoint2text.parsing import _defused_xml as ET
 from sharepoint2text.parsing.exceptions import (
@@ -118,20 +118,24 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
     ExtractionFileEncryptedError,
 )
-from sharepoint2text.parsing.extractors.data_types import (
-    OdsContent,
-    OdsSheet,
-    OpenDocumentAnnotation,
-    OpenDocumentImage,
-    OpenDocumentMetadata,
-)
+from sharepoint2text.parsing.extractors._model import source_metadata
 from sharepoint2text.parsing.extractors.open_office._shared import (
     element_text,
     extract_odf_metadata,
     guess_content_type,
+    odf_length_to_px,
 )
 from sharepoint2text.parsing.extractors.util.encryption import is_odf_encrypted
 from sharepoint2text.parsing.extractors.util.zip_context import ZipContext
+from sharepoint2text.parsing.models import (
+    Annotation,
+    CellValue,
+    ContentUnit,
+    DocumentMetadata,
+    ExtractedDocument,
+    ImageAsset,
+    Table,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -221,9 +225,8 @@ def _get_text_recursive(element: ET.Element) -> str:
     )
 
 
-def _extract_metadata(meta_root: ET.Element | None) -> OpenDocumentMetadata:
+def _extract_metadata(meta_root: ET.Element | None) -> DocumentMetadata:
     """Extract metadata from meta.xml."""
-    logger.debug("Extracting ODS metadata")
     return extract_odf_metadata(meta_root, NS)
 
 
@@ -279,7 +282,7 @@ def _extract_cell_value(cell: ET.Element) -> tuple[Any, str]:
     return None, ""
 
 
-def _extract_annotations(cell: ET.Element) -> list[OpenDocumentAnnotation]:
+def _extract_annotations(cell: ET.Element) -> list[Annotation]:
     """Extract annotations/comments from a cell."""
     annotations = []
 
@@ -298,7 +301,12 @@ def _extract_annotations(cell: ET.Element) -> list[OpenDocumentAnnotation]:
         text = "\n".join(text_parts)
 
         annotations.append(
-            OpenDocumentAnnotation(creator=creator, date=date, text=text)
+            Annotation(
+                kind="comment",
+                author=creator or None,
+                text=text,
+                properties={"ods.date": date} if date else {},
+            )
         )
 
     return annotations
@@ -308,7 +316,7 @@ def _extract_images(
     ctx: _OdsContext,
     table: ET.Element,
     image_counter: int,
-) -> tuple[list[OpenDocumentImage], int]:
+) -> tuple[list[ImageAsset], int]:
     """Extract images from a table/sheet.
 
     Extracts images with their metadata:
@@ -323,9 +331,9 @@ def _extract_images(
         image_counter: The current global image counter across all sheets.
 
     Returns:
-        A tuple of (list of OpenDocumentImage, updated image_counter).
+        A tuple containing canonical image assets and the updated image counter.
     """
-    images: list[OpenDocumentImage] = []
+    images: list[ImageAsset] = []
 
     for frame in table.iter(_DRAW_FRAME_TAG):
         name = frame.get(_ATTR_DRAW_NAME, "")
@@ -347,9 +355,6 @@ def _extract_images(
         else:
             description = title or desc
 
-        # ODS sheets don't have captions like ODT documents
-        caption = ""
-
         image_elem = frame.find(_DRAW_IMAGE_TAG)
         if image_elem is None:
             continue
@@ -363,15 +368,13 @@ def _extract_images(
         if href.startswith("http"):
             # External image reference
             images.append(
-                OpenDocumentImage(
-                    href=href,
-                    name=name,
-                    width=width,
-                    height=height,
-                    image_index=image_counter,
-                    caption=caption,
-                    description=description,
-                    unit_number=None,
+                ImageAsset(
+                    number=image_counter,
+                    filename=name or href,
+                    width=odf_length_to_px(width),
+                    height=odf_length_to_px(height),
+                    description=description or None,
+                    properties={"ods.href": href},
                 )
             )
         else:
@@ -380,33 +383,30 @@ def _extract_images(
                 if ctx.exists(href):
                     img_data = ctx.read_bytes(href)
                     images.append(
-                        OpenDocumentImage(
-                            href=href,
-                            name=name or href.split("/")[-1],
-                            content_type=guess_content_type(href),
-                            data=io.BytesIO(img_data),
-                            size_bytes=len(img_data),
-                            width=width,
-                            height=height,
-                            image_index=image_counter,
-                            caption=caption,
-                            description=description,
-                            unit_number=None,
+                        ImageAsset(
+                            number=image_counter,
+                            filename=name or href.split("/")[-1],
+                            media_type=guess_content_type(href),
+                            data=img_data,
+                            width=odf_length_to_px(width),
+                            height=odf_length_to_px(height),
+                            description=description or None,
+                            properties={
+                                "ods.href": href,
+                                "ods.size_bytes": len(img_data),
+                            },
                         )
                     )
             except (KeyError, OSError, ValueError) as e:
                 logger.debug("Failed to extract image %s: %s", href, e)
                 images.append(
-                    OpenDocumentImage(
-                        href=href,
-                        name=name or href,
-                        error=str(e),
-                        width=width,
-                        height=height,
-                        image_index=image_counter,
-                        caption=caption,
-                        description=description,
-                        unit_number=None,
+                    ImageAsset(
+                        number=image_counter,
+                        filename=name or href,
+                        width=odf_length_to_px(width),
+                        height=odf_length_to_px(height),
+                        description=description or None,
+                        properties={"ods.href": href, "ods.error": str(e)},
                     )
                 )
 
@@ -419,7 +419,7 @@ def _extract_sheet(
     sheet_number: int,
     image_counter: int,
     ignore_images: bool = False,
-) -> tuple[OdsSheet, int]:
+) -> tuple[ContentUnit, int]:
     """Extract content from a single sheet (table:table element).
 
     Args:
@@ -432,10 +432,7 @@ def _extract_sheet(
     Returns:
         A tuple of (OdsSheet, updated image_counter).
     """
-    sheet = OdsSheet()
-
-    # Get sheet name
-    sheet.name = table.get(_ATTR_TABLE_NAME, "")
+    sheet_name = table.get(_ATTR_TABLE_NAME, "")
 
     # First pass: collect all rows and find max column count
     raw_rows: list[list[tuple[Any, str]]] = []  # list of (typed_value, display_text)
@@ -511,20 +508,31 @@ def _extract_sheet(
         if row_texts:
             text_lines.append("\t".join(row_texts))
 
-    sheet.data = rows_data
-    sheet.text = "\n".join(text_lines)
-    sheet.annotations = all_annotations
-    if ignore_images:
-        sheet.images = []
-    else:
-        sheet.images, image_counter = _extract_images(ctx, table, image_counter)
+    images: list[ImageAsset] = []
+    if not ignore_images:
+        images, image_counter = _extract_images(ctx, table, image_counter)
+        for image in images:
+            image.properties["ods.unit_number"] = sheet_number
 
-    return sheet, image_counter
+    table_rows = cast(list[list[CellValue]], rows_data)
+    return (
+        ContentUnit(
+            number=sheet_number,
+            kind="sheet",
+            title=sheet_name or None,
+            text=(sheet_name + "\n" + "\n".join(text_lines).strip()).strip(),
+            images=images,
+            tables=[Table(rows=table_rows, name=sheet_name or None)],
+            annotations=all_annotations,
+            properties={"ods.sheet_number": sheet_number},
+        ),
+        image_counter,
+    )
 
 
 def read_ods(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[OdsContent, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Extract all relevant content from an OpenDocument Spreadsheet (.ods) file.
 
@@ -540,13 +548,13 @@ def read_ods(
             The stream position is reset to the beginning before reading.
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
-            returned OdsContent.metadata.
-        ignore_images: If True, skip image extraction (not applicable for this format).
+            returned document source metadata.
+        ignore_images: If True, skip embedded image extraction.
 
     Yields:
-        OdsContent: Single OdsContent object containing:
-            - metadata: OpenDocumentMetadata with title, creator, dates
-            - sheets: List of OdsSheet objects with per-sheet data
+        ExtractedDocument: Single canonical spreadsheet document containing:
+            - metadata: Canonical metadata with title, creator, and dates
+            - units: Canonical content units with per-sheet data
 
     Raises:
         ValueError: If content.xml is missing or spreadsheet body not found.
@@ -556,13 +564,11 @@ def read_ods(
         >>> with open("budget.ods", "rb") as f:
         ...     data = io.BytesIO(f.read())
         ...     for workbook in read_ods(data, path="budget.ods"):
-        ...         for sheet in workbook.sheets:
-        ...             print(f"Sheet: {sheet.name}")
-        ...             for row in sheet.data[:5]:
+        ...         for sheet in workbook.units:
+        ...             print(f"Sheet: {sheet.title}")
+        ...             for row in sheet.tables[0].data[:5]:
         ...                 print(row)
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering ODS extraction: %s", source_path)
     try:
         file_like.seek(0)
         if is_odf_encrypted(file_like):
@@ -582,7 +588,7 @@ def read_ods(
                     "Invalid ODS file: spreadsheet body not found"
                 )
 
-            sheets: list[OdsSheet] = []
+            sheets: list[ContentUnit] = []
             image_counter = 0
             for sheet_num, table in enumerate(body.findall("table:table", NS), start=1):
                 sheet, image_counter = _extract_sheet(
@@ -593,15 +599,20 @@ def read_ods(
             ctx.close()
 
         # Populate file metadata from path
-        metadata.populate_from_path(path)
+        logger.debug(
+            "Extracted ODS: sheets=%d, rows=%d, images=%d",
+            len(sheets),
+            sum(len(sheet.tables[0].rows) for sheet in sheets if sheet.tables),
+            sum(len(sheet.images) for sheet in sheets),
+        )
 
-        yield OdsContent(
+        yield ExtractedDocument(
+            format="ods",
+            source=source_metadata(path),
             metadata=metadata,
-            sheets=sheets,
+            units=sheets,
         )
     except ExtractionError:
         raise
     except (KeyError, ET.ParseError, OSError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract ODS file", cause=exc) from exc
-    finally:
-        logger.info("Leaving ODS extraction: %s", source_path)

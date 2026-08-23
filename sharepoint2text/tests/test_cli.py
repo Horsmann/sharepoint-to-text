@@ -1,984 +1,503 @@
+"""Tests for version-2 CLI text and JSON output."""
+
+from __future__ import annotations
+
 import json
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 import sharepoint2text
-from sharepoint2text.cli import _serialize_results, main
-from sharepoint2text.parsing.extractors.serialization import serialize_extraction
+from sharepoint2text.cli import (
+    _build_parser,
+    _build_zip_bomb_limits,
+    _parse_zip_bomb_limit_multiplier,
+    _serialize_results,
+    _serialize_unit_results,
+    main,
+)
+from sharepoint2text.parsing.extractors.util.zip_bomb import (
+    DEFAULT_ZIP_BOMB_LIMITS,
+)
+from sharepoint2text.parsing.models import (
+    Annotation,
+    Attachment,
+    ContentUnit,
+    ExtractedDocument,
+    ImageAsset,
+    Table,
+    document_to_dict,
+)
 
-EMAIL_WITH_ATTACHMENT_PATH = Path(
+PLAIN_PATH = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
+MISLABELED_DOCX_PATH = Path(
+    "sharepoint2text/tests/resources/legacy_ms/ECE-TRANS-2021-24e.DOC"
+).resolve()
+IMAGE_PDF_PATH = Path("sharepoint2text/tests/resources/pdf/multi_image.pdf").resolve()
+EMAIL_PATH = Path(
     "sharepoint2text/tests/resources/mails/msg_with_attachment.eml"
 ).resolve()
-BASIC_EMAIL_PATH = Path(
-    "sharepoint2text/tests/resources/mails/basic_email.eml"
+ENCRYPTED_PDF_PATH = Path(
+    "sharepoint2text/tests/resources/legacy_ms/password_protected/"
+    "pdf-password-protected-pw123.pdf"
 ).resolve()
+MAILBOX_FOLDER = Path("sharepoint2text/tests/resources/mails").resolve()
+
+EXPECTED_CLI_OPTIONS = {
+    "-h",
+    "--help",
+    "-v",
+    "--version",
+    "-f",
+    "--file",
+    "-d",
+    "--folder",
+    "-s",
+    "--suffixes",
+    "--no-recursive",
+    "-j",
+    "--json",
+    "-u",
+    "--json-unit",
+    "-o",
+    "--output",
+    "-i",
+    "--include-binary",
+    "--no-images",
+    "-n",
+    "--no-attachments",
+    "-a",
+    "--extract-annotations",
+    "--force-plain-text",
+    "-m",
+    "--max-file-size-mb",
+    "--zip-bomb-limit-multiplier",
+    "--zblm",
+}
 
 
-def test_cli_outputs_full_text_by_default(capsys) -> None:
-    path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
-    expected = next(sharepoint2text.read_file(path)).get_full_text()
+def _body(envelope: dict[str, Any]) -> dict[str, Any]:
+    """Return the document body from one version-2 envelope."""
+    body = envelope["document"]
+    assert isinstance(body, dict)
+    return body
 
-    exit_code = main(["--file", str(path)])
+
+def test_cli_help_lists_every_current_option() -> None:
+    """Verify rendered help contains the complete current option set."""
+    parser = _build_parser()
+    help_text = parser.format_help()
+    actual_options = {
+        option for action in parser._actions for option in action.option_strings
+    }
+
+    assert actual_options == EXPECTED_CLI_OPTIONS
+    assert all(option in help_text for option in EXPECTED_CLI_OPTIONS)
+
+
+def test_cli_help_explains_modes_constraints_and_defaults() -> None:
+    """Verify help gives actionable details for non-obvious CLI behavior."""
+    help_text = " ".join(_build_parser().format_help().split())
+
+    assert "input selection:" in help_text
+    assert "output format and destination:" in help_text
+    assert "extraction options:" in help_text
+    assert "resource limits:" in help_text
+    assert "Requires --json or --json-unit" in help_text
+    assert "image and attachment payloads" in help_text
+    assert "new extensionless path" in help_text
+    assert "preserves subdirectories" in help_text
+    assert "default: 100" in help_text
+    assert "Omit this option to keep the defaults" in help_text
+    assert "examples:" in help_text
+
+
+def test_cli_outputs_full_text_by_default(capsys: Any) -> None:
+    """Verify the default output is normalized full text."""
+    expected = next(sharepoint2text.read_file(PLAIN_PATH)).full_text
+
+    exit_code = main(["--file", str(PLAIN_PATH)])
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert captured.out == f"{expected}\n"
+    assert captured.out == (expected if expected.endswith("\n") else f"{expected}\n")
 
 
-def test_cli_outputs_json_with_flag(capsys) -> None:
-    path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
-    expected = [
-        serialize_extraction(
-            next(sharepoint2text.read_file(path)), include_binary=False
-        )
-    ]
-
-    exit_code = main(["--json", "--file", str(path)])
+def test_cli_extracts_docx_package_with_doc_extension(capsys: Any) -> None:
+    """Verify content detection handles a DOCX package named with .DOC."""
+    exit_code = main(["--file", str(MISLABELED_DOCX_PATH)])
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    payload = json.loads(captured.out.strip())
-    assert payload == expected
+    assert captured.out.startswith("United Nations\nECE/TRANS/2021/24")
+    assert captured.err == ""
 
 
-def test_cli_outputs_json_with_short_flag(capsys) -> None:
-    path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
-    expected = [
-        serialize_extraction(
-            next(sharepoint2text.read_file(path)), include_binary=False
-        )
-    ]
+def test_cli_outputs_version_two_json(capsys: Any) -> None:
+    """Verify JSON output is the public version-2 wire schema."""
+    document = next(sharepoint2text.read_file(PLAIN_PATH))
 
-    exit_code = main(["-j", "-f", str(path)])
+    exit_code = main(["--json", "--file", str(PLAIN_PATH)])
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    payload = json.loads(captured.out.strip())
-    assert payload == expected
+    assert json.loads(captured.out) == [document_to_dict(document)]
 
 
-def test_serialize_results_returns_list_for_multiple_results() -> None:
-    path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
-    result = next(sharepoint2text.read_file(path))
+def test_cli_short_json_flag_uses_version_two(capsys: Any) -> None:
+    """Verify the short JSON flags produce the same stable schema."""
+    exit_code = main(["-j", "-f", str(PLAIN_PATH)])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
 
-    payload = _serialize_results([result, result], include_binary=False)
+    assert exit_code == 0
+    assert payload[0]["schema"] == "sharepoint2text.extraction"
+    assert payload[0]["version"] == 2
 
-    assert isinstance(payload, list)
+
+def test_serialize_results_keeps_stable_list_shape() -> None:
+    """Verify helper output remains a list for multiple documents."""
+    document = next(sharepoint2text.read_file(PLAIN_PATH))
+
+    payload = _serialize_results([document, document], include_binary=False)
+
     assert len(payload) == 2
+    assert all(item["version"] == 2 for item in payload)
 
 
-def test_cli_outputs_json_unit_with_flag(capsys) -> None:
-    path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
-    result = next(sharepoint2text.read_file(path))
-    file_metadata = serialize_extraction(result.get_metadata(), include_binary=False)
-    expected = []
-    for unit in result.iterate_units():
-        unit_dict = serialize_extraction(unit, include_binary=False)
-        unit_dict["unit_metadata"] = serialize_extraction(
-            unit.get_metadata(), include_binary=False
-        )
-        unit_dict["file_metadata"] = file_metadata
-        expected.append(unit_dict)
+def test_cli_json_unit_emits_one_v2_envelope_per_unit(capsys: Any) -> None:
+    """Verify unit mode keeps schema and document metadata intact."""
+    document = next(sharepoint2text.read_file(PLAIN_PATH))
 
-    exit_code = main(["--json-unit", "--file", str(path)])
+    exit_code = main(["-u", "-f", str(PLAIN_PATH)])
     captured = capsys.readouterr()
+    payload = json.loads(captured.out)
 
     assert exit_code == 0
-    payload = json.loads(captured.out.strip())
-    assert payload == expected
+    assert len(payload) == len(document.units)
+    assert all(item["version"] == 2 for item in payload)
+    assert all(len(_body(item)["units"]) == 1 for item in payload)
+    assert all(_body(item)["source"]["filename"] == "plain.txt" for item in payload)
 
 
-def test_cli_outputs_json_unit_with_short_flag(capsys) -> None:
-    path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
-    result = next(sharepoint2text.read_file(path))
-    file_metadata = serialize_extraction(result.get_metadata(), include_binary=False)
-    expected = []
-    for unit in result.iterate_units():
-        unit_dict = serialize_extraction(unit, include_binary=False)
-        unit_dict["unit_metadata"] = serialize_extraction(
-            unit.get_metadata(), include_binary=False
-        )
-        unit_dict["file_metadata"] = file_metadata
-        expected.append(unit_dict)
-
-    exit_code = main(["-u", "-f", str(path)])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    payload = json.loads(captured.out.strip())
-    assert payload == expected
-
-
-def test_cli_plain_text_extracts_email_content(capsys) -> None:
-    expected = next(sharepoint2text.read_file(BASIC_EMAIL_PATH)).get_full_text()
-
-    exit_code = main(["--file", str(BASIC_EMAIL_PATH)])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert captured.out == f"{expected}\n"
-
-
-def test_cli_plain_text_extracts_supported_email_attachments(capsys) -> None:
-    exit_code = main(["--file", str(EMAIL_WITH_ATTACHMENT_PATH)])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "This is a test sentence" in captured.out
-    assert "The slide title" in captured.out
-
-
-def test_cli_json_extracts_supported_email_attachments(capsys) -> None:
-    exit_code = main(["--json", "--file", str(EMAIL_WITH_ATTACHMENT_PATH)])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    payload = json.loads(captured.out.strip())
-    assert isinstance(payload, list)
-    assert {item["_type"] for item in payload} == {
-        "EmailContent",
-        "PdfContent",
-        "PptxContent",
-    }
-
-
-def test_cli_json_no_attachments_excludes_email_attachments(capsys) -> None:
-    exit_code = main(
-        ["--json", "--no-attachments", "--file", str(EMAIL_WITH_ATTACHMENT_PATH)]
+def test_json_unit_preserves_document_level_content() -> None:
+    """Verify every self-contained unit envelope retains parent-level records."""
+    document = ExtractedDocument(
+        format="test",
+        units=[
+            ContentUnit(
+                number=1,
+                kind="document",
+                text="body",
+                images=[ImageAsset(number=1, filename="image.png")],
+                tables=[Table(rows=[["cell"]])],
+                annotations=[Annotation(kind="note", text="context")],
+            )
+        ],
+        attachments=[Attachment(filename="attachment.txt")],
     )
+
+    payload = _serialize_unit_results([document], include_binary=False)
+    body = _body(payload[0])
+    unit = body["units"][0]
+
+    assert unit["images"]
+    assert unit["tables"]
+    assert unit["annotations"]
+    assert body["attachments"]
+
+
+def test_cli_json_unit_retains_email_attachments(capsys: Any) -> None:
+    """Verify streaming unit output retains parent email attachment records."""
+    exit_code = main(["--json-unit", "--file", str(EMAIL_PATH)])
     captured = capsys.readouterr()
+    payload = json.loads(captured.out)
 
     assert exit_code == 0
-    payload = json.loads(captured.out.strip())
-    assert isinstance(payload, list)
-    assert {item["_type"] for item in payload} == {"EmailContent"}
-    assert payload[0]["attachments"] == []
+    assert payload
+    assert all(_body(envelope)["attachments"] for envelope in payload)
 
 
-def test_cli_json_no_attachments_excludes_email_attachments_with_short_flag(
-    capsys,
-) -> None:
-    exit_code = main(["-j", "-n", "-f", str(EMAIL_WITH_ATTACHMENT_PATH)])
+def test_cli_omits_binary_payloads_by_default(capsys: Any) -> None:
+    """Verify default JSON retains image dimensions but omits image bytes."""
+    exit_code = main(["--json", "--file", str(IMAGE_PDF_PATH)])
     captured = capsys.readouterr()
+    body = _body(json.loads(captured.out)[0])
+    images = [image for unit in body["units"] for image in unit["images"]]
 
     assert exit_code == 0
-    payload = json.loads(captured.out.strip())
-    assert isinstance(payload, list)
-    assert {item["_type"] for item in payload} == {"EmailContent"}
-    assert payload[0]["attachments"] == []
+    assert images
+    assert all("data" not in image for image in images)
+    assert all(image["width"] > 0 for image in images)
+    assert all(image["height"] > 0 for image in images)
+    assert all(image["ratio"] == image["width"] / image["height"] for image in images)
 
 
-def test_cli_json_unit_extracts_supported_email_attachments(capsys) -> None:
-    exit_code = main(["--json-unit", "--file", str(EMAIL_WITH_ATTACHMENT_PATH)])
+def test_cli_encodes_binary_payloads_when_requested(capsys: Any) -> None:
+    """Verify requested images use plain base64 strings in v2 JSON."""
+    exit_code = main(["--json", "--include-binary", "--file", str(IMAGE_PDF_PATH)])
     captured = capsys.readouterr()
+    body = _body(json.loads(captured.out)[0])
+    images = [image for unit in body["units"] for image in unit["images"]]
 
     assert exit_code == 0
-    payload = json.loads(captured.out.strip())
-    assert isinstance(payload, list)
-
-    unit_types = {
-        unit["_type"] for unit in payload if isinstance(unit, dict) and "_type" in unit
-    }
-    assert "EmailUnit" in unit_types
-    assert "PdfUnit" in unit_types
-    assert "PptxUnit" in unit_types
+    assert images
+    assert all(isinstance(image["data"], str) for image in images)
 
 
-def _contains_binary_markers(value: object) -> bool:
-    if isinstance(value, dict):
-        if "_bytes" in value or "_bytesio" in value:
-            return True
-        return any(_contains_binary_markers(v) for v in value.values())
-    if isinstance(value, list):
-        return any(_contains_binary_markers(v) for v in value)
-    return False
-
-
-def test_cli_outputs_json_without_images(capsys) -> None:
-    """Test that by default (without --include-images), images are not extracted."""
-    path = Path("sharepoint2text/tests/resources/pdf/multi_image.pdf").resolve()
-
-    exit_code = main(["--json", "--file", str(path)])
+def test_cli_include_binary_encodes_attachment_payloads(capsys: Any) -> None:
+    """Verify the accurately named binary option includes attachment bytes."""
+    exit_code = main(["--json", "--include-binary", "--file", str(EMAIL_PATH)])
     captured = capsys.readouterr()
+    attachments = _body(json.loads(captured.out)[0])["attachments"]
 
     assert exit_code == 0
-    payload = json.loads(captured.out.strip())
-    assert isinstance(payload, list)
-    assert payload[0]["_type"] == "PdfContent"
-    assert _contains_binary_markers(payload) is False
-
-    # Images are not extracted by default
-    images = payload[0]["pages"][0]["images"]
-    assert len(images) == 0
+    assert attachments
+    assert all(isinstance(attachment["data"], str) for attachment in attachments)
 
 
-def test_cli_outputs_json_unit_without_images(capsys) -> None:
-    """Test that by default (without --include-images), images are not extracted."""
-    path = Path("sharepoint2text/tests/resources/pdf/multi_image.pdf").resolve()
-
-    exit_code = main(["--json-unit", "--file", str(path)])
+def test_cli_no_attachments_removes_attachment_records(capsys: Any) -> None:
+    """Verify attachment suppression reaches normalized JSON output."""
+    exit_code = main(["--json", "--no-attachments", "--file", str(EMAIL_PATH)])
     captured = capsys.readouterr()
+    body = _body(json.loads(captured.out)[0])
 
     assert exit_code == 0
-    payload = json.loads(captured.out.strip())
-    assert isinstance(payload, list)
-    assert len(payload) > 0
-    assert payload[0]["_type"] == "PdfUnit"
-    assert _contains_binary_markers(payload) is False
-
-    # Images are not extracted by default
-    images = payload[0]["images"]
-    assert len(images) == 0
+    assert body["attachments"] == []
 
 
-def test_cli_outputs_json_with_binary_payloads_when_requested(capsys) -> None:
-    path = Path("sharepoint2text/tests/resources/pdf/multi_image.pdf").resolve()
-
-    exit_code = main(["--json", "--include-images", "--file", str(path)])
+def test_cli_rejects_removed_include_images_option(capsys: Any) -> None:
+    """Verify the removed version 1 binary option is no longer accepted."""
+    exit_code = main(["--include-images", "--file", str(PLAIN_PATH)])
     captured = capsys.readouterr()
 
-    assert exit_code == 0
-    payload = json.loads(captured.out.strip())
-    assert isinstance(payload, list)
-    assert payload[0]["_type"] == "PdfContent"
-    assert _contains_binary_markers(payload) is True
-
-    images = payload[0]["pages"][0]["images"]
-    assert len(images) > 0
-    assert isinstance(images[0]["data"], dict)
-    assert "_bytesio" in images[0]["data"] or "_bytes" in images[0]["data"]
+    assert exit_code == 1
+    assert "unsupported arguments" in captured.err
 
 
-def test_cli_outputs_json_unit_with_binary_payloads_when_requested(capsys) -> None:
-    path = Path("sharepoint2text/tests/resources/pdf/multi_image.pdf").resolve()
-
-    exit_code = main(["--json-unit", "--include-images", "--file", str(path)])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    payload = json.loads(captured.out.strip())
-    assert isinstance(payload, list)
-    assert len(payload) > 0
-    assert payload[0]["_type"] == "PdfUnit"
-    assert _contains_binary_markers(payload) is True
-
-    images = payload[0]["images"]
-    assert len(images) > 0
-    assert isinstance(images[0]["data"], dict)
-    assert "_bytesio" in images[0]["data"] or "_bytes" in images[0]["data"]
-
-
-def test_cli_json_unit_includes_unit_metadata(capsys) -> None:
-    """Test that --json-unit output includes unit_metadata for each unit."""
-    path = Path("sharepoint2text/tests/resources/modern_ms/headings.docx").resolve()
-
-    exit_code = main(["--json-unit", "--file", str(path)])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    payload = json.loads(captured.out.strip())
-    assert isinstance(payload, list)
-    assert len(payload) > 0
-
-    # Each unit should have unit_metadata
-    for unit in payload:
-        assert "unit_metadata" in unit, "unit_metadata should be present"
-        metadata = unit["unit_metadata"]
-        assert "_type" in metadata
-        assert "unit_number" in metadata
-
-
-def test_cli_json_unit_includes_file_metadata(capsys) -> None:
-    """Test that --json-unit output includes file_metadata for each unit."""
-    path = Path("sharepoint2text/tests/resources/modern_ms/headings.docx").resolve()
-
-    exit_code = main(["--json-unit", "--file", str(path)])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    payload = json.loads(captured.out.strip())
-    assert isinstance(payload, list)
-    assert len(payload) > 0
-
-    # Each unit should have file_metadata with required fields
-    for unit in payload:
-        assert "file_metadata" in unit, "file_metadata should be present"
-        metadata = unit["file_metadata"]
-        assert "_type" in metadata
-        assert "filename" in metadata
-        assert metadata["filename"] == "headings.docx"
-        assert "file_path" in metadata
-        assert "file_extension" in metadata
-        assert metadata["file_extension"] == ".docx"
-
-
-def test_cli_json_unit_metadata_contains_docx_details(capsys) -> None:
-    """Test that DOCX file_metadata includes author and creation info."""
-    path = Path("sharepoint2text/tests/resources/modern_ms/headings.docx").resolve()
-
-    exit_code = main(["--json-unit", "--file", str(path)])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    payload = json.loads(captured.out.strip())
-
-    # Check DOCX-specific metadata fields
-    file_metadata = payload[0]["file_metadata"]
-    assert file_metadata["_type"] == "DocxMetadata"
-    assert "author" in file_metadata
-    assert "created" in file_metadata
-    assert "modified" in file_metadata
-
-
-def test_cli_json_unit_metadata_heading_path(capsys) -> None:
-    """Test that DOCX unit_metadata includes heading information."""
-    path = Path("sharepoint2text/tests/resources/modern_ms/headings.docx").resolve()
-
-    exit_code = main(["--json-unit", "--file", str(path)])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    payload = json.loads(captured.out.strip())
-
-    # DOCX units should have heading information in unit_metadata
-    unit_metadata = payload[0]["unit_metadata"]
-    assert unit_metadata["_type"] == "DocxUnitMetadata"
-    assert "heading_level" in unit_metadata
-    assert "heading_path" in unit_metadata
-    assert "location" in unit_metadata
-
-
-def test_cli_json_includes_metadata(capsys) -> None:
-    """Test that --json output includes metadata in the extraction result."""
-    path = Path("sharepoint2text/tests/resources/modern_ms/headings.docx").resolve()
-
-    exit_code = main(["--json", "--file", str(path)])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    payload = json.loads(captured.out.strip())
-    assert isinstance(payload, list)
-    assert len(payload) > 0
-
-    # The extraction result should have metadata
-    result = payload[0]
-    assert "metadata" in result
-    metadata = result["metadata"]
-    assert "_type" in metadata
-    assert metadata["_type"] == "DocxMetadata"
-    assert "filename" in metadata
-    assert "author" in metadata
-    assert "created" in metadata
-
-
-def test_cli_warns_on_removed_no_binary_argument(capsys) -> None:
-    path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
-    exit_code = main(["--no-binary", "--json", "--file", str(path)])
+def test_cli_rejects_unknown_arguments(capsys: Any) -> None:
+    """Verify removed or misspelled flags fail explicitly."""
+    exit_code = main(["--no-binary", "--json", "--file", str(PLAIN_PATH)])
     captured = capsys.readouterr()
 
     assert exit_code == 1
     assert "warning: unsupported arguments" in captured.err
 
 
-def test_cli_rejects_include_images_without_json(capsys) -> None:
-    path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
-    exit_code = main(["--include-images", "--file", str(path)])
+def test_cli_reports_extraction_errors_without_tracebacks(capsys: Any) -> None:
+    """Verify library extraction errors become concise CLI failures."""
+    exit_code = main(["--file", str(ENCRYPTED_PDF_PATH)])
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "requires --json or --json-unit" in captured.err
+    assert "encrypted or password-protected" in captured.err
+    assert "Traceback" not in captured.err
 
 
-def test_cli_warns_on_unsupported_argument(capsys) -> None:
-    path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
-    exit_code = main(["--json", "--not-a-real-flag", "--file", str(path)])
-    captured = capsys.readouterr()
-
-    assert exit_code == 1
-    assert "warning: unsupported arguments" in captured.err
-
-
-def test_cli_respects_max_file_size_override(capsys, tmp_path) -> None:
+def test_cli_respects_max_file_size_override(capsys: Any, tmp_path: Path) -> None:
+    """Verify CLI byte limits can be enforced and disabled."""
     path = tmp_path / "small.txt"
     path.write_text("hello", encoding="utf-8")
 
-    # 0.000001 MiB ~= 1 byte, should fail for a 5-byte file.
     exit_code = main(["--file", str(path), "--max-file-size-mb", "0.000001"])
     captured = capsys.readouterr()
-
     assert exit_code == 1
     assert "exceeds CLI maximum" in captured.err
 
-    # 0 disables size checks.
     exit_code = main(["--file", str(path), "--max-file-size-mb", "0"])
     captured = capsys.readouterr()
-
     assert exit_code == 0
     assert captured.out == "hello\n"
 
 
-def test_cli_respects_max_file_size_short_flag(capsys, tmp_path) -> None:
-    path = tmp_path / "small.txt"
-    path.write_text("hello", encoding="utf-8")
+def test_cli_zip_bomb_multiplier_scales_every_default() -> None:
+    """Verify one multiplier is blindly applied to every ZIP-bomb threshold."""
+    multiplier = 3
 
-    # 0.000001 MiB ~= 1 byte, should fail for a 5-byte file.
-    exit_code = main(["--file", str(path), "-m", "0.000001"])
-    captured = capsys.readouterr()
+    limits = _build_zip_bomb_limits(multiplier)
 
-    assert exit_code == 1
-    assert "exceeds CLI maximum" in captured.err
-
-
-def test_cli_rejects_negative_max_file_size_mb(capsys, tmp_path) -> None:
-    path = tmp_path / "small.txt"
-    path.write_text("hello", encoding="utf-8")
-
-    exit_code = main(["--file", str(path), "--max-file-size-mb", "-1"])
-    captured = capsys.readouterr()
-
-    assert exit_code == 1
-    assert "--max-file-size-mb must be >= 0" in captured.err
-
-
-# =============================================================================
-# Folder extraction tests (--folder / -d)
-# =============================================================================
-
-
-def test_cli_folder_extracts_all_supported_by_default(capsys) -> None:
-    """--folder without --suffixes should extract all supported files."""
-    folder = Path("sharepoint2text/tests/resources/plain_text").resolve()
-
-    exit_code = main(["--folder", str(folder)])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    # Should contain content from multiple files
-    assert len(captured.out) > 0
-
-
-def test_cli_folder_with_short_flag(capsys) -> None:
-    """-d should work as shorthand for --folder."""
-    folder = Path("sharepoint2text/tests/resources/plain_text").resolve()
-
-    exit_code = main(["-d", str(folder)])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert len(captured.out) > 0
-
-
-def test_cli_folder_with_suffixes_filter(capsys) -> None:
-    """--folder with --suffixes should only extract matching files."""
-    folder = Path("sharepoint2text/tests/resources/plain_text").resolve()
-
-    exit_code = main(["--folder", str(folder), "--suffixes", ".txt"])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    # plain.txt content should be present
-    assert "Hello" in captured.out or len(captured.out) > 0
-
-
-def test_cli_folder_with_multiple_suffixes(capsys) -> None:
-    """--suffixes should accept comma-separated values."""
-    folder = Path("sharepoint2text/tests/resources/plain_text").resolve()
-
-    exit_code = main(["--folder", str(folder), "--suffixes", ".txt,.md"])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert len(captured.out) > 0
-
-
-def test_cli_folder_with_suffixes_short_flag(capsys) -> None:
-    """-s should work as shorthand for --suffixes."""
-    folder = Path("sharepoint2text/tests/resources/plain_text").resolve()
-
-    exit_code = main(["-d", str(folder), "-s", ".txt"])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert len(captured.out) > 0
-
-
-def test_cli_folder_suffixes_without_leading_dot(capsys) -> None:
-    """--suffixes should work without leading dot."""
-    folder = Path("sharepoint2text/tests/resources/plain_text").resolve()
-
-    exit_code = main(["--folder", str(folder), "--suffixes", "txt,md"])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert len(captured.out) > 0
-
-
-def test_cli_folder_json_output(capsys) -> None:
-    """--folder should work with --json output."""
-    folder = Path("sharepoint2text/tests/resources/plain_text").resolve()
-
-    exit_code = main(["--folder", str(folder), "--json", "--suffixes", ".txt"])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    payload = json.loads(captured.out.strip())
-    assert isinstance(payload, list)
-    assert len(payload) > 0
-
-
-def test_cli_folder_json_unit_output(capsys) -> None:
-    """--folder should work with --json-unit output."""
-    folder = Path("sharepoint2text/tests/resources/plain_text").resolve()
-
-    exit_code = main(["--folder", str(folder), "--json-unit", "--suffixes", ".txt"])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    payload = json.loads(captured.out.strip())
-    assert isinstance(payload, list)
-    assert len(payload) > 0
-
-
-def test_cli_folder_no_recursive(capsys, tmp_path) -> None:
-    """--no-recursive should only extract from top-level folder."""
-    # Create folder structure
-    (tmp_path / "top.txt").write_text("top level", encoding="utf-8")
-    subdir = tmp_path / "subdir"
-    subdir.mkdir()
-    (subdir / "nested.txt").write_text("nested level", encoding="utf-8")
-
-    # With --no-recursive, should only find top.txt
-    exit_code = main(
-        ["--folder", str(tmp_path), "--no-recursive", "--suffixes", ".txt"]
-    )
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "top level" in captured.out
-    assert "nested level" not in captured.out
-
-
-def test_cli_folder_recursive_by_default(capsys, tmp_path) -> None:
-    """Folder extraction should be recursive by default."""
-    # Create folder structure
-    (tmp_path / "top.txt").write_text("top level", encoding="utf-8")
-    subdir = tmp_path / "subdir"
-    subdir.mkdir()
-    (subdir / "nested.txt").write_text("nested level", encoding="utf-8")
-
-    # Without --no-recursive, should find both files
-    exit_code = main(["--folder", str(tmp_path), "--suffixes", ".txt"])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "top level" in captured.out
-    assert "nested level" in captured.out
-
-
-def test_cli_folder_nonexistent_raises_error(capsys) -> None:
-    """--folder with non-existent path should return error."""
-    exit_code = main(["--folder", "/nonexistent/path/to/folder"])
-    captured = capsys.readouterr()
-
-    assert exit_code == 1
-    assert "Folder not found" in captured.err
-
-
-def test_cli_folder_file_path_raises_error(capsys) -> None:
-    """--folder with a file path (not directory) should return error."""
-    file_path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
-
-    exit_code = main(["--folder", str(file_path)])
-    captured = capsys.readouterr()
-
-    assert exit_code == 1
-    assert "not a directory" in captured.err
-
-
-def test_cli_suffixes_without_folder_raises_error(capsys) -> None:
-    """--suffixes without --folder should return error."""
-    file_path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
-
-    exit_code = main(["--file", str(file_path), "--suffixes", ".txt"])
-    captured = capsys.readouterr()
-
-    assert exit_code == 1
-    assert "--suffixes can only be used with --folder" in captured.err
-
-
-def test_cli_no_recursive_without_folder_raises_error(capsys) -> None:
-    """--no-recursive without --folder should return error."""
-    file_path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
-
-    exit_code = main(["--file", str(file_path), "--no-recursive"])
-    captured = capsys.readouterr()
-
-    assert exit_code == 1
-    assert "--no-recursive can only be used with --folder" in captured.err
-
-
-def test_cli_file_and_folder_mutually_exclusive(capsys) -> None:
-    """--file and --folder should be mutually exclusive."""
-    file_path = Path("sharepoint2text/tests/resources/plain_text/plain.txt").resolve()
-    folder_path = Path("sharepoint2text/tests/resources/plain_text").resolve()
-
-    exit_code = main(["--file", str(file_path), "--folder", str(folder_path)])
-
-    # argparse should reject this combination
-    assert exit_code != 0
-
-
-def test_cli_folder_empty_suffixes_raises_error(capsys) -> None:
-    """--suffixes with empty/whitespace value should return error."""
-    folder = Path("sharepoint2text/tests/resources/plain_text").resolve()
-
-    exit_code = main(["--folder", str(folder), "--suffixes", "   "])
-    captured = capsys.readouterr()
-
-    assert exit_code == 1
-    assert "at least one valid suffix" in captured.err
-
-
-def test_cli_folder_no_matches_raises_error(capsys) -> None:
-    """--folder with suffixes that match no files should return error."""
-    folder = Path("sharepoint2text/tests/resources/plain_text").resolve()
-
-    exit_code = main(["--folder", str(folder), "--suffixes", ".nonexistent"])
-    captured = capsys.readouterr()
-
-    assert exit_code == 1
-    assert "No extraction results" in captured.err
-
-
-def test_cli_folder_with_max_file_size(capsys, tmp_path) -> None:
-    """--folder should respect --max-file-size-mb."""
-    # Create a file
-    (tmp_path / "test.txt").write_text("hello world", encoding="utf-8")
-
-    # With very small limit, should fail
-    exit_code = main(
-        [
-            "--folder",
-            str(tmp_path),
-            "--suffixes",
-            ".txt",
-            "--max-file-size-mb",
-            "0.000001",
-        ]
-    )
-    captured = capsys.readouterr()
-
-    # File should be skipped due to size, resulting in no results
-    assert exit_code == 1
-    assert "No extraction results" in captured.err
-
-
-# =============================================================================
-# Folder output tests (--output with folder extraction)
-# =============================================================================
-
-
-def test_cli_folder_output_to_existing_folder(capsys, tmp_path) -> None:
-    """--folder with --output to existing folder should write separate files."""
-    # Create input folder with files
-    input_folder = tmp_path / "input"
-    input_folder.mkdir()
-    (input_folder / "file1.txt").write_text("content one", encoding="utf-8")
-    (input_folder / "file2.txt").write_text("content two", encoding="utf-8")
-
-    # Create output folder
-    output_folder = tmp_path / "output"
-    output_folder.mkdir()
-
-    exit_code = main(
-        [
-            "--folder",
-            str(input_folder),
-            "--suffixes",
-            ".txt",
-            "--output",
-            str(output_folder),
-        ]
-    )
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "Successfully extracted 2 file(s)" in captured.err
-
-    # Check output files exist with correct content
-    assert (output_folder / "file1.txt").exists()
-    assert (output_folder / "file2.txt").exists()
-    assert "content one" in (output_folder / "file1.txt").read_text()
-    assert "content two" in (output_folder / "file2.txt").read_text()
-
-
-def test_cli_folder_output_preserves_subdirectory_structure(capsys, tmp_path) -> None:
-    """--folder output should preserve subdirectory structure."""
-    # Create input folder with nested structure
-    input_folder = tmp_path / "input"
-    input_folder.mkdir()
-    (input_folder / "root.txt").write_text("root content", encoding="utf-8")
-
-    subdir = input_folder / "subdir"
-    subdir.mkdir()
-    (subdir / "nested.txt").write_text("nested content", encoding="utf-8")
-
-    deep_subdir = subdir / "deep"
-    deep_subdir.mkdir()
-    (deep_subdir / "deep.txt").write_text("deep content", encoding="utf-8")
-
-    # Create output folder
-    output_folder = tmp_path / "output"
-    output_folder.mkdir()
-
-    exit_code = main(
-        [
-            "--folder",
-            str(input_folder),
-            "--suffixes",
-            ".txt",
-            "--output",
-            str(output_folder),
-        ]
-    )
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "Successfully extracted 3 file(s)" in captured.err
-
-    # Check output structure mirrors input
-    assert (output_folder / "root.txt").exists()
-    assert (output_folder / "subdir" / "nested.txt").exists()
-    assert (output_folder / "subdir" / "deep" / "deep.txt").exists()
-
-    assert "root content" in (output_folder / "root.txt").read_text()
-    assert "nested content" in (output_folder / "subdir" / "nested.txt").read_text()
+    assert limits.max_entries == DEFAULT_ZIP_BOMB_LIMITS.max_entries * multiplier
     assert (
-        "deep content" in (output_folder / "subdir" / "deep" / "deep.txt").read_text()
+        limits.max_total_uncompressed_bytes
+        == DEFAULT_ZIP_BOMB_LIMITS.max_total_uncompressed_bytes * multiplier
+    )
+    assert (
+        limits.max_single_uncompressed_bytes
+        == DEFAULT_ZIP_BOMB_LIMITS.max_single_uncompressed_bytes * multiplier
+    )
+    assert (
+        limits.max_total_compression_ratio
+        == DEFAULT_ZIP_BOMB_LIMITS.max_total_compression_ratio * multiplier
+    )
+    assert (
+        limits.max_entry_compression_ratio
+        == DEFAULT_ZIP_BOMB_LIMITS.max_entry_compression_ratio * multiplier
     )
 
 
-def test_cli_folder_output_creates_new_folder(capsys, tmp_path) -> None:
-    """--folder output should create new folder if path has no extension."""
-    # Create input folder
-    input_folder = tmp_path / "input"
-    input_folder.mkdir()
-    (input_folder / "file.txt").write_text("test content", encoding="utf-8")
+def test_cli_zip_bomb_multiplier_default_preserves_limits() -> None:
+    """Verify an omitted option keeps every default threshold unchanged."""
+    assert _build_zip_bomb_limits(1) == DEFAULT_ZIP_BOMB_LIMITS
 
-    # Output folder does not exist (no extension = treated as folder)
-    output_folder = tmp_path / "new_output"
 
+def test_cli_zip_bomb_multiplier_accepts_none_case_insensitively() -> None:
+    """Verify the literal disable value maps to the disabled-check marker."""
+    assert _parse_zip_bomb_limit_multiplier("None") is None
+
+
+@pytest.mark.parametrize(("value", "expected"), [("2", 2), ("10", 10)])
+def test_cli_accepts_zip_bomb_multiplier_boundaries(
+    value: str,
+    expected: int,
+) -> None:
+    """Verify both inclusive multiplier boundaries are accepted."""
+    assert _parse_zip_bomb_limit_multiplier(value) == expected
+
+
+@pytest.mark.parametrize("value", ["1", "11", "2.5", "disabled"])
+def test_cli_rejects_invalid_zip_bomb_multipliers(
+    value: str,
+    capsys: Any,
+) -> None:
+    """Verify only whole multipliers from 2 through 10 or none are accepted."""
     exit_code = main(
         [
-            "--folder",
-            str(input_folder),
-            "--suffixes",
-            ".txt",
-            "--output",
-            str(output_folder),
-        ]
-    )
-    assert exit_code == 0
-    assert output_folder.is_dir()
-    assert (output_folder / "file.txt").exists()
-
-
-def test_cli_folder_output_to_file_combines_results(capsys, tmp_path) -> None:
-    """--folder with --output to file should combine all results."""
-    # Create input folder
-    input_folder = tmp_path / "input"
-    input_folder.mkdir()
-    (input_folder / "file1.txt").write_text("content one", encoding="utf-8")
-    (input_folder / "file2.txt").write_text("content two", encoding="utf-8")
-
-    # Output file (has extension = treated as single file)
-    output_file = tmp_path / "combined.txt"
-
-    exit_code = main(
-        [
-            "--folder",
-            str(input_folder),
-            "--suffixes",
-            ".txt",
-            "--output",
-            str(output_file),
-        ]
-    )
-
-    assert exit_code == 0
-    assert output_file.exists()
-
-    content = output_file.read_text()
-    assert "content one" in content
-    assert "content two" in content
-
-
-def test_cli_folder_output_json_format(capsys, tmp_path) -> None:
-    """--folder output to folder with --json should create .json files."""
-    # Create input folder
-    input_folder = tmp_path / "input"
-    input_folder.mkdir()
-    (input_folder / "file.txt").write_text("test content", encoding="utf-8")
-
-    # Create output folder
-    output_folder = tmp_path / "output"
-    output_folder.mkdir()
-
-    exit_code = main(
-        [
-            "--folder",
-            str(input_folder),
-            "--suffixes",
-            ".txt",
-            "--json",
-            "--output",
-            str(output_folder),
-        ]
-    )
-    assert exit_code == 0
-
-    # Should create .json file instead of .txt
-    assert (output_folder / "file.json").exists()
-    assert not (output_folder / "file.txt").exists()
-
-    # Verify it's valid JSON
-    content = json.loads((output_folder / "file.json").read_text())
-    assert isinstance(content, list)
-
-
-def test_cli_folder_output_json_unit_format(capsys, tmp_path) -> None:
-    """--folder output with --json-unit should create per-unit .json files."""
-    # Create input folder
-    input_folder = tmp_path / "input"
-    input_folder.mkdir()
-    (input_folder / "file.txt").write_text("test content", encoding="utf-8")
-
-    # Create output folder
-    output_folder = tmp_path / "output"
-    output_folder.mkdir()
-
-    exit_code = main(
-        [
-            "--folder",
-            str(input_folder),
-            "--suffixes",
-            ".txt",
-            "--json-unit",
-            "--output",
-            str(output_folder),
-        ]
-    )
-    assert exit_code == 0
-    assert (output_folder / "file.json").exists()
-
-
-def test_cli_folder_output_trailing_slash_creates_folder(capsys, tmp_path) -> None:
-    """--output with trailing slash should create folder."""
-    # Create input folder
-    input_folder = tmp_path / "input"
-    input_folder.mkdir()
-    (input_folder / "file.txt").write_text("test content", encoding="utf-8")
-
-    # Output path with trailing slash
-    output_path = str(tmp_path / "output_dir") + "/"
-
-    exit_code = main(
-        [
-            "--folder",
-            str(input_folder),
-            "--suffixes",
-            ".txt",
-            "--output",
-            output_path,
-        ]
-    )
-
-    assert exit_code == 0
-    assert (tmp_path / "output_dir").is_dir()
-    assert (tmp_path / "output_dir" / "file.txt").exists()
-
-
-def test_cli_folder_output_prints_progress(capsys, tmp_path) -> None:
-    """--folder output should print progress to stderr."""
-    # Create input folder
-    input_folder = tmp_path / "input"
-    input_folder.mkdir()
-    (input_folder / "file.txt").write_text("test content", encoding="utf-8")
-
-    # Create output folder
-    output_folder = tmp_path / "output"
-    output_folder.mkdir()
-
-    exit_code = main(
-        [
-            "--folder",
-            str(input_folder),
-            "--suffixes",
-            ".txt",
-            "--output",
-            str(output_folder),
+            "--file",
+            str(PLAIN_PATH),
+            "--zip-bomb-limit-multiplier",
+            value,
         ]
     )
     captured = capsys.readouterr()
 
-    assert exit_code == 0
-    assert "Extracted:" in captured.err
-    assert "file.txt" in captured.err
+    assert exit_code == 2
+    assert "whole integer from 2 through 10, or 'none'" in captured.err
 
 
-def test_cli_single_file_output_unchanged(capsys, tmp_path) -> None:
-    """Single file extraction with --output should still work as before."""
-    # Create input file
-    input_file = tmp_path / "input.txt"
-    input_file.write_text("test content", encoding="utf-8")
+@pytest.mark.parametrize(
+    ("option_name", "cli_value", "expected_multiplier"),
+    [
+        ("--zip-bomb-limit-multiplier", "3", 3),
+        ("--zip-bomb-limit-multiplier", "None", None),
+        ("--zblm", "4", 4),
+    ],
+)
+def test_cli_forwards_zip_bomb_setting_to_single_file(
+    option_name: str,
+    cli_value: str,
+    expected_multiplier: int | None,
+    capsys: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify the CLI passes scaled or disabled limits into file extraction."""
+    received_limits: list[sharepoint2text.ZipBombLimits | None] = []
+    original_read_file = sharepoint2text.read_file
 
-    # Output file
-    output_file = tmp_path / "output.txt"
+    def recording_read_file(path: Any, **kwargs: Any) -> Any:
+        received_limits.append(kwargs.get("zip_bomb_limits"))
+        return original_read_file(path, **kwargs)
+
+    monkeypatch.setattr(sharepoint2text, "read_file", recording_read_file)
 
     exit_code = main(
         [
             "--file",
-            str(input_file),
-            "--output",
-            str(output_file),
+            str(PLAIN_PATH),
+            option_name,
+            cli_value,
         ]
     )
+    capsys.readouterr()
 
     assert exit_code == 0
-    assert output_file.exists()
-    assert "test content" in output_file.read_text()
+    assert received_limits == [_build_zip_bomb_limits(expected_multiplier)]
 
 
-def test_cli_folder_output_with_no_recursive(capsys, tmp_path) -> None:
-    """--folder output with --no-recursive should only extract top-level files."""
-    # Create input folder with nested structure
+@pytest.mark.parametrize("mirror_output", [False, True])
+def test_cli_forwards_zip_bomb_multiplier_to_folder_modes(
+    mirror_output: bool,
+    capsys: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Verify combined and mirrored folder modes pass the same scaled limits."""
     input_folder = tmp_path / "input"
     input_folder.mkdir()
-    (input_folder / "top.txt").write_text("top content", encoding="utf-8")
+    (input_folder / "sample.txt").write_text("hello", encoding="utf-8")
+    received_limits: list[sharepoint2text.ZipBombLimits | None] = []
+    original_read_many = sharepoint2text.read_many
 
-    subdir = input_folder / "subdir"
-    subdir.mkdir()
-    (subdir / "nested.txt").write_text("nested content", encoding="utf-8")
+    def recording_read_many(path: Any, **kwargs: Any) -> Any:
+        received_limits.append(kwargs.get("zip_bomb_limits"))
+        return original_read_many(path, **kwargs)
 
-    # Create output folder
+    monkeypatch.setattr(sharepoint2text, "read_many", recording_read_many)
+    argv = [
+        "--folder",
+        str(input_folder),
+        "--zip-bomb-limit-multiplier",
+        "4",
+    ]
+    if mirror_output:
+        output_folder = tmp_path / "output"
+        output_folder.mkdir()
+        argv.extend(["--output", str(output_folder)])
+
+    exit_code = main(argv)
+    capsys.readouterr()
+
+    assert exit_code == 0
+    assert received_limits == [_build_zip_bomb_limits(4)]
+
+
+def test_cli_folder_json_is_a_streamed_v2_array(capsys: Any) -> None:
+    """Verify combined folder output contains only version-2 envelopes."""
+    folder = Path("sharepoint2text/tests/resources/plain_text").resolve()
+
+    exit_code = main(["--folder", str(folder), "--json", "--suffixes", ".txt"])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert payload
+    assert all(item["schema"] == "sharepoint2text.extraction" for item in payload)
+
+
+def test_cli_folder_to_folder_writes_version_two_json(tmp_path: Path) -> None:
+    """Verify per-file folder output also uses the version-2 schema."""
+    input_folder = tmp_path / "input"
+    output_folder = tmp_path / "output"
+    input_folder.mkdir()
+    output_folder.mkdir()
+    (input_folder / "sample.txt").write_text("hello", encoding="utf-8")
+
+    exit_code = main(
+        ["--folder", str(input_folder), "--output", str(output_folder), "--json"]
+    )
+    payload = json.loads((output_folder / "sample.json").read_text())
+
+    assert exit_code == 0
+    assert payload[0]["version"] == 2
+
+
+def test_cli_folder_output_preserves_every_mailbox_message(tmp_path: Path) -> None:
+    """Verify mirrored output aggregates all documents yielded by one source."""
     output_folder = tmp_path / "output"
     output_folder.mkdir()
 
     exit_code = main(
         [
             "--folder",
-            str(input_folder),
+            str(MAILBOX_FOLDER),
             "--suffixes",
-            ".txt",
-            "--no-recursive",
+            ".mbox",
             "--output",
             str(output_folder),
+            "--json",
         ]
     )
-    captured = capsys.readouterr()
+    payload = json.loads((output_folder / "basic_email.json").read_text())
 
     assert exit_code == 0
-    assert "Successfully extracted 1 file(s)" in captured.err
-
-    # Only top-level file should be extracted
-    assert (output_folder / "top.txt").exists()
-    assert not (output_folder / "subdir").exists()
+    assert len(payload) == 2

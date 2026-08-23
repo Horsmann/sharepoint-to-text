@@ -57,13 +57,13 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFileEncryptedError,
     ExtractionFileTooLargeError,
 )
-from sharepoint2text.parsing.extractors.data_types import ExtractionInterface
 from sharepoint2text.parsing.extractors.util.sevenzip import (
     Bad7zFile,
     FileInfo,
     SevenZipFile,
 )
 from sharepoint2text.parsing.extractors.util.zip_bomb import open_zipfile
+from sharepoint2text.parsing.models import ExtractedDocument
 
 logger = logging.getLogger(__name__)
 
@@ -72,9 +72,6 @@ BUFFER_SIZE = 64 * 1024  # 64KB buffer for streaming
 MAX_MEMORY_SIZE = 10 * 1024 * 1024  # 10MB spool threshold before rollover to disk
 MAX_WORKERS = min(4, os.cpu_count() or 1)  # Thread pool size
 CACHE_SIZE = 256  # LRU cache size for file type detection
-MAX_ARCHIVE_FILE_SIZE = (
-    50 * 1024 * 1024
-)  # 50MB max for individual files within archives
 
 # 7zip specific constants
 MAX_7Z_FILE_SIZE = 100 * 1024 * 1024  # 100MB maximum file size for 7z archives
@@ -198,9 +195,9 @@ def configure_archive_extraction(
 @lru_cache(maxsize=1)
 def _get_router_functions() -> Tuple[Callable, Callable]:
     """Get cached router functions to avoid repeated imports."""
-    from sharepoint2text.parsing.router import get_extractor, is_supported_file
+    from sharepoint2text.parsing.router import _get_extractor, is_supported_file
 
-    return is_supported_file, get_extractor
+    return is_supported_file, _get_extractor
 
 
 @lru_cache(maxsize=CACHE_SIZE)
@@ -212,11 +209,17 @@ def _is_supported_file_cached(filename: str) -> bool:
 
 @lru_cache(maxsize=CACHE_SIZE)
 def _get_file_extractor_cached(
-    filename: str, ignore_images: bool
+    filename: str,
+    ignore_images: bool,
+    include_attachments: bool,
 ) -> Callable[..., Any]:
     """Cached version of extractor retrieval."""
-    _, get_extractor = _get_router_functions()
-    extractor: Callable[..., Any] = get_extractor(filename, ignore_images=ignore_images)
+    _, _get_extractor = _get_router_functions()
+    extractor: Callable[..., Any] = _get_extractor(
+        filename,
+        ignore_images=ignore_images,
+        include_attachments=include_attachments,
+    )
     return extractor
 
 
@@ -378,40 +381,35 @@ def _should_skip_file(
 def _process_archive_entry(
     filename: str,
     file_like: IO[bytes],
-    file_size: int,
     archive_path: Optional[str],
     basename: str,
     ignore_images: bool = False,
-) -> Generator[ExtractionInterface, Any, None]:
+    include_attachments: bool = True,
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Process a single archive entry with optimized memory usage.
 
     Args:
         filename: Full path in archive
         file_like: Seekable binary file object containing the entry contents.
-        file_size: Uncompressed size of the entry in bytes.
         archive_path: Optional archive path for metadata
         basename: Base filename for extractor selection
+        ignore_images: If True, skip image extraction.
+        include_attachments: If False, omit attachments from archived emails.
 
     Yields:
-        ExtractionInterface objects
+        Canonical extracted documents.
     """
     try:
-        # Check file size before processing
-        if file_size > MAX_ARCHIVE_FILE_SIZE:
-            logger.warning(
-                "Skipping %s: file size %d bytes exceeds maximum allowed size of %d bytes",
-                filename,
-                file_size,
-                MAX_ARCHIVE_FILE_SIZE,
-            )
-            return
-
         # Build path that includes archive context
         full_path = f"{archive_path}!/{filename}" if archive_path else filename
 
         # Use cached extractor for performance
-        extractor = _get_file_extractor_cached(basename, ignore_images)
+        extractor = _get_file_extractor_cached(
+            basename,
+            ignore_images,
+            include_attachments,
+        )
 
         file_like.seek(0)
 
@@ -421,11 +419,6 @@ def _process_archive_entry(
 
     except (ExtractionError, OSError, ValueError, UnicodeDecodeError) as e:
         logger.warning("Failed to extract %s from archive: %s", filename, e)
-        # Log the error but continue processing other files in the archive
-        # This prevents one corrupted file from breaking the entire archive extraction
-        logger.debug(
-            "Extraction error details for %s: %s", filename, str(e), exc_info=True
-        )
 
 
 @contextmanager
@@ -463,16 +456,19 @@ def _extract_from_zip_optimized(
     archive_path: Optional[str],
     *,
     ignore_images: bool = False,
-) -> Generator[ExtractionInterface, Any, None]:
+    include_attachments: bool = True,
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Optimized ZIP extraction with single-pass processing.
 
     Args:
         file_like: BytesIO containing the ZIP archive.
         archive_path: Optional path to the archive file for metadata.
+        ignore_images: If True, skip image extraction.
+        include_attachments: If False, omit attachments from archived emails.
 
     Yields:
-        ExtractionInterface objects for each supported file in the archive.
+        Canonical documents for each supported file in the archive.
     """
     try:
         with open_zipfile(
@@ -511,24 +507,15 @@ def _extract_from_zip_optimized(
             # Process files in batch for better performance
             for info, filename, basename in files_to_process:
                 try:
-                    # Enforce the archive-member size limit before decompression.
-                    if info.file_size > MAX_ARCHIVE_FILE_SIZE:
-                        logger.warning(
-                            "File %s too large (%s bytes), skipping",
-                            filename,
-                            info.file_size,
-                        )
-                        continue
-
                     with zf.open(info, "r") as entry_stream:
                         with _spooled_entry_buffer(entry_stream) as buffered_stream:
                             yield from _process_archive_entry(
                                 filename,
                                 buffered_stream,
-                                info.file_size,
                                 archive_path,
                                 basename,
                                 ignore_images=ignore_images,
+                                include_attachments=include_attachments,
                             )
 
                 except RuntimeError as e:
@@ -550,7 +537,8 @@ def _extract_from_tar_optimized(
     mode: str = "r:*",
     *,
     ignore_images: bool = False,
-) -> Generator[ExtractionInterface, Any, None]:
+    include_attachments: bool = True,
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Optimized TAR extraction with streaming support.
 
@@ -558,9 +546,11 @@ def _extract_from_tar_optimized(
         file_like: BytesIO containing the TAR archive.
         archive_path: Optional path to the archive file for metadata.
         mode: TAR open mode (r:* for auto-detect compression).
+        ignore_images: If True, skip image extraction.
+        include_attachments: If False, omit attachments from archived emails.
 
     Yields:
-        ExtractionInterface objects for each supported file in the archive.
+        Canonical documents for each supported file in the archive.
     """
     try:
         with tarfile.open(fileobj=file_like, mode=mode) as tf:  # type: ignore[call-overload]
@@ -569,6 +559,12 @@ def _extract_from_tar_optimized(
 
             # Stream members to avoid materializing massive member lists in memory.
             for member in tf:
+                total_entries += 1
+                if total_entries > MAX_TAR_ENTRIES:
+                    raise ExtractionFailedError(
+                        f"TAR archive has too many entries ({total_entries} > {MAX_TAR_ENTRIES})"
+                    )
+
                 if _is_tar_symlink(member):
                     logger.warning(
                         "Skipping symbolic link in TAR archive: %s", member.name
@@ -578,12 +574,6 @@ def _extract_from_tar_optimized(
                 # Skip directories and non-regular files
                 if not member.isreg():
                     continue
-
-                total_entries += 1
-                if total_entries > MAX_TAR_ENTRIES:
-                    raise ExtractionFailedError(
-                        f"TAR archive has too many entries ({total_entries} > {MAX_TAR_ENTRIES})"
-                    )
 
                 member_size = max(int(member.size or 0), 0)
                 if member_size > MAX_TAR_SINGLE_UNCOMPRESSED_BYTES:
@@ -608,13 +598,6 @@ def _extract_from_tar_optimized(
                 if _should_skip_file(filename, basename, ignore_images=ignore_images):
                     continue
 
-                # Enforce the archive-member size limit before reading.
-                if member_size > MAX_ARCHIVE_FILE_SIZE:
-                    logger.warning(
-                        "File %s too large (%s bytes), skipping", filename, member_size
-                    )
-                    continue
-
                 try:
                     # Extract file data
                     extracted = tf.extractfile(member)
@@ -626,20 +609,14 @@ def _extract_from_tar_optimized(
                             yield from _process_archive_entry(
                                 filename,
                                 buffered_stream,
-                                member_size,
                                 archive_path,
                                 basename,
                                 ignore_images=ignore_images,
+                                include_attachments=include_attachments,
                             )
 
                 except (tarfile.TarError, OSError, ExtractionError) as e:
                     logger.warning("Failed to extract %s from TAR: %s", filename, e)
-                    logger.debug(
-                        "TAR extraction error details for %s: %s",
-                        filename,
-                        str(e),
-                        exc_info=True,
-                    )
                     continue
 
     except tarfile.TarError as e:
@@ -651,16 +628,19 @@ def _extract_from_7z_optimized(
     archive_path: Optional[str],
     *,
     ignore_images: bool = False,
-) -> Generator[ExtractionInterface, Any, None]:
+    include_attachments: bool = True,
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Optimized 7z extraction with file size limits.
 
     Args:
         file_like: BytesIO containing the 7z archive.
         archive_path: Optional path to the archive file for metadata.
+        ignore_images: If True, skip image extraction.
+        include_attachments: If False, omit attachments from archived emails.
 
     Yields:
-        ExtractionInterface objects for each supported file in the archive.
+        Canonical documents for each supported file in the archive.
 
     Raises:
         ExtractionFileTooLargeError: If the archive exceeds MAX_7Z_FILE_SIZE.
@@ -731,14 +711,6 @@ def _extract_from_7z_optimized(
                 if _should_skip_file(filename, basename, ignore_images=ignore_images):
                     continue
 
-                if uncompressed_size > MAX_ARCHIVE_FILE_SIZE:
-                    logger.warning(
-                        "File %s too large (%s bytes), skipping",
-                        filename,
-                        uncompressed_size,
-                    )
-                    continue
-
                 files_to_process.append((file_info, filename, basename))
 
             if not files_to_process:
@@ -763,6 +735,7 @@ def _extract_from_7z_optimized(
                     temp_dir,
                     archive_path,
                     ignore_images=ignore_images,
+                    include_attachments=include_attachments,
                 )
 
     except Bad7zFile as e:
@@ -770,14 +743,26 @@ def _extract_from_7z_optimized(
 
 
 def _process_7z_files_sequential(
-    files_to_process: list,
+    files_to_process: list[Tuple[FileInfo, str, str]],
     temp_dir: str,
     archive_path: Optional[str],
     *,
     ignore_images: bool = False,
-) -> Generator[ExtractionInterface, Any, None]:
-    """Sequential processing of 7z files."""
-    for file_info, filename, basename in files_to_process:
+    include_attachments: bool = True,
+) -> Generator[ExtractedDocument, Any, None]:
+    """Process extracted 7z members sequentially.
+
+    Args:
+        files_to_process: Filtered 7z member metadata and filenames.
+        temp_dir: Temporary extraction directory.
+        archive_path: Optional path to the source archive.
+        ignore_images: If True, skip image extraction.
+        include_attachments: If False, omit attachments from archived emails.
+
+    Yields:
+        Extraction records produced from supported 7z members.
+    """
+    for _file_info, filename, basename in files_to_process:
         try:
             extracted_path = os.path.join(temp_dir, filename)
             # Verify the resolved path stays within the temp directory
@@ -806,20 +791,14 @@ def _process_7z_files_sequential(
                 yield from _process_archive_entry(
                     filename,
                     extracted_file,
-                    max(int(file_info.uncompressed or 0), 0),
                     archive_path,
                     basename,
                     ignore_images=ignore_images,
+                    include_attachments=include_attachments,
                 )
 
         except (FileNotFoundError, PermissionError, OSError, ExtractionError) as e:
             logger.warning("Failed to process %s from 7z: %s", filename, e)
-            logger.debug(
-                "7z processing error details for %s: %s",
-                filename,
-                str(e),
-                exc_info=True,
-            )
             continue
 
 
@@ -828,7 +807,8 @@ def read_archive(
     path: Optional[str] = None,
     *,
     ignore_images: bool = False,
-) -> Generator[ExtractionInterface, Any, None]:
+    include_attachments: bool = True,
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Optimized entry point for archive extraction.
 
@@ -838,19 +818,19 @@ def read_archive(
     Args:
         file_like: BytesIO object containing the complete archive data.
         path: Optional filesystem path to the source archive.
-        ignore_images: If True, skip image extraction (not applicable for this format).
+        ignore_images: If True, skip image extraction from archive members.
+        include_attachments: If False, omit attachments from archived emails.
 
     Yields:
-        ExtractionInterface: Extraction results for each supported file.
+        Canonical extraction results for each supported file.
 
     Example:
         >>> import io
         >>> with open("archive.zip", "rb") as f:
         ...     for content in read_archive(io.BytesIO(f.read())):
-        ...         print(f"Extracted: {content.get_metadata().filename}")
+        ...         print(f"Extracted: {content.source.filename}")
     """
     source_path = path or "<in-memory>"
-    logger.info("Entering archive extraction: %s", source_path)
     start_time = time.perf_counter()
 
     try:
@@ -861,7 +841,9 @@ def read_archive(
             raise ExtractionFailedError("Unable to detect archive type")
 
         logger.debug(
-            f"Detected archive type: {archive_type} in {time.perf_counter() - start_time:.3f}s"
+            "Detected %s archive in %.3fs",
+            archive_type,
+            time.perf_counter() - start_time,
         )
 
         # Route to optimized extractor
@@ -870,12 +852,14 @@ def read_archive(
                 file_like,
                 path,
                 ignore_images=ignore_images,
+                include_attachments=include_attachments,
             )
         elif archive_type == "7z":
             yield from _extract_from_7z_optimized(
                 file_like,
                 path,
                 ignore_images=ignore_images,
+                include_attachments=include_attachments,
             )
         elif archive_type in ("tar", "tar.gz", "tar.bz2", "tar.xz"):
             yield from _extract_from_tar_optimized(
@@ -883,6 +867,7 @@ def read_archive(
                 path,
                 f"r:{archive_type.split('.')[-1]}",
                 ignore_images=ignore_images,
+                include_attachments=include_attachments,
             )
         else:
             raise ExtractionFailedError(f"Unsupported archive type: {archive_type}")
@@ -895,5 +880,4 @@ def read_archive(
         ) from exc
     finally:
         total_time = time.perf_counter() - start_time
-        logger.debug(f"Archive extraction completed in {total_time:.3f}s")
-        logger.info("Leaving archive extraction: %s", source_path)
+        logger.debug("Finished archive extraction: %s (%.3fs)", source_path, total_time)

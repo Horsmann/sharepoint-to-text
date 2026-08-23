@@ -8,6 +8,17 @@ This guide explains how to configure Microsoft Entra ID (Azure AD) and SharePoin
 - A SharePoint site you want to access
 - Python environment with this package installed
 
+The SharePoint client has no additional runtime dependency. This guide's `.env`
+examples and `run_test_setup` helper use `python-dotenv`. It is installed by
+`uv sync --all-groups` in a development checkout. For a normal package
+installation, add it explicitly:
+
+```bash
+uv add python-dotenv
+# or
+pip install python-dotenv
+```
+
 ## Step 1: Register an Application in Entra ID
 
 1. Go to [Azure Portal](https://portal.azure.com) > **Microsoft Entra ID** > **App registrations**
@@ -134,11 +145,21 @@ Where to find these values:
 - **client_secret**: The secret value you copied in Step 2
 - **site_url**: The full URL to your SharePoint site
 
-**Security Note**: Never commit `.env` files to version control. Add `.env` to your `.gitignore`.
+**Security Note**: Never commit `.env` files to version control. Add the exact
+`.env` filename to your `.gitignore` and verify it is ignored before storing a
+client secret there.
 
 ## Step 6: Validate the Setup
 
-Run the test setup script to verify everything is configured correctly:
+Run the test setup script to verify everything is configured correctly. From a
+development checkout, use:
+
+```bash
+uv run python -m sharepoint2text.sharepoint_io.run_test_setup
+```
+
+From another environment where both `sharepoint-to-text` and `python-dotenv`
+are installed, use:
 
 ```bash
 python -m sharepoint2text.sharepoint_io.run_test_setup
@@ -235,7 +256,7 @@ from datetime import datetime, timedelta, timezone
 
 import dotenv
 
-from sharepoint2text.sharepoint_io.client import (
+from sharepoint2text.sharepoint_io import (
     EntraIDAppCredentials,
     FileFilter,
     SharePointRestClient,

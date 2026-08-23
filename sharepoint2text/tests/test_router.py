@@ -2,6 +2,8 @@ import logging
 import unittest
 from pathlib import Path
 
+import pytest
+
 from sharepoint2text.parsing.exceptions import ExtractionFileFormatNotSupportedError
 from sharepoint2text.parsing.extractors.archive_extractor import read_archive
 from sharepoint2text.parsing.extractors.csv_extractor import read_csv
@@ -31,7 +33,7 @@ from sharepoint2text.parsing.extractors.open_office.ods_extractor import read_od
 from sharepoint2text.parsing.extractors.open_office.odt_extractor import read_odt
 from sharepoint2text.parsing.extractors.pdf.pdf_extractor import read_pdf
 from sharepoint2text.parsing.extractors.plain_extractor import read_plain_text
-from sharepoint2text.parsing.router import get_extractor, is_supported_file
+from sharepoint2text.parsing.router import _get_extractor, is_supported_file
 
 logger = logging.getLogger(__name__)
 
@@ -121,193 +123,193 @@ def test_is_supported():
 def test_router():
 
     # xls
-    func = get_extractor("myfile.xls")
+    func = _get_extractor("myfile.xls")
     tc.assertEqual(read_xls, func)
-    func = get_extractor("myfile.xlt")
+    func = _get_extractor("myfile.xlt")
     tc.assertEqual(read_xls, func)
 
     # xlsx
-    func = get_extractor("myfile.xlsx")
+    func = _get_extractor("myfile.xlsx")
     tc.assertEqual(read_xlsx, func)
-    func = get_extractor("myfile.xltx")
+    func = _get_extractor("myfile.xltx")
     tc.assertEqual(read_xlsx, func)
 
     # xlsb
-    func = get_extractor("myfile.xlsb")
+    func = _get_extractor("myfile.xlsb")
     tc.assertEqual(read_xlsx, func)
 
     # pdf
-    func = get_extractor("myfile.pdf")
+    func = _get_extractor("myfile.pdf")
     tc.assertEqual(read_pdf, func)
 
     # ppt
-    func = get_extractor("myfile.ppt")
+    func = _get_extractor("myfile.ppt")
     tc.assertEqual(read_ppt, func)
-    func = get_extractor("myfile.pot")
+    func = _get_extractor("myfile.pot")
     tc.assertEqual(read_ppt, func)
-    func = get_extractor("myfile.pps")
+    func = _get_extractor("myfile.pps")
     tc.assertEqual(read_ppt, func)
 
     # pptx
-    func = get_extractor("myfile.pptx")
+    func = _get_extractor("myfile.pptx")
     tc.assertEqual(read_pptx, func)
-    func = get_extractor("myfile.potx")
+    func = _get_extractor("myfile.potx")
     tc.assertEqual(read_pptx, func)
-    func = get_extractor("myfile.ppsx")
+    func = _get_extractor("myfile.ppsx")
     tc.assertEqual(read_pptx, func)
 
     # doc
-    func = get_extractor("myfile.doc")
+    func = _get_extractor("myfile.doc")
     tc.assertEqual(read_doc, func)
-    func = get_extractor("myfile.dot")
+    func = _get_extractor("myfile.dot")
     tc.assertEqual(read_doc, func)
 
     # docx
-    func = get_extractor("myfile.docx")
+    func = _get_extractor("myfile.docx")
     tc.assertEqual(read_docx, func)
-    func = get_extractor("myfile.dotx")
+    func = _get_extractor("myfile.dotx")
     tc.assertEqual(read_docx, func)
 
     # json
-    func = get_extractor("myfile.json")
+    func = _get_extractor("myfile.json")
     tc.assertEqual(read_plain_text, func)
 
     # txt
-    func = get_extractor("myfile.txt")
+    func = _get_extractor("myfile.txt")
     tc.assertEqual(read_plain_text, func)
 
     # md
-    func = get_extractor("myfile.md")
+    func = _get_extractor("myfile.md")
     tc.assertEqual(read_plain_text, func)
 
     # csv
-    func = get_extractor("myfile.csv")
+    func = _get_extractor("myfile.csv")
     tc.assertEqual(read_csv, func)
 
     # tsv
-    func = get_extractor("myfile.tsv")
+    func = _get_extractor("myfile.tsv")
     tc.assertEqual(read_csv, func)
 
     # rtf
-    func = get_extractor("myfile.rtf")
+    func = _get_extractor("myfile.rtf")
     tc.assertEqual(read_rtf, func)
 
     # open office - document - odt
-    func = get_extractor("myfile.odt")
+    func = _get_extractor("myfile.odt")
     tc.assertEqual(read_odt, func)
-    func = get_extractor("myfile.ott")
+    func = _get_extractor("myfile.ott")
     tc.assertEqual(read_odt, func)
 
     # open office - presentation - odp
-    func = get_extractor("myfile.odp")
+    func = _get_extractor("myfile.odp")
     tc.assertEqual(read_odp, func)
-    func = get_extractor("myfile.otp")
+    func = _get_extractor("myfile.otp")
     tc.assertEqual(read_odp, func)
 
     # open office - spreadsheet - ods
-    func = get_extractor("myfile.ods")
+    func = _get_extractor("myfile.ods")
     tc.assertEqual(read_ods, func)
-    func = get_extractor("myfile.ots")
+    func = _get_extractor("myfile.ots")
     tc.assertEqual(read_ods, func)
 
     # open office - drawing - odg
-    func = get_extractor("myfile.odg")
+    func = _get_extractor("myfile.odg")
     tc.assertEqual(read_odg, func)
 
     # open office - formula - odf
-    func = get_extractor("myfile.odf")
+    func = _get_extractor("myfile.odf")
     tc.assertEqual(read_odf, func)
 
     # html
-    func = get_extractor("myfile.html")
+    func = _get_extractor("myfile.html")
     tc.assertEqual(read_html, func)
 
     # htm
-    func = get_extractor("myfile.htm")
+    func = _get_extractor("myfile.htm")
     tc.assertEqual(read_html, func)
 
     # msg
-    func = get_extractor("myfile.msg")
+    func = _get_extractor("myfile.msg")
     tc.assertEqual(read_msg_format_mail, func)
 
     # eml
-    func = get_extractor("myfile.eml")
+    func = _get_extractor("myfile.eml")
     tc.assertEqual(read_eml_format_mail, func)
 
     # mbox
-    func = get_extractor("myfile.mbox")
+    func = _get_extractor("myfile.mbox")
     tc.assertEqual(read_mbox_format_mail, func)
 
     # epub
-    func = get_extractor("myfile.epub")
+    func = _get_extractor("myfile.epub")
     tc.assertEqual(read_epub, func)
 
     # mhtml
-    func = get_extractor("myfile.mhtml")
+    func = _get_extractor("myfile.mhtml")
     tc.assertEqual(read_mhtml, func)
 
     # mht (alias for mhtml)
-    func = get_extractor("myfile.mht")
+    func = _get_extractor("myfile.mht")
     tc.assertEqual(read_mhtml, func)
 
     # Macro-enabled Office formats (use same extractors as non-macro)
     # docm -> read_docx
-    func = get_extractor("myfile.docm")
+    func = _get_extractor("myfile.docm")
     tc.assertEqual(read_docx, func)
-    func = get_extractor("myfile.dotm")
+    func = _get_extractor("myfile.dotm")
     tc.assertEqual(read_docx, func)
 
     # xlsm -> read_xlsx
-    func = get_extractor("myfile.xlsm")
+    func = _get_extractor("myfile.xlsm")
     tc.assertEqual(read_xlsx, func)
-    func = get_extractor("myfile.xltm")
+    func = _get_extractor("myfile.xltm")
     tc.assertEqual(read_xlsx, func)
 
     # pptm -> read_pptx
-    func = get_extractor("myfile.pptm")
+    func = _get_extractor("myfile.pptm")
     tc.assertEqual(read_pptx, func)
-    func = get_extractor("myfile.potm")
+    func = _get_extractor("myfile.potm")
     tc.assertEqual(read_pptx, func)
-    func = get_extractor("myfile.ppsm")
+    func = _get_extractor("myfile.ppsm")
     tc.assertEqual(read_pptx, func)
 
     # zip -> read_archive
-    func = get_extractor("myfile.zip")
+    func = _get_extractor("myfile.zip")
     tc.assertEqual(read_archive, func)
 
     # tar -> read_archive
-    func = get_extractor("myfile.tar")
+    func = _get_extractor("myfile.tar")
     tc.assertEqual(read_archive, func)
 
     # tar.gz -> read_archive
-    func = get_extractor("myfile.tar.gz")
+    func = _get_extractor("myfile.tar.gz")
     tc.assertEqual(read_archive, func)
 
     # 7z -> read_archive
-    func = get_extractor("myfile.7z")
+    func = _get_extractor("myfile.7z")
     tc.assertEqual(read_archive, func)
 
     tc.assertRaises(
         ExtractionFileFormatNotSupportedError,
-        get_extractor,
+        _get_extractor,
         "not_supported.misc",
     )
 
     tc.assertRaises(
         ExtractionFileFormatNotSupportedError,
-        get_extractor,
+        _get_extractor,
         "i-have-no-file-type",
     )
 
 
 def test_router_force_plain_text():
-    func = get_extractor("not_supported.misc", force_plain_text=True)
+    func = _get_extractor("not_supported.misc", force_plain_text=True)
     tc.assertEqual(read_plain_text, func)
 
-    func = get_extractor("i-have-no-file-type", force_plain_text=True)
+    func = _get_extractor("i-have-no-file-type", force_plain_text=True)
     tc.assertEqual(read_plain_text, func)
 
-    func = get_extractor("afile.dzs", force_plain_text=True)
+    func = _get_extractor("afile.dzs", force_plain_text=True)
     tc.assertEqual(read_plain_text, func)
 
 
@@ -316,13 +318,13 @@ def test_router_accepts_path_objects():
     tc.assertTrue(is_supported_file(Path("myfile.tar.gz")))
     tc.assertFalse(is_supported_file(Path("myfile.unsupported")))
 
-    func = get_extractor(Path("myfile.pdf"))
+    func = _get_extractor(Path("myfile.pdf"))
     tc.assertEqual(read_pdf, func)
 
 
 def test_router_error_message_contains_path_and_extension():
     try:
-        get_extractor(Path("no_extension"))
+        _get_extractor(Path("no_extension"))
     except ExtractionFileFormatNotSupportedError as exc:
         message = str(exc)
         tc.assertIn("no_extension", message)
@@ -330,3 +332,16 @@ def test_router_error_message_contains_path_and_extension():
         tc.assertIn("MIME: <unknown>", message)
     else:
         tc.fail("Expected ExtractionFileFormatNotSupportedError")
+
+
+def test_unsupported_type_is_raised_without_duplicate_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Leave unsupported-file reporting to the caller handling the exception."""
+    with (
+        caplog.at_level(logging.WARNING, logger="sharepoint2text.parsing.router"),
+        pytest.raises(ExtractionFileFormatNotSupportedError),
+    ):
+        _get_extractor("unsupported.misc")
+
+    assert not caplog.records

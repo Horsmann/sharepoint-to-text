@@ -14,7 +14,7 @@ import shutil
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import Any, Generator
+from typing import Any, Generator, cast
 
 from openpyxl import load_workbook  # type: ignore[import-untyped]
 from openpyxl.worksheet.worksheet import Worksheet  # type: ignore[import-untyped]
@@ -25,12 +25,7 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
     ExtractionFileEncryptedError,
 )
-from sharepoint2text.parsing.extractors.data_types import (
-    XlsxContent,
-    XlsxImage,
-    XlsxMetadata,
-    XlsxSheet,
-)
+from sharepoint2text.parsing.extractors._model import source_metadata
 from sharepoint2text.parsing.extractors.ms_modern.ooxml_namespaces import (
     A_BLIP_XLSX,
     ANCHOR_TYPES,
@@ -49,6 +44,15 @@ from sharepoint2text.parsing.extractors.ms_modern.ooxml_shared import (
 )
 from sharepoint2text.parsing.extractors.util.encryption import is_ooxml_encrypted
 from sharepoint2text.parsing.extractors.util.zip_bomb import validate_zip_bytesio
+from sharepoint2text.parsing.models import (
+    CellValue,
+    ContentUnit,
+    DocumentMetadata,
+    ExtractedDocument,
+    ImageAsset,
+    JsonValue,
+    Table,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -179,33 +183,41 @@ def _format_sheet_as_text(all_rows: list[list[Any]]) -> str:
 # =============================================================================
 
 
-def _extract_metadata_from_workbook(wb: Any) -> XlsxMetadata:
+def _extract_metadata_from_workbook(wb: Any) -> DocumentMetadata:
     """Extract document metadata from an openpyxl workbook properties object."""
     props = wb.properties
 
-    metadata = XlsxMetadata(
-        title=props.title or "",
-        description=props.description or "",
-        creator=props.creator or "",
-        last_modified_by=props.lastModifiedBy or "",
+    extra_properties: dict[str, JsonValue] = {}
+    if props.lastModifiedBy:
+        extra_properties["xlsx.last_modified_by"] = str(props.lastModifiedBy)
+    if props.revision:
+        extra_properties["xlsx.revision"] = str(props.revision)
+    metadata = DocumentMetadata(
+        title=props.title or None,
+        subject=props.description or None,
+        author=props.creator or None,
         created=(
             props.created.isoformat()
             if isinstance(props.created, datetime.datetime)
-            else ""
+            else None
         ),
         modified=(
             props.modified.isoformat()
             if isinstance(props.modified, datetime.datetime)
-            else ""
+            else None
         ),
-        keywords=props.keywords or "",
-        language=props.language or "",
-        revision=props.revision,
+        keywords=[
+            item.strip()
+            for item in str(props.keywords or "").replace(";", ",").split(",")
+            if item.strip()
+        ],
+        language=props.language or None,
+        properties=extra_properties,
     )
     return metadata
 
 
-def _read_metadata(file_like: io.BytesIO) -> XlsxMetadata:
+def _read_metadata(file_like: io.BytesIO) -> DocumentMetadata:
     """Extract document metadata from XLSX core properties."""
     file_like.seek(0)
     wb = load_workbook(file_like, read_only=True, data_only=True)
@@ -238,9 +250,9 @@ def _resolve_image_path(target: str) -> str:
 
 def _extract_images_from_zip(
     file_like: io.BytesIO, sheet_names: list[str]
-) -> dict[int, list[XlsxImage]]:
+) -> dict[int, list[ImageAsset]]:
     """Extract all images from XLSX by parsing the ZIP archive directly."""
-    images_by_sheet: dict[int, list[XlsxImage]] = {}
+    images_by_sheet: dict[int, list[ImageAsset]] = {}
     image_counter = 0
 
     ctx = OOXMLZipContext(file_like)
@@ -270,7 +282,7 @@ def _extract_images_from_zip(
                 if "image" in rel["type"]:
                     rid_to_image[rel["id"]] = _resolve_image_path(rel["target"])
 
-            sheet_images: list[XlsxImage] = []
+            sheet_images: list[ImageAsset] = []
 
             for anchor_type in ANCHOR_TYPES:
                 for anchor in drawing_root.iter(anchor_type):
@@ -324,28 +336,30 @@ def _extract_images_from_zip(
 
                         image_counter += 1
                         sheet_images.append(
-                            XlsxImage(
-                                image_index=image_counter,
-                                sheet_index=sheet_idx,
+                            ImageAsset(
+                                number=image_counter,
                                 filename=filename,
-                                content_type=get_image_content_type(filename),
-                                data=io.BytesIO(image_bytes),
-                                size_bytes=len(image_bytes),
-                                width=width,
-                                height=height,
-                                caption=caption,
-                                description=description,
+                                media_type=get_image_content_type(filename),
+                                data=image_bytes,
+                                width=width or None,
+                                height=height or None,
+                                caption=caption or None,
+                                description=description or None,
+                                properties={
+                                    "xlsx.sheet_index": sheet_idx + 1,
+                                    "xlsx.size_bytes": len(image_bytes),
+                                },
                             )
                         )
 
                     except (KeyError, ValueError, OSError) as e:
-                        logger.debug(f"Failed to extract image from drawing: {e}")
+                        logger.debug("Failed to extract image from drawing: %s", e)
 
             if sheet_images:
                 images_by_sheet[sheet_idx] = sheet_images
 
     except (zipfile.BadZipFile, KeyError, ValueError, OSError) as e:
-        logger.debug(f"Failed to extract images from XLSX: {e}")
+        logger.debug("Failed to extract images from XLSX: %s", e)
     finally:
         ctx.close()
 
@@ -357,7 +371,7 @@ def _extract_images_from_zip(
 # =============================================================================
 
 
-def _read_content(file_like: io.BytesIO) -> list[XlsxSheet]:
+def _read_content(file_like: io.BytesIO) -> list[ContentUnit]:
     """Read all sheets from XLSX file and extract content."""
     file_like.seek(0)
     wb = load_workbook(file_like, read_only=True, data_only=True)
@@ -376,11 +390,11 @@ def _read_content(file_like: io.BytesIO) -> list[XlsxSheet]:
     return sheets
 
 
-def _read_content_from_workbook(wb: Any, sheet_names: list[str]) -> list[XlsxSheet]:
+def _read_content_from_workbook(wb: Any, sheet_names: list[str]) -> list[ContentUnit]:
     """Read all sheets from an openpyxl workbook and extract content."""
-    sheets: list[XlsxSheet] = []
+    sheets: list[ContentUnit] = []
 
-    for sheet_name in sheet_names:
+    for sheet_number, sheet_name in enumerate(sheet_names, start=1):
         ws = wb[sheet_name]
         all_rows = _read_sheet_data(ws)
         text = _format_sheet_as_text(all_rows)
@@ -391,11 +405,17 @@ def _read_content_from_workbook(wb: Any, sheet_names: list[str]) -> list[XlsxShe
         )
 
         sheets.append(
-            XlsxSheet(
-                name=str(sheet_name),
-                data=data_rows,
-                text=text,
-                images=[],
+            ContentUnit(
+                number=sheet_number,
+                kind="sheet",
+                title=str(sheet_name),
+                text=str(sheet_name) + "\n" + text.strip(),
+                tables=[
+                    Table(
+                        rows=cast(list[list[CellValue]], data_rows),
+                        name=str(sheet_name),
+                    )
+                ],
             )
         )
     return sheets
@@ -406,7 +426,7 @@ def _read_content_from_workbook(wb: Any, sheet_names: list[str]) -> list[XlsxShe
 # =============================================================================
 
 
-def _read_xlsb_sheet(workbook: Any, sheet_index: int, sheet_name: str) -> XlsxSheet:
+def _read_xlsb_sheet(workbook: Any, sheet_index: int, sheet_name: str) -> ContentUnit:
     """Extract cell values and display text from one XLSB worksheet."""
     rows: list[list[Any]] = []
     with workbook.get_sheet(sheet_index) as worksheet:
@@ -415,18 +435,18 @@ def _read_xlsb_sheet(workbook: Any, sheet_index: int, sheet_name: str) -> XlsxSh
             if any(_is_cell_non_empty(value) for value in values):
                 rows.append(values)
 
-    return XlsxSheet(
-        name=sheet_name,
-        data=rows,
-        text=_format_sheet_as_text(rows),
+    table_rows = cast(list[list[CellValue]], rows)
+    return ContentUnit(
+        number=sheet_index,
+        kind="sheet",
+        title=sheet_name,
+        text=sheet_name + "\n" + _format_sheet_as_text(rows).strip(),
+        tables=[Table(rows=table_rows, name=sheet_name)],
     )
 
 
-def _read_xlsb(file_like: io.BytesIO, path: str | None = None) -> XlsxContent:
+def _read_xlsb(file_like: io.BytesIO, path: str | None = None) -> ExtractedDocument:
     """Extract row-accurate worksheet content from an XLSB workbook."""
-    metadata = XlsxMetadata()
-    metadata.populate_from_path(path)
-
     with tempfile.TemporaryDirectory() as temp_directory:
         workbook_path = Path(temp_directory) / "workbook.xlsb"
         file_like.seek(0)
@@ -440,25 +460,27 @@ def _read_xlsb(file_like: io.BytesIO, path: str | None = None) -> XlsxContent:
                 for sheet_index, sheet_name in enumerate(sheet_names, start=1)
             ]
 
-    return XlsxContent(metadata=metadata, sheets=sheets)
+    return ExtractedDocument(
+        format="xlsb",
+        source=source_metadata(path),
+        units=sheets,
+    )
 
 
 def read_xlsx(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[XlsxContent, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Extract all relevant content from an Excel XLSX or XLSB file.
 
     Uses a generator pattern for API consistency. Excel files yield exactly one
-    XlsxContent object containing sheets, metadata, and images.
+    canonical document containing sheets, metadata, and images.
 
     Args:
         file_like: BytesIO object containing the XLSX or XLSB file data.
         path: Optional path to the source file for metadata.
         ignore_images: If True, skip image extraction.
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering XLSX extraction: %s", source_path)
     try:
         file_like.seek(0)
         if is_ooxml_encrypted(file_like):
@@ -472,9 +494,9 @@ def read_xlsx(
             file_like.seek(0)
             content = _read_xlsb(file_like, path=path)
             logger.debug(
-                "Extracted XLSB: %d sheets, %d total rows",
-                len(content.sheets),
-                sum(len(sheet.data) for sheet in content.sheets),
+                "Extracted XLSB: sheets=%d, rows=%d",
+                len(content.units),
+                sum(len(unit.tables[0].rows) for unit in content.units if unit.tables),
             )
             yield content
             return
@@ -498,21 +520,23 @@ def read_xlsx(
                 if sheet_idx < len(sheets):
                     sheets[sheet_idx].images = sheet_images
 
-        metadata.populate_from_path(path)
-
-        total_rows = sum(len(sheet.data) for sheet in sheets)
+        total_rows = sum(len(unit.tables[0].rows) for unit in sheets if unit.tables)
         total_images = sum(len(sheet.images) for sheet in sheets)
         logger.debug(
-            "Extracted XLSX: %d sheets, %d total rows, %d images",
+            "Extracted XLSX: sheets=%d, rows=%d, images=%d",
             len(sheets),
             total_rows,
             total_images,
         )
 
-        yield XlsxContent(metadata=metadata, sheets=sheets)
+        source_format = Path(path).suffix.lower().lstrip(".") if path else "xlsx"
+        yield ExtractedDocument(
+            format=source_format or "xlsx",
+            source=source_metadata(path),
+            metadata=metadata,
+            units=sheets,
+        )
     except ExtractionError:
         raise
     except (zipfile.BadZipFile, KeyError, ValueError, OSError) as exc:
         raise ExtractionFailedError("Failed to extract XLSX file", cause=exc) from exc
-    finally:
-        logger.info("Leaving XLSX extraction: %s", source_path)

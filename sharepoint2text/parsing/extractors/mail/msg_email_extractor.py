@@ -108,17 +108,13 @@ from msg_parser import MsOxMessage  # type: ignore[import-untyped]
 from olefile import OleFileIO  # type: ignore[import-untyped]
 
 from sharepoint2text.parsing.exceptions import ExtractionError, ExtractionFailedError
-from sharepoint2text.parsing.extractors.data_types import (
-    EmailAddress,
-    EmailAttachment,
-    EmailContent,
-    EmailMetadata,
-)
 from sharepoint2text.parsing.extractors.html_extractor import (
     _HtmlTextExtractor,
     _HtmlTreeBuilder,
 )
+from sharepoint2text.parsing.extractors.mail._model import Address, build_email_document
 from sharepoint2text.parsing.mime_types import is_supported_mime_type
+from sharepoint2text.parsing.models import Attachment, ExtractedDocument
 
 logger = logging.getLogger(__name__)
 
@@ -177,9 +173,9 @@ def _attachment_data_to_bytes(value: Any) -> bytes:
     return bytes(value)
 
 
-def _extract_msg_attachments_from_msg(msg: MsOxMessage) -> list[EmailAttachment]:
+def _extract_msg_attachments_from_msg(msg: MsOxMessage) -> list[Attachment]:
     """Extract attachments from msg_parser output without re-reading the OLE file."""
-    attachments: list[EmailAttachment] = []
+    attachments: list[Attachment] = []
     msg_attachments = getattr(msg, "attachments", None) or []
 
     for index, attachment in enumerate(msg_attachments, start=1):
@@ -195,19 +191,21 @@ def _extract_msg_attachments_from_msg(msg: MsOxMessage) -> list[EmailAttachment]
         )
 
         attachments.append(
-            EmailAttachment(
+            Attachment(
                 filename=filename,
-                mime_type=mime_type,
-                data=io.BytesIO(data),
-                is_supported_mime_type=is_supported_mime_type(mime_type),
+                media_type=mime_type,
+                data=data,
+                properties={
+                    "email.is_supported_mime_type": is_supported_mime_type(mime_type)
+                },
             )
         )
 
     return attachments
 
 
-def _extract_msg_attachments_from_ole(file_like: io.BytesIO) -> list[EmailAttachment]:
-    attachments: list[EmailAttachment] = []
+def _extract_msg_attachments_from_ole(file_like: io.BytesIO) -> list[Attachment]:
+    attachments: list[Attachment] = []
 
     file_like.seek(0)
     with OleFileIO(file_like) as ole:
@@ -234,21 +232,23 @@ def _extract_msg_attachments_from_ole(file_like: io.BytesIO) -> list[EmailAttach
                 or "application/octet-stream"
             )
 
-            data_stream = io.BytesIO(data)
-            data_stream.seek(0)
             attachments.append(
-                EmailAttachment(
+                Attachment(
                     filename=filename,
-                    mime_type=mime_type,
-                    data=data_stream,
-                    is_supported_mime_type=is_supported_mime_type(mime_type),
+                    media_type=mime_type,
+                    data=data,
+                    properties={
+                        "email.is_supported_mime_type": is_supported_mime_type(
+                            mime_type
+                        )
+                    },
                 )
             )
 
     return attachments
 
 
-def _parse_single_recipient(raw: str) -> EmailAddress | None:
+def _parse_single_recipient(raw: str) -> Address | None:
     """
     Parse a single recipient string into an EmailAddress object.
 
@@ -293,19 +293,19 @@ def _parse_single_recipient(raw: str) -> EmailAddress | None:
         address = match.group(1).strip()
         # Name is everything before the angle brackets, strip quotes
         name = raw[: match.start()].strip().strip("\"'")
-        return EmailAddress(name=name, address=address)
+        return name, address
 
     # No angle brackets - check if it's just an email address
     # Email addresses have @ and no spaces
     if "@" in raw and " " not in raw:
-        return EmailAddress(name="", address=raw)
+        return "", raw
 
     # No email found - treat entire string as display name only
     # This is common for Exchange internal recipients
-    return EmailAddress(name=raw, address="")
+    return raw, ""
 
 
-def _parse_multi_recipients(raw: str | list[str]) -> list[EmailAddress]:
+def _parse_multi_recipients(raw: str | list[str]) -> list[Address]:
     """
     Parse recipient string(s) that may contain multiple addresses.
 
@@ -353,7 +353,7 @@ def _parse_multi_recipients(raw: str | list[str]) -> list[EmailAddress]:
     for part in parts:
         addr = _parse_single_recipient(part)
         # Only include if we got either a name or an address
-        if addr and (addr.name or addr.address):
+        if addr and (addr[0] or addr[1]):
             recipients.append(addr)
 
     return recipients
@@ -365,13 +365,13 @@ def read_msg_format_mail(
     *,
     ignore_images: bool = False,
     include_attachments: bool = True,
-) -> Generator[EmailContent, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Read a Microsoft Outlook MSG file and extract its content.
 
     Primary entry point for MSG file extraction. Parses the OLE compound
     document structure and extracts email headers, addresses, body
-    content, and attachments into an EmailContent object.
+    content, and attachments into a canonical document.
 
     This function uses a generator pattern for API consistency with other
     email extractors, even though MSG files contain exactly one email.
@@ -382,13 +382,13 @@ def read_msg_format_mail(
             binary content should be readable from this stream.
         path: Optional filesystem path to source file. If provided, populates
             file metadata (filename, extension, folder) in the returned
-            EmailContent.metadata. Useful for batch processing scenarios.
+            source metadata. Useful for batch processing scenarios.
         ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
-        EmailContent: Single EmailContent object containing all extracted
+        ExtractedDocument: Single canonical document containing all extracted
             data. The generator yields exactly one item for valid MSG files.
-            Attachments are stored on EmailContent.attachments.
+            Attachments are stored on the canonical document.
 
     Raises:
         Exception: Various exceptions from msg_parser for:
@@ -421,8 +421,6 @@ def read_msg_format_mail(
     Known Issues:
         - body_html uses the raw HTML body when detected
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering MSG extraction: %s", source_path)
     try:
         file_like.seek(0)
         msg = MsOxMessage(file_like)
@@ -435,15 +433,10 @@ def read_msg_format_mail(
             except (TypeError, ValueError):
                 logger.debug("Unable to parse MSG sent_date: %r", msg.sent_date)
 
-        meta = EmailMetadata(
-            message_id=msg.message_id or "",
-            date=sent_date,
-        )
-
         # Parse sender - expecting at least one result
         # msg.sender may be a single string or list depending on version
         sender_list = _parse_multi_recipients(msg.sender)
-        from_email = sender_list[0] if sender_list else EmailAddress()
+        from_email = sender_list[0] if sender_list else ("", "")
 
         attachments = []
         msg_attachments = (
@@ -463,26 +456,26 @@ def read_msg_format_mail(
             body_plain = raw_body
             body_html = ""
 
-        content = EmailContent(
+        content = build_email_document(
+            source_format="msg",
+            path=path,
             subject=msg.subject or "",
-            from_email=from_email,
-            to_emails=_parse_multi_recipients(msg.to),
-            to_cc=_parse_multi_recipients(msg.cc),
-            to_bcc=_parse_multi_recipients(msg.bcc),
+            sender=from_email,
+            recipients=_parse_multi_recipients(msg.to),
+            cc=_parse_multi_recipients(msg.cc),
+            bcc=_parse_multi_recipients(msg.bcc),
             reply_to=_parse_multi_recipients(msg.reply_to),
+            in_reply_to="",
             body_plain=body_plain,
             body_html=body_html,
             attachments=attachments,
-            metadata=meta,
+            date=sent_date,
+            message_id=msg.message_id or "",
         )
 
-        if path:
-            content.metadata.populate_from_path(path)
-
+        logger.debug("Extracted MSG: attachments=%d", len(attachments))
         yield content
     except ExtractionError:
         raise
     except (ValueError, TypeError, AttributeError, OSError, UnicodeDecodeError) as exc:
         raise ExtractionFailedError("Failed to extract MSG file", cause=exc) from exc
-    finally:
-        logger.info("Leaving MSG extraction: %s", source_path)

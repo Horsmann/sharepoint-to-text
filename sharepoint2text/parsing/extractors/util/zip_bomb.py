@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import io
-import threading
 import zipfile
+from contextlib import contextmanager
+from contextvars import ContextVar, Token
 from dataclasses import dataclass
+from typing import Iterator
 
 from sharepoint2text.parsing.exceptions import ExtractionZipBombError
 
@@ -26,83 +28,82 @@ class ZipBombLimits:
 
 DEFAULT_ZIP_BOMB_LIMITS = ZipBombLimits()
 
+
+class _ZipBombChecksDisabled(ZipBombLimits):
+    """Mark a scoped extraction call whose ZIP-bomb checks are disabled."""
+
+
+_ZIP_BOMB_CHECKS_DISABLED = _ZipBombChecksDisabled()
+
 # Guidance appended to every "limit exceeded" error so callers know how to
 # raise the threshold for trusted files.
 _LIMIT_HINT = (
-    "If this file is trusted, raise the relevant threshold via "
-    "sharepoint2text.set_zip_bomb_limits(sharepoint2text.ZipBombLimits(...)) "
-    "before extraction (see ZipBombLimits for the available fields)."
+    "If this file is trusted, use --zip-bomb-limit-multiplier 2..10 in the "
+    "CLI (or 'none' to disable ZIP-bomb checks), "
+    "or raise the relevant threshold via "
+    "the zip_bomb_limits argument on sharepoint2text.read_file(), "
+    "sharepoint2text.read_bytes(), or sharepoint2text.read_many() "
+    "(see ZipBombLimits for the available fields)."
 )
 
-# Process-wide active limits. Resolved at call time (not import time) so that
-# sharepoint2text.set_zip_bomb_limits(...) takes effect for every subsequent
-# extraction without any monkeypatching.
-_active_limits: ZipBombLimits = DEFAULT_ZIP_BOMB_LIMITS
-_active_limits_lock = threading.Lock()
+# Extraction entry points temporarily set this value while advancing their
+# underlying extractor. Context-local state keeps concurrent calls isolated.
+_scoped_limits: ContextVar[ZipBombLimits] = ContextVar(
+    "sharepoint2text_zip_bomb_limits",
+    default=DEFAULT_ZIP_BOMB_LIMITS,
+)
 
 
-def get_zip_bomb_limits() -> ZipBombLimits:
-    """Return the ZIP-bomb limits currently in effect for extraction.
-
-    Returns:
-        The active :class:`ZipBombLimits` instance. Defaults to
-        :data:`DEFAULT_ZIP_BOMB_LIMITS` until overridden via
-        :func:`set_zip_bomb_limits`.
-    """
-    return _active_limits
-
-
-def set_zip_bomb_limits(limits: ZipBombLimits) -> None:
-    """Override the process-wide ZIP-bomb limits used during extraction.
-
-    The new limits apply to every subsequent ZIP-based extraction (OOXML,
-    ODF, archives, ...) that does not pass an explicit ``limits`` argument.
-    Call this once during application startup.
+def _validate_zip_bomb_limits(limits: ZipBombLimits | None) -> None:
+    """Validate a public per-call ZIP-bomb limit value.
 
     Args:
-        limits: The replacement limits. Construct a :class:`ZipBombLimits`
-            with only the fields you want to change; unspecified fields fall
-            back to the library defaults.
+        limits: Per-call limits, or ``None`` to enforce library defaults.
 
     Raises:
-        TypeError: If ``limits`` is not a :class:`ZipBombLimits` instance.
-
-    Example:
-        >>> import sharepoint2text
-        >>> sharepoint2text.set_zip_bomb_limits(
-        ...     sharepoint2text.ZipBombLimits(max_entry_compression_ratio=1500.0)
-        ... )
+        TypeError: If ``limits`` is neither ``None`` nor ``ZipBombLimits``.
     """
-    if not isinstance(limits, ZipBombLimits):
+    if limits is not None and not isinstance(limits, ZipBombLimits):
         raise TypeError(
-            f"limits must be a ZipBombLimits instance, got {type(limits).__name__}"
+            "zip_bomb_limits must be a ZipBombLimits instance or None, "
+            f"got {type(limits).__name__}"
         )
-    global _active_limits
-    with _active_limits_lock:
-        _active_limits = limits
 
 
-def reset_zip_bomb_limits() -> None:
-    """Restore the process-wide ZIP-bomb limits to the library defaults.
+@contextmanager
+def _zip_bomb_limits_scope(
+    limits: ZipBombLimits | None,
+) -> Iterator[None]:
+    """Apply ZIP-bomb limits until the current extraction step completes.
 
-    Returns:
-        None.
+    Args:
+        limits: Per-call limits, or ``None`` to enforce library defaults.
+
+    Yields:
+        Control while the selected limits are active in the current context.
+
+    Raises:
+        TypeError: If ``limits`` is neither ``None`` nor ``ZipBombLimits``.
     """
-    global _active_limits
-    with _active_limits_lock:
-        _active_limits = DEFAULT_ZIP_BOMB_LIMITS
+    _validate_zip_bomb_limits(limits)
+    selected_limits = limits if limits is not None else DEFAULT_ZIP_BOMB_LIMITS
+    token: Token[ZipBombLimits] = _scoped_limits.set(selected_limits)
+    try:
+        yield
+    finally:
+        _scoped_limits.reset(token)
 
 
 def _resolve_limits(limits: ZipBombLimits | None) -> ZipBombLimits:
-    """Return ``limits`` if provided, else the active process-wide limits.
+    """Return explicit limits or the limits scoped to the current call.
 
     Args:
-        limits: Explicit per-call limits, or ``None`` to use the active limits.
+        limits: Explicit helper limits, or ``None`` to use the call scope.
 
     Returns:
         The :class:`ZipBombLimits` instance to enforce for this call.
     """
-    return limits if limits is not None else _active_limits
+    return limits if limits is not None else _scoped_limits.get()
 
 
 def _limit_error(message: str, *, source: str | None) -> ExtractionZipBombError:
@@ -115,7 +116,7 @@ def _limit_error(message: str, *, source: str | None) -> ExtractionZipBombError:
 
     Returns:
         An :class:`ExtractionZipBombError` whose message points the reader to
-        :func:`set_zip_bomb_limits`.
+        the public extraction call's ``zip_bomb_limits`` argument.
     """
     suffix = f" [{source}]" if source else ""
     return ExtractionZipBombError(f"{message}{suffix}. {_LIMIT_HINT}")
@@ -143,7 +144,7 @@ def validate_zipfile(
     Args:
         zf: The open ZIP container to inspect.
         limits: Explicit limits to enforce. When ``None`` (the default), the
-            process-wide active limits are used (see :func:`set_zip_bomb_limits`).
+            current extraction call's limits are used.
         source: Optional identifier of the calling context, surfaced in error
             messages to aid debugging.
 
@@ -152,6 +153,9 @@ def validate_zipfile(
             container cannot be inspected.
     """
     limits = _resolve_limits(limits)
+    if isinstance(limits, _ZipBombChecksDisabled):
+        return
+
     try:
         infos = zf.infolist()
     except (zipfile.BadZipFile, OSError, RuntimeError) as exc:
@@ -231,7 +235,7 @@ def open_zipfile(
     Args:
         file_like: The ZIP container stream to open and validate.
         limits: Explicit limits to enforce. When ``None`` (the default), the
-            process-wide active limits are used (see :func:`set_zip_bomb_limits`).
+            current extraction call's limits are used.
         source: Optional identifier of the calling context for error messages.
 
     Returns:
@@ -264,7 +268,7 @@ def validate_zip_bytesio(
     Args:
         file_like: The ZIP container stream to validate.
         limits: Explicit limits to enforce. When ``None`` (the default), the
-            process-wide active limits are used (see :func:`set_zip_bomb_limits`).
+            current extraction call's limits are used.
         source: Optional identifier of the calling context for error messages.
 
     Raises:

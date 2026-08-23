@@ -81,8 +81,8 @@ Usage
     >>> with open("slides.pptx", "rb") as f:
     ...     for ppt in read_pptx(io.BytesIO(f.read()), path="slides.pptx"):
     ...         print(f"Title: {ppt.metadata.title}")
-    ...         for slide in ppt.slides:
-    ...             print(f"Slide {slide.slide_number}: {slide.title}")
+    ...         for slide in ppt.units:
+    ...             print(f"Slide {slide.number}: {slide.title}")
     ...             print(slide.text)
 
 See Also
@@ -100,7 +100,7 @@ Maintenance Notes
 
 import io
 import logging
-from typing import Any, Generator, List
+from typing import Any, Generator, List, cast
 
 from sharepoint2text.parsing import _defused_xml as ET
 from sharepoint2text.parsing.exceptions import (
@@ -108,14 +108,7 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
     ExtractionFileEncryptedError,
 )
-from sharepoint2text.parsing.extractors.data_types import (
-    PptxComment,
-    PptxContent,
-    PptxFormula,
-    PptxImage,
-    PptxMetadata,
-    PptxSlide,
-)
+from sharepoint2text.parsing.extractors._model import source_metadata
 from sharepoint2text.parsing.extractors.ms_modern.omml_to_latex import omml_to_latex
 from sharepoint2text.parsing.extractors.ms_modern.ooxml_namespaces import (
     _CP_CATEGORY,
@@ -174,6 +167,16 @@ from sharepoint2text.parsing.extractors.ms_modern.ooxml_shared import (
     get_image_pixel_dimensions,
 )
 from sharepoint2text.parsing.extractors.util.encryption import is_ooxml_encrypted
+from sharepoint2text.parsing.models import (
+    Annotation,
+    CellValue,
+    ContentUnit,
+    DocumentMetadata,
+    ExtractedDocument,
+    ImageAsset,
+    JsonValue,
+    Table,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -322,7 +325,7 @@ class _PptxContext(OOXMLZipContext):
         return self._comment_roots.get(comment_file)
 
 
-def _extract_metadata_from_context(ctx: _PptxContext) -> PptxMetadata:
+def _extract_metadata_from_context(ctx: _PptxContext) -> DocumentMetadata:
     """
     Extract presentation metadata from cached core.xml root.
 
@@ -332,7 +335,7 @@ def _extract_metadata_from_context(ctx: _PptxContext) -> PptxMetadata:
     Returns:
         PptxMetadata object with title, author, dates, revision, etc.
     """
-    metadata = PptxMetadata()
+    metadata = DocumentMetadata()
     root = ctx._core_root
     if root is None:
         return metadata
@@ -345,22 +348,24 @@ def _extract_metadata_from_context(ctx: _PptxContext) -> PptxMetadata:
     if text := get_element_text(root, _DC_SUBJECT):
         metadata.subject = text
     if text := get_element_text(root, _CP_KEYWORDS):
-        metadata.keywords = text
+        metadata.keywords = [
+            item.strip() for item in text.replace(";", ",").split(",") if item.strip()
+        ]
     if text := get_element_text(root, _CP_CATEGORY):
-        metadata.category = text
+        metadata.properties["pptx.category"] = text
     if text := get_element_text(root, _DC_DESCRIPTION):
-        metadata.comments = text
+        metadata.properties["pptx.comments"] = text
     if text := get_element_text(root, _DCTERMS_CREATED):
         metadata.created = text.rstrip("Z")
     if text := get_element_text(root, _DCTERMS_MODIFIED):
         metadata.modified = text.rstrip("Z")
     if text := get_element_text(root, _CP_LASTMODIFIEDBY):
-        metadata.last_modified_by = text
+        metadata.properties["pptx.last_modified_by"] = text
 
     revision_elem = root.find(_CP_REVISION)
     if revision_elem is not None and revision_elem.text:
         try:
-            metadata.revision = int(revision_elem.text)
+            metadata.properties["pptx.revision"] = int(revision_elem.text)
         except ValueError:
             pass
 
@@ -369,7 +374,7 @@ def _extract_metadata_from_context(ctx: _PptxContext) -> PptxMetadata:
 
 def _extract_slide_comments_from_context(
     ctx: _PptxContext, slide_number: int
-) -> list[PptxComment]:
+) -> list[Annotation]:
     """
     Extract comments for a specific slide from cached comment XML.
 
@@ -384,23 +389,26 @@ def _extract_slide_comments_from_context(
     if root is None:
         return []
 
-    comments: list[PptxComment] = []
+    comments: list[Annotation] = []
     try:
         for cm in root.iter(P_CM):
             text_elem = cm.find(P_TEXT)
             comments.append(
-                PptxComment(
+                Annotation(
+                    kind="comment",
                     author=cm.get("authorId", ""),
                     text=(
                         text_elem.text
                         if text_elem is not None and text_elem.text
                         else ""
                     ),
-                    date=cm.get("dt", ""),
+                    properties=(
+                        {"pptx.date": cm.get("dt", "")} if cm.get("dt", "") else {}
+                    ),
                 )
             )
     except (AttributeError, TypeError, ValueError) as e:
-        logger.debug(f"Failed to extract comments for slide {slide_number}: {e}")
+        logger.debug("Failed to extract comments for slide %d: %s", slide_number, e)
 
     return comments
 
@@ -595,8 +603,12 @@ def _normalize_relative_path(base_dir: str, target: str) -> str:
 
 
 def _process_slide_from_context(
-    ctx: _PptxContext, slide_path: str, slide_number: int, ignore_images: bool = False
-) -> PptxSlide:
+    ctx: _PptxContext,
+    slide_path: str,
+    slide_number: int,
+    ignore_images: bool = False,
+    extract_annotations: bool = False,
+) -> ContentUnit:
     """
     Process a single slide and extract all its content using cached XML.
 
@@ -613,8 +625,8 @@ def _process_slide_from_context(
     content_placeholders: list[str] = []
     other_textboxes: list[str] = []
     tables: list[list[list[str]]] = []
-    images: list[PptxImage] = []
-    formulas: list[PptxFormula] = []
+    images: list[ImageAsset] = []
+    formulas: list[Annotation] = []
 
     # Collect all content items with their positions for ordering
     ordered_content: list[tuple[tuple[int, int], str, str]] = []
@@ -622,11 +634,11 @@ def _process_slide_from_context(
     slide_rels = ctx.get_slide_relationships(slide_path)
     root = ctx.get_slide_root(slide_path)
     if root is None:
-        return PptxSlide(slide_number=slide_number)
+        return ContentUnit(number=slide_number, kind="slide")
 
     sp_tree = next(root.iter(P_SPTREE), None)
     if sp_tree is None:
-        return PptxSlide(slide_number=slide_number)
+        return ContentUnit(number=slide_number, kind="slide")
 
     # Collect all shapes with their positions
     shape_elements: list[tuple[str, ET.Element, tuple[int, int]]] = []
@@ -674,17 +686,19 @@ def _process_slide_from_context(
                     width, height = get_image_pixel_dimensions(blob)
 
                     images.append(
-                        PptxImage(
-                            image_index=image_counter,
+                        ImageAsset(
+                            number=image_counter,
                             filename=f"image.{ext}",
-                            content_type=content_type,
-                            size_bytes=len(blob),
-                            data=io.BytesIO(blob) if blob else None,
+                            media_type=content_type,
+                            data=blob or None,
                             width=width,
                             height=height,
-                            caption=caption,
-                            description=description,
-                            slide_number=slide_number,
+                            caption=caption or None,
+                            description=description or None,
+                            properties={
+                                "pptx.size_bytes": len(blob),
+                                "pptx.slide_number": slide_number,
+                            },
                         )
                     )
 
@@ -693,7 +707,7 @@ def _process_slide_from_context(
                             (position, "image_caption", f"[Image: {description}]")
                         )
             except (KeyError, ValueError, OSError) as e:
-                logger.debug(f"Failed to extract image on slide {slide_number}: {e}")
+                logger.debug("Failed to extract image on slide %d: %s", slide_number, e)
             continue
 
         # Table extraction
@@ -706,7 +720,7 @@ def _process_slide_from_context(
                     if table_text:
                         ordered_content.append((position, "table", table_text))
             except (AttributeError, TypeError, ValueError) as e:
-                logger.debug(f"Failed to extract table on slide {slide_number}: {e}")
+                logger.debug("Failed to extract table on slide %d: %s", slide_number, e)
             continue
 
         # Shape (text) extraction
@@ -719,7 +733,13 @@ def _process_slide_from_context(
 
         # Extract formulas from shape
         for latex, is_display in _extract_formulas_from_element(elem):
-            formulas.append(PptxFormula(latex=latex, is_display=is_display))
+            formulas.append(
+                Annotation(
+                    kind="formula",
+                    text=latex,
+                    properties={"math.latex": latex, "math.display": is_display},
+                )
+            )
             formula_text = f"$${latex}$$" if is_display else f"${latex}$"
             ordered_content.append((position, "formula", formula_text))
 
@@ -761,38 +781,54 @@ def _process_slide_from_context(
             (
                 (999999, 999999),
                 "comment",
-                f"[Comment: {comment.author}@{comment.date}: {comment.text}]",
+                f"[Comment: {comment.author}@{comment.properties.get('pptx.date', '')}: {comment.text}]",
             )
         )
 
-    # Build slide text from ordered content
+    # Build canonical unit text without comments or image captions (unless extract_annotations).
     ordered_content.sort(key=lambda x: x[0])
-    slide_text = "\n".join(item[2] for item in ordered_content)
-
-    # Build base text (without formulas, comments, image captions)
     base_content_types = frozenset({"title", "content", "other", "table"})
+    if extract_annotations:
+        # Include comments in base text when extracting annotations
+        base_content_types = frozenset(
+            {"title", "content", "other", "table", "comment"}
+        )
     base_text = "\n".join(
         item[2] for item in ordered_content if item[1] in base_content_types
     )
 
-    return PptxSlide(
-        slide_number=slide_number,
-        title=slide_title,
-        footer=slide_footer,
-        content_placeholders=content_placeholders,
-        other_textboxes=other_textboxes,
-        tables=tables,
+    text_parts = [base_text] if base_text else []
+    text_parts.extend(
+        (
+            f"$${formula.text}$$"
+            if formula.properties.get("math.display")
+            else f"${formula.text}$"
+        )
+        for formula in formulas
+    )
+    return ContentUnit(
+        number=slide_number,
+        kind="slide",
+        title=slide_title or None,
+        text="\n".join(text_parts).strip(),
+        tables=[Table(rows=cast(list[list[CellValue]], table)) for table in tables],
         images=images,
-        formulas=formulas,
-        comments=comments,
-        text=slide_text,
-        base_text=base_text,
+        annotations=[*formulas, *comments],
+        properties={
+            "pptx.content_placeholders": cast(JsonValue, content_placeholders),
+            "pptx.other_textboxes": cast(JsonValue, other_textboxes),
+            "pptx.footer": slide_footer,
+        },
     )
 
 
 def read_pptx(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[PptxContent, Any, None]:
+    file_like: io.BytesIO,
+    path: str | None = None,
+    *,
+    ignore_images: bool = False,
+    extract_annotations: bool = False,
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Extract all relevant content from a PowerPoint .pptx file.
 
@@ -808,11 +844,11 @@ def read_pptx(
             The stream position is reset to the beginning before reading.
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
-            returned PptxContent.metadata.
+            returned document source metadata.
         ignore_images: If True, skip image extraction.
 
     Yields:
-        PptxContent: Single PptxContent object containing:
+        ExtractedDocument: Single canonical presentation document containing:
             - metadata: PptxMetadata with title, author, dates, revision
             - slides: List of PPTXSlide objects, each containing:
                 - slide_number: 1-based slide index
@@ -820,9 +856,9 @@ def read_pptx(
                 - content_placeholders: Body text from content areas
                 - other_textboxes: Text from non-placeholder shapes
                 - tables: List of tables as 2D lists of cell text
-                - images: List of PPTXImage with binary data
-                - formulas: List of PPTXFormula as LaTeX
-                - comments: List of PPTXComment
+                - images: Canonical image assets with binary data
+                - formulas: Canonical annotations containing LaTeX
+                - comments: Canonical comment annotations
                 - text: Complete slide text with formulas and comments
                 - base_text: Text without formulas/comments/captions
 
@@ -842,9 +878,9 @@ def read_pptx(
         ...     data = io.BytesIO(f.read())
         ...     for ppt in read_pptx(data, path="presentation.pptx"):
         ...         print(f"Title: {ppt.metadata.title}")
-        ...         print(f"Slides: {len(ppt.slides)}")
-        ...         for slide in ppt.slides:
-        ...             print(f"  Slide {slide.slide_number}: {slide.title}")
+        ...         print(f"Slides: {len(ppt.units)}")
+        ...         for slide in ppt.units:
+        ...             print(f"  Slide {slide.number}: {slide.title}")
         ...             print(f"    Images: {len(slide.images)}")
 
     Performance Notes:
@@ -853,10 +889,7 @@ def read_pptx(
         - Images are loaded into memory as binary blobs
         - Large presentations with many images may use significant memory
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering PPTX extraction: %s", source_path)
     try:
-        logger.debug("Reading pptx")
         file_like.seek(0)
         if is_ooxml_encrypted(file_like):
             raise ExtractionFileEncryptedError(
@@ -873,28 +906,36 @@ def read_pptx(
             slide_paths = ctx.slide_order
 
             # Process each slide using cached XML
-            slides_result: List[PptxSlide] = []
+            slides_result: List[ContentUnit] = []
             for slide_index, slide_path in enumerate(slide_paths, start=1):
                 slide = _process_slide_from_context(
-                    ctx, slide_path, slide_index, ignore_images=ignore_images
+                    ctx,
+                    slide_path,
+                    slide_index,
+                    ignore_images=ignore_images,
+                    extract_annotations=extract_annotations,
                 )
                 slides_result.append(slide)
 
-            metadata.populate_from_path(path)
-
             total_images = sum(len(slide.images) for slide in slides_result)
             logger.debug(
-                "Extracted PPTX: %d slides, %d images",
+                "Extracted PPTX: slides=%d, images=%d",
                 len(slides_result),
                 total_images,
             )
 
-            yield PptxContent(metadata=metadata, slides=slides_result)
+            source_format = (
+                path.rsplit(".", 1)[-1].lower() if path and "." in path else "pptx"
+            )
+            yield ExtractedDocument(
+                format=source_format,
+                source=source_metadata(path),
+                metadata=metadata,
+                units=slides_result,
+            )
         finally:
             ctx.close()
     except ExtractionError:
         raise
     except (KeyError, ET.ParseError, OSError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract PPTX file", cause=exc) from exc
-    finally:
-        logger.info("Leaving PPTX extraction: %s", source_path)

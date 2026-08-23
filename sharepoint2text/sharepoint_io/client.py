@@ -296,7 +296,8 @@ class SharePointRestClient:
         token_url = _TOKEN_ENDPOINT_TEMPLATE.format(
             tenant_id=self._credentials.tenant_id
         )
-        logger.info(f"Fetching access token from {token_url}")
+        logger.info("Fetching SharePoint access token")
+        logger.debug("SharePoint token endpoint: %s", token_url)
         payload = urlencode(
             {
                 "client_id": self._credentials.client_id,
@@ -367,7 +368,7 @@ class SharePointRestClient:
                 url=url,
             )
         self._site_id = site_id
-        logger.info(f"Resolved site ID: {site_id}")
+        logger.debug("Resolved SharePoint site ID: %s", site_id)
         return site_id
 
     def list_all_files(
@@ -397,6 +398,7 @@ class SharePointRestClient:
                 continue
             files.append(file_meta)
 
+        logger.info("SharePoint listing complete: files=%d", len(files))
         return files
 
     def list_files_filtered(
@@ -473,6 +475,7 @@ class SharePointRestClient:
                 )
             )
 
+        logger.info("SharePoint filter complete: matches=%d", len(matches))
         return matches
 
     def _walk_and_filter(
@@ -499,7 +502,7 @@ class SharePointRestClient:
             # Get the folder item ID first, then walk from there
             folder_item = self._get_folder_by_path(site_id, folder_path, drive_id)
             if folder_item is None:
-                logger.warning(f"Folder not found: {folder_path}")
+                logger.warning("SharePoint folder not found: %s", folder_path)
                 return
             item_id = folder_item.get("id")
             parent_path = folder_path

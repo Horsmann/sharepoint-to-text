@@ -1,400 +1,207 @@
 # Command Line Interface
 
-The `sharepoint2text` CLI provides a command-line interface for extracting text and structured content from files and folders.
-
-## Installation
-
-The CLI is automatically available after installing the package:
-
-```bash
-uv add sharepoint-to-text
-# or
-pip install sharepoint-to-text
-```
+The `sharepoint2text` command extracts one file or a folder. Plain text is the
+default; both JSON modes emit the stable version-2 schema.
 
 ## Quick Start
 
 ```bash
-# Extract text from a single file
 sharepoint2text --file document.docx
-
-# Extract all supported files from a folder
-sharepoint2text --folder /path/to/documents
-
-# Extract specific file types from a folder
-sharepoint2text --folder /path/to/documents --suffixes .docx,.pdf
+sharepoint2text --file document.docx --json
+sharepoint2text --file report.pdf --json-unit
+sharepoint2text --folder ./docs --suffixes .docx,.pdf
 ```
 
----
+## Input
 
-## Input Options
-
-### Single File Extraction
-
-Extract content from a single file:
+Exactly one input source is required:
 
 ```bash
-sharepoint2text --file /path/to/document.docx
+# Single file
+sharepoint2text --file /path/to/document.pdf
 sharepoint2text -f /path/to/document.pdf
-```
 
-### Folder Extraction
-
-Extract content from all supported files in a folder:
-
-```bash
-# Recursive (default) - includes subdirectories
+# Recursive folder extraction
 sharepoint2text --folder /path/to/documents
 
-# Non-recursive - top-level only
+# Top-level folder only
 sharepoint2text --folder /path/to/documents --no-recursive
 
-# Short form
-sharepoint2text -d /path/to/documents
+# Filter folder input
+sharepoint2text --folder /path/to/documents --suffixes .docx,.pdf,.txt
 ```
 
-### Filtering by File Type
+Suffixes can be written with or without a leading dot.
 
-When using `--folder`, filter by specific file extensions:
+## Output
 
-```bash
-# Extract only Word and PDF files
-sharepoint2text --folder /path/to/documents --suffixes .docx,.pdf
-
-# Extract only text files (short form)
-sharepoint2text -d /path/to/documents -s .txt,.md
-
-# Suffixes work with or without leading dot
-sharepoint2text -d /path/to/documents -s docx,pdf,txt
-```
-
----
-
-## Output Options
-
-### Standard Output (Default)
-
-By default, extracted content is written to stdout:
-
-```bash
-# Print to terminal
-sharepoint2text --file document.docx
-
-# Redirect to file using shell
-sharepoint2text --file document.docx > output.txt
-```
-
-### Single File Output
-
-Write all extracted content to a single file:
-
-```bash
-# Single file extraction to file
-sharepoint2text --file document.docx --output result.txt
-
-# Folder extraction combined into single file
-sharepoint2text --folder /path/to/docs --output combined.txt
-
-# JSON output to file
-sharepoint2text --folder /path/to/docs --json --output results.json
-```
-
-### Folder Output (Mirrored Structure)
-
-When extracting from a folder, you can write each file separately to an output folder, preserving the directory structure:
-
-```bash
-# Write each file separately to output folder
-sharepoint2text --folder /input/docs --output /output/extracted/
-
-# The output structure mirrors the input:
-# /input/docs/report.docx      -> /output/extracted/report.txt
-# /input/docs/sub/data.xlsx    -> /output/extracted/sub/data.txt
-# /input/docs/sub/notes.pdf    -> /output/extracted/sub/notes.txt
-```
-
-**How it works:**
-
-- If `--output` is an existing directory, files are written separately
-- If `--output` is a new path without extension or ending with `/`, it's created as a directory
-- If `--output` has a file extension (e.g., `.txt`, `.json`), all results are combined into that file
-
-```bash
-# Existing folder -> separate files
-sharepoint2text -d ./docs -o ./output/
-
-# New path without extension -> creates folder, separate files
-sharepoint2text -d ./docs -o ./extracted
-
-# Path with extension -> single combined file
-sharepoint2text -d ./docs -o ./results.txt
-```
-
----
-
-## Output Formats
-
-### Plain Text (Default)
-
-Extracts full text content:
+### Plain text
 
 ```bash
 sharepoint2text --file document.docx
+sharepoint2text --folder ./docs --output combined.txt
 ```
 
-### JSON Format
+Multiple documents are separated by a blank line.
 
-Emit structured JSON with full extraction objects:
+### Document JSON
 
 ```bash
 sharepoint2text --file document.docx --json
 sharepoint2text -f document.docx -j
 ```
 
-Output structure:
+The output is always an array. Each item is a version-2 envelope:
+
 ```json
 [
-    {
-        "_type": "DocxContent",
-        "paragraphs": [...],
-        "tables": [...],
-        "metadata": {
-            "_type": "DocxMetadata",
-            "filename": "document.docx",
-            "file_path": "/path/to/document.docx",
-            "author": "John Doe",
-            "created": "2024-01-15T10:30:00Z",
-            "modified": "2024-01-20T14:45:00Z"
-        }
+  {
+    "schema": "sharepoint2text.extraction",
+    "version": 2,
+    "document": {
+      "format": "docx",
+      "source": {
+        "filename": "document.docx",
+        "extension": ".docx",
+        "path": "/path/to/document.docx"
+      },
+      "metadata": {"keywords": [], "properties": {}},
+      "units": [],
+      "attachments": [],
+      "properties": {}
     }
+  }
 ]
 ```
 
-The `metadata` field contains file-level information including filename, path, and format-specific details (author, creation date, etc.).
-
-### JSON Unit Format
-
-Emit JSON with per-unit extraction (pages, slides, sheets, etc.):
+### Unit JSON
 
 ```bash
 sharepoint2text --file presentation.pptx --json-unit
 sharepoint2text -f spreadsheet.xlsx -u
 ```
 
-Output structure:
-```json
-[
-    {
-        "_type": "PptxUnit",
-        "slide_number": 1,
-        "text": "Introduction slide content...",
-        "unit_metadata": {
-            "_type": "PptxUnitMetadata",
-            "unit_number": 1
-        },
-        "file_metadata": {
-            "_type": "PptxMetadata",
-            "filename": "presentation.pptx",
-            "file_path": "/path/to/presentation.pptx",
-            "author": "Jane Smith"
-        }
-    }
-]
-```
+This is also an array of complete version-2 envelopes, but each envelope
+contains exactly one item in `document.units`. Source and document metadata stay
+available in every item, making the output self-contained for streaming and
+indexing. Document-level images, tables, annotations, and attachments are
+retained in every envelope.
 
-Each unit includes:
-- **`unit_metadata`**: Unit-specific information (page/slide/sheet number, heading path, etc.)
-- **`file_metadata`**: File-level information (filename, path, author, creation date, etc.)
+### Binary payloads
 
----
-
-## Additional Options
-
-### Include Images
-
-Include base64-encoded image data in JSON output:
+Binary data is omitted by default. Request image extraction and base64 encoding
+of image and attachment payloads explicitly:
 
 ```bash
-sharepoint2text --file document.docx --json --include-images
-sharepoint2text -f document.docx -j -i
+sharepoint2text --file report.pdf --json --include-binary
+sharepoint2text -f report.pdf -u -i
 ```
 
-> Note: `--include-images` requires `--json` or `--json-unit`
+`--include-binary` requires `--json` or `--json-unit`.
 
-### Exclude Email Attachments
+### File and folder destinations
 
-Skip extracting supported attachments from email files:
+```bash
+# One output file
+sharepoint2text --file document.docx --output result.txt
+sharepoint2text --folder ./docs --json --output results.json
+
+# Mirror input paths below an output folder
+sharepoint2text --folder /input/docs --output /output/extracted/
+```
+
+For folder input:
+
+- an existing output directory produces one file per input;
+- a new extensionless output path is created as a directory;
+- an output path with an extension combines all results in one file.
+
+Per-file output uses `.txt` for plain text and `.json` for structured output.
+If one input yields multiple documents, such as an `.mbox` mailbox, all of its
+documents are written together rather than overwriting one another.
+
+## Attachments
+
+Image metadata, including available width, height, and width-to-height ratio, is
+included by default even though image byte payloads are omitted unless
+`--include-binary` is set. Email attachment records follow the same payload
+rule. Omit attachment records entirely
+with:
 
 ```bash
 sharepoint2text --file message.eml --no-attachments
 sharepoint2text -f message.msg -n
 ```
 
-### File Size Limit
+## Size Limits
 
-Control maximum file size (default: 100 MiB):
+The default maximum input size is 100 MiB:
 
 ```bash
-# Set limit to 50 MiB
 sharepoint2text --file large.pdf --max-file-size-mb 50
-
-# Disable size limit
-sharepoint2text --file huge.pdf --max-file-size-mb 0
-
-# Short form
 sharepoint2text -f large.pdf -m 200
+sharepoint2text --file trusted.pdf --max-file-size-mb 0
 ```
 
-### Version
+Zero disables the file-size check. Archive decompression protections remain
+separate.
 
-Display CLI version:
+## ZIP-Bomb Limits
+
+For a trusted ZIP, Office, or OpenDocument file that exceeds the default
+ZIP-bomb thresholds, multiply every default threshold by the same whole number:
 
 ```bash
-sharepoint2text --version
-sharepoint2text -v
+sharepoint2text --file trusted-export.zip --zip-bomb-limit-multiplier 2
 ```
 
----
+The multiplier must be an integer from `2` through `10`. To disable ZIP-bomb
+checks entirely for trusted input, use the literal value `none`:
 
-## Complete Option Reference
+```bash
+sharepoint2text --file trusted-export.zip --zip-bomb-limit-multiplier none
+```
+
+Omitting the option preserves the default protections. Disabling them can allow
+a malicious archive to exhaust memory or disk resources.
+
+## Option Reference
 
 | Option | Short | Description |
-|--------|-------|-------------|
-| `--file FILE` | `-f` | Path to a single file to extract |
-| `--folder FOLDER` | `-d` | Path to a folder to extract from (recursive by default) |
-| `--suffixes LIST` | `-s` | Comma-separated suffixes to filter (e.g., `.docx,.pdf`) |
-| `--no-recursive` | | Only extract top-level files (no subdirectories) |
-| `--output PATH` | `-o` | Output path: file (combined) or folder (separate files) |
-| `--json` | `-j` | Emit structured JSON output |
-| `--json-unit` | `-u` | Emit per-unit JSON output |
-| `--include-images` | `-i` | Include base64 image data in JSON |
-| `--no-attachments` | `-n` | Skip email attachment extraction |
-| `--max-file-size-mb N` | `-m` | Maximum file size in MiB (default: 100, 0 to disable) |
-| `--version` | `-v` | Show version and exit |
-| `--help` | `-h` | Show help message and exit |
+|---|---|---|
+| `--file FILE` | `-f` | Extract one file |
+| `--folder FOLDER` | `-d` | Extract a folder recursively |
+| `--suffixes LIST` | `-s` | Filter folder input with comma-separated suffixes |
+| `--no-recursive` | | Inspect only the folder's top level |
+| `--output PATH` | `-o` | Write combined output or mirror into a directory |
+| `--json` | `-j` | Emit version-2 document envelopes |
+| `--json-unit` | `-u` | Emit one version-2 envelope per unit |
+| `--include-binary` | `-i` | Encode image and attachment payloads as base64 |
+| `--no-images` | | Skip image extraction entirely |
+| `--no-attachments` | `-n` | Omit email attachment records and payloads |
+| `--extract-annotations` | `-a` | Include annotations (comments) for supported formats |
+| `--force-plain-text` | | Treat input as plain text regardless of detection |
+| `--max-file-size-mb N` | `-m` | Maximum input size; default 100, zero disables |
+| `--zip-bomb-limit-multiplier N` | `--zblm` | Multiply all ZIP-bomb limits by 2..10; `none` disables |
+| `--version` | `-v` | Print the installed version |
+| `--help` | `-h` | Show command help |
 
----
-
-## Examples
-
-### Basic Extraction
-
-```bash
-# Extract text from Word document
-sharepoint2text -f report.docx
-
-# Extract text from PDF
-sharepoint2text -f paper.pdf
-
-# Extract from Excel spreadsheet
-sharepoint2text -f data.xlsx
-```
-
-### Batch Processing
-
-```bash
-# Extract all supported files from a project
-sharepoint2text -d ./project --output ./extracted/
-
-# Extract only Office documents as JSON
-sharepoint2text -d ./documents -s .docx,.xlsx,.pptx -j -o results.json
-
-# Extract PDFs with folder structure preserved
-sharepoint2text -d ./papers -s .pdf -o ./text_versions/
-```
-
-### Email Processing
-
-```bash
-# Extract email with attachments
-sharepoint2text -f message.eml
-
-# Extract email without attachments
-sharepoint2text -f message.eml -n
-
-# Extract mailbox to JSON
-sharepoint2text -f inbox.mbox -j -o emails.json
-```
-
-### JSON Workflows
-
-```bash
-# Extract and pipe to jq for processing
-sharepoint2text -f document.docx -j | jq '.[] | .metadata'
-
-# Extract units for chunking
-sharepoint2text -f report.pdf -u | jq '.[] | .text'
-
-# Batch extract to JSON with images
-sharepoint2text -d ./docs -j -i -o ./output.json
-```
-
-### Integration with Other Tools
-
-```bash
-# Count words in extracted text
-sharepoint2text -f document.docx | wc -w
-
-# Search within extracted content
-sharepoint2text -d ./docs | grep -i "keyword"
-
-# Extract and index
-sharepoint2text -d ./documents -j | ./index_to_elasticsearch.sh
-```
-
----
+`--suffixes` and `--no-recursive` require folder input. `--json` and
+`--json-unit` are mutually exclusive.
 
 ## Exit Codes
 
 | Code | Meaning |
-|------|---------|
-| `0` | Success |
-| `1` | Error (invalid arguments, extraction failure, file not found, etc.) |
+|---:|---|
+| `0` | Extraction succeeded |
+| `1` | Arguments, validation, I/O, extraction, or serialization failed |
+| `2` | Command syntax could not be parsed by `argparse` |
 
----
-
-## Error Handling
-
-The CLI provides clear error messages for common issues:
-
-```bash
-# File not found
-$ sharepoint2text -f nonexistent.docx
-sharepoint2text: File not found: nonexistent.docx
-
-# Unsupported format
-$ sharepoint2text -f image.png
-sharepoint2text: File format not supported: .png
-
-# File too large
-$ sharepoint2text -f huge.pdf -m 10
-sharepoint2text: File size 52428800 bytes exceeds CLI maximum of 10485760 bytes
-
-# Invalid option combination
-$ sharepoint2text -f doc.docx -s .pdf
-sharepoint2text: --suffixes can only be used with --folder
-```
-
----
-
-## Tips and Best Practices
-
-1. **Use folder output for batch processing**: When extracting many files, use folder output (`-o /output/folder/`) to preserve organization.
-
-2. **Filter by type for faster processing**: Use `--suffixes` to only process relevant file types.
-
-3. **Disable images for speed**: Images are disabled by default. Only use `--include-images` when needed.
-
-4. **Use JSON for programmatic access**: The JSON output is structured and machine-readable.
-
-5. **Use JSON-unit for chunking**: For RAG/indexing workflows, `--json-unit` provides pre-chunked content.
-
-6. **Check file sizes first**: For unknown folders, consider using `--max-file-size-mb` to skip very large files.
-
----
+Errors are written to stderr. Folder extraction logs individual skipped files
+and continues when possible. File extraction errors are reported without a
+Python traceback.
 
 ## Related Documentation
 
-- [README.md](../README.md) - Library overview and Python API
-- [format-matrix.md](format-matrix.md) - Supported formats and behavior
-- [direct-extractors.md](direct-extractors.md) - Direct Python API usage
+- [README.md](../README.md) — normalized Python API
+- [format-matrix.md](format-matrix.md) — format behavior and caveats

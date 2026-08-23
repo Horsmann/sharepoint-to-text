@@ -84,9 +84,9 @@ Usage
     >>> with open("slides.odp", "rb") as f:
     ...     for ppt in read_odp(io.BytesIO(f.read()), path="slides.odp"):
     ...         print(f"Title: {ppt.metadata.title}")
-    ...         for slide in ppt.slides:
-    ...             print(f"Slide {slide.slide_number}: {slide.title}")
-    ...             print(f"  Notes: {slide.notes}")
+    ...         for slide in ppt.units:
+    ...             print(f"Slide {slide.number}: {slide.title}")
+    ...             print(f"  Notes: {slide.properties['odp.notes']}")
 
 See Also
 --------
@@ -105,7 +105,7 @@ Maintenance Notes
 import io
 import logging
 import re
-from typing import Any, Generator
+from typing import Any, Generator, cast
 
 from sharepoint2text.parsing import _defused_xml as ET
 from sharepoint2text.parsing.exceptions import (
@@ -113,13 +113,7 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
     ExtractionFileEncryptedError,
 )
-from sharepoint2text.parsing.extractors.data_types import (
-    OdpContent,
-    OdpSlide,
-    OpenDocumentAnnotation,
-    OpenDocumentImage,
-    OpenDocumentMetadata,
-)
+from sharepoint2text.parsing.extractors._model import source_metadata
 from sharepoint2text.parsing.extractors.open_office._shared import (
     element_text,
     extract_odf_metadata,
@@ -127,6 +121,16 @@ from sharepoint2text.parsing.extractors.open_office._shared import (
 )
 from sharepoint2text.parsing.extractors.util.encryption import is_odf_encrypted
 from sharepoint2text.parsing.extractors.util.zip_context import ZipContext
+from sharepoint2text.parsing.models import (
+    Annotation,
+    CellValue,
+    ContentUnit,
+    DocumentMetadata,
+    ExtractedDocument,
+    ImageAsset,
+    JsonValue,
+    Table,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -244,13 +248,12 @@ def _get_text_recursive(element: ET.Element) -> str:
     )
 
 
-def _extract_metadata(meta_root: ET.Element | None) -> OpenDocumentMetadata:
+def _extract_metadata(meta_root: ET.Element | None) -> DocumentMetadata:
     """Extract metadata from meta.xml."""
-    logger.debug("Extracting ODP metadata")
     return extract_odf_metadata(meta_root, NS)
 
 
-def _extract_annotations(element: ET.Element) -> list[OpenDocumentAnnotation]:
+def _extract_annotations(element: ET.Element) -> list[Annotation]:
     """Extract annotations/comments from an element."""
     annotations = []
 
@@ -270,7 +273,12 @@ def _extract_annotations(element: ET.Element) -> list[OpenDocumentAnnotation]:
         text = "\n".join(text_parts)
 
         annotations.append(
-            OpenDocumentAnnotation(creator=creator, date=date, text=text)
+            Annotation(
+                kind="comment",
+                author=creator or None,
+                text=text,
+                properties={"odp.date": date} if date else {},
+            )
         )
 
     return annotations
@@ -298,7 +306,7 @@ def _extract_image(
     frame: ET.Element,
     slide_number: int,
     image_index: int,
-) -> OpenDocumentImage | None:
+) -> ImageAsset | None:
     """Extract image data from a frame element.
 
     Extracts images with their metadata:
@@ -327,9 +335,6 @@ def _extract_image(
     else:
         description = title or desc
 
-    # ODP slides don't have captions like ODT documents
-    caption = ""
-
     # Find image element
     image_elem = frame.find(_DRAW_IMAGE_TAG)
     if image_elem is None:
@@ -341,46 +346,46 @@ def _extract_image(
 
     if href.startswith("http"):
         # External image reference
-        return OpenDocumentImage(
-            href=href,
-            name=name,
-            width=width,
-            height=height,
-            image_index=image_index,
-            caption=caption,
-            description=description,
-            unit_number=slide_number,
+        return ImageAsset(
+            number=image_index,
+            filename=name or href,
+            width=int(round(_parse_odf_length_to_px(width))) or None,
+            height=int(round(_parse_odf_length_to_px(height))) or None,
+            description=description or None,
+            properties={"odp.href": href, "odp.unit_number": slide_number},
         )
 
     # Internal image reference
     try:
         if ctx.exists(href):
             img_data = ctx.read_bytes(href)
-            return OpenDocumentImage(
-                href=href,
-                name=name or href.split("/")[-1],
-                content_type=guess_content_type(href),
-                data=io.BytesIO(img_data),
-                size_bytes=len(img_data),
-                width=width,
-                height=height,
-                image_index=image_index,
-                caption=caption,
-                description=description,
-                unit_number=slide_number,
+            return ImageAsset(
+                number=image_index,
+                filename=name or href.split("/")[-1],
+                media_type=guess_content_type(href),
+                data=img_data,
+                width=int(round(_parse_odf_length_to_px(width))) or None,
+                height=int(round(_parse_odf_length_to_px(height))) or None,
+                description=description or None,
+                properties={
+                    "odp.href": href,
+                    "odp.size_bytes": len(img_data),
+                    "odp.unit_number": slide_number,
+                },
             )
     except (KeyError, OSError, ValueError) as e:
         logger.debug("Failed to extract image %s: %s", href, e)
-        return OpenDocumentImage(
-            href=href,
-            name=name or href,
-            error=str(e),
-            width=width,
-            height=height,
-            image_index=image_index,
-            caption=caption,
-            description=description,
-            unit_number=slide_number,
+        return ImageAsset(
+            number=image_index,
+            filename=name or href,
+            width=int(round(_parse_odf_length_to_px(width))) or None,
+            height=int(round(_parse_odf_length_to_px(height))) or None,
+            description=description or None,
+            properties={
+                "odp.href": href,
+                "odp.error": str(e),
+                "odp.unit_number": slide_number,
+            },
         )
 
     return None
@@ -392,7 +397,7 @@ def _extract_slide(
     slide_number: int,
     image_counter: int = 0,
     ignore_images: bool = False,
-) -> tuple[OdpSlide, int]:
+) -> tuple[ContentUnit, int]:
     """Extract content from a single slide (draw:page element).
 
     Args:
@@ -405,10 +410,13 @@ def _extract_slide(
     Returns:
         A tuple of (OdpSlide, updated_image_counter).
     """
-    slide = OdpSlide(slide_number=slide_number)
-
-    # Get slide name
-    slide.name = page.get(_ATTR_DRAW_NAME, "")
+    slide_name = page.get(_ATTR_DRAW_NAME, "")
+    title = ""
+    body_text: list[str] = []
+    other_text: list[str] = []
+    tables: list[Table] = []
+    annotations: list[Annotation] = []
+    images: list[ImageAsset] = []
 
     # Collect all frames with their positions for sorting
     frames_with_positions: list[tuple[float, float, ET.Element]] = []
@@ -437,35 +445,34 @@ def _extract_slide(
                         or style_name == "TitleText"
                         or (
                             style_name == ""
-                            and not slide.title
-                            and not slide.body_text
-                            and not slide.other_text
+                            and not title
+                            and not body_text
+                            and not other_text
                         )
                     ):
-                        slide.title = text
+                        title = text
                         found_title = True
                     elif "Body" in style_name or style_name == "BodyText":
-                        slide.body_text.append(text)
+                        body_text.append(text)
                     else:
-                        slide.other_text.append(text)
+                        other_text.append(text)
 
             # Extract annotations from text box
-            annotations = _extract_annotations(text_box)
-            slide.annotations.extend(annotations)
+            annotations.extend(_extract_annotations(text_box))
 
         # Check for table
         table = frame.find("table:table", NS)
         if table is not None:
             table_data = _extract_table(table)
             if table_data:
-                slide.tables.append(table_data)
+                tables.append(Table(rows=cast(list[list[CellValue]], table_data)))
 
         # Check for image
         if not ignore_images:
             image = _extract_image(ctx, frame, slide_number, image_counter + 1)
             if image is not None:
                 image_counter += 1
-                slide.images.append(image)
+                images.append(image)
 
     # Extract speaker notes
     notes_elem = page.find("presentation:notes", NS)
@@ -476,14 +483,33 @@ def _extract_slide(
                 for p in text_box.iter(_TEXT_P_TAG):
                     note_text = _get_text_recursive(p).strip()
                     if note_text:
-                        slide.notes.append(note_text)
+                        annotations.append(Annotation(kind="note", text=note_text))
 
-    return slide, image_counter
+    properties: dict[str, JsonValue] = {"odp.slide_number": slide_number}
+    if title:
+        properties["odp.location"] = [title]
+    if slide_name:
+        properties["odp.name"] = slide_name
+    properties["odp.body_text"] = cast(JsonValue, body_text)
+    properties["odp.other_text"] = cast(JsonValue, other_text)
+    return (
+        ContentUnit(
+            number=slide_number,
+            kind="slide",
+            title=title or None,
+            text="\n".join([*body_text, *other_text]),
+            images=images,
+            tables=tables,
+            annotations=annotations,
+            properties=properties,
+        ),
+        image_counter,
+    )
 
 
 def read_odp(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[OdpContent, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Extract all relevant content from an OpenDocument Presentation (.odp) file.
 
@@ -499,13 +525,13 @@ def read_odp(
             The stream position is reset to the beginning before reading.
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
-            returned OdpContent.metadata.
+            returned document source metadata.
         ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
-        OdpContent: Single OdpContent object containing:
-            - metadata: OpenDocumentMetadata with title, creator, dates
-            - slides: List of OdpSlide objects with per-slide content
+        ExtractedDocument: Single canonical presentation document containing:
+            - metadata: Canonical metadata with title, creator, and dates
+            - units: Canonical content units with per-slide content
 
     Raises:
         ValueError: If content.xml is missing or presentation body not found.
@@ -515,12 +541,10 @@ def read_odp(
         >>> with open("presentation.odp", "rb") as f:
         ...     data = io.BytesIO(f.read())
         ...     for ppt in read_odp(data, path="presentation.odp"):
-        ...         print(f"Slides: {len(ppt.slides)}")
-        ...         for slide in ppt.slides:
-        ...             print(f"  {slide.slide_number}: {slide.title}")
+        ...         print(f"Slides: {len(ppt.units)}")
+        ...         for slide in ppt.units:
+        ...             print(f"  {slide.number}: {slide.title}")
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering ODP extraction: %s", source_path)
     try:
         file_like.seek(0)
         if is_odf_encrypted(file_like):
@@ -540,7 +564,7 @@ def read_odp(
                     "Invalid ODP file: presentation body not found"
                 )
 
-            slides: list[OdpSlide] = []
+            slides: list[ContentUnit] = []
             image_counter = 0
             for slide_num, page in enumerate(body.findall("draw:page", NS), start=1):
                 slide, image_counter = _extract_slide(
@@ -551,15 +575,26 @@ def read_odp(
             ctx.close()
 
         # Populate file metadata from path
-        metadata.populate_from_path(path)
+        logger.debug(
+            "Extracted ODP: slides=%d, images=%d",
+            len(slides),
+            sum(len(slide.images) for slide in slides),
+        )
 
-        yield OdpContent(
+        slide_texts = [
+            "\n".join(part for part in (slide.title, slide.text) if part).strip()
+            for slide in slides
+        ]
+        yield ExtractedDocument(
+            format="odp",
+            source=source_metadata(path),
             metadata=metadata,
-            slides=slides,
+            units=slides,
+            properties={
+                "document.full_text": "\n".join(text for text in slide_texts if text)
+            },
         )
     except ExtractionError:
         raise
     except (KeyError, ET.ParseError, OSError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract ODP file", cause=exc) from exc
-    finally:
-        logger.info("Leaving ODP extraction: %s", source_path)

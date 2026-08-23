@@ -1,11 +1,17 @@
 """Tests for the read_many() batch extraction function."""
 
+import glob
+import logging
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator, cast
+
+import pytest
 
 from sharepoint2text import (
+    BatchFileResult,
+    ExtractedDocument,
     InvalidConfigurationError,
     read_many,
 )
@@ -17,15 +23,9 @@ tc.maxDiff = None
 RESOURCES_PATH = Path("sharepoint2text/tests/resources")
 
 
-def _has_extraction_interface(obj: Any) -> bool:
-    """Check if an object implements the ExtractionInterface protocol."""
-    return (
-        hasattr(obj, "get_metadata")
-        and hasattr(obj, "get_full_text")
-        and hasattr(obj, "iterate_units")
-        and callable(obj.get_metadata)
-        and callable(obj.get_full_text)
-    )
+def _is_normalized_document(obj: Any) -> bool:
+    """Return whether an object is a normalized public extraction result."""
+    return isinstance(obj, ExtractedDocument)
 
 
 def test_read_many_with_specific_suffixes() -> None:
@@ -42,13 +42,12 @@ def test_read_many_with_specific_suffixes() -> None:
     tc.assertGreater(len(results), 0)
     for result in results:
         tc.assertTrue(
-            _has_extraction_interface(result),
-            f"Result should implement ExtractionInterface: {type(result)}",
+            _is_normalized_document(result),
+            f"Result should be an ExtractedDocument: {type(result)}",
         )
-        metadata = result.get_metadata()
         tc.assertTrue(
-            metadata.file_path is not None and metadata.file_path.endswith(".txt"),
-            f"Expected .txt file, got: {metadata.file_path}",
+            result.source.path is not None and result.source.path.endswith(".txt"),
+            f"Expected .txt file, got: {result.source.path}",
         )
 
 
@@ -64,12 +63,25 @@ def test_read_many_with_multiple_suffixes() -> None:
 
     tc.assertGreater(len(results), 0)
     for result in results:
-        metadata = result.get_metadata()
-        file_path = metadata.file_path or ""
+        file_path = result.source.path or ""
         tc.assertTrue(
             file_path.endswith(".docx") or file_path.endswith(".xlsx"),
             f"Expected .docx or .xlsx file, got: {file_path}",
         )
+
+
+def test_read_many_matches_compound_archive_suffix() -> None:
+    """Match a compressed TAR when its complete compound suffix is requested."""
+    results = list(
+        read_many(
+            RESOURCES_PATH / "archives",
+            suffixes=[".tar.gz"],
+            recursive=False,
+        )
+    )
+
+    tc.assertEqual(1, len(results))
+    tc.assertIn("test_archive.tar.gz!/", results[0].source.path or "")
 
 
 def test_read_many_extract_all_supported() -> None:
@@ -85,20 +97,18 @@ def test_read_many_extract_all_supported() -> None:
     tc.assertGreater(len(results), 0)
     for result in results:
         tc.assertTrue(
-            _has_extraction_interface(result),
-            f"Result should implement ExtractionInterface: {type(result)}",
+            _is_normalized_document(result),
+            f"Result should be an ExtractedDocument: {type(result)}",
         )
 
 
 def test_read_many_invalid_configuration_both_options() -> None:
     """read_many should raise InvalidConfigurationError when both options are set."""
     with tc.assertRaises(InvalidConfigurationError) as ctx:
-        list(
-            read_many(
-                RESOURCES_PATH,
-                suffixes=[".txt"],
-                extract_all_supported=True,
-            )
+        read_many(
+            RESOURCES_PATH,
+            suffixes=[".txt"],
+            extract_all_supported=True,
         )
 
     tc.assertIn("Cannot specify both", str(ctx.exception))
@@ -107,15 +117,25 @@ def test_read_many_invalid_configuration_both_options() -> None:
 def test_read_many_invalid_configuration_no_options() -> None:
     """read_many should raise ValueError when neither option is set."""
     with tc.assertRaises(ValueError) as ctx:
-        list(read_many(RESOURCES_PATH))
+        read_many(RESOURCES_PATH)
 
     tc.assertIn("Must specify either", str(ctx.exception))
+
+
+def test_read_many_rejects_invalid_result_callback_eagerly() -> None:
+    """Reject a non-callable reporting callback when the API is called."""
+    with pytest.raises(TypeError, match="on_file_result must be callable or None"):
+        read_many(
+            RESOURCES_PATH,
+            suffixes=[".txt"],
+            on_file_result=cast(Any, object()),
+        )
 
 
 def test_read_many_nonexistent_folder() -> None:
     """read_many should raise FileNotFoundError for non-existent folder."""
     with tc.assertRaises(FileNotFoundError):
-        list(read_many("/nonexistent/path/to/folder", suffixes=[".txt"]))
+        read_many("/nonexistent/path/to/folder", suffixes=[".txt"])
 
 
 def test_read_many_file_instead_of_folder() -> None:
@@ -124,7 +144,7 @@ def test_read_many_file_instead_of_folder() -> None:
     file_path = RESOURCES_PATH / "plain_text" / "lorem_ipsum.txt"
     if file_path.exists():
         with tc.assertRaises(NotADirectoryError):
-            list(read_many(file_path, suffixes=[".txt"]))
+            read_many(file_path, suffixes=[".txt"])
 
 
 def test_read_many_non_recursive() -> None:
@@ -145,7 +165,7 @@ def test_read_many_non_recursive() -> None:
             read_many(tmpdir_path, suffixes=[".txt"], recursive=False)
         )
         tc.assertEqual(len(results_non_recursive), 1)
-        tc.assertIn("root content", results_non_recursive[0].get_full_text())
+        tc.assertIn("root content", results_non_recursive[0].full_text)
 
         # Recursive should find both
         results_recursive = list(
@@ -185,6 +205,30 @@ def test_read_many_empty_folder() -> None:
         tc.assertEqual(0, len(results))
 
 
+def test_read_many_logs_only_batch_lifecycle_at_info(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Keep INFO output bounded to one batch start and one batch summary."""
+    (tmp_path / "first.txt").write_text("first")
+    (tmp_path / "second.txt").write_text("second")
+
+    with caplog.at_level(logging.INFO, logger="sharepoint2text"):
+        results = list(read_many(tmp_path, suffixes=[".txt"]))
+
+    info_messages = [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno == logging.INFO and record.name.startswith("sharepoint2text")
+    ]
+
+    assert len(results) == 2
+    assert len(info_messages) == 2
+    assert info_messages[0].startswith("Starting batch extraction")
+    assert info_messages[1].endswith(
+        "files_found=2, documents_extracted=2, files_skipped=0"
+    )
+
+
 def test_read_many_no_matching_files() -> None:
     """read_many should return empty when no files match the suffixes."""
     results = list(
@@ -212,7 +256,7 @@ def test_read_many_ignores_unsupported_in_extract_all_mode() -> None:
 
         # Should only extract the .txt file
         tc.assertEqual(len(results), 1)
-        tc.assertIn("supported content", results[0].get_full_text())
+        tc.assertIn("supported content", results[0].full_text)
 
 
 def test_read_many_force_plain_text_extracts_unknown_extensions() -> None:
@@ -230,7 +274,7 @@ def test_read_many_force_plain_text_extracts_unknown_extensions() -> None:
         )
 
         tc.assertEqual(1, len(results))
-        tc.assertEqual("unknown plain-text content", results[0].get_full_text())
+        tc.assertEqual("unknown plain-text content", results[0].full_text)
 
 
 def test_read_many_with_path_object() -> None:
@@ -276,7 +320,7 @@ def test_read_many_continues_on_extraction_error(monkeypatch: Any) -> None:
             return original_read_file(path, **kwargs)
 
         monkeypatch.setattr(
-            "sharepoint2text.read_file",
+            "sharepoint2text._api.read_file",
             patched_read_file,
         )
 
@@ -284,6 +328,135 @@ def test_read_many_continues_on_extraction_error(monkeypatch: Any) -> None:
 
         # Should have processed at least one file successfully
         tc.assertGreaterEqual(len(results), 1)
+
+
+def test_read_many_reports_each_selected_file(tmp_path: Path) -> None:
+    """Report one successful structured result per selected file."""
+    (tmp_path / "first.txt").write_text("first")
+    (tmp_path / "second.txt").write_text("second")
+    reports: list[BatchFileResult] = []
+
+    documents = list(
+        read_many(
+            tmp_path,
+            suffixes=[".txt"],
+            on_file_result=reports.append,
+        )
+    )
+
+    assert len(reports) == 2
+    assert {report.path.name for report in reports} == {"first.txt", "second.txt"}
+    assert all(report.succeeded for report in reports)
+    assert all(report.error is None for report in reports)
+    assert sum(report.documents_extracted for report in reports) == len(documents)
+
+
+def test_read_many_reports_recoverable_failure_and_continues(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Report a recoverable file error while continuing later extraction."""
+    (tmp_path / "failed.txt").write_text("failed")
+    (tmp_path / "successful.txt").write_text("successful")
+    original_read_file = read_many.__globals__["read_file"]
+    reports: list[BatchFileResult] = []
+
+    def failing_read_file(path: Path, **kwargs: Any) -> Iterator[ExtractedDocument]:
+        """Fail one selected file and delegate all others."""
+        if path.name == "failed.txt":
+            raise OSError("simulated failure")
+        return original_read_file(path, **kwargs)
+
+    monkeypatch.setattr("sharepoint2text._api.read_file", failing_read_file)
+
+    documents = list(
+        read_many(
+            tmp_path,
+            suffixes=[".txt"],
+            on_file_result=reports.append,
+        )
+    )
+
+    reports_by_name = {report.path.name: report for report in reports}
+    assert len(documents) == 1
+    assert reports_by_name["successful.txt"].succeeded
+    assert not reports_by_name["failed.txt"].succeeded
+    assert isinstance(reports_by_name["failed.txt"].error, OSError)
+
+
+def test_read_many_reports_partial_documents_before_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Include documents emitted before a selected file fails."""
+    (tmp_path / "partial.txt").write_text("partial")
+    reports: list[BatchFileResult] = []
+
+    def partially_failing_read_file(
+        path: Path, **kwargs: Any
+    ) -> Iterator[ExtractedDocument]:
+        """Yield one document before raising a recoverable error."""
+        del path, kwargs
+        yield ExtractedDocument(format="txt")
+        raise OSError("failure after document")
+
+    monkeypatch.setattr(
+        "sharepoint2text._api.read_file",
+        partially_failing_read_file,
+    )
+
+    documents = list(
+        read_many(
+            tmp_path,
+            suffixes=[".txt"],
+            on_file_result=reports.append,
+        )
+    )
+
+    assert len(documents) == 1
+    assert len(reports) == 1
+    assert reports[0].documents_extracted == 1
+    assert isinstance(reports[0].error, OSError)
+
+
+def test_read_many_propagates_callback_failure(tmp_path: Path) -> None:
+    """Stop batch iteration when the reporting callback raises."""
+    (tmp_path / "document.txt").write_text("content")
+
+    def reject_result(result: BatchFileResult) -> None:
+        """Reject the completed per-file result."""
+        del result
+        raise RuntimeError("callback failed")
+
+    with pytest.raises(RuntimeError, match="callback failed"):
+        list(
+            read_many(
+                tmp_path,
+                suffixes=[".txt"],
+                on_file_result=reject_result,
+            )
+        )
+
+
+def test_read_many_reports_lazily_without_accumulation(tmp_path: Path) -> None:
+    """Deliver reports as files complete without retaining a batch report."""
+    (tmp_path / "first.txt").write_text("first")
+    (tmp_path / "second.txt").write_text("second")
+    reports: list[BatchFileResult] = []
+    documents = read_many(
+        tmp_path,
+        suffixes=[".txt"],
+        on_file_result=reports.append,
+    )
+
+    next(documents)
+    assert reports == []
+
+    next(documents)
+    assert len(reports) == 1
+
+    assert list(documents) == []
+    assert len(reports) == 2
 
 
 def test_read_many_case_insensitive_suffix_matching() -> None:
@@ -302,8 +475,40 @@ def test_read_many_case_insensitive_suffix_matching() -> None:
         tc.assertEqual(3, len(results))
 
 
+def test_read_many_enumerates_folder_lazily(monkeypatch: Any) -> None:
+    """Use lazy glob iteration instead of materializing every folder path."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir_path = Path(tmpdir)
+        (tmpdir_path / "document.txt").write_text("content")
+
+        def reject_eager_glob(*args: Any, **kwargs: Any) -> list[str]:
+            """Fail if read_many calls the eager glob implementation."""
+            raise AssertionError("read_many must not materialize glob results")
+
+        traversal_started = False
+        original_iglob = glob.iglob
+
+        def recording_iglob(*args: Any, **kwargs: Any) -> Iterator[str]:
+            """Record when iteration requests filesystem traversal."""
+            nonlocal traversal_started
+            traversal_started = True
+            return original_iglob(*args, **kwargs)
+
+        monkeypatch.setattr("glob.glob", reject_eager_glob)
+        monkeypatch.setattr("glob.iglob", recording_iglob)
+
+        documents = read_many(tmpdir_path, suffixes=[".txt"])
+        tc.assertFalse(traversal_started)
+
+        results = list(documents)
+
+    tc.assertTrue(traversal_started)
+    tc.assertEqual(1, len(results))
+    tc.assertEqual("content", results[0].full_text)
+
+
 def test_read_many_with_ignore_images() -> None:
-    """read_many should pass ignore_images flag to extractors."""
+    """Skip image records when read_many ignores images."""
     results = list(
         read_many(
             RESOURCES_PATH / "modern_ms",
@@ -316,7 +521,5 @@ def test_read_many_with_ignore_images() -> None:
     # Should still extract files
     tc.assertGreater(len(results), 0)
 
-    # Check that no images were extracted
-    for result in results:
-        images = list(result.iterate_images())
-        tc.assertEqual(len(images), 0, "Images should be ignored")
+    images = [image for result in results for image in result.iter_images()]
+    tc.assertEqual([], images)

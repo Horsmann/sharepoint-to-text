@@ -7,7 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
 ## [Released]
+
+## [2.0.0] - 2026-08-23
+For upgrade instructions, see
+[Migrating from 1.2 to 2.0](MIGRATION__1.2_to_2.0.md).
+
+### Changed
+- Replace all format-specific public extraction records with eight slotted,
+  format-neutral dataclasses headed by `ExtractedDocument`.
+- Make `read_file`, `read_bytes`, and `read_many` return normalized documents
+  for every supported format.
+- Make CLI JSON output use the deterministic, explicitly versioned v2 schema.
+- Preserve all yielded documents in mirrored folder output and all parent-level
+  records in self-contained `--json-unit` envelopes.
+- Report extraction failures as concise CLI errors instead of tracebacks.
+
+### Added
+- Add optional structured per-file success/error reporting to `read_many`
+  through `BatchFileResult` and the streaming `on_file_result` callback.
+- Add centralized dict/JSON codecs with opt-in base64 payloads, bounded binary
+  decoding, and schema validation.
+- Add Markdown rendering for normalized documents.
+- Add isolated per-call `zip_bomb_limits` configuration to `read_file`,
+  `read_bytes`, and `read_many`.
+- Add `--zip-bomb-limit-multiplier` to uniformly relax or disable CLI ZIP-bomb
+  limits for trusted input.
+- Add `--include-binary` as the CLI option for image and attachment payloads.
+
+### Removed
+- Remove the former `--include-images` CLI option.
+- Remove the format-specific result types, direct format-reader exports,
+  conversion adapters, class-name-based serialization, and their module paths.
+- Remove the process-wide `get_zip_bomb_limits`, `set_zip_bomb_limits`, and
+  `reset_zip_bomb_limits` helpers.
 
 ## [1.2.1] - 2026-08-22
 - Dependencies updated to latest version

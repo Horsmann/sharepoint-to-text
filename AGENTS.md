@@ -122,6 +122,33 @@ def fetch_user(user_id, include_inactive=False):
     ...
 ```
 
+### 3.4 Unit Test Requirements
+
+Every new behavior and every regression fix **must** be verified by one or more
+new unit tests that fail without the corresponding implementation or fix.
+
+Existing unit tests are protected regression coverage:
+
+- **Do not remove existing unit tests.**
+- **Do not remove, weaken, or otherwise alter the behavioral content of an
+  existing unit test.** This includes its scenarios, inputs, assertions,
+  expected outcomes, and error cases.
+- Test scaffolding may be refactored when necessary. Changes to data-type
+  shells, fixtures, helper methods, variable names, parameter shapes, or the
+  mechanism used to provide information are permitted only when all of the
+  original test information, scenarios, and behavioral assertions remain
+  semantically unchanged.
+- If removing or changing any existing test content is genuinely necessary,
+  stop and explain exactly what content must change, why the change is
+  necessary, and what coverage would be affected. Obtain explicit human
+  confirmation before making the change. Agent judgment alone is not
+  sufficient authorization.
+
+> **Rule:** A production-code change is not complete when it only makes the
+> existing suite pass. New behavior and regression fixes require new unit-test
+> coverage, and existing coverage must remain intact unless a human explicitly
+> approves a justified exception.
+
 ---
 
 ## 4. Progress Tracking
@@ -148,6 +175,7 @@ The agent maintains a live checklist throughout the task. This checklist is the 
 
 - [ ] `uv run pytest` — all tests pass
 - [ ] `uv run mypy .` — zero type errors
+- [ ] `uv run pre-commit run --all-files` — all hooks pass
 ```
 
 ### 4.2 Checklist Rules
@@ -160,7 +188,7 @@ The agent maintains a live checklist throughout the task. This checklist is the 
 
 ## 5. Mandatory Validation
 
-**No task is complete without passing both validation commands.** This is non-negotiable.
+**No task is complete without passing all three validation commands.** This is non-negotiable.
 
 ### 5.1 Run Tests
 
@@ -178,14 +206,22 @@ uv run mypy .
 
 Zero type errors. Zero unresolved imports on code the agent has touched.
 
-### 5.3 Failure Protocol
+### 5.3 Run Pre-commit Hooks
 
-If either command fails, the agent must:
+```bash
+uv run pre-commit run --all-files
+```
+
+All hooks must pass against all files.
+
+### 5.4 Failure Protocol
+
+If any command fails, the agent must:
 
 1. **Diagnose** — read the full error output and identify the root cause.
 2. **Fix** — apply a targeted fix. Do not suppress errors with `# type: ignore` or skip/xfail tests unless there is an explicit, documented reason.
-3. **Re-run** — execute both commands again from scratch.
-4. **Repeat** until both commands exit cleanly.
+3. **Re-run** — execute all three commands again from scratch.
+4. **Repeat** until all three commands exit cleanly.
 
 > ⚠️ **Never declare completion while errors remain.** A passing checklist with failing tests is a lie.
 
@@ -200,8 +236,11 @@ A task is **complete** when all of the following are true:
 ✅  Every verifiable state has been confirmed
 ✅  uv run pytest — passes with zero failures
 ✅  uv run mypy . — passes with zero errors
+✅  uv run pre-commit run --all-files — all hooks pass
 ✅  All new/modified code has docstrings
 ✅  All new/modified functions have complete type hints
+✅  New behavior and regression fixes have new unit-test coverage
+✅  Existing test content remains semantically intact, or a justified change was explicitly approved by a human
 ```
 
 If any item above is not satisfied, the task is **not complete**.
@@ -226,9 +265,15 @@ Copy this block at the start of every task:
 - [ ] No magic numbers — constants are named and documented
 - [ ] Error handling is explicit (no bare `except:`)
 
+### Test Coverage
+- [ ] New behavior and regression fixes have new unit tests
+- [ ] Existing tests and their behavioral content remain intact
+- [ ] Any necessary test-content change has an explanation and explicit human confirmation
+
 ### Validation
 - [ ] `uv run pytest` passes
 - [ ] `uv run mypy .` passes
+- [ ] `uv run pre-commit run --all-files` passes
 ```
 
 ---

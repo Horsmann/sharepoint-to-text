@@ -107,7 +107,7 @@ Maintenance Notes
 
 import io
 import logging
-from typing import Any, Generator
+from typing import Any, Generator, cast
 
 from sharepoint2text.parsing import _defused_xml as ET
 from sharepoint2text.parsing.exceptions import (
@@ -115,26 +115,23 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFailedError,
     ExtractionFileEncryptedError,
 )
-from sharepoint2text.parsing.extractors.data_types import (
-    OdtBookmark,
-    OdtContent,
-    OdtHeaderFooter,
-    OdtHyperlink,
-    OdtNote,
-    OdtParagraph,
-    OdtRun,
-    OdtTable,
-    OpenDocumentAnnotation,
-    OpenDocumentImage,
-    OpenDocumentMetadata,
-)
+from sharepoint2text.parsing.extractors._model import source_metadata
 from sharepoint2text.parsing.extractors.open_office._shared import (
     element_text,
     extract_odf_metadata,
     guess_content_type,
+    odf_length_to_px,
 )
 from sharepoint2text.parsing.extractors.util.encryption import is_odf_encrypted
 from sharepoint2text.parsing.extractors.util.zip_context import ZipContext
+from sharepoint2text.parsing.models import (
+    Annotation,
+    ContentUnit,
+    DocumentMetadata,
+    ExtractedDocument,
+    ImageAsset,
+    Table,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -194,17 +191,6 @@ class _OdtContext(ZipContext):
             Parsed styles root element.
         """
         return self._styles_root
-
-    def open_file(self, path: str) -> io.BufferedReader:
-        """Open a file from the ZIP archive.
-
-        Args:
-            path: Package-relative path of the embedded member.
-
-        Returns:
-            Readable binary stream for the member.
-        """
-        return self.open_stream(path)  # type: ignore[no-any-return]
 
 
 # ODF namespaces
@@ -276,15 +262,15 @@ def _get_text_recursive(element: ET.Element) -> str:
     )
 
 
-def _extract_metadata_from_context(ctx: _OdtContext) -> OpenDocumentMetadata:
+def _extract_metadata_from_context(ctx: _OdtContext) -> DocumentMetadata:
     """Extract metadata from cached meta.xml root."""
-    logger.debug("Extracting ODT metadata")
     return extract_odf_metadata(ctx.meta_root, NS)
 
 
-def _extract_paragraphs(body: ET.Element) -> list[OdtParagraph]:
+def _extract_paragraphs(
+    body: ET.Element,
+) -> list[tuple[str, int | None, str | None]]:
     """Extract paragraphs from the document body."""
-    logger.debug("Extracting ODT paragraphs")
     paragraphs = []
 
     # Find all paragraphs (text:p) and headings (text:h)
@@ -303,28 +289,13 @@ def _extract_paragraphs(body: ET.Element) -> list[OdtParagraph]:
                     except ValueError:
                         pass
 
-            # Extract runs (text:span elements)
-            runs = []
-            for span in elem.iter(_TEXT_SPAN_TAG):
-                span_text = _get_text_recursive(span)
-                span_style = span.get(_ATTR_TEXT_STYLE_NAME)
-                runs.append(OdtRun(text=span_text, style_name=span_style))
-
-            paragraphs.append(
-                OdtParagraph(
-                    text=text,
-                    style_name=style_name,
-                    outline_level=outline_level,
-                    runs=runs,
-                )
-            )
+            paragraphs.append((text, outline_level, style_name))
 
     return paragraphs
 
 
-def _extract_tables(body: ET.Element) -> list[OdtTable]:
+def _extract_tables(body: ET.Element) -> list[Table]:
     """Extract tables from the document body."""
-    logger.debug("Extracting ODT tables")
     tables = []
 
     for table in body.iter(_TABLE_TABLE_TAG):
@@ -337,28 +308,26 @@ def _extract_tables(body: ET.Element) -> list[OdtTable]:
             if row_data:
                 table_data.append(row_data)
         if table_data:
-            tables.append(OdtTable(data=table_data))
+            tables.append(Table(rows=cast(Any, table_data)))
 
     return tables
 
 
-def _extract_hyperlinks(body: ET.Element) -> list[OdtHyperlink]:
+def _extract_hyperlinks(body: ET.Element) -> list[Annotation]:
     """Extract hyperlinks from the document."""
-    logger.debug("Extracting ODT hyperlinks")
     hyperlinks = []
 
     for link in body.iter(_TEXT_A_TAG):
         href = link.get(_ATTR_XLINK_HREF, "")
         text = _get_text_recursive(link)
         if href:
-            hyperlinks.append(OdtHyperlink(text=text, url=href))
+            hyperlinks.append(Annotation(kind="hyperlink", text=text, target=href))
 
     return hyperlinks
 
 
-def _extract_notes(body: ET.Element) -> tuple[list[OdtNote], list[OdtNote]]:
+def _extract_notes(body: ET.Element) -> tuple[list[Annotation], list[Annotation]]:
     """Extract footnotes and endnotes from the document."""
-    logger.debug("Extracting ODT notes")
     footnotes = []
     endnotes = []
 
@@ -375,7 +344,11 @@ def _extract_notes(body: ET.Element) -> tuple[list[OdtNote], list[OdtNote]]:
                 text_parts.append(_get_text_recursive(p))
             text = "\n".join(text_parts)
 
-        note_obj = OdtNote(id=note_id, note_class=note_class, text=text)
+        note_obj = Annotation(
+            kind=note_class,
+            text=text,
+            properties={"odt.id": note_id},
+        )
 
         if note_class == "endnote":
             endnotes.append(note_obj)
@@ -385,9 +358,8 @@ def _extract_notes(body: ET.Element) -> tuple[list[OdtNote], list[OdtNote]]:
     return footnotes, endnotes
 
 
-def _extract_annotations(body: ET.Element) -> list[OpenDocumentAnnotation]:
+def _extract_annotations(body: ET.Element) -> list[Annotation]:
     """Extract annotations/comments from the document."""
-    logger.debug("Extracting ODT annotations")
     annotations = []
 
     for annotation in body.iter(_OFFICE_ANNOTATION_TAG):
@@ -404,27 +376,31 @@ def _extract_annotations(body: ET.Element) -> list[OpenDocumentAnnotation]:
         text = "\n".join(text_parts)
 
         annotations.append(
-            OpenDocumentAnnotation(creator=creator or "", date=date or "", text=text)
+            Annotation(
+                kind="comment",
+                author=creator or "",
+                text=text,
+                properties={"odt.date": date or ""},
+            )
         )
 
     return annotations
 
 
-def _extract_bookmarks(body: ET.Element) -> list[OdtBookmark]:
+def _extract_bookmarks(body: ET.Element) -> list[Annotation]:
     """Extract bookmarks from the document."""
-    logger.debug("Extracting ODT bookmarks")
     bookmarks = []
 
     # Bookmark start elements
     for bookmark in body.iter(_TEXT_BOOKMARK_TAG):
         name = bookmark.get(_ATTR_TEXT_NAME, "")
         if name:
-            bookmarks.append(OdtBookmark(name=name))
+            bookmarks.append(Annotation(kind="bookmark", target=name))
 
     for bookmark in body.iter(_TEXT_BOOKMARK_START_TAG):
         name = bookmark.get(_ATTR_TEXT_NAME, "")
         if name:
-            bookmarks.append(OdtBookmark(name=name))
+            bookmarks.append(Annotation(kind="bookmark", target=name))
 
     return bookmarks
 
@@ -477,7 +453,7 @@ def _extract_caption_from_paragraph(para: ET.Element) -> str:
 
 def _extract_images_from_context(
     ctx: _OdtContext, body: ET.Element
-) -> list[OpenDocumentImage]:
+) -> list[ImageAsset]:
     """Extract images from the document using cached context.
 
     Extracts images with their metadata:
@@ -490,8 +466,7 @@ def _extract_images_from_context(
     2. Captioned: draw:frame > draw:text-box > text:p > draw:frame > draw:image
        (caption is the text content of the containing paragraph)
     """
-    logger.debug("Extracting ODT images")
-    images: list[OpenDocumentImage] = []
+    images: list[ImageAsset] = []
     image_counter = 0
 
     # Track which image hrefs we've already processed (to avoid duplicates)
@@ -539,24 +514,29 @@ def _extract_images_from_context(
                     image_counter += 1
                     img_data = ctx.read_bytes(href)
                     images.append(
-                        OpenDocumentImage(
-                            href=href,
-                            name=name or href.split("/")[-1],
-                            content_type=guess_content_type(href),
-                            data=io.BytesIO(img_data),
-                            size_bytes=len(img_data),
-                            width=width,
-                            height=height,
-                            image_index=image_counter,
+                        ImageAsset(
+                            number=image_counter,
+                            filename=name or href.split("/")[-1],
+                            media_type=guess_content_type(href),
+                            data=img_data,
+                            width=odf_length_to_px(width),
+                            height=odf_length_to_px(height),
                             caption=caption,
                             description=description,
-                            unit_number=None,
+                            properties={
+                                "odt.href": href,
+                                "odt.size_bytes": len(img_data),
+                            },
                         )
                     )
             except (KeyError, OSError, ValueError) as e:
                 logger.debug("Failed to extract image %s: %s", href, e)
                 images.append(
-                    OpenDocumentImage(href=href, name=name or href, error=str(e))
+                    ImageAsset(
+                        number=image_counter + 1,
+                        filename=name or href,
+                        properties={"odt.href": href, "odt.error": str(e)},
+                    )
                 )
 
     # Then, find simple images (not in text-boxes)
@@ -592,38 +572,42 @@ def _extract_images_from_context(
                         image_counter += 1
                         img_data = ctx.read_bytes(href)
                         images.append(
-                            OpenDocumentImage(
-                                href=href,
-                                name=name or href.split("/")[-1],
-                                content_type=guess_content_type(href),
-                                data=io.BytesIO(img_data),
-                                size_bytes=len(img_data),
-                                width=width,
-                                height=height,
-                                image_index=image_counter,
+                            ImageAsset(
+                                number=image_counter,
+                                filename=name or href.split("/")[-1],
+                                media_type=guess_content_type(href),
+                                data=img_data,
+                                width=odf_length_to_px(width),
+                                height=odf_length_to_px(height),
                                 caption=caption,
                                 description=description,
-                                unit_number=None,
+                                properties={
+                                    "odt.href": href,
+                                    "odt.size_bytes": len(img_data),
+                                },
                             )
                         )
                         processed_hrefs.add(href)
                 except (KeyError, OSError, ValueError) as e:
                     logger.debug("Failed to extract image %s: %s", href, e)
                     images.append(
-                        OpenDocumentImage(href=href, name=name or href, error=str(e))
+                        ImageAsset(
+                            number=image_counter + 1,
+                            filename=name or href,
+                            properties={"odt.href": href, "odt.error": str(e)},
+                        )
                     )
             elif href:
                 image_counter += 1
                 images.append(
-                    OpenDocumentImage(
-                        href=href,
-                        name=name,
-                        width=width,
-                        height=height,
-                        image_index=image_counter,
+                    ImageAsset(
+                        number=image_counter,
+                        filename=name or None,
+                        width=odf_length_to_px(width),
+                        height=odf_length_to_px(height),
                         caption=caption,
                         description=description,
-                        unit_number=None,
+                        properties={"odt.href": href},
                     )
                 )
                 processed_hrefs.add(href)
@@ -633,11 +617,10 @@ def _extract_images_from_context(
 
 def _extract_headers_footers_from_context(
     ctx: _OdtContext,
-) -> tuple[list[OdtHeaderFooter], list[OdtHeaderFooter]]:
+) -> tuple[list[Annotation], list[Annotation]]:
     """Extract headers and footers from cached styles.xml root."""
-    logger.debug("Extracting ODT headers/footers")
-    headers: list[OdtHeaderFooter] = []
-    footers: list[OdtHeaderFooter] = []
+    headers: list[Annotation] = []
+    footers: list[Annotation] = []
 
     root = ctx.styles_root
     if root is None:
@@ -654,35 +637,42 @@ def _extract_headers_footers_from_context(
         if header is not None:
             text = _get_text_recursive(header)
             if text.strip():
-                headers.append(OdtHeaderFooter(type="header", text=text))
+                headers.append(Annotation(kind="header", text=text))
 
         # Left header
         header_left = master_page.find("style:header-left", NS)
         if header_left is not None:
             text = _get_text_recursive(header_left)
             if text.strip():
-                headers.append(OdtHeaderFooter(type="header-left", text=text))
+                headers.append(
+                    Annotation(
+                        kind="header", text=text, properties={"odt.type": "left"}
+                    )
+                )
 
         # Regular footer
         footer = master_page.find("style:footer", NS)
         if footer is not None:
             text = _get_text_recursive(footer)
             if text.strip():
-                footers.append(OdtHeaderFooter(type="footer", text=text))
+                footers.append(Annotation(kind="footer", text=text))
 
         # Left footer
         footer_left = master_page.find("style:footer-left", NS)
         if footer_left is not None:
             text = _get_text_recursive(footer_left)
             if text.strip():
-                footers.append(OdtHeaderFooter(type="footer-left", text=text))
+                footers.append(
+                    Annotation(
+                        kind="footer", text=text, properties={"odt.type": "left"}
+                    )
+                )
 
     return headers, footers
 
 
 def _extract_styles_from_context(ctx: _OdtContext) -> list[str]:
     """Extract style names from cached content.xml and styles.xml roots."""
-    logger.debug("Extracting ODT styles")
     styles = set()
 
     # Extract from cached content.xml
@@ -735,15 +725,119 @@ def _append_full_text_from_element(elem: ET.Element, output: list[str]) -> None:
 
 def _extract_full_text(body: ET.Element) -> str:
     """Extract full text from the document body in reading order."""
-    logger.debug("Extracting ODT full text")
     all_text: list[str] = []
     _append_full_text_from_element(body, all_text)
     return "\n".join(all_text)
 
 
+def _build_units(
+    paragraphs: list[tuple[str, int | None, str | None]],
+    full_text: str,
+    title: str | None,
+    images: list[ImageAsset],
+    tables: list[Table],
+) -> list[ContentUnit]:
+    """Build canonical sections from ODT outline levels."""
+    units: list[ContentUnit] = []
+    base_path = [title] if title else []
+    heading_stack: list[tuple[int, str]] = []
+    current_path: list[str] = []
+    current_level: int | None = None
+    lines: list[str] = []
+    current_tables: list[Table] = []
+    pending_tables: list[Table] = []
+    table_index = 0
+    in_table_block = False
+
+    def flush() -> None:
+        text = "\n".join(line for line in lines if line).strip()
+        if not text and not current_tables:
+            return
+        heading_path = list(base_path)
+        for heading in current_path:
+            if not heading_path or heading_path[-1] != heading:
+                heading_path.append(heading)
+        units.append(
+            ContentUnit(
+                number=len(units) + 1,
+                kind="section",
+                text=text,
+                title=current_path[-1] if current_path else title,
+                heading_path=heading_path,
+                tables=list(current_tables),
+                properties={"odt.outline_level": current_level},
+            )
+        )
+
+    for text, outline_level, style_name in paragraphs:
+        normalized_style = (style_name or "").strip().lower()
+        if outline_level is None and normalized_style.startswith(("title", "titel")):
+            outline_level = 0
+        if outline_level is None:
+            is_table_text = (
+                normalized_style.startswith("table") or "table_" in normalized_style
+            )
+            if is_table_text:
+                if not in_table_block and table_index < len(tables):
+                    pending_tables.append(tables[table_index])
+                    table_index += 1
+                in_table_block = True
+                continue
+            in_table_block = False
+            if text.strip():
+                lines.append(text.strip())
+            continue
+        flush()
+        lines = []
+        current_tables = []
+        while heading_stack and heading_stack[-1][0] >= outline_level:
+            heading_stack.pop()
+        heading_stack.append((outline_level, text.strip()))
+        current_path = [heading for _, heading in heading_stack if heading]
+        current_level = outline_level
+        if pending_tables:
+            current_tables.extend(pending_tables)
+            pending_tables = []
+    current_tables.extend(pending_tables)
+    flush()
+
+    if not units:
+        units = [
+            ContentUnit(
+                number=1,
+                kind="document",
+                text=full_text,
+                title=title,
+                heading_path=base_path,
+            )
+        ]
+    if table_index < len(tables):
+        units[-1].tables.extend(tables[table_index:])
+    for image in images:
+        owner = next(
+            (
+                unit
+                for unit in units
+                if (image.caption and image.caption in unit.text)
+                or (image.description and image.description in unit.text)
+            ),
+            next(
+                (
+                    unit
+                    for unit in reversed(units)
+                    if unit.properties.get("odt.outline_level") in (1, None)
+                ),
+                units[-1],
+            ),
+        )
+        image.properties["odt.unit_number"] = owner.number
+        owner.images.append(image)
+    return units
+
+
 def read_odt(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[OdtContent, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Extract all relevant content from an OpenDocument Text (.odt) file.
 
@@ -759,20 +853,17 @@ def read_odt(
             The stream position is reset to the beginning before reading.
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
-            returned OdtContent.metadata.
+            returned document source metadata.
         ignore_images: If True, skip image extraction (not applicable for this format).
 
     Yields:
-        OdtContent: Single OdtContent object containing:
-            - metadata: OpenDocumentMetadata with title, creator, dates, etc.
-            - paragraphs: List of OdtParagraph with text and runs
-            - tables: List of tables as OdtTable objects
+        ExtractedDocument: Single canonical text document containing:
+            - metadata: title, creator, dates, and namespaced properties
+            - units: heading-based canonical content units
+            - tables: canonical tables
             - headers/footers: From master pages in styles.xml
-            - images: List of OpenDocumentImage with binary data
-            - hyperlinks: List of OdtHyperlink with text and URL
-            - footnotes/endnotes: OdtNote objects
-            - annotations: OpenDocumentAnnotation objects with creator and date
-            - bookmarks: OdtBookmark objects
+            - images: canonical image assets with binary data
+            - annotations: links, notes, comments, headers, and bookmarks
             - styles: List of style names
             - full_text: Complete document text
 
@@ -792,8 +883,6 @@ def read_odt(
         - ZIP file is opened once and all XML is cached
         - content.xml and styles.xml are parsed once and reused
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering ODT extraction: %s", source_path)
     try:
         file_like.seek(0)
         if is_odf_encrypted(file_like):
@@ -828,27 +917,38 @@ def read_odt(
         finally:
             ctx.close()
 
-        # Populate file metadata from path
-        metadata.populate_from_path(path)
+        logger.debug(
+            "Extracted ODT: paragraphs=%d, tables=%d, images=%d",
+            len(paragraphs),
+            len(tables),
+            len(images),
+        )
 
-        yield OdtContent(
+        units = _build_units(paragraphs, full_text, metadata.title, images, tables)
+        all_annotations = [
+            *headers,
+            *footers,
+            *hyperlinks,
+            *footnotes,
+            *endnotes,
+            *annotations,
+            *bookmarks,
+        ]
+        # Assign annotations to the first unit
+        if units and all_annotations:
+            units[0].annotations.extend(all_annotations)
+
+        yield ExtractedDocument(
+            format="odt",
+            source=source_metadata(path),
             metadata=metadata,
-            paragraphs=paragraphs,
-            tables=tables,
-            headers=headers,
-            footers=footers,
-            images=images,
-            hyperlinks=hyperlinks,
-            footnotes=footnotes,
-            endnotes=endnotes,
-            annotations=annotations,
-            bookmarks=bookmarks,
-            styles=styles,
-            full_text=full_text,
+            units=units,
+            properties={
+                "odt.styles": cast(Any, styles),
+                "document.full_text": full_text,
+            },
         )
     except ExtractionError:
         raise
     except (KeyError, ET.ParseError, OSError, ValueError) as exc:
         raise ExtractionFailedError("Failed to extract ODT file", cause=exc) from exc
-    finally:
-        logger.info("Leaving ODT extraction: %s", source_path)

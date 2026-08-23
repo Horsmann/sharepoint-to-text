@@ -11,7 +11,7 @@ import hashlib
 import io
 import logging
 import struct
-from typing import Any, Generator
+from typing import Any, Generator, cast
 
 import olefile  # type: ignore[import-untyped]
 import xlrd  # type: ignore[import-untyped]
@@ -21,12 +21,7 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFileEncryptedError,
     ExtractionLegacyMicrosoftParsingError,
 )
-from sharepoint2text.parsing.extractors.data_types import (
-    XlsContent,
-    XlsImage,
-    XlsMetadata,
-    XlsSheet,
-)
+from sharepoint2text.parsing.extractors._model import source_metadata
 from sharepoint2text.parsing.extractors.util.encryption import is_xls_encrypted
 from sharepoint2text.parsing.extractors.util.image_utils import (
     BLIP_INSTANCE_JPEG_2,
@@ -38,6 +33,14 @@ from sharepoint2text.parsing.extractors.util.image_utils import (
     detect_image_type,
     get_image_dimensions,
     wrap_dib_as_bmp,
+)
+from sharepoint2text.parsing.models import (
+    CellValue,
+    ContentUnit,
+    DocumentMetadata,
+    ExtractedDocument,
+    ImageAsset,
+    Table,
 )
 
 logger = logging.getLogger(__name__)
@@ -196,9 +199,8 @@ def _format_sheet_as_text(headers: list[str], rows: list[list[str]]) -> str:
 # =============================================================================
 
 
-def _read_content(file_like: io.BytesIO) -> list[XlsSheet]:
+def _read_content(file_like: io.BytesIO) -> list[ContentUnit]:
     """Read all sheets from XLS file and extract content."""
-    logger.debug("Reading content")
     file_like.seek(0)
     workbook = xlrd.open_workbook(
         file_contents=file_like.read(),
@@ -208,11 +210,16 @@ def _read_content(file_like: io.BytesIO) -> list[XlsSheet]:
     )
 
     sheets = []
-    for sheet in workbook.sheets():
-        logger.debug(f"Reading sheet: [{sheet.name}]")
+    for sheet_number, sheet in enumerate(workbook.sheets(), start=1):
 
         if sheet.nrows == 0:
-            sheets.append(XlsSheet(name=sheet.name, data=[], text=""))
+            sheets.append(
+                ContentUnit(
+                    number=sheet_number,
+                    kind="sheet",
+                    title=sheet.name,
+                )
+            )
             continue
 
         nrows = sheet.nrows
@@ -225,30 +232,29 @@ def _read_content(file_like: io.BytesIO) -> list[XlsSheet]:
         ]
 
         # Build data and text rows
-        data: list[dict[str, Any]] = []
+        data_rows: list[list[CellValue]] = []
         text_rows: list[list[str]] = []
 
         for row_idx in range(1, nrows):
-            row_dict: dict[str, Any] = {}
+            row_values: list[CellValue] = []
             row_text: list[str] = []
 
             for col_idx in range(ncols):
                 cell = sheet.cell(row_idx, col_idx)
-                header = (
-                    headers[col_idx] if col_idx < len(headers) else f"col_{col_idx}"
-                )
                 native, text = _get_cell_values(cell, workbook)
-                row_dict[header] = native
+                row_values.append(cast(CellValue, native))
                 row_text.append(text)
 
-            data.append(row_dict)
+            data_rows.append(row_values)
             text_rows.append(row_text)
 
         sheets.append(
-            XlsSheet(
-                name=sheet.name,
-                data=data,
-                text=_format_sheet_as_text(headers, text_rows),
+            ContentUnit(
+                number=sheet_number,
+                kind="sheet",
+                title=sheet.name,
+                text=_format_sheet_as_text(headers, text_rows).strip(),
+                tables=[Table(rows=[cast(list[CellValue], headers), *data_rows])],
             )
         )
 
@@ -260,7 +266,7 @@ def _read_content(file_like: io.BytesIO) -> list[XlsSheet]:
 # =============================================================================
 
 
-def _read_metadata(file_like: io.BytesIO) -> XlsMetadata:
+def _read_metadata(file_like: io.BytesIO) -> DocumentMetadata:
     """Extract document metadata from OLE container."""
     file_like.seek(0)
     with olefile.OleFileIO(file_like) as ole:
@@ -269,14 +275,22 @@ def _read_metadata(file_like: io.BytesIO) -> XlsMetadata:
         def decode(val: bytes | None) -> str:
             return val.decode("utf-8") if val else ""
 
-        return XlsMetadata(
-            title=decode(meta.title),
-            author=decode(meta.author),
-            subject=decode(meta.subject),
-            company=decode(meta.company),
-            last_saved_by=decode(meta.last_saved_by),
-            created=meta.create_time.isoformat() if meta.create_time else "",
-            modified=meta.last_saved_time.isoformat() if meta.last_saved_time else "",
+        company = decode(meta.company)
+        last_saved_by = decode(meta.last_saved_by)
+        return DocumentMetadata(
+            title=decode(meta.title) or None,
+            author=decode(meta.author) or None,
+            subject=decode(meta.subject) or None,
+            created=meta.create_time.isoformat() if meta.create_time else None,
+            modified=meta.last_saved_time.isoformat() if meta.last_saved_time else None,
+            properties={
+                key: value
+                for key, value in {
+                    "xls.company": company,
+                    "xls.last_saved_by": last_saved_by,
+                }.items()
+                if value
+            },
         )
 
 
@@ -287,18 +301,16 @@ def _read_metadata(file_like: io.BytesIO) -> XlsMetadata:
 
 def read_xls(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[XlsContent, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Extract content from a legacy Excel .xls file.
 
     Uses a generator pattern for API consistency. XLS files yield exactly one
-    XlsContent object containing sheets, metadata, and images.
+    canonical document containing sheets, metadata, and images.
 
     Args:
         ignore_images: If True, skip image extraction.
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering XLS extraction: %s", source_path)
     try:
         file_like.seek(0)
         if is_xls_encrypted(file_like):
@@ -307,14 +319,22 @@ def read_xls(
         file_like.seek(0)
         sheets = _read_content(file_like)
         metadata = _read_metadata(file_like)
-        metadata.populate_from_path(path)
         images = [] if ignore_images else _extract_images_from_workbook(file_like)
+        if sheets:
+            sheets[0].images = images
 
-        yield XlsContent(
+        logger.debug(
+            "Extracted XLS: sheets=%d, rows=%d, images=%d",
+            len(sheets),
+            sum(len(unit.tables[0].rows) for unit in sheets if unit.tables),
+            len(images),
+        )
+
+        yield ExtractedDocument(
+            format="xls",
+            source=source_metadata(path),
             metadata=metadata,
-            sheets=sheets,
-            images=images,
-            full_text="\n\n".join(sheet.text for sheet in sheets),
+            units=sheets,
         )
     except ExtractionError:
         raise
@@ -322,8 +342,6 @@ def read_xls(
         raise ExtractionLegacyMicrosoftParsingError(
             "Failed to extract XLS file", cause=exc
         ) from exc
-    finally:
-        logger.info("Leaving XLS extraction: %s", source_path)
 
 
 # =============================================================================
@@ -331,7 +349,7 @@ def read_xls(
 # =============================================================================
 
 
-def _extract_images_from_workbook(file_like: io.BytesIO) -> list[XlsImage]:
+def _extract_images_from_workbook(file_like: io.BytesIO) -> list[ImageAsset]:
     """Extract images from the Workbook stream (BLIP format)."""
     file_like.seek(0)
     if not olefile.isOleFile(file_like):
@@ -345,13 +363,13 @@ def _extract_images_from_workbook(file_like: io.BytesIO) -> list[XlsImage]:
                 return []
             data = ole.openstream("Workbook").read()
     except (OSError, IOError) as e:
-        logger.debug(f"Failed to read Workbook stream: {e}")
+        logger.debug("Failed to read XLS Workbook stream: %s", e)
         return []
 
     if len(data) < 25:
         return []
 
-    images: list[XlsImage] = []
+    images: list[ImageAsset] = []
     seen_hashes: set[str] = set()
     image_index = 0
     offset = 0
@@ -418,13 +436,13 @@ def _extract_images_from_workbook(file_like: io.BytesIO) -> list[XlsImage]:
             width, height = get_image_dimensions(image_data, detected[0])
 
             images.append(
-                XlsImage(
-                    image_index=image_index,
-                    content_type=detected[1],
-                    data=io.BytesIO(image_data) if image_data else None,
-                    size_bytes=len(image_data),
+                ImageAsset(
+                    number=image_index,
+                    media_type=detected[1],
+                    data=image_data or None,
                     width=width,
                     height=height,
+                    properties={"xls.size_bytes": len(image_data)},
                 )
             )
 

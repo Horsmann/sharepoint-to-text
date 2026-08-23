@@ -84,8 +84,8 @@ Usage
     >>>
     >>> with open("document.pdf", "rb") as f:
     ...     for doc in read_pdf(io.BytesIO(f.read()), path="document.pdf"):
-    ...         print(f"Pages: {doc.metadata.total_pages}")
-    ...         for page_num, page in enumerate(doc.pages, start=1):
+    ...         print(f"Pages: {doc.properties['pdf.total_pages']}")
+    ...         for page_num, page in enumerate(doc.units, start=1):
     ...             print(f"Page {page_num}: {len(page.text)} chars, {len(page.images)} images")
 
 See Also
@@ -109,7 +109,7 @@ import statistics
 from typing import Any, Generator, Iterable, Optional, Protocol
 
 from pypdf import PdfReader
-from pypdf.errors import DependencyError, LimitReachedError
+from pypdf.errors import DependencyError, LimitReachedError, PyPdfError
 from pypdf.generic import ContentStream
 
 from sharepoint2text.parsing.exceptions import (
@@ -118,11 +118,13 @@ from sharepoint2text.parsing.exceptions import (
     ExtractionFileEncryptedError,
     ExtractionFileTooLargeError,
 )
-from sharepoint2text.parsing.extractors.data_types import (
-    PdfContent,
-    PdfImage,
-    PdfMetadata,
-    PdfPage,
+from sharepoint2text.parsing.extractors._model import source_metadata
+from sharepoint2text.parsing.models import (
+    ContentUnit,
+    DocumentMetadata,
+    ExtractedDocument,
+    ImageAsset,
+    JsonValue,
 )
 
 logger = logging.getLogger(__name__)
@@ -228,6 +230,68 @@ def _open_pdf_reader(file_like: io.BytesIO) -> PdfReader:
     return PdfReader(file_like)
 
 
+def _extract_pdf_metadata(reader: PdfReader) -> DocumentMetadata:
+    """Extract document metadata from PDF info dictionary.
+
+    Args:
+        reader: An open PdfReader with access to document metadata.
+
+    Returns:
+        DocumentMetadata populated with available PDF properties.
+
+    Example:
+        >>> reader = PdfReader("document.pdf")
+        >>> metadata = _extract_pdf_metadata(reader)
+        >>> print(metadata.title)
+        'Sample Document'
+    """
+    properties: dict[str, JsonValue] = {"pdf.total_pages": len(reader.pages)}
+    metadata = DocumentMetadata(properties=properties)
+
+    info = reader.metadata
+    if info is None:
+        return metadata
+
+    # Standard metadata fields
+    if info.title:
+        metadata.title = str(info.title)
+
+    if info.author:
+        metadata.author = str(info.author)
+
+    if info.subject:
+        metadata.subject = str(info.subject)
+
+    # Keywords - may be comma or semicolon separated
+    if info.get("/Keywords"):
+        raw_keywords = str(info.get("/Keywords"))
+        metadata.keywords = [
+            kw.strip() for kw in raw_keywords.replace(";", ",").split(",") if kw.strip()
+        ]
+
+    # Creation and modification dates
+    if info.creation_date:
+        try:
+            metadata.created = info.creation_date.isoformat()
+        except (AttributeError, ValueError):
+            pass
+
+    if info.modification_date:
+        try:
+            metadata.modified = info.modification_date.isoformat()
+        except (AttributeError, ValueError):
+            pass
+
+    # Format-specific properties
+    if info.creator:
+        properties["pdf.creator"] = str(info.creator)
+
+    if info.producer:
+        properties["pdf.producer"] = str(info.producer)
+
+    return metadata
+
+
 def _should_skip_images(reader: PdfReader, file_like: io.BytesIO) -> bool:
     if not reader.is_encrypted:
         return False
@@ -252,7 +316,7 @@ def _should_skip_images(reader: PdfReader, file_like: io.BytesIO) -> bool:
 
 def read_pdf(
     file_like: io.BytesIO, path: Optional[str] = None, *, ignore_images: bool = False
-) -> Generator[PdfContent, Any, None]:
+) -> Generator[ExtractedDocument, Any, None]:
     """
     Extract all relevant content from a PDF file.
 
@@ -268,13 +332,13 @@ def read_pdf(
             The stream position is reset to the beginning before reading.
         path: Optional filesystem path to the source file. If provided,
             populates file metadata (filename, extension, folder) in the
-            returned PdfContent.metadata.
+            returned document source metadata.
         ignore_images: If True, skip image extraction.
 
     Yields:
-        PdfContent: Single PdfContent object containing:
-            - pages: List of PdfPage objects in document order
-            - metadata: PdfMetadata with total_pages and file info
+        ExtractedDocument: Single canonical PDF document containing:
+            - units: Canonical page content units in document order
+            - metadata: Canonical document and source metadata
 
     Note:
         Scanned PDFs containing only images will yield pages with empty
@@ -286,14 +350,12 @@ def read_pdf(
         >>> with open("report.pdf", "rb") as f:
         ...     data = io.BytesIO(f.read())
         ...     for doc in read_pdf(data, path="report.pdf"):
-        ...         print(f"Total pages: {doc.metadata.total_pages}")
-        ...         for page_num, page in enumerate(doc.pages, start=1):
+        ...         print(f"Total pages: {doc.properties['pdf.total_pages']}")
+        ...         for page_num, page in enumerate(doc.units, start=1):
         ...             print(f"Page {page_num}:")
         ...             print(f"  Text: {page.text[:100]}...")
         ...             print(f"  Images: {len(page.images)}")
     """
-    source_path = path or "<in-memory>"
-    logger.info("Entering PDF extraction: %s", source_path)
     try:
         reader = _open_pdf_reader(file_like)
         if reader.is_encrypted:
@@ -314,32 +376,32 @@ def read_pdf(
                 "Skipping image extraction for large AES-encrypted PDF using fallback crypto"
             )
 
-        pages = []
+        units: list[ContentUnit] = []
         total_images = 0
         for page_num, page in enumerate(reader.pages, start=1):
             images = [] if skip_images else _extract_image_bytes(page, page_num)
             total_images += len(images)
             page_text, _spatial_lines = _extract_text_with_spacing(page)
-            pages.append(
-                PdfPage(
+            units.append(
+                ContentUnit(
+                    number=page_num,
+                    kind="page",
                     text=page_text,
                     images=images,
-                    tables=[],
                 )
             )
 
-        metadata = PdfMetadata(total_pages=len(reader.pages))
-        metadata.populate_from_path(path)
-
         logger.debug(
-            "Extracted PDF: %d pages, %d images",
+            "Extracted PDF: pages=%d, images=%d",
             len(reader.pages),
             total_images,
         )
 
-        yield PdfContent(
-            pages=pages,
-            metadata=metadata,
+        yield ExtractedDocument(
+            format="pdf",
+            source=source_metadata(path),
+            metadata=_extract_pdf_metadata(reader),
+            units=units,
         )
     except ExtractionError:
         raise
@@ -350,13 +412,18 @@ def read_pdf(
             actual_size=0,
             cause=exc,
         ) from exc
-    except (DependencyError, OSError, ValueError, TypeError, KeyError) as exc:
+    except (
+        DependencyError,
+        PyPdfError,
+        OSError,
+        ValueError,
+        TypeError,
+        KeyError,
+    ) as exc:
         raise ExtractionFailedError("Failed to extract PDF file", cause=exc) from exc
-    finally:
-        logger.info("Leaving PDF extraction: %s", source_path)
 
 
-def _extract_image_bytes(page: PageLike, page_num: int) -> list[PdfImage]:
+def _extract_image_bytes(page: PageLike, page_num: int) -> list[ImageAsset]:
     """
     Extract all images from a PDF page's XObject resources.
 
@@ -411,13 +478,13 @@ def _extract_image_bytes(page: PageLike, page_num: int) -> list[PdfImage]:
             candidates.append((obj_name, obj, _extract_image_alt_text(obj)))
 
     # Extract images from candidates
-    found_images: list[PdfImage] = []
+    found_images: list[ImageAsset] = []
     for image_index, (obj_name, obj, caption) in enumerate(candidates, start=1):
         try:
             image_data = _extract_image(obj, obj_name, image_index, page_num, caption)
             found_images.append(image_data)
         except (KeyError, TypeError, ValueError, NotImplementedError) as e:
-            logger.warning(
+            logger.debug(
                 "Failed to extract image [%s] [%d]: %s", obj_name, image_index, e
             )
 
@@ -529,7 +596,7 @@ def _extract_image(
     index: int,
     page_num: int,
     caption: str,
-) -> PdfImage:
+) -> ImageAsset:
     """
     Extract image data and properties from a PDF image XObject.
 
@@ -564,24 +631,26 @@ def _extract_image(
     try:
         data = image_obj.get_data()
     except (KeyError, ValueError, TypeError, NotImplementedError) as e:
-        logger.warning("Failed to extract image data: %s", e)
+        logger.debug("Failed to extract PDF image data: %s", e)
         data = image_obj._data if hasattr(image_obj, "_data") else b""
 
     resolved_caption = caption or _extract_image_alt_text(image_obj)
 
-    return PdfImage(
-        image_index=index,
-        name=str(name),
-        caption=resolved_caption,
+    return ImageAsset(
+        number=index,
+        filename=str(name),
+        caption=resolved_caption or None,
         width=int(width),
         height=int(height),
-        color_space=color_space,
-        bits_per_component=int(bits),
-        filter=filter_type,
-        data=io.BytesIO(data) if data else None,
-        format=img_format,
-        content_type=content_type,
-        unit_number=page_num,
+        data=data or None,
+        media_type=content_type,
+        properties={
+            "pdf.color_space": color_space,
+            "pdf.bits_per_component": int(bits),
+            "pdf.filter": filter_type,
+            "pdf.format": img_format,
+            "pdf.unit_number": page_num,
+        },
     )
 
 

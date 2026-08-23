@@ -1,62 +1,55 @@
 # Format Matrix
 
-This document summarizes how `sharepoint-to-text` behaves by format family. It is meant to answer the practical engineering question: "What do I actually get back?"
+Every row below produces `ExtractedDocument`; differences are represented by
+`format`, unit `kind`, metadata, annotations, and namespaced properties.
 
-## Result Shape By Format
-
-| Format family | Example extensions | Typical result count | `iterate_units()` shape | Notable details |
+| Format family | Example extensions | Typical documents yielded | Unit shape | Notes |
 |---|---|---:|---|---|
-| Word-like documents | `.docx`, `.doc`, `.odt`, `.rtf`, `.txt`, `.md`, `.json` | 1 | Usually one document-level unit | Page boundaries are generally not reliable |
-| Spreadsheets | `.xlsx`, `.xls`, `.xlsb`, `.xlsm`, `.ods` | 1 | One unit per sheet | Useful for chunking by worksheet |
-| Presentations | `.pptx`, `.ppt`, `.pptm`, `.odp` | 1 | One unit per slide | Slide notes may also be represented in extracted text depending on format support |
-| PDF | `.pdf` | 1 | One unit per page | No OCR for scanned pages |
-| Email messages | `.eml`, `.msg` | 1 | One unit per email | Attachments can be parsed and recursively exposed |
-| Mailbox archives | `.mbox` | Many | One extraction result per email | Treat as a stream, not a single document |
-| HTML-like content | `.html`, `.htm`, `.mhtml`, `.mht` | 1 | Usually one document-level unit | Output is extraction-oriented, not browser-rendered |
-| Ebook | `.epub` | 1 | Format-defined document units | Good for text extraction, not ebook rendering |
-| Archives | `.zip`, `.tar`, `.7z`, `.tgz`, `.tbz2`, `.txz` | Many | Depends on contained files | Only one archive level is processed |
+| Word-like documents | `.docx`, `.doc`, `.odt`, `.rtf`, `.txt`, `.md`, `.json` | 1 | Document or section units | Page boundaries are generally unavailable |
+| Spreadsheets | `.xlsx`, `.xls`, `.xlsb`, `.xlsm`, `.ods` | 1 | One `sheet` unit per sheet | Sheet names use `unit.title` |
+| Presentations | `.pptx`, `.ppt`, `.pptm`, `.odp` | 1 | One `slide` unit per slide | Notes may be included when supported |
+| PDF | `.pdf` | 1 | One `page` unit per page | OCR is not included |
+| Email | `.eml`, `.msg` | 1 | One `message` unit | Attachment records use `document.attachments` |
+| Mailbox | `.mbox` | Many | One `message` unit per yielded document | Iterate the result generator |
+| HTML-like | `.html`, `.htm`, `.mhtml`, `.mht` | 1 | Usually one document unit | Extraction-oriented, not browser rendering |
+| Ebook | `.epub` | 1 | `chapter` units | Reading order follows the source spine |
+| Archives | `.zip`, `.tar`, `.7z`, `.tgz`, `.tbz2`, `.txz` | Many | Depends on member format | Nested archives are skipped |
 
-## Attachment Behavior
+## Common Operations
 
-### `.eml`, `.msg`, and `.mbox`
+```python
+document.full_text
+document.source.filename
+document.metadata.title
 
-- message metadata is extracted
-- body text is available through the email result
-- attachments are stored on `EmailContent.attachments`
-- supported attachments can be recursively extracted with `iterate_supported_attachments()`
+for unit in document.units:
+    print(unit.kind, unit.number, unit.text)
 
-### `.mbox`
+for image in document.iter_images():
+    consume(image.data or b"")
 
-- one extraction result is yielded per message
-- attachment extraction can be disabled with `include_attachments=False`
+for table in document.iter_tables():
+    print(table.rows)
+```
 
-## Archive Behavior
+All images, tables, and annotations belong to units. Use the iterator methods
+`document.iter_images()`, `document.iter_tables()`, and `document.iter_annotations()`
+to traverse all records across all units in document order.
 
-- supported member files can be extracted
-- nested archives are skipped
-- zip-bomb protections apply
-- archive members may be skipped if they exceed safety limits or fail extraction
+## Attachments and Archives
 
-## Practical Caveats
+- Email attachment records are in `document.attachments`.
+- `include_attachments=False` omits attachment records and payloads.
+- `.mbox` yields one normalized document per message.
+- Archives yield one normalized document per supported member.
+- Archive member paths are retained in `document.source.path`.
+- Zip-bomb and path-traversal protections apply.
 
-### PDF
+## Caveats
 
-- scanned-image PDFs often return empty or sparse text because OCR is not included
-- `iterate_tables()` is currently empty for PDF
-- password-protected PDFs raise `ExtractionFileEncryptedError`
-- some JBIG2 images may require `jbig2dec` to decode image data
-
-### Legacy Microsoft formats
-
-- coverage is broad, but binary legacy formats are inherently less predictable than OOXML formats
-- parser failures may surface as `ExtractionLegacyMicrosoftParsingError`
-
-### Word-like formats
-
-- expect text extraction, metadata, images, and tables where supported
-- do not expect stable page-level units
-
-### Plain-text formats
-
-- these are routed through the plain extractor
-- `force_plain_text=True` can be useful for unknown internal file extensions that are actually text
+- Image-only PDFs often have little or no text because OCR is not included.
+- Password-protected PDFs raise `ExtractionFileEncryptedError`.
+- Binary legacy Office files are less predictable than OOXML and may raise
+  `ExtractionLegacyMicrosoftParsingError`.
+- `force_plain_text=True` can route unknown text-based extensions through the
+  plain-text extractor.

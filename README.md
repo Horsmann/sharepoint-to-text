@@ -1,49 +1,14 @@
 # sharepoint-to-text
 
-`sharepoint-to-text` is a typed, pure-Python library for extracting text and structured content from file types commonly found in SharePoint and document-management workflows.
+`sharepoint-to-text` is a typed, pure-Python library for extracting text and
+structured content from formats commonly found in SharePoint and document
+management systems.
 
-It is built for software engineers who need one extraction interface across modern Microsoft Office files, legacy Office files, OpenDocument, PDF, email, HTML-like content, plain-text formats, and archives.
-
-## Why This Package Exists
-
-Document ingestion pipelines usually fail in one of two ways:
-
-- they only support a narrow set of office formats
-- they require heavyweight external runtimes such as LibreOffice, Java, or platform-specific tooling
-
-`sharepoint-to-text` takes a different approach:
-
-- Pure Python library API and CLI
-- One routing layer for many file types
-- Works with file paths and in-memory bytes
-- Typed extraction objects with metadata, units, images, and tables
-- Suitable for indexing, RAG, ETL, compliance review, and migration tooling
-
-## At A Glance
-
-| Item | Details |
-|---|---|
-| Python | `>=3.10` |
-| Install | `uv add sharepoint-to-text` |
-| Runtime model | Pure Python |
-| Primary interfaces | `read_file(...)`, `read_bytes(...)`, `read_many(...)`, CLI |
-| Output model | Generator of typed extraction objects |
-| SharePoint access | Optional `sharepoint_io` helper for Graph-backed listing/download |
-
-## Who This Is For
-
-This package is a good fit if you need to:
-
-- normalize text extraction across many enterprise document formats
-- process documents from disk, APIs, queues, or object storage
-- preserve some document structure for downstream chunking or citations
-- run extraction in Python-only environments such as services, workers, or serverless jobs
-
-It is not a full document rendering engine, OCR system, or layout-preserving conversion tool.
+Every supported format returns the same `ExtractedDocument` model. The public
+API does not expose format-specific result classes or direct extractor
+functions.
 
 ## Installation
-
-### Package install
 
 ```bash
 uv add sharepoint-to-text
@@ -55,7 +20,7 @@ With `pip`:
 pip install sharepoint-to-text
 ```
 
-### Development install
+For development:
 
 ```bash
 git clone https://github.com/Horsmann/sharepoint-to-text.git
@@ -65,352 +30,526 @@ uv sync --all-groups
 
 ## Quick Start
 
-### Extract from a local file
+### Read from disk
 
 ```python
 import sharepoint2text
 
-result = next(sharepoint2text.read_file("document.docx"))
-print(result.get_full_text())
+document = next(sharepoint2text.read_file("document.docx"))
+print(document.full_text)
+print(document.source.path)
 ```
 
-### Extract from in-memory bytes
+### Read from bytes
 
 ```python
 import sharepoint2text
 
-payload = b"hello from memory"
-result = next(sharepoint2text.read_bytes(payload, extension="txt"))
-print(result.get_full_text())
+document = next(
+    sharepoint2text.read_bytes(b"hello from memory", extension="txt")
+)
+print(document.full_text)
 ```
 
-### Use structural units for chunking
+`read_bytes` accepts either an `extension` or a `mime_type` routing hint.
+
+### Read a folder
 
 ```python
 import sharepoint2text
 
-result = next(sharepoint2text.read_file("report.pdf", ignore_images=True))
-
-for unit in result.iterate_units():
-    print(unit.get_text())
-    print(unit.get_metadata())
+for document in sharepoint2text.read_many(
+    "docs",
+    suffixes=[".docx", ".pdf"],
+):
+    print(document.source.path, len(document.full_text))
 ```
 
-### Batch extraction from a folder
+Use `extract_all_supported=True` instead of `suffixes` to process every
+supported file. Folder traversal is recursive by default.
+
+### Process structural units
 
 ```python
 import sharepoint2text
 
-# Extract only Word and PDF files from a folder
-for result in sharepoint2text.read_many("docs", suffixes=[".docx", ".pdf"]):
-    print(result.get_metadata().file_path)
-    print(result.get_full_text()[:200])
+document = next(sharepoint2text.read_file("report.pdf"))
+
+for unit in document.units:
+    print(unit.kind, unit.number, unit.title)
+    print(unit.text)
 ```
 
-### Extract all supported files from a folder
+Typical units are pages, slides, sheets, chapters, messages, sections, or a
+single document unit.
+
+### Read images or skip their extraction
+
+Image extraction is enabled by default. `iter_images()` yields all images owned by
+structural units in document order:
 
 ```python
 import sharepoint2text
 
-# Extract all supported file formats recursively
-for result in sharepoint2text.read_many("docs", extract_all_supported=True):
-    for unit in result.iterate_units(ignore_images=True):
-        text = unit.get_text().strip()
-        if text:
-            print(result.get_metadata().file_path, text[:120])
+document = next(sharepoint2text.read_file("illustrated.docx"))
+
+for image in document.iter_images():
+    print(image.filename, image.media_type, len(image.data or b""))
+
+document_without_images = next(
+    sharepoint2text.read_file("illustrated.docx", ignore_images=True)
+)
+assert list(document_without_images.iter_images()) == []
 ```
 
-### Parse an email and its attachments
+`ignore_images=True` skips image extraction, so image records, dimensions, and
+binary data are unavailable. It is also available on `read_bytes` and `read_many`.
 
-```python
-import sharepoint2text
-from sharepoint2text import EmailContent
+## Public Data Model
 
-# .eml and .msg return an EmailContent object
-email: EmailContent = next(sharepoint2text.read_file("message.msg"))
+All three extraction entry points yield `ExtractedDocument`:
 
-if email.attachments:
-    print([attachment.filename for attachment in email.attachments])
-
-# Recursively extract text from supported attachments (docx, pdf, xlsx, ...)
-for attachment in email.iterate_supported_attachments(skip_failed=True):
-    print(attachment.get_full_text())
+```text
+ExtractedDocument
+├── source: SourceMetadata
+├── metadata: DocumentMetadata
+├── units: list[ContentUnit]
+│   ├── images: list[ImageAsset]
+│   ├── tables: list[Table]
+│   └── annotations: list[Annotation]
+└── attachments: list[Attachment]
 ```
 
-> `.mbox` files instead yield one `EmailContent` per message, so iterate them
-> with a `for` loop rather than `next(...)`.
+The normalized document records are:
 
-## Core API
+- `ExtractedDocument`
+- `ContentUnit`
+- `SourceMetadata`
+- `DocumentMetadata`
+- `ImageAsset`
+- `Table`
+- `Annotation`
+- `Attachment`
 
-### Main entry points
+`BatchFileResult` is a separate operational record used by the optional
+`read_many(..., on_file_result=...)` callback described below.
+
+Fields are accessed directly. For example, use `unit.text`, `unit.images`, and
+`document.metadata.author`. Binary payloads are immutable `bytes`.
+
+`document.full_text` joins non-empty unit text in source order.
+`document.iter_images()`, `document.iter_tables()`, and `document.iter_annotations()`
+iterate over all records across all units in document order. A document without a
+structural unit receives one default unit with `kind="document"`.
+
+Format-specific scalar details live in namespaced `properties` dictionaries,
+such as `unit.properties["xlsx.hidden"]`. Parser trees and mutable parser state
+are not part of the public model.
+
+## API Reference
 
 ```python
-import sharepoint2text
-
 sharepoint2text.read_file(
     path,
     max_file_size=100 * 1024 * 1024,
+    *,
     ignore_images=False,
     force_plain_text=False,
     include_attachments=True,
+    extract_annotations=False,
+    zip_bomb_limits=None,
 )
 
 sharepoint2text.read_bytes(
     data,
-    extension="pdf",      # or ".pdf"
-    mime_type=None,        # for example "application/pdf"
+    *,
+    extension=None,
+    mime_type=None,
     max_file_size=100 * 1024 * 1024,
     ignore_images=False,
     force_plain_text=False,
     include_attachments=True,
+    extract_annotations=False,
+    zip_bomb_limits=None,
 )
 
 sharepoint2text.read_many(
     folder_path,
-    suffixes=[".docx", ".pdf"],  # list of extensions to extract
-    extract_all_supported=False,  # or True to extract all supported formats
+    suffixes=None,
+    *,
+    extract_all_supported=False,
     max_file_size=100 * 1024 * 1024,
     ignore_images=False,
     force_plain_text=False,
     include_attachments=True,
-    recursive=True,               # traverse subdirectories
+    extract_annotations=False,
+    recursive=True,
+    on_file_result=None,
+    zip_bomb_limits=None,
 )
 
 sharepoint2text.is_supported_file(path)
-sharepoint2text.get_extractor(path)
 ```
 
-### Batch extraction with `read_many`
+### File-size limits
 
-The `read_many` function extracts content from multiple files in a folder:
+`read_file`, `read_bytes`, and `read_many` default to a 100 MiB input-size
+limit (`100 * 1024 * 1024`, or 104,857,600 bytes). For `read_many`, the limit
+is applied independently to each selected file; it is not a cumulative limit
+for the folder.
 
-| Parameter | Description |
-|---|---|
-| `folder_path` | Path to the folder to traverse |
-| `suffixes` | List of file extensions to extract (e.g., `[".docx", ".pdf"]`) |
-| `extract_all_supported` | If `True`, extract all supported formats, or every file when combined with `force_plain_text=True` (mutually exclusive with `suffixes`) |
-| `force_plain_text` | Treat selected files as plain text, including unknown extensions in `extract_all_supported` mode |
-| `recursive` | If `True` (default), traverse subdirectories |
+Pass a larger `max_file_size` value when processing trusted files that exceed
+the default. The value is always expressed in bytes:
 
-Configuration rules:
-- You must specify either `suffixes` or `extract_all_supported=True`
-- Specifying both raises `InvalidConfigurationError`
-- Suffixes are normalized (with or without leading dot)
-- Extraction continues on errors, logging warnings for failed files
+```python
+from pathlib import Path
 
-### Result model
+import sharepoint2text
 
-All extracted results implement a common interface:
+MAX_INPUT_SIZE = 500 * 1024 * 1024  # 500 MiB
+file_data = Path("large-report.pdf").read_bytes()
 
-- `get_full_text()`
-- `iterate_units()`
-- `iterate_images()`
-- `iterate_tables()`
-- `get_metadata()`
-- `to_json()` / `from_json(...)`
-
-Use `get_full_text()` when you want one string per extraction result.
-
-Use `iterate_units()` when you want coarse structural chunks such as:
-
-- one page per PDF unit
-- one slide per presentation unit
-- one sheet per spreadsheet unit
-- one document-level unit for most text-document formats
-
-### Generator semantics matter
-
-The API returns generators because some inputs can produce multiple results:
-
-- archives can yield one result per supported member file
-- `.mbox` can yield one result per email
-- email extraction can recursively expose supported attachments
-
-For single-document formats, `next(...)` is usually the simplest call pattern.
-
-## CLI
-
-The package installs a `sharepoint2text` command.
-
-### Single file extraction
-
-Plain text output:
-
-```bash
-sharepoint2text --file /path/to/file.docx
+file_documents = sharepoint2text.read_file(
+    "large-report.pdf",
+    max_file_size=MAX_INPUT_SIZE,
+)
+memory_documents = sharepoint2text.read_bytes(
+    file_data,
+    extension="pdf",
+    max_file_size=MAX_INPUT_SIZE,
+)
+folder_documents = sharepoint2text.read_many(
+    "large-documents",
+    extract_all_supported=True,
+    max_file_size=MAX_INPUT_SIZE,
+)
 ```
 
-Full extraction objects as JSON:
+Set `max_file_size=0` to disable the input-size check. For archives, this
+setting limits the top-level archive file or byte buffer; decompressed ZIP
+members remain subject to the separate [ZIP-bomb limits](#zip-bomb-limits).
 
-```bash
-sharepoint2text --file /path/to/file.docx --json
+### Iterator semantics
+
+The extraction functions return lazy, synchronous, single-pass
+`Iterator[ExtractedDocument]` values. Archives and `.mbox` files can produce
+multiple documents, so even `read_file` and `read_bytes` return iterators.
+
+- Consume each returned iterator only once. An exhausted iterator stays
+  exhausted; call the API again to repeat extraction.
+- Documents are produced on demand. Advancing the iterator can perform file
+  I/O, decompression, parsing, and normalization.
+- `read_many` traverses lazily and processes one top-level file at a time. All
+  documents from one source are adjacent, but filesystem traversal order is
+  not a portable sorting guarantee.
+- A yielded `ExtractedDocument` is fully materialized. Calling
+  `list(read_many(...))` retains every result and removes the iterator's
+  result-memory benefit.
+
+Static validation happens when the public function is called, while source
+processing remains deferred:
+
+| API | Validated when called | Deferred until iteration |
+|---|---|---|
+| `read_file` | Path, source size, routing, and ZIP-bomb configuration | Opening, reading, parsing, and normalization |
+| `read_bytes` | Input type and size, routing hints, and ZIP-bomb configuration | Stream positioning, parsing, and normalization |
+| `read_many` | Folder, selection, result-callback, and ZIP-bomb configuration | Traversal and each selected file's validation and extraction |
+
+For a source that may yield any number of documents, iterate to exhaustion:
+
+```python
+for document in sharepoint2text.read_file("mailbox.mbox"):
+    consume(document)
 ```
 
-Per-unit JSON:
+When exactly one result is an application invariant, iterable unpacking checks
+that invariant and exhausts the iterator:
 
-```bash
-sharepoint2text --file /path/to/file.pdf --json-unit
+```python
+document, = sharepoint2text.read_file("report.pdf")
 ```
 
-### Folder extraction
+This raises `ValueError` for zero or multiple documents. By comparison,
+`next(...)` returns only the first document and does not verify that the source
+is exhausted.
 
-Extract all supported files from a folder:
+`read_file` and `read_bytes` propagate lazy extraction failures. `read_many`
+logs expected per-file extraction and I/O failures, skips those files, and
+continues. Other exceptions stop iteration.
 
-```bash
-sharepoint2text --folder /path/to/folder
-```
+Fully exhausting an iterator releases its open file, archive, and parser
+resources. Breaking early can retain those resources until the concrete
+iterator is closed or finalized. The current implementation uses generators
+with `close()` at runtime, but the stable public contract currently promises
+only `Iterator`; deterministic context-managed cleanup after partial
+consumption is not yet part of the API.
 
-Extract only specific file types:
+See [Iterator Semantics](ITERATOR_SEMANTIC.md) for the detailed contract,
+including ordering, partial-result, memory, and non-goal definitions.
 
-```bash
-sharepoint2text --folder /path/to/folder --suffixes .docx,.pdf,.txt
-```
+`read_many` requires exactly one of `suffixes` or
+`extract_all_supported=True`.
 
-Non-recursive (top-level only):
+### Per-file batch reporting
 
-```bash
-sharepoint2text --folder /path/to/folder --no-recursive
-```
-
-### Folder output (mirrored structure)
-
-When extracting from a folder, output to another folder to preserve the directory structure:
-
-```bash
-# Write each file separately to output folder
-sharepoint2text --folder /input/docs --output /output/extracted/
-
-# The output structure mirrors the input:
-# /input/docs/report.docx      -> /output/extracted/report.txt
-# /input/docs/sub/data.xlsx    -> /output/extracted/sub/data.txt
-```
-
-Output path behavior:
-- If `--output` is an existing directory, files are written separately
-- If `--output` is a new path without extension, it's created as a directory
-- If `--output` has a file extension, all results are combined into that file
-
-### CLI options
-
-| Option | Description |
-|---|---|
-| `--file FILE`, `-f FILE` | Path to a single file to extract |
-| `--folder FOLDER`, `-d FOLDER` | Path to a folder to extract files from (recursive by default) |
-| `--suffixes SUFFIXES`, `-s SUFFIXES` | Comma-separated file suffixes to filter (e.g., `.docx,.pdf`). Only with `--folder`. If omitted, extracts all supported types. |
-| `--no-recursive` | Only extract top-level files (no subdirectories). Only with `--folder`. |
-| `--output PATH`, `-o PATH` | Output path: file (combined) or folder (separate files mirroring input structure) |
-| `--json`, `-j` | Emit `list[extraction_object]` |
-| `--json-unit`, `-u` | Emit `list[unit_object]` |
-| `--include-images`, `-i` | Include base64 image payloads in JSON output |
-| `--no-attachments`, `-n` | Skip expanding supported email attachments |
-| `--max-file-size-mb`, `-m` | Maximum input size in MiB, default `100`, use `0` to disable |
-| `--version`, `-v` | Print CLI version |
-
-Important CLI rules:
-
-- `--file` and `--folder` are mutually exclusive (one is required)
-- `--suffixes` and `--no-recursive` only work with `--folder`
-- `--json` and `--json-unit` are mutually exclusive
-- `--include-images` requires `--json` or `--json-unit`
-- the CLI enforces the same file-size guard as the Python API
-
-## Supported Formats
-
-### Microsoft Office
-
-- Modern: `.docx`, `.docm`, `.xlsx`, `.xlsm`, `.xlsb`, `.pptx`, `.pptm`
-- Legacy: `.doc`, `.dot`, `.xls`, `.xlt`, `.ppt`, `.pot`, `.pps`, `.rtf`
-- Alias mapping: `.dotx`, `.dotm`, `.xltx`, `.xltm`, `.potx`, `.potm`, `.ppsx`, `.ppsm`
-
-### OpenDocument
-
-- `.odt`, `.ods`, `.odp`, `.odg`, `.odf`
-- Alias mapping: `.ott`, `.ots`, `.otp`
-
-### Email
-
-- `.eml`, `.msg`, `.mbox`
-- All email formats can parse and expose supported attachments
-- `.mbox` yields one result per message
-
-### Plain text and data-like formats
-
-- `.txt`, `.md`, `.csv`, `.tsv`, `.json`
-- `.yaml`, `.yml`, `.xml`, `.log`, `.ini`, `.cfg`, `.conf`, `.properties`
-
-### Web and ebook
-
-- `.html`, `.htm`, `.mhtml`, `.mht`, `.epub`
-
-### PDF
-
-- `.pdf`
-
-### Archives
-
-- `.zip`, `.tar`, `.7z`
-- `.tar.gz`, `.tgz`, `.tar.bz2`, `.tbz2`, `.tar.xz`, `.txz`
-
-For a behavior-focused view of units, attachments, and caveats by format, see [doc/format-matrix.md](doc/format-matrix.md).
-
-## Increasing the ZIP Bomb Limit
-
-Every ZIP-based format (OOXML `.docx`/`.xlsx`/`.pptx`, OpenDocument, and `.zip`
-archives) is checked against ZIP-bomb heuristics. Legitimate but very large
-SharePoint exports can occasionally trip these guards and raise
-`ExtractionZipBombError`. When you trust the input, raise the relevant
-threshold **once at application startup** with `set_zip_bomb_limits`.
+Pass `on_file_result` to receive one structured `BatchFileResult` after each
+selected top-level file completes or encounters a recoverable extraction or
+I/O error. Reporting is callback-based so `read_many` does not need to retain
+an arbitrarily large result collection:
 
 ```python
 import sharepoint2text
-from sharepoint2text import ZipBombLimits
+from sharepoint2text import BatchFileResult
 
-# Raise the limits once, before any extraction runs.
-# Only set the fields you need — unspecified fields keep the library defaults.
-sharepoint2text.set_zip_bomb_limits(
-    ZipBombLimits(
-        max_total_uncompressed_bytes=16 * 1024 * 1024 * 1024,  # 16 GiB (default 4 GiB)
-        max_single_uncompressed_bytes=4 * 1024 * 1024 * 1024,  # 4 GiB (default 1 GiB)
-        max_entry_compression_ratio=1500.0,                    # default 500.0
-    )
-)
 
-# Subsequent extractions use the raised limits automatically.
-result = next(sharepoint2text.read_file("large_trusted_export.zip"))
-print(result.get_full_text()[:200])
+def report_file(result: BatchFileResult) -> None:
+    """Report one completed batch file."""
+    if result.succeeded:
+        print(result.path, result.documents_extracted)
+    else:
+        print(result.path, type(result.error).__name__, result.error)
+
+
+for document in sharepoint2text.read_many(
+    "documents",
+    extract_all_supported=True,
+    on_file_result=report_file,
+):
+    index_document(document)
 ```
 
-Available `ZipBombLimits` fields and their defaults:
+Each result contains the selected top-level `path`, the number of
+`documents_extracted` before completion or failure, the recoverable `error`
+(`None` on success), and the convenience property `succeeded`.
 
-| Field | Default | Meaning |
-|---|---|---|
-| `max_entries` | `50_000` | Maximum number of entries in a container |
-| `max_total_uncompressed_bytes` | `4 GiB` | Maximum combined uncompressed size |
-| `max_single_uncompressed_bytes` | `1 GiB` | Maximum uncompressed size of one entry |
-| `max_total_compression_ratio` | `200.0` | Maximum overall compression ratio |
-| `max_entry_compression_ratio` | `500.0` | Maximum compression ratio of one entry |
+The callback runs only after a selected file finishes. It does not run for
+filtered files or for the current file when iteration is abandoned early. If
+the callback raises an exception, that exception stops batch iteration. An
+application may collect callback values when its own memory bounds permit.
 
-Related helpers, all importable from `sharepoint2text`:
+## JSON and Markdown
+
+Serialization is centralized and independent of Python class names. Use
+`document_to_dict` with the standard library's `json.dump` to write a readable
+file:
 
 ```python
+import json
+from pathlib import Path
+
+import sharepoint2text
 from sharepoint2text import (
-    ZipBombLimits,          # the limits dataclass
-    get_zip_bomb_limits,    # inspect the currently active limits
-    reset_zip_bomb_limits,  # restore the library defaults
-    set_zip_bomb_limits,    # override the process-wide limits
+    document_from_json,
+    document_to_dict,
+    document_to_json,
+    render_markdown,
 )
+
+document = next(sharepoint2text.read_file("report.pdf"))
+
+mapping = document_to_dict(document)
+with Path("report.json").open("w", encoding="utf-8") as output_file:
+    json.dump(mapping, output_file, ensure_ascii=False, indent=2)
+
+payload = document_to_json(document)
+payload_with_binary = document_to_json(document, binary="base64")
+restored = document_from_json(payload_with_binary)
+markdown = render_markdown(document)
 ```
 
-> The limits are process-wide and apply to every subsequent ZIP-based
-> extraction. Only raise them for input you trust, since these guards are a
-> deliberate denial-of-service protection.
+Every JSON envelope contains:
+
+```json
+{
+  "schema": "sharepoint2text.extraction",
+  "version": 2,
+  "document": {
+    "format": "pdf",
+    "source": {},
+    "metadata": {"keywords": [], "properties": {}},
+    "units": [{
+      "number": 1,
+      "kind": "document",
+      "text": "",
+      "heading_path": [],
+      "images": [],
+      "tables": [],
+      "annotations": [],
+      "properties": {}
+    }],
+    "document_images": [],
+    "document_tables": [],
+    "document_annotations": [],
+    "attachments": [],
+    "properties": {}
+  }
+}
+```
+
+The outer `schema` and `version` fields identify the wire format. `document`
+contains source and descriptive metadata, ordered content units, images,
+tables, annotations, attachments, and namespaced format-specific properties.
+An attachment's `extracted_document`, when present, is serialized recursively
+using the same document shape.
+
+Binary image and attachment data is omitted by default. Pass
+`binary="base64"` to `document_to_dict` or `document_to_json` to include it as
+base64 text. `document_to_json` returns compact JSON directly; use
+`document_to_dict` with `json.dump`, as above, when indentation or a file-like
+object is needed. For archives and `.mbox` inputs, serialize each yielded
+`ExtractedDocument` as its own envelope or put those envelopes in a JSON list.
+
+Decoding rejects unknown schema versions, malformed input, and invalid base64.
+Binary payload size is unlimited by default so complete serialized extraction
+results can be restored. When decoding untrusted input, pass `max_binary_bytes`
+to impose a cumulative allocation boundary.
+
+## Attachments
+
+Email attachment records and their immutable byte payloads are available
+through `document.attachments`:
+
+```python
+import sharepoint2text
+
+document = next(sharepoint2text.read_file("message.eml"))
+
+if document.attachments:
+    for attachment in document.attachments:
+        print(
+            attachment.filename,
+            attachment.media_type,
+            len(attachment.data or b""),
+        )
+
+document_without_attachments = next(
+    sharepoint2text.read_file("message.eml", include_attachments=False)
+)
+assert not document_without_attachments.attachments
+```
+
+`include_attachments=False` is also available on `read_bytes` and `read_many`.
+
+### Recursively read mail attachments
+
+`.mbox` yields one `ExtractedDocument` per message. Attachments are retained as
+records but are not eagerly parsed, so feed `attachment.data` back into
+`read_bytes` to extract attached documents or attached email messages. The
+following depth-first loop handles attachments nested at any depth and skips
+only unsupported attachment formats:
+
+```python
+import sharepoint2text
+
+pending = list(sharepoint2text.read_file("mailbox.mbox"))
+
+while pending:
+    document = pending.pop()
+    print(document.source.filename, document.full_text)
+
+    if not document.attachments:
+        continue
+
+    for attachment in document.attachments:
+        print("attachment:", attachment.filename, attachment.media_type)
+        if attachment.data is None:
+            continue
+
+        try:
+            child_documents = list(
+                sharepoint2text.read_bytes(
+                    attachment.data,
+                    extension=attachment.filename,
+                    mime_type=attachment.media_type,
+                )
+            )
+        except sharepoint2text.ExtractionFileFormatNotSupportedError:
+            continue
+
+        pending.extend(child_documents)
+```
+
+Passing the complete attachment filename as `extension` preserves compound
+suffix routing such as `.tar.gz`; `mime_type` acts as a fallback. Other
+extraction failures are intentionally not suppressed by this example.
+
+## Supported Formats
+
+| Family | Formats |
+|---|---|
+| Modern Office | `.docx`, `.docm`, `.xlsx`, `.xlsm`, `.xlsb`, `.pptx`, `.pptm` and template/show aliases |
+| Legacy Office | `.doc`, `.dot`, `.xls`, `.xlt`, `.ppt`, `.pot`, `.pps`, `.rtf` |
+| OpenDocument | `.odt`, `.ods`, `.odp`, `.odg`, `.odf`, `.ott`, `.ots`, `.otp` |
+| Email | `.eml`, `.msg`, `.mbox` |
+| Plain/data | `.txt`, `.md`, `.csv`, `.tsv`, `.json`, `.yaml`, `.yml`, `.xml`, `.log`, `.ini`, `.cfg`, `.conf`, `.properties` |
+| Web/ebook | `.html`, `.htm`, `.mhtml`, `.mht`, `.epub` |
+| PDF | `.pdf` |
+| Archives | `.zip`, `.tar`, `.7z`, `.tar.gz`, `.tgz`, `.tar.bz2`, `.tbz2`, `.tar.xz`, `.txz` |
+
+See [doc/format-matrix.md](doc/format-matrix.md) for result cardinality and
+unit behavior.
+
+## CLI
+
+```bash
+# Plain text
+sharepoint2text --file document.docx
+
+# Version-2 JSON; binary payloads omitted
+sharepoint2text --file document.docx --json
+
+# One self-contained version-2 envelope per unit
+sharepoint2text --file report.pdf --json-unit
+
+# Include image and attachment payloads as base64
+sharepoint2text --file report.pdf --json --include-binary
+
+# Folder extraction
+sharepoint2text --folder ./docs --suffixes .docx,.pdf --output ./extracted/
+```
+
+Mirrored folder output writes one output file per input source. When an input
+such as `.mbox` yields multiple documents, they are kept together in that
+file.
+
+See [doc/cli.md](doc/cli.md) for the complete option reference.
+
+## ZIP-Bomb Limits
+
+ZIP-based Office/OpenDocument files and archives are guarded by configurable
+limits. Raise them only for a trusted input and only on that extraction call:
+
+```python
+from sharepoint2text import ZipBombLimits, read_file
+
+documents = read_file(
+    "large_trusted_export.zip",
+    zip_bomb_limits=ZipBombLimits(
+        max_total_uncompressed_bytes=16 * 1024 * 1024 * 1024,
+        max_single_uncompressed_bytes=4 * 1024 * 1024 * 1024,
+        max_entry_compression_ratio=1500.0,
+    ),
+)
+
+for document in documents:
+    print(document.full_text)
+```
+
+The override applies only while that generator is actively extracting. It is
+automatically reset before a result is yielded and after completion, failure,
+or early generator closure, so later and concurrent calls keep the defaults.
+The same `zip_bomb_limits` keyword is available on `read_bytes` and
+`read_many`; for `read_many`, it is applied independently to each selected
+file.
 
 ## SharePoint Integration
 
-The extraction library works independently of SharePoint. The optional `sharepoint_io` module is a separate helper layer for listing and downloading files through Microsoft Graph before extraction.
+The extraction API works independently of SharePoint. The optional
+`sharepoint_io` helper can download Microsoft Graph content and pass its bytes
+to the same normalized API:
 
 ```python
-import io
+import os
 
 import sharepoint2text
 from sharepoint2text.sharepoint_io import (
@@ -419,95 +558,55 @@ from sharepoint2text.sharepoint_io import (
 )
 
 credentials = EntraIDAppCredentials(
-    tenant_id="your-tenant-id",
-    client_id="your-client-id",
-    client_secret="your-client-secret",
+    tenant_id=os.environ["sp_tenant_id"],
+    client_id=os.environ["sp_client_id"],
+    client_secret=os.environ["sp_client_secret"],
 )
-
 client = SharePointRestClient(
-    site_url="https://contoso.sharepoint.com/sites/Documents",
+    site_url=os.environ["sp_site_url"],
     credentials=credentials,
 )
 
-for file_meta in client.list_all_files():
-    data = client.download_file(file_meta.id)
-    extractor = sharepoint2text.get_extractor(file_meta.name)
-    for result in extractor(io.BytesIO(data), path=file_meta.name):
-        print(result.get_full_text()[:200])
+file_path = "Documents/report.pdf"
+data = client.download_file_by_path(file_path)
+for document in sharepoint2text.read_bytes(data, extension=file_path):
+    print(document.full_text)
 ```
 
-Setup details live in [sharepoint2text/sharepoint_io/SETUP.md](sharepoint2text/sharepoint_io/SETUP.md).
+The client itself uses the Python standard library. The optional `.env` setup
+helper additionally requires `python-dotenv`; it is included by the repository's
+development dependency group but not by a normal package installation. See
+[sharepoint2text/sharepoint_io/SETUP.md](sharepoint2text/sharepoint_io/SETUP.md)
+for permission setup, environment configuration, and installation options.
 
 ## Operational Constraints
 
-These are the points an engineering team usually needs before adopting the package:
+- OCR is not included, so image-only PDFs can return sparse or empty text.
+- Word-like formats generally cannot provide reliable page boundaries.
+- Output is extraction-oriented, not layout-preserving rendering.
+- Nested archives are skipped.
+- Encrypted inputs raise extraction errors.
+- Size and decompression safety limits remain enabled by default.
 
-- No OCR: scanned-image PDFs will often produce little or no text
-- No external office renderer: output is extraction-oriented, not fidelity-oriented
-- Word-like formats do not expose reliable page boundaries
-- Nested archives are intentionally skipped
-- Password-protected or encrypted inputs raise extraction errors
-- Large files and highly compressed archives are guarded by size limits and zip-bomb protections
+Set `ignore_images=True` when image content is unnecessary. Process
+`document.units` incrementally when structure matters.
 
-### Archive behavior
+## Development Validation
 
-- archives are processed one level deep
-- supported non-archive files inside an archive can yield extraction results
-- nested archives are skipped as a safety measure
-- 7z extraction is capped at 100 MB internally
-
-### Performance guidance
-
-- set `ignore_images=True` when image payloads are not needed
-- use `iterate_units()` for chunk-wise downstream processing instead of materializing one large string when structure matters
-- keep size limits enabled unless you trust the input source
-
-## Failure Modes and Exceptions
-
-Common exceptions:
-
-- `ExtractionFileFormatNotSupportedError`
-- `ExtractionFileEncryptedError`
-- `ExtractionFileTooLargeError`
-- `ExtractionLegacyMicrosoftParsingError`
-- `ExtractionZipBombError`
-- `ExtractionPathTraversalError`
-- `ExtractionFailedError`
-- `InvalidConfigurationError` (for `read_many` with conflicting options)
-
-## Serialization
-
-```python
-import json
-
-import sharepoint2text
-
-result = next(sharepoint2text.read_file("document.docx"))
-payload = result.to_json()
-
-print(json.dumps(payload))
-```
-
-Restore from JSON:
-
-```python
-from sharepoint2text.parsing.extractors.data_types import ExtractionInterface
-
-restored = ExtractionInterface.from_json(payload)
+```bash
+uv run pytest
+uv run mypy .
 ```
 
 ## Additional Documentation
 
-- [doc/cli.md](doc/cli.md): complete CLI reference with examples
-- [doc/direct-extractors.md](doc/direct-extractors.md): call format-specific extractors directly and work with concrete result attributes
-- [doc/format-matrix.md](doc/format-matrix.md): per-format behavior, units, and caveats
+- [doc/cli.md](doc/cli.md): CLI reference and JSON shape
+- [doc/format-matrix.md](doc/format-matrix.md): behavior by format family
 - [CONTRIBUTING.md](CONTRIBUTING.md): contributor workflow
 - [CHANGELOG.md](CHANGELOG.md): release history
 
 ## License
 
 Apache 2.0. See [LICENSE](LICENSE).
-
-## Disclaimer
 
 This project is not affiliated with, endorsed by, or sponsored by Microsoft.

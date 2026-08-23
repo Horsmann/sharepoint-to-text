@@ -5,13 +5,15 @@ import os
 from typing import Any, BinaryIO, Callable, Generator, cast
 
 from sharepoint2text.parsing.exceptions import ExtractionFileFormatNotSupportedError
-from sharepoint2text.parsing.extractors.data_types import ExtractionInterface
 from sharepoint2text.parsing.mime_types import MIME_TYPE_MAPPING
+from sharepoint2text.parsing.models import ExtractedDocument
 
 logger = logging.getLogger(__name__)
 
 _ATTACHMENT_AWARE_FILE_TYPES = frozenset({"msg", "eml", "mbox"})
 _ARCHIVE_FILE_TYPES = frozenset({"zip", "tar", "tgz", "tbz2", "txz", "7z"})
+_ATTACHMENT_OPTION_FILE_TYPES = _ATTACHMENT_AWARE_FILE_TYPES | _ARCHIVE_FILE_TYPES
+_ANNOTATION_OPTION_FILE_TYPES = frozenset({"docx", "docm", "pptx", "pptm"})
 
 # Mapping from file type identifiers to allowlisted extractor keys.
 # Format: file_type -> extractor_key
@@ -106,7 +108,7 @@ _SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
 )
 
 ExtractorFunction = Callable[
-    [BinaryIO, str | None], Generator[ExtractionInterface, Any, None]
+    [BinaryIO, str | None], Generator[ExtractedDocument, Any, None]
 ]
 
 
@@ -252,11 +254,12 @@ def _load_registered_extractor(extractor_key: str) -> Any:
             )
 
 
-def _get_extractor(
+def _get_extractor_for_type(
     file_type: str,
     ignore_images: bool = False,
     include_attachments: bool = True,
-) -> Callable[[BinaryIO, str | None], Generator[ExtractionInterface, Any, None]]:
+    extract_annotations: bool = False,
+) -> ExtractorFunction:
     """
     Return the extractor function for a file type using lazy import.
 
@@ -268,6 +271,10 @@ def _get_extractor(
     Args:
         file_type: File type identifier (e.g., "docx", "pdf", "xlsx").
         ignore_images: If True, skip image extraction for supported formats.
+        include_attachments: If False, omit email attachments, including from
+            emails contained in archives.
+        extract_annotations: If True, include annotations (comments) in the
+            document text for supported formats (docx, pptx).
 
     Returns:
         Callable extractor function that accepts (binary stream, path) arguments.
@@ -283,14 +290,19 @@ def _get_extractor(
     extractor_key = _EXTRACTOR_REGISTRY[file_type]
     extractor = cast(ExtractorFunction, _load_registered_extractor(extractor_key))
 
-    if ignore_images or (
-        file_type in _ATTACHMENT_AWARE_FILE_TYPES and not include_attachments
-    ):
+    needs_partial = (
+        ignore_images
+        or (file_type in _ATTACHMENT_OPTION_FILE_TYPES and not include_attachments)
+        or (file_type in _ANNOTATION_OPTION_FILE_TYPES and extract_annotations)
+    )
+    if needs_partial:
         partial_kwargs: dict[str, Any] = {}
         if ignore_images:
             partial_kwargs["ignore_images"] = True
-        if file_type in _ATTACHMENT_AWARE_FILE_TYPES and not include_attachments:
+        if file_type in _ATTACHMENT_OPTION_FILE_TYPES and not include_attachments:
             partial_kwargs["include_attachments"] = False
+        if file_type in _ANNOTATION_OPTION_FILE_TYPES and extract_annotations:
+            partial_kwargs["extract_annotations"] = True
         return cast(ExtractorFunction, functools.partial(extractor, **partial_kwargs))
     return extractor
 
@@ -340,7 +352,7 @@ def _resolve_file_type(
 ) -> str | None:
     """Resolve a path or filename to an internal file-type key.
 
-    Detection order mirrors ``get_extractor()`` so callers can make routing
+    Detection order mirrors ``_get_extractor()`` so callers can make routing
     decisions without duplicating extension and MIME lookup logic.
 
     Args:
@@ -396,12 +408,13 @@ def is_supported_file(path: str | os.PathLike[str]) -> bool:
     return bool(mime_type and mime_type in MIME_TYPE_MAPPING)
 
 
-def get_extractor(
+def _get_extractor(
     path: str | os.PathLike[str],
     ignore_images: bool = False,
     force_plain_text: bool = False,
     include_attachments: bool = True,
-) -> Callable[[BinaryIO, str | None], Generator[ExtractionInterface, Any, None]]:
+    extract_annotations: bool = False,
+) -> ExtractorFunction:
     """
     Analyze a path/filename and return the appropriate extractor callable.
 
@@ -416,10 +429,12 @@ def get_extractor(
             even when extension/MIME detection does not recognize the file.
         include_attachments: If False, skip extracting/storing supported email
             attachment payloads.
+        extract_annotations: If True, include annotations (comments) in the
+            document text for supported formats (docx, pptx).
 
     Returns:
         Extractor function with signature ``(binary stream, path) -> Generator`` that
-        yields one or more ``ExtractionInterface`` results.
+        yields one or more canonical ``ExtractedDocument`` results.
 
     Raises:
         ExtractionFileFormatNotSupportedError: If no extractor exists for the file type.
@@ -427,12 +442,11 @@ def get_extractor(
     path_str = os.fspath(path)
     path_lower = path_str.lower()
     mime_type, _ = mimetypes.guess_type(path_lower)
-    logger.debug("Guessed MIME type: [%s]", mime_type)
 
     file_type = _resolve_file_type(path_str, force_plain_text=force_plain_text)
     if file_type is not None:
         if force_plain_text:
-            logger.info("Force plain text extraction for file: %s", path_str)
+            logger.debug("Forcing plain text extraction for file: %s", path_str)
         if _file_type_from_extension(path_lower):
             logger.debug(
                 "Detected file type: %s (extension) for file: %s", file_type, path_str
@@ -444,11 +458,11 @@ def get_extractor(
                 mime_type,
                 path_str,
             )
-        logger.debug("Using extractor for file type: %s", file_type)
-        extractor = _get_extractor(
+        extractor = _get_extractor_for_type(
             file_type,
             ignore_images=ignore_images,
             include_attachments=include_attachments,
+            extract_annotations=extract_annotations,
         )
         return extractor
 
@@ -462,7 +476,6 @@ def get_extractor(
 
     mime_display = mime_type if mime_type is not None else "<unknown>"
     extension_display = extension if extension else "<none>"
-    logger.warning("Unsupported file type: %s (MIME: %s)", path_str, mime_type)
     raise ExtractionFileFormatNotSupportedError(
         "File type not supported for path "
         f"'{path_str}' (extension: {extension_display}, MIME: {mime_display})"
