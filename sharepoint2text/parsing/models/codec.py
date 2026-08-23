@@ -504,21 +504,21 @@ def _decode_units(data: dict[str, JsonValue], state: _DecodeState) -> list[Conte
 def _decode_document_images(
     data: dict[str, JsonValue], state: _DecodeState
 ) -> list[ImageAsset]:
-    """Decode all unassigned document-level images."""
+    """Decode the document-level image convenience aggregate."""
     path = "document.document_images"
     values = _objects(data.get("document_images", []), path)
     return [_image_from_dict(item, item_path, state) for item, item_path in values]
 
 
 def _decode_document_tables(data: dict[str, JsonValue]) -> list[Table]:
-    """Decode all unassigned document-level tables."""
+    """Decode the document-level table convenience aggregate."""
     path = "document.document_tables"
     values = _objects(data.get("document_tables", []), path)
     return [_table_from_dict(item, item_path) for item, item_path in values]
 
 
 def _decode_document_annotations(data: dict[str, JsonValue]) -> list[Annotation]:
-    """Decode all unassigned document-level annotations."""
+    """Decode the document-level annotation convenience aggregate."""
     path = "document.document_annotations"
     values = _objects(data.get("document_annotations", []), path)
     return [_annotation_from_dict(item, item_path) for item, item_path in values]

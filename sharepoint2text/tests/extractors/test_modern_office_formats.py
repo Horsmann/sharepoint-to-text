@@ -374,6 +374,7 @@ def test_read_pptx_3() -> None:
     path = "sharepoint2text/tests/resources/modern_ms/pptx_table.pptx"
     pptx: ExtractedDocument = next(read_pptx(read_file_to_file_like(path=path)))
 
+    tc.assertEqual(1, len(pptx.document_tables))
     tc.assertEqual(1, len(list(pptx.iter_tables())))
     table_1 = list(pptx.iter_tables())[0]
     tc.assertListEqual(
@@ -386,6 +387,7 @@ def test_read_pptx_3() -> None:
         ],
         table_1.rows,
     )
+    tc.assertListEqual(pptx.document_tables[0].rows, table_1.rows)
     tc.assertEqual((5, 4), table_1.dimensions)
     tc.assertEqual(
         "2020\t2021\t2022\nA\t1\t2\t3\nB\t4\t5\t6\nC\t7\t8\t9\nD\t10\t11\t12",
@@ -512,8 +514,14 @@ def test_read_docx_1() -> None:
 
     # test iterator
     tc.assertEqual(1, len(list(docx.units)))
+
     tc.assertEqual(1, len(list(docx.iter_images())))
+    tc.assertEqual(1, len(docx.document_images))
+
+    # images
     tc.assertEqual(1, len(list(docx.iter_images())))
+    tc.assertEqual(docx.document_images[0], docx.units[0].images[0])
+
     tc.assertEqual(7, len(list(docx.iter_tables())))
     image = list(docx.iter_images())[0]
     tc.assertEqual(1, image.number)

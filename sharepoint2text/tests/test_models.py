@@ -95,6 +95,68 @@ def test_core_invariants_and_canonical_iteration() -> None:
         ImageAsset(number=0)
 
 
+def test_document_collections_aggregate_the_same_unit_objects() -> None:
+    """Expose every unit-owned record through document convenience fields."""
+    first_image = ImageAsset(number=1, filename="first.png")
+    second_image = ImageAsset(number=2, filename="second.png")
+    first_table = Table(rows=[["first"]])
+    second_table = Table(rows=[["second"]])
+    first_annotation = Annotation(kind="note", text="first")
+    second_annotation = Annotation(kind="note", text="second")
+    document = ExtractedDocument(
+        format="pdf",
+        units=[
+            ContentUnit(
+                number=1,
+                kind="page",
+                images=[first_image],
+                tables=[first_table],
+                annotations=[first_annotation],
+            ),
+            ContentUnit(
+                number=2,
+                kind="page",
+                images=[second_image],
+                tables=[second_table],
+                annotations=[second_annotation],
+            ),
+        ],
+    )
+
+    assert document.document_images == [first_image, second_image]
+    assert document.document_tables == [first_table, second_table]
+    assert document.document_annotations == [first_annotation, second_annotation]
+    assert document.document_images[0] is document.units[0].images[0]
+    assert document.document_tables[1] is document.units[1].tables[0]
+    assert document.document_annotations[1] is document.units[1].annotations[0]
+    assert list(document.iter_images()) == document.document_images
+    assert list(document.iter_tables()) == document.document_tables
+
+
+def test_document_without_units_uses_itself_as_the_fallback_unit() -> None:
+    """Own document-level records in one default document unit."""
+    image = ImageAsset(number=1, filename="image.png")
+    table = Table(rows=[["cell"]])
+    annotation = Annotation(kind="note", text="context")
+
+    document = ExtractedDocument(
+        format="txt",
+        document_images=[image],
+        document_tables=[table],
+        document_annotations=[annotation],
+    )
+
+    assert len(document.units) == 1
+    assert document.units[0].number == 1
+    assert document.units[0].kind == "document"
+    assert document.units[0].images == [image]
+    assert document.units[0].tables == [table]
+    assert document.units[0].annotations == [annotation]
+    assert document.document_images[0] is document.units[0].images[0]
+    assert document.document_tables[0] is document.units[0].tables[0]
+    assert document.document_annotations[0] is document.units[0].annotations[0]
+
+
 def test_image_asset_derives_ratio_from_available_dimensions() -> None:
     """Derive image ratio only when both positive dimensions are available."""
     assert ImageAsset(number=1, width=600, height=300).ratio == 2.0
@@ -151,6 +213,9 @@ def test_v2_codec_round_trips_binary_and_nested_documents() -> None:
     assert payload["version"] == 2
     assert restored == document
     assert document_from_json(document_to_json(document, binary="base64")) == document
+    assert restored.document_images[0] is restored.units[0].images[0]
+    assert restored.document_tables[0] is restored.units[0].tables[0]
+    assert restored.document_annotations[0] is restored.units[0].annotations[0]
 
 
 def test_v2_codec_has_no_default_binary_decode_limit() -> None:

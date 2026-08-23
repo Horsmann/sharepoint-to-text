@@ -119,9 +119,9 @@ ExtractedDocument
 │   ├── images: list[ImageAsset]
 │   ├── tables: list[Table]
 │   └── annotations: list[Annotation]
-├── document_images: list[ImageAsset]
-├── document_tables: list[Table]
-├── document_annotations: list[Annotation]
+├── document_images: list[ImageAsset]       (all unit images)
+├── document_tables: list[Table]            (all unit tables)
+├── document_annotations: list[Annotation]  (all unit annotations)
 └── attachments: list[Attachment]
 ```
 
@@ -143,9 +143,11 @@ Fields are accessed directly. For example, use `unit.text`, `unit.images`, and
 `document.metadata.author`. Binary payloads are immutable `bytes`.
 
 `document.full_text` joins non-empty unit text in source order.
-`document.iter_images()` and `document.iter_tables()` traverse unit-owned
-assets first and then unassigned document-level assets. An asset has one
-canonical owner and is not duplicated between those collections.
+`document.document_images`, `document.document_tables`, and
+`document.document_annotations` provide document-wide aggregates of the same
+objects canonically owned by units. `document.iter_images()` and
+`document.iter_tables()` traverse those aggregates. A document without a
+structural unit receives one default unit with `kind="document"`.
 
 Format-specific scalar details live in namespaced `properties` dictionaries,
 such as `unit.properties["xlsx.hidden"]`. Parser trees and mutable parser state
@@ -369,7 +371,16 @@ Every JSON envelope contains:
     "format": "pdf",
     "source": {},
     "metadata": {"keywords": [], "properties": {}},
-    "units": [],
+    "units": [{
+      "number": 1,
+      "kind": "document",
+      "text": "",
+      "heading_path": [],
+      "images": [],
+      "tables": [],
+      "annotations": [],
+      "properties": {}
+    }],
     "document_images": [],
     "document_tables": [],
     "document_annotations": [],
