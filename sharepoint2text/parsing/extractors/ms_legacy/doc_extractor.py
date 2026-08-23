@@ -114,6 +114,7 @@ import io
 import logging
 import re
 import struct
+import zipfile
 from typing import Any, Generator, List, Optional
 
 import olefile  # type: ignore[import-untyped]
@@ -127,7 +128,9 @@ from sharepoint2text.parsing.extractors._records import (
     DocImage,
     DocMetadata,
     DocParserOutput,
+    DocxParserOutput,
 )
+from sharepoint2text.parsing.extractors.ms_modern.docx_extractor import read_docx
 
 logger = logging.getLogger(__name__)
 
@@ -183,15 +186,36 @@ _DOC_TEXT_TRANS = str.maketrans(
 )
 
 
+def _is_docx_package(file_like: io.BytesIO) -> bool:
+    """Identify a WordprocessingML package regardless of its file extension.
+
+    Args:
+        file_like: Buffer containing the candidate Word document.
+
+    Returns:
+        True when the buffer is a ZIP package containing the required DOCX
+        main-document part; otherwise False.
+    """
+    original_position = file_like.tell()
+    try:
+        file_like.seek(0)
+        with zipfile.ZipFile(file_like) as package:
+            return "word/document.xml" in package.namelist()
+    except (OSError, zipfile.BadZipFile):
+        return False
+    finally:
+        file_like.seek(original_position)
+
+
 def read_doc(
     file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
-) -> Generator[DocParserOutput, Any, None]:
+) -> Generator[DocParserOutput | DocxParserOutput, Any, None]:
     """
-    Extract all relevant content from a legacy Word .doc file.
+    Extract content from a Word document carrying a legacy .doc extension.
 
-    Primary entry point for DOC file extraction. Opens the OLE container,
-    parses the WordDocument stream, and extracts text content from all
-    document regions (main body, footnotes, headers/footers, annotations).
+    Primary entry point for DOC file extraction. Content-based detection also
+    supports DOCX/WordprocessingML packages that were published with a .doc
+    extension. Genuine legacy documents are parsed from their OLE container.
 
     This function uses a generator pattern for API consistency with other
     extractors, even though DOC files contain exactly one document.
@@ -205,7 +229,8 @@ def read_doc(
         ignore_images: If True, skip image extraction.
 
     Yields:
-        DocParserOutput: Single DocParserOutput object containing:
+        DocParserOutput | DocxParserOutput: A single format-appropriate object.
+            Legacy DOC output contains:
             - main_text: Primary document body text
             - footnotes: Footnote text (if any)
             - headers_footers: Header and footer text (if any)
@@ -236,6 +261,13 @@ def read_doc(
     """
     try:
         file_like.seek(0)
+        if _is_docx_package(file_like):
+            logger.info("Detected a WordprocessingML package with a DOC extension")
+            yield from read_docx(
+                file_like=file_like, path=path, ignore_images=ignore_images
+            )
+            return
+
         with _DocReader(file_like, ignore_images=ignore_images) as doc:
             document = doc.read()
             document.metadata = doc.get_metadata()
