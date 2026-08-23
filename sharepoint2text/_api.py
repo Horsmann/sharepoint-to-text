@@ -13,7 +13,7 @@ import threading
 from contextlib import contextmanager
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any, Generator, Iterator, TypeVar
+from typing import Generator, Iterator, TypeVar
 
 from sharepoint2text.parsing._normalization import (
     _normalize_record,
@@ -196,7 +196,7 @@ def read_many(
     include_attachments: bool = True,
     recursive: bool = True,
     zip_bomb_limits: ZipBombLimits | None = None,
-) -> Generator[ExtractedDocument, Any, None]:
+) -> Iterator[ExtractedDocument]:
     """
     Extract content from multiple files in a folder.
 
@@ -356,7 +356,7 @@ def read_file(
     force_plain_text: bool = False,
     include_attachments: bool = True,
     zip_bomb_limits: ZipBombLimits | None = None,
-) -> Generator[ExtractedDocument, Any, None]:
+) -> Iterator[ExtractedDocument]:
     """
     Read and extract content from a file.
 
@@ -462,7 +462,7 @@ def read_bytes(
     force_plain_text: bool = False,
     include_attachments: bool = True,
     zip_bomb_limits: ZipBombLimits | None = None,
-) -> Generator[ExtractedDocument, Any, None]:
+) -> Iterator[ExtractedDocument]:
     """
     Read and extract content from in-memory bytes.
 
