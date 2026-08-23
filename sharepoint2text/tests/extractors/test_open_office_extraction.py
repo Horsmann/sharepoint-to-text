@@ -113,6 +113,15 @@ def test_read_open_office__document() -> None:
         endnotes[0].text,
     )
 
+    # footnote
+    footnotes = _annotations(odt, "footnote")
+    tc.assertEqual(1, len(footnotes))
+    tc.assertEqual("fn1", footnotes[0].properties["odt.id"])
+    tc.assertEqual(
+        "This is a footnote explaining additional details.",
+        footnotes[0].text,
+    )
+
     # images
     tc.assertEqual(0, len(list(odt.iter_images())))
 

@@ -65,7 +65,7 @@ Usage
     >>> with open("archive.mhtml", "rb") as f:
     ...     for doc in read_mhtml(io.BytesIO(f.read()), path="archive.mhtml"):
     ...         print(f"Title: {doc.metadata.title}")
-    ...         print(doc.content[:500])
+    ...         print(doc.full_text[:500])
 
 See Also
 --------
@@ -264,7 +264,7 @@ def read_mhtml(
         ...     data = io.BytesIO(f.read())
         ...     for doc in read_mhtml(data, path="archive.mhtml"):
         ...         print(f"Title: {doc.metadata.title}")
-        ...         print(f"Content length: {len(doc.content)}")
+        ...         print(f"Content length: {len(doc.full_text)}")
     """
     try:
         file_like.seek(0)

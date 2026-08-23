@@ -669,7 +669,7 @@ def read_html(
         ...     data = io.BytesIO(f.read())
         ...     for doc in read_html(data, path="report.html"):
         ...         print(f"Title: {doc.metadata.title}")
-        ...         for heading in doc.headings:
+        ...         for heading in doc.properties["html.headings"]:
         ...             print(f"  {heading['level']}: {heading['text']}")
     """
     try:
@@ -726,7 +726,9 @@ def read_html(
             len(extractor.links),
         )
 
-        properties = {"html.charset": extractor.charset} if extractor.charset else {}
+        metadata_properties = (
+            {"html.charset": extractor.charset} if extractor.charset else {}
+        )
         yield ExtractedDocument(
             format="html",
             source=source_metadata(path, encoding=encoding),
@@ -740,7 +742,7 @@ def read_html(
                     if item.strip()
                 ],
                 language=extractor.language or None,
-                properties=cast(dict[str, JsonValue], properties),
+                properties=cast(dict[str, JsonValue], metadata_properties),
             ),
             units=[ContentUnit(number=1, kind="document", text=text)],
             document_tables=[
@@ -755,6 +757,7 @@ def read_html(
                 )
                 for link in extractor.links
             ],
+            properties={"html.headings": cast(JsonValue, extractor.headings)},
         )
     except ExtractionError:
         raise

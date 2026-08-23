@@ -499,6 +499,26 @@ def test_read_docx_2() -> None:
     ]
     tc.assertListEqual(["-2", "1"], [note.properties["docx.id"] for note in footnotes])
     tc.assertListEqual(["", "A simple footnote"], [note.text for note in footnotes])
+
+    headers = [
+        annotation
+        for annotation in docx.document_annotations
+        if annotation.kind == "header"
+    ]
+    footers = [
+        annotation
+        for annotation in docx.document_annotations
+        if annotation.kind == "footer"
+    ]
+    tc.assertListEqual(["My header"], [header.text for header in headers])
+    tc.assertListEqual(
+        ["default"], [header.properties["docx.type"] for header in headers]
+    )
+    tc.assertListEqual(["My footer"], [footer.text for footer in footers])
+    tc.assertListEqual(
+        ["default"], [footer.properties["docx.type"] for footer in footers]
+    )
+
     tc.assertListEqual(
         [["Income", "tax"], ["119", "19"]], list(docx.iter_tables())[0].rows
     )

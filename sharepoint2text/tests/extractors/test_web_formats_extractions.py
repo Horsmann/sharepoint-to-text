@@ -149,6 +149,21 @@ def test_read_html__1() -> None:
     tc.assertEqual("document", html.units[0].kind)
 
 
+def test_read_html_preserves_v12_heading_records() -> None:
+    """Preserve ordered HTML heading levels and text from the v1.2 result."""
+    path = "sharepoint2text/tests/resources/html/sample.html"
+    html = next(read_html(file_like=_read_file_to_file_like(path=path), path=path))
+
+    headings = typing.cast(
+        list[dict[str, str]],
+        html.properties["html.headings"],
+    )
+    tc.assertListEqual(
+        [{"level": "h1", "text": "Welcome on my website"}],
+        headings,
+    )
+
+
 def test_read_html__2() -> None:
     path = "sharepoint2text/tests/resources/html/large_complex.html"
     html: ExtractedDocument = next(
@@ -459,6 +474,25 @@ def test_read_mhtml() -> None:
     tc.assertEqual(1, len(result.document_annotations))
     tc.assertEqual("link to example.com", result.document_annotations[0].text)
     tc.assertEqual("https://example.com", result.document_annotations[0].target)
+
+
+def test_read_mhtml_preserves_v12_heading_records() -> None:
+    """Preserve ordered MHTML heading levels and text from the v1.2 result."""
+    path = "sharepoint2text/tests/resources/html/sample.mhtml"
+    document = next(read_mhtml(file_like=_read_file_to_file_like(path=path), path=path))
+
+    headings = typing.cast(
+        list[dict[str, str]],
+        document.properties["html.headings"],
+    )
+    tc.assertListEqual(
+        [
+            {"level": "h1", "text": "Welcome to the Test Page"},
+            {"level": "h2", "text": "Sample Table"},
+            {"level": "h2", "text": "More Content"},
+        ],
+        headings,
+    )
 
 
 def test_read_csv_2() -> None:
