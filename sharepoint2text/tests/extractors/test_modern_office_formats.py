@@ -429,6 +429,8 @@ def test_read_pptx_5_full() -> None:
     )
     tc.assertTrue(pptx.full_text.endswith("e +49 30 27891-0.\n15"))
 
+    tc.assertEqual(17, len(pptx.document_images))
+
     # units
     tc.assertEqual(15, len(pptx.units))
     # 0
