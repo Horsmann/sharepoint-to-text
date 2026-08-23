@@ -122,6 +122,33 @@ def fetch_user(user_id, include_inactive=False):
     ...
 ```
 
+### 3.4 Unit Test Requirements
+
+Every new behavior and every regression fix **must** be verified by one or more
+new unit tests that fail without the corresponding implementation or fix.
+
+Existing unit tests are protected regression coverage:
+
+- **Do not remove existing unit tests.**
+- **Do not remove, weaken, or otherwise alter the behavioral content of an
+  existing unit test.** This includes its scenarios, inputs, assertions,
+  expected outcomes, and error cases.
+- Test scaffolding may be refactored when necessary. Changes to data-type
+  shells, fixtures, helper methods, variable names, parameter shapes, or the
+  mechanism used to provide information are permitted only when all of the
+  original test information, scenarios, and behavioral assertions remain
+  semantically unchanged.
+- If removing or changing any existing test content is genuinely necessary,
+  stop and explain exactly what content must change, why the change is
+  necessary, and what coverage would be affected. Obtain explicit human
+  confirmation before making the change. Agent judgment alone is not
+  sufficient authorization.
+
+> **Rule:** A production-code change is not complete when it only makes the
+> existing suite pass. New behavior and regression fixes require new unit-test
+> coverage, and existing coverage must remain intact unless a human explicitly
+> approves a justified exception.
+
 ---
 
 ## 4. Progress Tracking
@@ -202,6 +229,8 @@ A task is **complete** when all of the following are true:
 ✅  uv run mypy . — passes with zero errors
 ✅  All new/modified code has docstrings
 ✅  All new/modified functions have complete type hints
+✅  New behavior and regression fixes have new unit-test coverage
+✅  Existing test content remains semantically intact, or a justified change was explicitly approved by a human
 ```
 
 If any item above is not satisfied, the task is **not complete**.
@@ -225,6 +254,11 @@ Copy this block at the start of every task:
 - [ ] Type hints present on all signatures
 - [ ] No magic numbers — constants are named and documented
 - [ ] Error handling is explicit (no bare `except:`)
+
+### Test Coverage
+- [ ] New behavior and regression fixes have new unit tests
+- [ ] Existing tests and their behavioral content remain intact
+- [ ] Any necessary test-content change has an explanation and explicit human confirmation
 
 ### Validation
 - [ ] `uv run pytest` passes
