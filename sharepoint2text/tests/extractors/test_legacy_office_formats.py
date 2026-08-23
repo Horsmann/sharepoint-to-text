@@ -354,6 +354,15 @@ def test_read_doc__image_extraction_2() -> None:
     tc.assertEqual(336, images[1].height)
 
 
+def test_read_doc__web_sample() -> None:
+    path = "sharepoint2text/tests/resources/legacy_ms/ECE-TRANS-2021-24e.Doc"
+    doc: DocParserOutput = next(
+        read_doc(file_like=read_file_to_file_like(path=path), path=path)
+    )
+
+    tc.assertEqual("ABC", doc.full_text[:3])
+
+
 def test_read_doc__heading_units() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/headings.doc"
     doc: DocParserOutput = next(
