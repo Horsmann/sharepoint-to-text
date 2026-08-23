@@ -126,8 +126,10 @@ documents are written together rather than overwriting one another.
 
 ## Attachments
 
-Email attachment records are included by default, but their byte payloads are
-omitted from JSON unless `--include-binary` is set. Omit the records entirely
+Image metadata, including available width, height, and width-to-height ratio, is
+included by default even though image byte payloads are omitted unless
+`--include-binary` is set. Email attachment records follow the same payload
+rule. Omit attachment records entirely
 with:
 
 ```bash
@@ -178,7 +180,7 @@ a malicious archive to exhaust memory or disk resources.
 | `--output PATH` | `-o` | Write combined output or mirror into a directory |
 | `--json` | `-j` | Emit version-2 document envelopes |
 | `--json-unit` | `-u` | Emit one version-2 envelope per unit |
-| `--include-binary` | `-i` | Extract images and encode image and attachment payloads as base64 |
+| `--include-binary` | `-i` | Encode image and attachment payloads as base64 |
 | `--no-attachments` | `-n` | Omit email attachment records and payloads |
 | `--max-file-size-mb N` | `-m` | Maximum input size; default 100, zero disables |
 | `--zip-bomb-limit-multiplier N` | `--zblm` | Multiply all ZIP-bomb limits by 2..10; `none` disables |

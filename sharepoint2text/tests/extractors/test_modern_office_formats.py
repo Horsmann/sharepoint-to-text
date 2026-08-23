@@ -174,6 +174,7 @@ def test_read_xlsx_4__image_extraction() -> None:
         ),
         img_meta,
     )
+    tc.assertAlmostEqual(600 / 300, img_meta.ratio or 0.0)
     tc.assertEqual(1, img_meta.unit_number)
     tc.assertEqual(600, img_meta.width)
     tc.assertEqual(300, img_meta.height)

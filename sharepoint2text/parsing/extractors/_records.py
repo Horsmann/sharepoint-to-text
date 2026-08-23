@@ -328,6 +328,19 @@ class ImageMetadata:
     # Pixel dimensions of the image when available
     width: Optional[int] = None
     height: Optional[int] = None
+    # Width-to-height aspect ratio when both dimensions are available
+    ratio: Optional[float] = None
+
+    def __post_init__(self) -> None:
+        """Derive the width-to-height aspect ratio when dimensions are available."""
+        if (
+            self.ratio is None
+            and self.width is not None
+            and self.width > 0
+            and self.height is not None
+            and self.height > 0
+        ):
+            self.ratio = self.width / self.height
 
     def to_dict(self) -> dict:
         """Convert this value to a plain dictionary.

@@ -40,9 +40,11 @@ def _failing_extractor(
     yield  # pragma: no cover
 
 
-def _normalize_document(record: object) -> ExtractedDocument:
+def _normalize_document(
+    record: object, *, include_image_data: bool = True
+) -> ExtractedDocument:
     """Convert a fake extractor record into a public document."""
-    del record
+    del record, include_image_data
     return ExtractedDocument(format="pdf")
 
 

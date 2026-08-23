@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import isfinite
 from typing import Iterator, Literal
 
 JsonScalar = str | int | float | bool | None
@@ -80,6 +81,7 @@ class ImageAsset:
         description: Accessibility or alternative text.
         width: Width in pixels, when known.
         height: Height in pixels, when known.
+        ratio: Width-to-height aspect ratio, when both dimensions are known.
         properties: Small format-specific JSON values under namespaced keys.
     """
 
@@ -92,15 +94,27 @@ class ImageAsset:
     width: int | None = None
     height: int | None = None
     properties: dict[str, JsonValue] = field(default_factory=dict)
+    ratio: float | None = None
 
     def __post_init__(self) -> None:
-        """Reject invalid one-based image numbers.
+        """Reject invalid image values and derive the aspect ratio when possible.
 
         Raises:
             ValueError: If ``number`` is less than one.
+            ValueError: If an explicit ``ratio`` is not positive.
         """
         if self.number < 1:
             raise ValueError("Image numbers must start at 1")
+        if self.ratio is not None and (not isfinite(self.ratio) or self.ratio <= 0):
+            raise ValueError("Image ratios must be positive")
+        if (
+            self.ratio is None
+            and self.width is not None
+            and self.width > 0
+            and self.height is not None
+            and self.height > 0
+        ):
+            self.ratio = self.width / self.height
 
 
 @dataclass(slots=True)

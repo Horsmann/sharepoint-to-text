@@ -82,6 +82,7 @@ _COMMON_IMAGE_FIELDS = {
     "description",
     "width",
     "height",
+    "ratio",
 }
 _UNIT_KINDS_BY_FORMAT: dict[str, UnitKind] = {
     "email": "message",
@@ -246,8 +247,14 @@ def _positive_dimension(value: object) -> int | None:
     )
 
 
-def _image_asset(image: ImageRecord, source_format: str, fallback: int) -> ImageAsset:
-    """Normalize one record image without leaking mutable stream state."""
+def _image_asset(
+    image: ImageRecord,
+    source_format: str,
+    fallback: int,
+    *,
+    include_data: bool,
+) -> ImageAsset:
+    """Normalize one image, optionally omitting its mutable binary payload."""
     metadata = image.get_metadata()
     source_number = getattr(metadata, "image_number", None)
     number = (
@@ -257,13 +264,14 @@ def _image_asset(image: ImageRecord, source_format: str, fallback: int) -> Image
     )
     return ImageAsset(
         number=number,
-        data=_stream_bytes(getattr(image, "data", None)),
+        data=_stream_bytes(getattr(image, "data", None)) if include_data else None,
         media_type=_nonempty_text(image.get_content_type()),
         filename=_first_text(image, "filename", "name", "href"),
         caption=_nonempty_text(image.get_caption()),
         description=_nonempty_text(image.get_description()),
         width=_positive_dimension(getattr(metadata, "width", None)),
         height=_positive_dimension(getattr(metadata, "height", None)),
+        ratio=getattr(metadata, "ratio", None),
         properties=_namespaced_fields(image, source_format, _COMMON_IMAGE_FIELDS),
     )
 
@@ -374,7 +382,12 @@ def _unit_annotations(
 
 
 def _content_unit(
-    record: ExtractionRecord, unit: UnitRecord, index: int, source_format: str
+    record: ExtractionRecord,
+    unit: UnitRecord,
+    index: int,
+    source_format: str,
+    *,
+    include_image_data: bool,
 ) -> ContentUnit:
     """Normalize one record content unit and its canonical assets."""
     metadata = unit.get_metadata()
@@ -396,7 +409,12 @@ def _content_unit(
         title=_first_text(metadata, "title", "sheet_name"),
         heading_path=safe_heading_path,
         images=[
-            _image_asset(image, source_format, position)
+            _image_asset(
+                image,
+                source_format,
+                position,
+                include_data=include_image_data,
+            )
             for position, image in enumerate(unit.get_images(), start=1)
         ],
         tables=[_table(table, source_format) for table in unit.get_tables()],
@@ -463,21 +481,27 @@ def _document_properties(
 
 
 def _normalized_units(
-    record: ExtractionRecord, source_format: str
+    record: ExtractionRecord, source_format: str, *, include_image_data: bool
 ) -> list[ContentUnit]:
     """Normalize all structural units in source order."""
     return [
-        _content_unit(record, unit, index, source_format)
+        _content_unit(
+            record,
+            unit,
+            index,
+            source_format,
+            include_image_data=include_image_data,
+        )
         for index, unit in enumerate(record.iterate_units())
     ]
 
 
 def _normalized_images(
-    record: ExtractionRecord, source_format: str
+    record: ExtractionRecord, source_format: str, *, include_image_data: bool
 ) -> list[ImageAsset]:
     """Normalize the record document-wide image iterator."""
     return [
-        _image_asset(image, source_format, index)
+        _image_asset(image, source_format, index, include_data=include_image_data)
         for index, image in enumerate(record.iterate_images(), start=1)
     ]
 
@@ -488,11 +512,19 @@ def _normalized_tables(record: ExtractionRecord, source_format: str) -> list[Tab
 
 
 def _build_document(
-    record: ExtractionRecord, metadata: object, source_format: str
+    record: ExtractionRecord,
+    metadata: object,
+    source_format: str,
+    *,
+    include_image_data: bool,
 ) -> ExtractedDocument:
     """Build a normalized document after validating the record boundary."""
-    units = _normalized_units(record, source_format)
-    all_images = _normalized_images(record, source_format)
+    units = _normalized_units(
+        record, source_format, include_image_data=include_image_data
+    )
+    all_images = _normalized_images(
+        record, source_format, include_image_data=include_image_data
+    )
     all_tables = _normalized_tables(record, source_format)
     owned_images = [item for unit in units for item in unit.images]
     owned_tables = [item for unit in units for item in unit.tables]
@@ -509,11 +541,14 @@ def _build_document(
     )
 
 
-def _normalize_record(record: ExtractionRecord) -> ExtractedDocument:
+def _normalize_record(
+    record: ExtractionRecord, *, include_image_data: bool = True
+) -> ExtractedDocument:
     """Convert an internal extractor result to the normalized data model.
 
     Args:
         record: Format-specific internal extraction result.
+        include_image_data: If false, retain image metadata but omit image bytes.
 
     Returns:
         Normalized document with one canonical owner for each asset.
@@ -531,4 +566,9 @@ def _normalize_record(record: ExtractionRecord) -> ExtractedDocument:
         raise TypeError("record must implement the internal extraction protocol")
     metadata = record.get_metadata()
     source_format = _record_format(record, metadata)
-    return _build_document(record, metadata, source_format)
+    return _build_document(
+        record,
+        metadata,
+        source_format,
+        include_image_data=include_image_data,
+    )

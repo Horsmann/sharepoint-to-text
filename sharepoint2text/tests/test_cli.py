@@ -210,13 +210,18 @@ def test_cli_json_unit_retains_email_attachments(capsys: Any) -> None:
 
 
 def test_cli_omits_binary_payloads_by_default(capsys: Any) -> None:
-    """Verify image data is neither extracted nor serialized by default."""
+    """Verify default JSON retains image dimensions but omits image bytes."""
     exit_code = main(["--json", "--file", str(IMAGE_PDF_PATH)])
     captured = capsys.readouterr()
     body = _body(json.loads(captured.out)[0])
+    images = [image for unit in body["units"] for image in unit["images"]]
 
     assert exit_code == 0
-    assert all(unit["images"] == [] for unit in body["units"])
+    assert images
+    assert all("data" not in image for image in images)
+    assert all(image["width"] > 0 for image in images)
+    assert all(image["height"] > 0 for image in images)
+    assert all(image["ratio"] == image["width"] / image["height"] for image in images)
 
 
 def test_cli_encodes_binary_payloads_when_requested(capsys: Any) -> None:

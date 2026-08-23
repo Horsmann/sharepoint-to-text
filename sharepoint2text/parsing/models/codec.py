@@ -139,6 +139,7 @@ def _image_to_dict(image: ImageAsset, binary: BinaryMode) -> dict[str, JsonValue
             "description": image.description,
             "width": image.width,
             "height": image.height,
+            "ratio": image.ratio,
         }
     )
     encoded = _encode_binary(image.data, binary)
@@ -304,6 +305,17 @@ def _optional_int(value: JsonValue, path: str) -> int | None:
     raise ValueError(f"{path} must be an integer or null")
 
 
+def _optional_float(value: JsonValue, path: str) -> float | None:
+    """Decode an optional finite number while rejecting booleans."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        result = float(value)
+        if math.isfinite(result):
+            return result
+    raise ValueError(f"{path} must be a finite number or null")
+
+
 def _required_int(value: JsonValue, path: str) -> int:
     """Decode a required integer field."""
     result = _optional_int(value, path)
@@ -385,6 +397,7 @@ def _image_from_dict(
         description=_optional_string(data.get("description"), f"{path}.description"),
         width=_optional_int(data.get("width"), f"{path}.width"),
         height=_optional_int(data.get("height"), f"{path}.height"),
+        ratio=_optional_float(data.get("ratio"), f"{path}.ratio"),
         properties=_properties(data, path),
     )
 

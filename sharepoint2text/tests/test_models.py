@@ -95,6 +95,15 @@ def test_core_invariants_and_canonical_iteration() -> None:
         ImageAsset(number=0)
 
 
+def test_image_asset_derives_ratio_from_available_dimensions() -> None:
+    """Derive image ratio only when both positive dimensions are available."""
+    assert ImageAsset(number=1, width=600, height=300).ratio == 2.0
+    assert ImageAsset(number=1, width=600).ratio is None
+    assert ImageAsset(number=1, width=600, height=0).ratio is None
+    with pytest.raises(ValueError, match="ratios"):
+        ImageAsset(number=1, ratio=0.0)
+
+
 def _rich_document() -> ExtractedDocument:
     """Build a document exercising every recursive codec record."""
     nested = ExtractedDocument(
@@ -111,7 +120,15 @@ def _rich_document() -> ExtractedDocument:
                 number=1,
                 kind="page",
                 text="Body",
-                images=[ImageAsset(number=1, data=b"image", media_type="image/png")],
+                images=[
+                    ImageAsset(
+                        number=1,
+                        data=b"image",
+                        media_type="image/png",
+                        width=600,
+                        height=300,
+                    )
+                ],
                 tables=[Table(rows=[["name", "value"], ["a", 1]])],
                 annotations=[Annotation(kind="comment", text="Review")],
                 properties={"pdf.label": "i"},
@@ -170,6 +187,9 @@ def test_v2_codec_omits_binary_by_default() -> None:
     images = cast(list[JsonValue], unit["images"])
     image = cast(dict[str, JsonValue], images[0])
     assert "data" not in image
+    assert image["width"] == 600
+    assert image["height"] == 300
+    assert image["ratio"] == 2.0
     assert "data" not in attachment
 
 

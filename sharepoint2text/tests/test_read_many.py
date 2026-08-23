@@ -508,7 +508,7 @@ def test_read_many_enumerates_folder_lazily(monkeypatch: Any) -> None:
 
 
 def test_read_many_with_ignore_images() -> None:
-    """read_many should pass ignore_images flag to extractors."""
+    """Retain image metadata but omit bytes when read_many ignores images."""
     results = list(
         read_many(
             RESOURCES_PATH / "modern_ms",
@@ -521,7 +521,9 @@ def test_read_many_with_ignore_images() -> None:
     # Should still extract files
     tc.assertGreater(len(results), 0)
 
-    # Check that no images were extracted
-    for result in results:
-        images = list(result.iter_images())
-        tc.assertEqual(len(images), 0, "Images should be ignored")
+    images = [image for result in results for image in result.iter_images()]
+    tc.assertGreater(len(images), 0)
+    tc.assertTrue(all(image.data is None for image in images))
+    for image in images:
+        if image.width is not None and image.height is not None:
+            tc.assertEqual(image.width / image.height, image.ratio)
