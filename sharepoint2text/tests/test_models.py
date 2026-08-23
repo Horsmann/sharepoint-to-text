@@ -157,6 +157,18 @@ def test_document_without_units_uses_itself_as_the_fallback_unit() -> None:
     assert document.document_annotations[0] is document.units[0].annotations[0]
 
 
+def test_source_serialization_omits_size_bytes() -> None:
+    """Keep source size outside the normalized extraction contract."""
+    document = ExtractedDocument(
+        format="txt",
+        source=SourceMetadata(filename="report.txt"),
+    )
+
+    payload = document_to_dict(document)
+
+    assert payload["document"]["source"] == {"filename": "report.txt"}
+
+
 def test_image_asset_derives_ratio_from_available_dimensions() -> None:
     """Derive image ratio only when both positive dimensions are available."""
     assert ImageAsset(number=1, width=600, height=300).ratio == 2.0

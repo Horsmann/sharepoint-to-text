@@ -54,7 +54,6 @@ class SourceMetadata:
         folder: Folder containing the source.
         media_type: MIME media type of the source.
         encoding: Detected character encoding.
-        size_bytes: Source size in bytes.
     """
 
     filename: str | None = None
@@ -63,7 +62,6 @@ class SourceMetadata:
     folder: str | None = None
     media_type: str | None = None
     encoding: str | None = None
-    size_bytes: int | None = None
 
 
 @dataclass(slots=True)

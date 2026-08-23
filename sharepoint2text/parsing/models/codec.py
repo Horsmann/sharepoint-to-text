@@ -104,7 +104,6 @@ def _source_to_dict(source: SourceMetadata) -> dict[str, JsonValue]:
             "folder": source.folder,
             "media_type": source.media_type,
             "encoding": source.encoding,
-            "size_bytes": source.size_bytes,
         }
     )
 
@@ -366,7 +365,6 @@ def _source_from_dict(data: dict[str, JsonValue]) -> SourceMetadata:
         folder=_optional_string(data.get("folder"), "source.folder"),
         media_type=_optional_string(data.get("media_type"), "source.media_type"),
         encoding=_optional_string(data.get("encoding"), "source.encoding"),
-        size_bytes=_optional_int(data.get("size_bytes"), "source.size_bytes"),
     )
 
 
