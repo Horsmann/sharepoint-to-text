@@ -64,6 +64,7 @@ EXPECTED_CLI_OPTIONS = {
     "--output",
     "-i",
     "--include-binary",
+    "--no-images",
     "-n",
     "--no-attachments",
     "-m",

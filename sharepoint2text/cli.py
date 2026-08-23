@@ -277,6 +277,7 @@ def _add_extraction_arguments(parser: argparse.ArgumentParser) -> None:
     """
     group = parser.add_argument_group("extraction options")
     _add_binary_extraction_argument(group)
+    _add_image_extraction_argument(group)
     _add_attachment_extraction_argument(group)
 
 
@@ -296,6 +297,23 @@ def _add_binary_extraction_argument(group: argparse._ArgumentGroup) -> None:
             "included even when binary payloads are omitted. "
             "Requires --json or --json-unit and can increase processing time and "
             "output size."
+        ),
+    )
+
+
+def _add_image_extraction_argument(group: argparse._ArgumentGroup) -> None:
+    """Add the image extraction suppression option.
+
+    Args:
+        group: Argument group that receives the image option.
+    """
+    group.add_argument(
+        "--no-images",
+        dest="no_images",
+        action="store_true",
+        help=(
+            "Skip image extraction entirely to reduce processing time. "
+            "No image records will be included in the output."
         ),
     )
 
@@ -636,9 +654,7 @@ def _process_folder_to_folder(
         suffixes=suffixes,
         extract_all_supported=extract_all_supported,
         max_file_size=max_file_size_bytes,
-        # ``--include-binary`` controls serialization, not image extraction:
-        # default JSON retains image metadata while omitting byte payloads.
-        ignore_images=False,
+        ignore_images=args.no_images,
         include_attachments=not args.no_attachments,
         recursive=not args.no_recursive,
         zip_bomb_limits=_build_zip_bomb_limits(args.zip_bomb_limit_multiplier),
@@ -688,9 +704,7 @@ def _get_file_results(
         sharepoint2text.read_file(
             args.file,
             max_file_size=max_file_size_bytes,
-            # Preserve image metadata in default JSON; serialization controls
-            # whether binary payloads are emitted.
-            ignore_images=False,
+            ignore_images=args.no_images,
             include_attachments=not args.no_attachments,
             zip_bomb_limits=_build_zip_bomb_limits(args.zip_bomb_limit_multiplier),
         )
@@ -722,9 +736,7 @@ def _get_folder_results(
             suffixes=suffixes,
             extract_all_supported=extract_all_supported,
             max_file_size=max_file_size_bytes,
-            # Preserve image metadata in default JSON; serialization controls
-            # whether binary payloads are emitted.
-            ignore_images=False,
+            ignore_images=args.no_images,
             include_attachments=not args.no_attachments,
             recursive=not args.no_recursive,
             zip_bomb_limits=_build_zip_bomb_limits(args.zip_bomb_limit_multiplier),
@@ -762,6 +774,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.include_binary and not (args.json or args.json_unit):
             raise ValueError("--include-binary requires --json or --json-unit")
+        if args.include_binary and args.no_images:
+            raise ValueError("--include-binary and --no-images are incompatible")
         if args.max_file_size_mb < 0:
             raise ValueError("--max-file-size-mb must be >= 0")
         if args.suffixes and not args.folder:
