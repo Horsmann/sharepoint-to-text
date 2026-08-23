@@ -21,6 +21,14 @@ def test_pdf__1() -> None:
     tc.assertEqual(2, pdf.metadata.properties["pdf.total_pages"])
     tc.assertEqual(2, len(pdf.units))
 
+    # Metadata extraction
+    tc.assertEqual("Ohne Titel", pdf.metadata.title)
+    tc.assertEqual("Toobee", pdf.metadata.author)
+    tc.assertEqual("2025-12-24T12:04:03+00:00", pdf.metadata.created)
+    tc.assertEqual("2025-12-24T12:04:03+00:00", pdf.metadata.modified)
+    tc.assertEqual("Pages", pdf.metadata.properties["pdf.creator"])
+    tc.assertIn("Quartz PDFContext", pdf.metadata.properties["pdf.producer"])
+
     # Text page 1
     expected = (
         "This is a test sentence" + "\n"
@@ -117,6 +125,18 @@ def test_pdf__3() -> None:
     full_text = pdf.full_text
     tc.assertTrue(len(full_text) > 0)
     tc.assertIn("Supplier Registration Form", full_text)
+
+    # Metadata extraction - this PDF has creator/producer but no title/author
+    tc.assertIsNone(pdf.metadata.title)
+    tc.assertIsNone(pdf.metadata.author)
+    tc.assertEqual("2022-03-29T17:00:27-03:00", pdf.metadata.created)
+    tc.assertEqual("2025-06-23T15:58:35+02:00", pdf.metadata.modified)
+    tc.assertEqual(
+        "Microsoft® Word for Microsoft 365", pdf.metadata.properties["pdf.creator"]
+    )
+    tc.assertEqual(
+        "Microsoft® Word for Microsoft 365", pdf.metadata.properties["pdf.producer"]
+    )
 
 
 def test_password_protected__pdf() -> None:

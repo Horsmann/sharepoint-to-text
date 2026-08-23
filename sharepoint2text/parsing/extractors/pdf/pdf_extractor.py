@@ -124,6 +124,7 @@ from sharepoint2text.parsing.models import (
     DocumentMetadata,
     ExtractedDocument,
     ImageAsset,
+    JsonValue,
 )
 
 logger = logging.getLogger(__name__)
@@ -227,6 +228,68 @@ class PageLike(Protocol):
 def _open_pdf_reader(file_like: io.BytesIO) -> PdfReader:
     file_like.seek(0)
     return PdfReader(file_like)
+
+
+def _extract_pdf_metadata(reader: PdfReader) -> DocumentMetadata:
+    """Extract document metadata from PDF info dictionary.
+
+    Args:
+        reader: An open PdfReader with access to document metadata.
+
+    Returns:
+        DocumentMetadata populated with available PDF properties.
+
+    Example:
+        >>> reader = PdfReader("document.pdf")
+        >>> metadata = _extract_pdf_metadata(reader)
+        >>> print(metadata.title)
+        'Sample Document'
+    """
+    properties: dict[str, JsonValue] = {"pdf.total_pages": len(reader.pages)}
+    metadata = DocumentMetadata(properties=properties)
+
+    info = reader.metadata
+    if info is None:
+        return metadata
+
+    # Standard metadata fields
+    if info.title:
+        metadata.title = str(info.title)
+
+    if info.author:
+        metadata.author = str(info.author)
+
+    if info.subject:
+        metadata.subject = str(info.subject)
+
+    # Keywords - may be comma or semicolon separated
+    if info.get("/Keywords"):
+        raw_keywords = str(info.get("/Keywords"))
+        metadata.keywords = [
+            kw.strip() for kw in raw_keywords.replace(";", ",").split(",") if kw.strip()
+        ]
+
+    # Creation and modification dates
+    if info.creation_date:
+        try:
+            metadata.created = info.creation_date.isoformat()
+        except (AttributeError, ValueError):
+            pass
+
+    if info.modification_date:
+        try:
+            metadata.modified = info.modification_date.isoformat()
+        except (AttributeError, ValueError):
+            pass
+
+    # Format-specific properties
+    if info.creator:
+        properties["pdf.creator"] = str(info.creator)
+
+    if info.producer:
+        properties["pdf.producer"] = str(info.producer)
+
+    return metadata
 
 
 def _should_skip_images(reader: PdfReader, file_like: io.BytesIO) -> bool:
@@ -337,9 +400,7 @@ def read_pdf(
         yield ExtractedDocument(
             format="pdf",
             source=source_metadata(path),
-            metadata=DocumentMetadata(
-                properties={"pdf.total_pages": len(reader.pages)}
-            ),
+            metadata=_extract_pdf_metadata(reader),
             units=units,
         )
     except ExtractionError:
