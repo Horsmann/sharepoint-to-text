@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any, BinaryIO, Callable, Generator, cast
 
 import pytest
 
 import sharepoint2text
-from sharepoint2text import ExtractedDocument, read_bytes, read_file
+from sharepoint2text import (
+    ExtractedDocument,
+    ExtractionFileFormatNotSupportedError,
+    read_bytes,
+    read_file,
+)
 
 _SAMPLES = [
     "plain_text/plain.txt",
@@ -54,6 +60,85 @@ def test_read_bytes_returns_a_normalized_document() -> None:
     assert isinstance(result, ExtractedDocument)
     assert result.format == "txt"
     assert result.full_text == "hello"
+
+
+def test_read_file_validates_missing_path_eagerly(tmp_path: Path) -> None:
+    """Raise path validation errors when the public API is called."""
+    with pytest.raises(FileNotFoundError):
+        read_file(tmp_path / "missing.txt")
+
+
+def test_read_file_validates_routing_eagerly(tmp_path: Path) -> None:
+    """Reject unsupported filesystem sources when the public API is called."""
+    unsupported_path = tmp_path / "document.unsupported"
+    unsupported_path.write_bytes(b"content")
+
+    with pytest.raises(ExtractionFileFormatNotSupportedError):
+        read_file(unsupported_path)
+
+
+def test_read_bytes_validates_configuration_eagerly() -> None:
+    """Raise byte-input validation errors when the public API is called."""
+    with pytest.raises(TypeError, match="data must be bytes or io.BytesIO"):
+        read_bytes(cast(Any, "not bytes"), extension="txt")
+
+    with pytest.raises(ValueError, match="Either mime_type or extension"):
+        read_bytes(b"content")
+
+    with pytest.raises(ExtractionFileFormatNotSupportedError):
+        read_bytes(b"content", extension="unsupported")
+
+
+def test_read_file_defers_opening_until_iteration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keep file I/O lazy after eager public validation succeeds."""
+    path = Path(__file__).parent / "resources" / "plain_text" / "plain.txt"
+    documents = read_file(path)
+
+    def reject_open(*args: Any, **kwargs: Any) -> Any:
+        """Fail when lazy extraction attempts to open the source file."""
+        del args, kwargs
+        raise RuntimeError("file opened")
+
+    monkeypatch.setattr("builtins.open", reject_open)
+
+    with pytest.raises(RuntimeError, match="file opened"):
+        next(documents)
+
+
+def test_read_bytes_defers_extraction_until_iteration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keep in-memory parsing lazy after eager public validation succeeds."""
+    extraction_started = False
+
+    def recording_extractor(
+        file_like: BinaryIO, path: str | None
+    ) -> Generator[Any, None, None]:
+        """Record when the returned extractor is first advanced."""
+        nonlocal extraction_started
+        del file_like, path
+        extraction_started = True
+        yield from ()
+
+    def get_recording_extractor(
+        *args: Any, **kwargs: Any
+    ) -> Callable[[BinaryIO, str | None], Generator[Any, None, None]]:
+        """Return the recording extractor without advancing it."""
+        del args, kwargs
+        return recording_extractor
+
+    monkeypatch.setattr(
+        "sharepoint2text._api._get_extractor",
+        get_recording_extractor,
+    )
+
+    documents = read_bytes(b"content", extension="txt")
+    assert not extraction_started
+
+    assert list(documents) == []
+    assert extraction_started
 
 
 def test_read_file_logs_one_debug_completion_without_info_noise(

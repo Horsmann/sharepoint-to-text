@@ -1,10 +1,11 @@
 """Tests for the read_many() batch extraction function."""
 
+import glob
 import logging
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import pytest
 
@@ -103,12 +104,10 @@ def test_read_many_extract_all_supported() -> None:
 def test_read_many_invalid_configuration_both_options() -> None:
     """read_many should raise InvalidConfigurationError when both options are set."""
     with tc.assertRaises(InvalidConfigurationError) as ctx:
-        list(
-            read_many(
-                RESOURCES_PATH,
-                suffixes=[".txt"],
-                extract_all_supported=True,
-            )
+        read_many(
+            RESOURCES_PATH,
+            suffixes=[".txt"],
+            extract_all_supported=True,
         )
 
     tc.assertIn("Cannot specify both", str(ctx.exception))
@@ -117,7 +116,7 @@ def test_read_many_invalid_configuration_both_options() -> None:
 def test_read_many_invalid_configuration_no_options() -> None:
     """read_many should raise ValueError when neither option is set."""
     with tc.assertRaises(ValueError) as ctx:
-        list(read_many(RESOURCES_PATH))
+        read_many(RESOURCES_PATH)
 
     tc.assertIn("Must specify either", str(ctx.exception))
 
@@ -125,7 +124,7 @@ def test_read_many_invalid_configuration_no_options() -> None:
 def test_read_many_nonexistent_folder() -> None:
     """read_many should raise FileNotFoundError for non-existent folder."""
     with tc.assertRaises(FileNotFoundError):
-        list(read_many("/nonexistent/path/to/folder", suffixes=[".txt"]))
+        read_many("/nonexistent/path/to/folder", suffixes=[".txt"])
 
 
 def test_read_many_file_instead_of_folder() -> None:
@@ -134,7 +133,7 @@ def test_read_many_file_instead_of_folder() -> None:
     file_path = RESOURCES_PATH / "plain_text" / "lorem_ipsum.txt"
     if file_path.exists():
         with tc.assertRaises(NotADirectoryError):
-            list(read_many(file_path, suffixes=[".txt"]))
+            read_many(file_path, suffixes=[".txt"])
 
 
 def test_read_many_non_recursive() -> None:
@@ -346,10 +345,24 @@ def test_read_many_enumerates_folder_lazily(monkeypatch: Any) -> None:
             """Fail if read_many calls the eager glob implementation."""
             raise AssertionError("read_many must not materialize glob results")
 
+        traversal_started = False
+        original_iglob = glob.iglob
+
+        def recording_iglob(*args: Any, **kwargs: Any) -> Iterator[str]:
+            """Record when iteration requests filesystem traversal."""
+            nonlocal traversal_started
+            traversal_started = True
+            return original_iglob(*args, **kwargs)
+
         monkeypatch.setattr("glob.glob", reject_eager_glob)
+        monkeypatch.setattr("glob.iglob", recording_iglob)
 
-        results = list(read_many(tmpdir_path, suffixes=[".txt"]))
+        documents = read_many(tmpdir_path, suffixes=[".txt"])
+        tc.assertFalse(traversal_started)
 
+        results = list(documents)
+
+    tc.assertTrue(traversal_started)
     tc.assertEqual(1, len(results))
     tc.assertEqual("content", results[0].full_text)
 
