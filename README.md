@@ -224,13 +224,66 @@ Set `max_file_size=0` to disable the input-size check. For archives, this
 setting limits the top-level archive file or byte buffer; decompressed ZIP
 members remain subject to the separate [ZIP-bomb limits](#zip-bomb-limits).
 
-The extraction functions return lazy iterators because archives and `.mbox`
-files can produce multiple documents. `next(...)` is convenient for ordinary
-single-document formats; iterate the results when cardinality is not known.
+### Iterator semantics
+
+The extraction functions return lazy, synchronous, single-pass
+`Iterator[ExtractedDocument]` values. Archives and `.mbox` files can produce
+multiple documents, so even `read_file` and `read_bytes` return iterators.
+
+- Consume each returned iterator only once. An exhausted iterator stays
+  exhausted; call the API again to repeat extraction.
+- Documents are produced on demand. Advancing the iterator can perform file
+  I/O, decompression, parsing, and normalization.
+- `read_many` traverses lazily and processes one top-level file at a time. All
+  documents from one source are adjacent, but filesystem traversal order is
+  not a portable sorting guarantee.
+- A yielded `ExtractedDocument` is fully materialized. Calling
+  `list(read_many(...))` retains every result and removes the iterator's
+  result-memory benefit.
+
+Static validation happens when the public function is called, while source
+processing remains deferred:
+
+| API | Validated when called | Deferred until iteration |
+|---|---|---|
+| `read_file` | Path, source size, routing, and ZIP-bomb configuration | Opening, reading, parsing, and normalization |
+| `read_bytes` | Input type and size, routing hints, and ZIP-bomb configuration | Stream positioning, parsing, and normalization |
+| `read_many` | Folder and selection configuration | Traversal and each selected file's validation and extraction |
+
+For a source that may yield any number of documents, iterate to exhaustion:
+
+```python
+for document in sharepoint2text.read_file("mailbox.mbox"):
+    consume(document)
+```
+
+When exactly one result is an application invariant, iterable unpacking checks
+that invariant and exhausts the iterator:
+
+```python
+document, = sharepoint2text.read_file("report.pdf")
+```
+
+This raises `ValueError` for zero or multiple documents. By comparison,
+`next(...)` returns only the first document and does not verify that the source
+is exhausted.
+
+`read_file` and `read_bytes` propagate lazy extraction failures. `read_many`
+logs expected per-file extraction and I/O failures, skips those files, and
+continues. Other exceptions stop iteration.
+
+Fully exhausting an iterator releases its open file, archive, and parser
+resources. Breaking early can retain those resources until the concrete
+iterator is closed or finalized. The current implementation uses generators
+with `close()` at runtime, but the stable public contract currently promises
+only `Iterator`; deterministic context-managed cleanup after partial
+consumption is not yet part of the API.
+
+See [Iterator Semantics](ITERATOR_SEMANTIC.md) for the detailed contract,
+including ordering, partial-result, memory, and non-goal definitions.
 
 `read_many` requires exactly one of `suffixes` or
-`extract_all_supported=True`. It logs and skips individual extraction errors so
-the rest of a folder can continue.
+`extract_all_supported=True`.
 
 ## JSON and Markdown
 
