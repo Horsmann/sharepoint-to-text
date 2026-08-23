@@ -363,7 +363,7 @@ def test_read_doc__incorrectly_suffixed_file() -> None:
 
     tc.assertIsInstance(doc, DocxParserOutput)
     tc.assertTrue(doc.full_text.startswith("United Nations\nECE/TRANS/2021/24"))
-    tc.assertEqual("ECE-TRANS-2021-24e.Doc", doc.metadata.filename)
+    tc.assertEqual("ECE-TRANS-2021-24e.DOC", doc.metadata.filename)
 
 
 def test_read_doc__heading_units() -> None:
