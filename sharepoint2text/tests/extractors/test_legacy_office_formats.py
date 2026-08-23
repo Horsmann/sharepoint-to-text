@@ -356,7 +356,7 @@ def test_read_doc__image_extraction_2() -> None:
 
 
 def test_read_doc__incorrectly_suffixed_file() -> None:
-    path = "sharepoint2text/tests/resources/legacy_ms/ECE-TRANS-2021-24e.Doc"
+    path = "sharepoint2text/tests/resources/legacy_ms/ECE-TRANS-2021-24e.DOC"
     doc: DocxParserOutput = next(
         read_doc(file_like=read_file_to_file_like(path=path), path=path)
     )
