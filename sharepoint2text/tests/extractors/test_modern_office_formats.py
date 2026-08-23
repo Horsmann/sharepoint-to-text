@@ -419,6 +419,63 @@ def test_read_pptx_4_units() -> None:
     tc.assertEqual("Title Slide 2", units[1].title)
 
 
+def test_read_pptx_5_full() -> None:
+    path = "sharepoint2text/tests/resources/modern_ms/Scope Ratings_Italy_update_October_2022.pptx"
+    pptx: ExtractedDocument = next(read_pptx(read_file_to_file_like(path=path)))
+
+    # full content
+    tc.assertTrue(
+        pptx.full_text.startswith("Italy’s credit outlook after the election")
+    )
+    tc.assertTrue(pptx.full_text.endswith("e +49 30 27891-0.\n15"))
+
+    # units
+    tc.assertEqual(15, len(pptx.units))
+    # 0
+    tc.assertEqual(2, len(pptx.units[0].images))
+    tc.assertIsNone(pptx.units[0].title)
+    tc.assertListEqual(
+        [
+            "Italy’s credit outlook after the elections",
+            "Alvise Lennkh-Yunus, CFA\nExecutive Director, Sovereign and Public Sector\x0ba.lennkh@scoperatings.com\n\nGiulia Branz, CFA\nSenior Analyst, Sovereign and Public Sector\x0bg.branz@scoperatings.com\n\nAlessandra Poli\nAssociate Analyst, Sovereign and Public Sector\x0ba.poli@scoperatings.com",
+            "October 2022",
+        ],
+        pptx.units[0].properties["pptx.other_textboxes"],
+    )
+
+    # 1
+    tc.assertEqual(0, len(pptx.units[1].images))
+    # 2
+    tc.assertEqual(1, len(pptx.units[2].images))
+    # 3
+    tc.assertEqual(2, len(pptx.units[3].images))
+    # 4
+    tc.assertEqual(2, len(pptx.units[4].images))
+    # 5
+    tc.assertEqual(2, len(pptx.units[5].images))
+    # 6
+    tc.assertEqual(2, len(pptx.units[6].images))
+    # 7
+    tc.assertEqual(2, len(pptx.units[7].images))
+    # 8
+    tc.assertEqual(2, len(pptx.units[8].images))
+    # 9
+    tc.assertEqual(2, len(pptx.units[9].images))
+    # 10
+    tc.assertEqual(0, len(pptx.units[10].images))
+    # 11
+    tc.assertEqual(0, len(pptx.units[11].images))
+    tc.assertTrue(
+        pptx.units[11].text.startswith("Annex: Documentation\nAdditional document")
+    )
+    # 12
+    tc.assertEqual(0, len(pptx.units[12].images))
+    # 13
+    tc.assertEqual(0, len(pptx.units[13].images))
+    # 14
+    tc.assertEqual(0, len(pptx.units[14].images))
+
+
 def test_read_pptx__image_flag() -> None:
     path = "sharepoint2text/tests/resources/modern_ms/pptx_images.pptx"
     pptx: ExtractedDocument = next(
