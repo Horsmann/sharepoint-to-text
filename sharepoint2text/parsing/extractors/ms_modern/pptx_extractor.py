@@ -603,7 +603,11 @@ def _normalize_relative_path(base_dir: str, target: str) -> str:
 
 
 def _process_slide_from_context(
-    ctx: _PptxContext, slide_path: str, slide_number: int, ignore_images: bool = False
+    ctx: _PptxContext,
+    slide_path: str,
+    slide_number: int,
+    ignore_images: bool = False,
+    extract_annotations: bool = False,
 ) -> ContentUnit:
     """
     Process a single slide and extract all its content using cached XML.
@@ -781,9 +785,14 @@ def _process_slide_from_context(
             )
         )
 
-    # Build canonical unit text without comments or image captions.
+    # Build canonical unit text without comments or image captions (unless extract_annotations).
     ordered_content.sort(key=lambda x: x[0])
     base_content_types = frozenset({"title", "content", "other", "table"})
+    if extract_annotations:
+        # Include comments in base text when extracting annotations
+        base_content_types = frozenset(
+            {"title", "content", "other", "table", "comment"}
+        )
     base_text = "\n".join(
         item[2] for item in ordered_content if item[1] in base_content_types
     )
@@ -814,7 +823,11 @@ def _process_slide_from_context(
 
 
 def read_pptx(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: io.BytesIO,
+    path: str | None = None,
+    *,
+    ignore_images: bool = False,
+    extract_annotations: bool = False,
 ) -> Generator[ExtractedDocument, Any, None]:
     """
     Extract all relevant content from a PowerPoint .pptx file.
@@ -896,7 +909,11 @@ def read_pptx(
             slides_result: List[ContentUnit] = []
             for slide_index, slide_path in enumerate(slide_paths, start=1):
                 slide = _process_slide_from_context(
-                    ctx, slide_path, slide_index, ignore_images=ignore_images
+                    ctx,
+                    slide_path,
+                    slide_index,
+                    ignore_images=ignore_images,
+                    extract_annotations=extract_annotations,
                 )
                 slides_result.append(slide)
 

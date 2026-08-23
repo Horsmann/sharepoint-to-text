@@ -990,7 +990,11 @@ def _build_content_units(
 
 
 def read_docx(
-    file_like: io.BytesIO, path: str | None = None, *, ignore_images: bool = False
+    file_like: io.BytesIO,
+    path: str | None = None,
+    *,
+    ignore_images: bool = False,
+    extract_annotations: bool = False,
 ) -> Generator[ExtractedDocument, Any, None]:
     """
     Extract all relevant content from a Word .docx file.
@@ -1002,6 +1006,7 @@ def read_docx(
         file_like: BytesIO object containing the DOCX file data.
         path: Optional path to the source file for metadata.
         ignore_images: If True, skip image extraction.
+        extract_annotations: If True, include comments in full_text and unit.text.
     """
     try:
         file_like.seek(0)
@@ -1046,8 +1051,53 @@ def read_docx(
                 *formulas,
             ]
             units = _build_content_units(body_analysis, images, metadata.title)
+
+            # When extract_annotations=True, append comments to the last unit's text
+            # and let full_text be computed from unit texts for consistency
+            if extract_annotations and comments:
+                comment_lines = [
+                    f"[Comment: {c.author}@{c.properties.get('docx.date', '')}: {c.text}]"
+                    for c in comments
+                ]
+                if units:
+                    last_unit = units[-1]
+                    if last_unit.text:
+                        units[-1] = ContentUnit(
+                            number=last_unit.number,
+                            kind=last_unit.kind,
+                            text=last_unit.text + "\n" + "\n".join(comment_lines),
+                            title=last_unit.title,
+                            heading_path=list(last_unit.heading_path),
+                            images=list(last_unit.images),
+                            tables=list(last_unit.tables),
+                            annotations=list(last_unit.annotations),
+                            properties=dict(last_unit.properties),
+                        )
+                    else:
+                        units[-1] = ContentUnit(
+                            number=last_unit.number,
+                            kind=last_unit.kind,
+                            text="\n".join(comment_lines),
+                            title=last_unit.title,
+                            heading_path=list(last_unit.heading_path),
+                            images=list(last_unit.images),
+                            tables=list(last_unit.tables),
+                            annotations=list(last_unit.annotations),
+                            properties=dict(last_unit.properties),
+                        )
+
             owned_image_ids = {id(image) for unit in units for image in unit.images}
             owned_table_ids = {id(table) for unit in units for table in unit.tables}
+
+            # When extract_annotations=True, don't set document.full_text so
+            # full_text is computed from unit texts, ensuring consistency
+            properties: dict[str, JsonValue] = {
+                "docx.paragraph_count": len(paragraphs),
+                "docx.sections": cast(JsonValue, body_analysis.sections),
+            }
+            if not extract_annotations:
+                properties["document.full_text"] = body_analysis.full_text
+
             yield ExtractedDocument(
                 format="docx",
                 source=source_metadata(path),
@@ -1060,11 +1110,7 @@ def read_docx(
                     table for table in tables if id(table) not in owned_table_ids
                 ],
                 document_annotations=annotations,
-                properties={
-                    "docx.paragraph_count": len(paragraphs),
-                    "docx.sections": cast(JsonValue, body_analysis.sections),
-                    "document.full_text": body_analysis.full_text,
-                },
+                properties=properties,
             )
         finally:
             ctx.close()

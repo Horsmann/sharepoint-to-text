@@ -1001,3 +1001,85 @@ def test_password_protected__pptx() -> None:
     path = "sharepoint2text/tests/resources/legacy_ms/password_protected/pptx-password-protected-pw123.pptx"
     with tc.assertRaises(ExtractionFileEncryptedError):
         list(read_pptx(file_like=read_file_to_file_like(path=path), path=path))
+
+
+def test_extract_annotations__docx() -> None:
+    """Test that extract_annotations flag includes comments in text and ensures consistency."""
+    path = (
+        "sharepoint2text/tests/resources/modern_ms/sample_with_comment_and_table.docx"
+    )
+
+    # Without extract_annotations - comments should NOT be in full_text
+    docx: ExtractedDocument = next(
+        read_docx(read_file_to_file_like(path=path), extract_annotations=False)
+    )
+    tc.assertNotIn("Nice!", docx.full_text)
+    tc.assertNotIn("[Comment:", docx.full_text)
+
+    # With extract_annotations - comments should be in full_text
+    docx_with_annotations: ExtractedDocument = next(
+        read_docx(read_file_to_file_like(path=path), extract_annotations=True)
+    )
+    tc.assertIn("[Comment:", docx_with_annotations.full_text)
+    tc.assertIn("Nice!", docx_with_annotations.full_text)
+
+    # Verify full_text equals concatenated unit text (key consistency requirement)
+    concatenated_unit_text = "\n".join(
+        unit.text for unit in docx_with_annotations.units if unit.text
+    ).strip()
+    tc.assertEqual(docx_with_annotations.full_text, concatenated_unit_text)
+
+
+def test_extract_annotations__pptx() -> None:
+    """Test that extract_annotations flag includes comments in text and ensures consistency."""
+    path = "sharepoint2text/tests/resources/modern_ms/pptx_formula_image.pptx"
+
+    # Without extract_annotations - comments should NOT be in full_text
+    pptx: ExtractedDocument = next(
+        read_pptx(read_file_to_file_like(path=path), extract_annotations=False)
+    )
+    tc.assertNotIn("Not second?", pptx.full_text)
+    tc.assertNotIn("[Comment:", pptx.full_text)
+
+    # With extract_annotations - comments should be in full_text
+    pptx_with_annotations: ExtractedDocument = next(
+        read_pptx(read_file_to_file_like(path=path), extract_annotations=True)
+    )
+    tc.assertIn("[Comment:", pptx_with_annotations.full_text)
+    tc.assertIn("Not second?", pptx_with_annotations.full_text)
+
+    # Verify full_text equals concatenated unit text (key consistency requirement)
+    concatenated_unit_text = "\n".join(
+        unit.text for unit in pptx_with_annotations.units if unit.text
+    ).strip()
+    tc.assertEqual(pptx_with_annotations.full_text, concatenated_unit_text)
+
+
+def test_extract_annotations__api_integration() -> None:
+    """Test that extract_annotations flag works via the read_file API."""
+    import sharepoint2text
+
+    docx_path = (
+        "sharepoint2text/tests/resources/modern_ms/sample_with_comment_and_table.docx"
+    )
+    pptx_path = "sharepoint2text/tests/resources/modern_ms/pptx_formula_image.pptx"
+
+    # DOCX via read_file API
+    docx: ExtractedDocument = next(
+        sharepoint2text.read_file(docx_path, extract_annotations=True)
+    )
+    tc.assertIn("[Comment:", docx.full_text)
+    tc.assertIn("Nice!", docx.full_text)
+    # Verify consistency
+    concatenated = "\n".join(unit.text for unit in docx.units if unit.text).strip()
+    tc.assertEqual(docx.full_text, concatenated)
+
+    # PPTX via read_file API
+    pptx: ExtractedDocument = next(
+        sharepoint2text.read_file(pptx_path, extract_annotations=True)
+    )
+    tc.assertIn("[Comment:", pptx.full_text)
+    tc.assertIn("Not second?", pptx.full_text)
+    # Verify consistency
+    concatenated = "\n".join(unit.text for unit in pptx.units if unit.text).strip()
+    tc.assertEqual(pptx.full_text, concatenated)

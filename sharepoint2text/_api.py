@@ -251,6 +251,7 @@ def read_many(
     ignore_images: bool = False,
     force_plain_text: bool = False,
     include_attachments: bool = True,
+    extract_annotations: bool = False,
     recursive: bool = True,
     on_file_result: Callable[[BatchFileResult], None] | None = None,
     zip_bomb_limits: ZipBombLimits | None = None,
@@ -277,6 +278,9 @@ def read_many(
         force_plain_text: If True, treat selected files as plain text, including
             files with unknown extensions in ``extract_all_supported`` mode.
         include_attachments: If False, skip email attachment extraction.
+        extract_annotations: If True, include annotations (comments) in the
+            document text for supported formats (docx, pptx). When enabled,
+            ``full_text`` equals the concatenated unit texts.
         recursive: If True, traverse subdirectories recursively. Default is True.
         on_file_result: Optional callback invoked once after each selected file
             completes or encounters a recoverable extraction/I/O error. The
@@ -338,6 +342,7 @@ def read_many(
         ignore_images=ignore_images,
         force_plain_text=force_plain_text,
         include_attachments=include_attachments,
+        extract_annotations=extract_annotations,
         recursive=recursive,
         on_file_result=on_file_result,
         zip_bomb_limits=zip_bomb_limits,
@@ -371,6 +376,7 @@ def _iter_many(
     ignore_images: bool,
     force_plain_text: bool,
     include_attachments: bool,
+    extract_annotations: bool,
     recursive: bool,
     on_file_result: Callable[[BatchFileResult], None] | None,
     zip_bomb_limits: ZipBombLimits | None,
@@ -400,6 +406,7 @@ def _iter_many(
             ignore_images=ignore_images,
             force_plain_text=force_plain_text,
             include_attachments=include_attachments,
+            extract_annotations=extract_annotations,
             on_file_result=on_file_result,
             zip_bomb_limits=zip_bomb_limits,
         )
@@ -448,6 +455,7 @@ def _iter_batch_file(
     ignore_images: bool,
     force_plain_text: bool,
     include_attachments: bool,
+    extract_annotations: bool,
     on_file_result: Callable[[BatchFileResult], None] | None,
     zip_bomb_limits: ZipBombLimits | None,
 ) -> Iterator[ExtractedDocument]:
@@ -460,6 +468,7 @@ def _iter_batch_file(
             ignore_images=ignore_images,
             force_plain_text=force_plain_text,
             include_attachments=include_attachments,
+            extract_annotations=extract_annotations,
             zip_bomb_limits=zip_bomb_limits,
         ):
             documents_extracted += 1
@@ -522,6 +531,7 @@ def read_file(
     ignore_images: bool = False,
     force_plain_text: bool = False,
     include_attachments: bool = True,
+    extract_annotations: bool = False,
     zip_bomb_limits: ZipBombLimits | None = None,
 ) -> Iterator[ExtractedDocument]:
     """
@@ -541,6 +551,9 @@ def read_file(
                       Useful for unknown or custom plain-text file formats.
         include_attachments: If False, skip extracting/storing email attachment
                       payloads for email file formats.
+        extract_annotations: If True, include annotations (comments) in the
+            document text for supported formats (docx, pptx). When enabled,
+            ``full_text`` equals the concatenated unit texts.
         zip_bomb_limits: ZIP-bomb limits for this extraction call. When
             ``None``, enforce the library defaults.
 
@@ -577,6 +590,7 @@ def read_file(
         ignore_images=ignore_images,
         force_plain_text=force_plain_text,
         include_attachments=include_attachments,
+        extract_annotations=extract_annotations,
     )
     resolved_file_type = _resolve_file_type(
         source_path,
@@ -643,6 +657,7 @@ def read_bytes(
     ignore_images: bool = False,
     force_plain_text: bool = False,
     include_attachments: bool = True,
+    extract_annotations: bool = False,
     zip_bomb_limits: ZipBombLimits | None = None,
 ) -> Iterator[ExtractedDocument]:
     """
@@ -664,6 +679,9 @@ def read_bytes(
                       Useful for unknown or custom plain-text file formats.
         include_attachments: If False, skip extracting/storing email attachment
             payloads for email file formats.
+        extract_annotations: If True, include annotations (comments) in the
+            document text for supported formats (docx, pptx). When enabled,
+            ``full_text`` equals the concatenated unit texts.
         zip_bomb_limits: ZIP-bomb limits for this extraction call. When
             ``None``, enforce the library defaults.
 
@@ -709,6 +727,7 @@ def read_bytes(
         ignore_images=ignore_images,
         force_plain_text=force_plain_text,
         include_attachments=include_attachments,
+        extract_annotations=extract_annotations,
     )
     return _iter_bytes(
         data,
@@ -725,6 +744,7 @@ def _build_in_memory_plan(
     ignore_images: bool,
     force_plain_text: bool,
     include_attachments: bool,
+    extract_annotations: bool = False,
 ) -> _InMemoryExtractionPlan:
     """Return validated extractor routing for in-memory content."""
     if force_plain_text:
@@ -734,6 +754,7 @@ def _build_in_memory_plan(
             ignore_images=ignore_images,
             force_plain_text=True,
             include_attachments=include_attachments,
+            extract_annotations=extract_annotations,
         )
     if not extension and not mime_type:
         raise ValueError("Either mime_type or extension must be provided")
@@ -744,6 +765,7 @@ def _build_in_memory_plan(
                 extension,
                 ignore_images=ignore_images,
                 include_attachments=include_attachments,
+                extract_annotations=extract_annotations,
             )
         except ExtractionFileFormatNotSupportedError as error:
             extension_error = error
@@ -754,6 +776,7 @@ def _build_in_memory_plan(
         extension_error=extension_error,
         ignore_images=ignore_images,
         include_attachments=include_attachments,
+        extract_annotations=extract_annotations,
     )
 
 
@@ -762,6 +785,7 @@ def _plan_for_extension(
     *,
     ignore_images: bool,
     include_attachments: bool,
+    extract_annotations: bool = False,
 ) -> _InMemoryExtractionPlan:
     """Build an in-memory extraction plan from an extension hint."""
     virtual_path = f"in_memory.{extension}"
@@ -770,6 +794,7 @@ def _plan_for_extension(
         virtual_path,
         ignore_images=ignore_images,
         include_attachments=include_attachments,
+        extract_annotations=extract_annotations,
     )
     if resolved_file_type is None:  # pragma: no cover - guarded by the router
         raise ExtractionFileFormatNotSupportedError(
@@ -784,6 +809,7 @@ def _plan_for_mime_type(
     extension_error: ExtractionFileFormatNotSupportedError | None,
     ignore_images: bool,
     include_attachments: bool,
+    extract_annotations: bool = False,
 ) -> _InMemoryExtractionPlan:
     """Build an in-memory extraction plan from a MIME type hint."""
     resolved_file_type = MIME_TYPE_MAPPING.get(mime_type)
@@ -798,6 +824,7 @@ def _plan_for_mime_type(
         f"in_memory.{resolved_file_type}",
         ignore_images=ignore_images,
         include_attachments=include_attachments,
+        extract_annotations=extract_annotations,
     )
 
 
@@ -808,6 +835,7 @@ def _plan_for_file_type(
     ignore_images: bool,
     include_attachments: bool,
     force_plain_text: bool = False,
+    extract_annotations: bool = False,
 ) -> _InMemoryExtractionPlan:
     """Build an in-memory plan for an already resolved file type."""
     extractor = _get_extractor(
@@ -815,6 +843,7 @@ def _plan_for_file_type(
         ignore_images=ignore_images,
         force_plain_text=force_plain_text,
         include_attachments=include_attachments,
+        extract_annotations=extract_annotations,
     )
     return _InMemoryExtractionPlan(extractor, resolved_file_type, virtual_path)
 

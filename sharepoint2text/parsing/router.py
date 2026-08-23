@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 _ATTACHMENT_AWARE_FILE_TYPES = frozenset({"msg", "eml", "mbox"})
 _ARCHIVE_FILE_TYPES = frozenset({"zip", "tar", "tgz", "tbz2", "txz", "7z"})
 _ATTACHMENT_OPTION_FILE_TYPES = _ATTACHMENT_AWARE_FILE_TYPES | _ARCHIVE_FILE_TYPES
+_ANNOTATION_OPTION_FILE_TYPES = frozenset({"docx", "docm", "pptx", "pptm"})
 
 # Mapping from file type identifiers to allowlisted extractor keys.
 # Format: file_type -> extractor_key
@@ -257,6 +258,7 @@ def _get_extractor_for_type(
     file_type: str,
     ignore_images: bool = False,
     include_attachments: bool = True,
+    extract_annotations: bool = False,
 ) -> ExtractorFunction:
     """
     Return the extractor function for a file type using lazy import.
@@ -271,6 +273,8 @@ def _get_extractor_for_type(
         ignore_images: If True, skip image extraction for supported formats.
         include_attachments: If False, omit email attachments, including from
             emails contained in archives.
+        extract_annotations: If True, include annotations (comments) in the
+            document text for supported formats (docx, pptx).
 
     Returns:
         Callable extractor function that accepts (binary stream, path) arguments.
@@ -286,14 +290,19 @@ def _get_extractor_for_type(
     extractor_key = _EXTRACTOR_REGISTRY[file_type]
     extractor = cast(ExtractorFunction, _load_registered_extractor(extractor_key))
 
-    if ignore_images or (
-        file_type in _ATTACHMENT_OPTION_FILE_TYPES and not include_attachments
-    ):
+    needs_partial = (
+        ignore_images
+        or (file_type in _ATTACHMENT_OPTION_FILE_TYPES and not include_attachments)
+        or (file_type in _ANNOTATION_OPTION_FILE_TYPES and extract_annotations)
+    )
+    if needs_partial:
         partial_kwargs: dict[str, Any] = {}
         if ignore_images:
             partial_kwargs["ignore_images"] = True
         if file_type in _ATTACHMENT_OPTION_FILE_TYPES and not include_attachments:
             partial_kwargs["include_attachments"] = False
+        if file_type in _ANNOTATION_OPTION_FILE_TYPES and extract_annotations:
+            partial_kwargs["extract_annotations"] = True
         return cast(ExtractorFunction, functools.partial(extractor, **partial_kwargs))
     return extractor
 
@@ -404,6 +413,7 @@ def _get_extractor(
     ignore_images: bool = False,
     force_plain_text: bool = False,
     include_attachments: bool = True,
+    extract_annotations: bool = False,
 ) -> ExtractorFunction:
     """
     Analyze a path/filename and return the appropriate extractor callable.
@@ -419,6 +429,8 @@ def _get_extractor(
             even when extension/MIME detection does not recognize the file.
         include_attachments: If False, skip extracting/storing supported email
             attachment payloads.
+        extract_annotations: If True, include annotations (comments) in the
+            document text for supported formats (docx, pptx).
 
     Returns:
         Extractor function with signature ``(binary stream, path) -> Generator`` that
@@ -450,6 +462,7 @@ def _get_extractor(
             file_type,
             ignore_images=ignore_images,
             include_attachments=include_attachments,
+            extract_annotations=extract_annotations,
         )
         return extractor
 
