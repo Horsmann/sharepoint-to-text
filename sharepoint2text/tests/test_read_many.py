@@ -5,11 +5,12 @@ import logging
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, cast
 
 import pytest
 
 from sharepoint2text import (
+    BatchFileResult,
     ExtractedDocument,
     InvalidConfigurationError,
     read_many,
@@ -119,6 +120,16 @@ def test_read_many_invalid_configuration_no_options() -> None:
         read_many(RESOURCES_PATH)
 
     tc.assertIn("Must specify either", str(ctx.exception))
+
+
+def test_read_many_rejects_invalid_result_callback_eagerly() -> None:
+    """Reject a non-callable reporting callback when the API is called."""
+    with pytest.raises(TypeError, match="on_file_result must be callable or None"):
+        read_many(
+            RESOURCES_PATH,
+            suffixes=[".txt"],
+            on_file_result=cast(Any, object()),
+        )
 
 
 def test_read_many_nonexistent_folder() -> None:
@@ -317,6 +328,135 @@ def test_read_many_continues_on_extraction_error(monkeypatch: Any) -> None:
 
         # Should have processed at least one file successfully
         tc.assertGreaterEqual(len(results), 1)
+
+
+def test_read_many_reports_each_selected_file(tmp_path: Path) -> None:
+    """Report one successful structured result per selected file."""
+    (tmp_path / "first.txt").write_text("first")
+    (tmp_path / "second.txt").write_text("second")
+    reports: list[BatchFileResult] = []
+
+    documents = list(
+        read_many(
+            tmp_path,
+            suffixes=[".txt"],
+            on_file_result=reports.append,
+        )
+    )
+
+    assert len(reports) == 2
+    assert {report.path.name for report in reports} == {"first.txt", "second.txt"}
+    assert all(report.succeeded for report in reports)
+    assert all(report.error is None for report in reports)
+    assert sum(report.documents_extracted for report in reports) == len(documents)
+
+
+def test_read_many_reports_recoverable_failure_and_continues(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Report a recoverable file error while continuing later extraction."""
+    (tmp_path / "failed.txt").write_text("failed")
+    (tmp_path / "successful.txt").write_text("successful")
+    original_read_file = read_many.__globals__["read_file"]
+    reports: list[BatchFileResult] = []
+
+    def failing_read_file(path: Path, **kwargs: Any) -> Iterator[ExtractedDocument]:
+        """Fail one selected file and delegate all others."""
+        if path.name == "failed.txt":
+            raise OSError("simulated failure")
+        return original_read_file(path, **kwargs)
+
+    monkeypatch.setattr("sharepoint2text._api.read_file", failing_read_file)
+
+    documents = list(
+        read_many(
+            tmp_path,
+            suffixes=[".txt"],
+            on_file_result=reports.append,
+        )
+    )
+
+    reports_by_name = {report.path.name: report for report in reports}
+    assert len(documents) == 1
+    assert reports_by_name["successful.txt"].succeeded
+    assert not reports_by_name["failed.txt"].succeeded
+    assert isinstance(reports_by_name["failed.txt"].error, OSError)
+
+
+def test_read_many_reports_partial_documents_before_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Include documents emitted before a selected file fails."""
+    (tmp_path / "partial.txt").write_text("partial")
+    reports: list[BatchFileResult] = []
+
+    def partially_failing_read_file(
+        path: Path, **kwargs: Any
+    ) -> Iterator[ExtractedDocument]:
+        """Yield one document before raising a recoverable error."""
+        del path, kwargs
+        yield ExtractedDocument(format="txt")
+        raise OSError("failure after document")
+
+    monkeypatch.setattr(
+        "sharepoint2text._api.read_file",
+        partially_failing_read_file,
+    )
+
+    documents = list(
+        read_many(
+            tmp_path,
+            suffixes=[".txt"],
+            on_file_result=reports.append,
+        )
+    )
+
+    assert len(documents) == 1
+    assert len(reports) == 1
+    assert reports[0].documents_extracted == 1
+    assert isinstance(reports[0].error, OSError)
+
+
+def test_read_many_propagates_callback_failure(tmp_path: Path) -> None:
+    """Stop batch iteration when the reporting callback raises."""
+    (tmp_path / "document.txt").write_text("content")
+
+    def reject_result(result: BatchFileResult) -> None:
+        """Reject the completed per-file result."""
+        del result
+        raise RuntimeError("callback failed")
+
+    with pytest.raises(RuntimeError, match="callback failed"):
+        list(
+            read_many(
+                tmp_path,
+                suffixes=[".txt"],
+                on_file_result=reject_result,
+            )
+        )
+
+
+def test_read_many_reports_lazily_without_accumulation(tmp_path: Path) -> None:
+    """Deliver reports as files complete without retaining a batch report."""
+    (tmp_path / "first.txt").write_text("first")
+    (tmp_path / "second.txt").write_text("second")
+    reports: list[BatchFileResult] = []
+    documents = read_many(
+        tmp_path,
+        suffixes=[".txt"],
+        on_file_result=reports.append,
+    )
+
+    next(documents)
+    assert reports == []
+
+    next(documents)
+    assert len(reports) == 1
+
+    assert list(documents) == []
+    assert len(reports) == 2
 
 
 def test_read_many_case_insensitive_suffix_matching() -> None:

@@ -170,6 +170,7 @@ def test_package_exports_only_the_normalized_api() -> None:
     expected = {
         "Annotation",
         "Attachment",
+        "BatchFileResult",
         "ContentUnit",
         "DocumentMetadata",
         "ExtractedDocument",

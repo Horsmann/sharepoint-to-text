@@ -1,6 +1,7 @@
 """Extract content from SharePoint file formats into one normalized model."""
 
 from sharepoint2text._api import (
+    BatchFileResult,
     InvalidConfigurationError,
     __version__,
     is_supported_file,
@@ -39,6 +40,7 @@ from sharepoint2text.parsing.models import (
 __all__ = [
     "Annotation",
     "Attachment",
+    "BatchFileResult",
     "ContentUnit",
     "DocumentMetadata",
     "ExtractedDocument",

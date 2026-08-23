@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Generator, Iterator, TypeVar
+from typing import Callable, Generator, Iterator, TypeVar
 
 from sharepoint2text.parsing._normalization import (
     _normalize_record,
@@ -143,6 +143,46 @@ class InvalidConfigurationError(ValueError):
     """Raised when incompatible configuration options are provided."""
 
 
+@dataclass(frozen=True, slots=True)
+class BatchFileResult:
+    """Report the outcome of one selected file processed by ``read_many``.
+
+    Attributes:
+        path: Path of the selected top-level file.
+        documents_extracted: Number of documents yielded before completion or
+            a recoverable failure.
+        error: Recoverable extraction or I/O error, or ``None`` on success.
+
+    Example:
+        >>> from pathlib import Path
+        >>> result = BatchFileResult(Path("report.pdf"), 1)
+        >>> result.succeeded
+        True
+    """
+
+    path: Path
+    documents_extracted: int
+    error: Exception | None = None
+
+    def __post_init__(self) -> None:
+        """Reject a negative extracted-document count.
+
+        Raises:
+            ValueError: If ``documents_extracted`` is negative.
+        """
+        if self.documents_extracted < 0:
+            raise ValueError("documents_extracted must be non-negative")
+
+    @property
+    def succeeded(self) -> bool:
+        """Return whether the selected file completed without a recoverable error.
+
+        Returns:
+            ``True`` when ``error`` is ``None``.
+        """
+        return self.error is None
+
+
 def _iterate_with_zip_bomb_limits(
     iterator: Iterator[_T],
     limits: ZipBombLimits | None,
@@ -215,6 +255,7 @@ def read_many(
     force_plain_text: bool = False,
     include_attachments: bool = True,
     recursive: bool = True,
+    on_file_result: Callable[[BatchFileResult], None] | None = None,
     zip_bomb_limits: ZipBombLimits | None = None,
 ) -> Iterator[ExtractedDocument]:
     """
@@ -239,6 +280,10 @@ def read_many(
             files with unknown extensions in ``extract_all_supported`` mode.
         include_attachments: If False, skip email attachment extraction.
         recursive: If True, traverse subdirectories recursively. Default is True.
+        on_file_result: Optional callback invoked once after each selected file
+            completes or encounters a recoverable extraction/I/O error. The
+            callback receives its path, document count, and error. Callback
+            exceptions stop iteration.
         zip_bomb_limits: ZIP-bomb limits for each selected file. When ``None``,
             enforce the library defaults independently for every file.
 
@@ -251,7 +296,8 @@ def read_many(
         ValueError: If neither suffixes nor extract_all_supported is specified.
         NotADirectoryError: If folder_path is not a directory.
         FileNotFoundError: If folder_path does not exist.
-        TypeError: If ``zip_bomb_limits`` is not ``None`` or ``ZipBombLimits``.
+        TypeError: If ``on_file_result`` is not callable, or if
+            ``zip_bomb_limits`` is not ``None`` or ``ZipBombLimits``.
 
     Example:
         >>> import sharepoint2text
@@ -263,6 +309,8 @@ def read_many(
         ...     print(result.full_text)
     """
     _validate_zip_bomb_limits(zip_bomb_limits)
+    if on_file_result is not None and not callable(on_file_result):
+        raise TypeError("on_file_result must be callable or None")
     folder = Path(folder_path)
     if not folder.exists():
         raise FileNotFoundError(f"Folder not found: {folder_path}")
@@ -293,6 +341,7 @@ def read_many(
         force_plain_text=force_plain_text,
         include_attachments=include_attachments,
         recursive=recursive,
+        on_file_result=on_file_result,
         zip_bomb_limits=zip_bomb_limits,
     )
 
@@ -325,6 +374,7 @@ def _iter_many(
     force_plain_text: bool,
     include_attachments: bool,
     recursive: bool,
+    on_file_result: Callable[[BatchFileResult], None] | None,
     zip_bomb_limits: ZipBombLimits | None,
 ) -> Iterator[ExtractedDocument]:
     """Yield documents from a validated folder extraction request."""
@@ -352,6 +402,7 @@ def _iter_many(
             ignore_images=ignore_images,
             force_plain_text=force_plain_text,
             include_attachments=include_attachments,
+            on_file_result=on_file_result,
             zip_bomb_limits=zip_bomb_limits,
         )
     logger.info(
@@ -399,9 +450,11 @@ def _iter_batch_file(
     ignore_images: bool,
     force_plain_text: bool,
     include_attachments: bool,
+    on_file_result: Callable[[BatchFileResult], None] | None,
     zip_bomb_limits: ZipBombLimits | None,
 ) -> Iterator[ExtractedDocument]:
     """Yield one selected file's documents while recording recoverable failures."""
+    documents_extracted = 0
     try:
         for result in read_file(
             file_path,
@@ -411,14 +464,57 @@ def _iter_batch_file(
             include_attachments=include_attachments,
             zip_bomb_limits=zip_bomb_limits,
         ):
+            documents_extracted += 1
             statistics.documents_extracted += 1
             yield result
-    except ExtractionError as error:
+    except (ExtractionError, OSError) as error:
+        _record_batch_failure(
+            file_path,
+            statistics,
+            documents_extracted=documents_extracted,
+            error=error,
+            on_file_result=on_file_result,
+        )
+    else:
+        _notify_file_result(
+            on_file_result,
+            file_path,
+            documents_extracted,
+            None,
+        )
+
+
+def _record_batch_failure(
+    file_path: Path,
+    statistics: _BatchStatistics,
+    *,
+    documents_extracted: int,
+    error: Exception,
+    on_file_result: Callable[[BatchFileResult], None] | None,
+) -> None:
+    """Log and report one recoverable batch-file failure."""
+    if isinstance(error, ExtractionError):
         logger.warning("Failed to extract %s: %s", file_path, error)
-        statistics.files_skipped += 1
-    except (OSError, IOError) as error:
+    else:
         logger.warning("IO error reading %s: %s", file_path, error)
-        statistics.files_skipped += 1
+    statistics.files_skipped += 1
+    _notify_file_result(
+        on_file_result,
+        file_path,
+        documents_extracted,
+        error,
+    )
+
+
+def _notify_file_result(
+    callback: Callable[[BatchFileResult], None] | None,
+    file_path: Path,
+    documents_extracted: int,
+    error: Exception | None,
+) -> None:
+    """Deliver one structured per-file result without retaining it."""
+    if callback is not None:
+        callback(BatchFileResult(file_path, documents_extracted, error))
 
 
 def read_file(

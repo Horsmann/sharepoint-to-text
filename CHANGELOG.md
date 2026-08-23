@@ -21,6 +21,8 @@ For upgrade instructions, see
 - Report extraction failures as concise CLI errors instead of tracebacks.
 
 ### Added
+- Add optional structured per-file success/error reporting to `read_many`
+  through `BatchFileResult` and the streaming `on_file_result` callback.
 - Add centralized dict/JSON codecs with opt-in base64 payloads, bounded binary
   decoding, and schema validation.
 - Add Markdown rendering for normalized documents.

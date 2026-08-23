@@ -122,7 +122,7 @@ ExtractedDocument
 └── attachments: list[Attachment]
 ```
 
-The public records are:
+The normalized document records are:
 
 - `ExtractedDocument`
 - `ContentUnit`
@@ -132,6 +132,9 @@ The public records are:
 - `Table`
 - `Annotation`
 - `Attachment`
+
+`BatchFileResult` is a separate operational record used by the optional
+`read_many(..., on_file_result=...)` callback described below.
 
 Fields are accessed directly. For example, use `unit.text`, `unit.images`, and
 `document.metadata.author`. Binary payloads are immutable `bytes`.
@@ -180,6 +183,7 @@ sharepoint2text.read_many(
     force_plain_text=False,
     include_attachments=True,
     recursive=True,
+    on_file_result=None,
     zip_bomb_limits=None,
 )
 
@@ -248,7 +252,7 @@ processing remains deferred:
 |---|---|---|
 | `read_file` | Path, source size, routing, and ZIP-bomb configuration | Opening, reading, parsing, and normalization |
 | `read_bytes` | Input type and size, routing hints, and ZIP-bomb configuration | Stream positioning, parsing, and normalization |
-| `read_many` | Folder and selection configuration | Traversal and each selected file's validation and extraction |
+| `read_many` | Folder, selection, result-callback, and ZIP-bomb configuration | Traversal and each selected file's validation and extraction |
 
 For a source that may yield any number of documents, iterate to exhaustion:
 
@@ -284,6 +288,43 @@ including ordering, partial-result, memory, and non-goal definitions.
 
 `read_many` requires exactly one of `suffixes` or
 `extract_all_supported=True`.
+
+### Per-file batch reporting
+
+Pass `on_file_result` to receive one structured `BatchFileResult` after each
+selected top-level file completes or encounters a recoverable extraction or
+I/O error. Reporting is callback-based so `read_many` does not need to retain
+an arbitrarily large result collection:
+
+```python
+import sharepoint2text
+from sharepoint2text import BatchFileResult
+
+
+def report_file(result: BatchFileResult) -> None:
+    """Report one completed batch file."""
+    if result.succeeded:
+        print(result.path, result.documents_extracted)
+    else:
+        print(result.path, type(result.error).__name__, result.error)
+
+
+for document in sharepoint2text.read_many(
+    "documents",
+    extract_all_supported=True,
+    on_file_result=report_file,
+):
+    index_document(document)
+```
+
+Each result contains the selected top-level `path`, the number of
+`documents_extracted` before completion or failure, the recoverable `error`
+(`None` on success), and the convenience property `succeeded`.
+
+The callback runs only after a selected file finishes. It does not run for
+filtered files or for the current file when iteration is abandoned early. If
+the callback raises an exception, that exception stops batch iteration. An
+application may collect callback values when its own memory bounds permit.
 
 ## JSON and Markdown
 
