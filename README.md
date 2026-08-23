@@ -186,9 +186,47 @@ sharepoint2text.read_many(
 sharepoint2text.is_supported_file(path)
 ```
 
-The extraction functions return generators because archives and `.mbox` files
-can produce multiple documents. `next(...)` is convenient for ordinary
-single-document formats; iterate the generator when cardinality is not known.
+### File-size limits
+
+`read_file`, `read_bytes`, and `read_many` default to a 100 MiB input-size
+limit (`100 * 1024 * 1024`, or 104,857,600 bytes). For `read_many`, the limit
+is applied independently to each selected file; it is not a cumulative limit
+for the folder.
+
+Pass a larger `max_file_size` value when processing trusted files that exceed
+the default. The value is always expressed in bytes:
+
+```python
+from pathlib import Path
+
+import sharepoint2text
+
+MAX_INPUT_SIZE = 500 * 1024 * 1024  # 500 MiB
+file_data = Path("large-report.pdf").read_bytes()
+
+file_documents = sharepoint2text.read_file(
+    "large-report.pdf",
+    max_file_size=MAX_INPUT_SIZE,
+)
+memory_documents = sharepoint2text.read_bytes(
+    file_data,
+    extension="pdf",
+    max_file_size=MAX_INPUT_SIZE,
+)
+folder_documents = sharepoint2text.read_many(
+    "large-documents",
+    extract_all_supported=True,
+    max_file_size=MAX_INPUT_SIZE,
+)
+```
+
+Set `max_file_size=0` to disable the input-size check. For archives, this
+setting limits the top-level archive file or byte buffer; decompressed ZIP
+members remain subject to the separate [ZIP-bomb limits](#zip-bomb-limits).
+
+The extraction functions return lazy iterators because archives and `.mbox`
+files can produce multiple documents. `next(...)` is convenient for ordinary
+single-document formats; iterate the results when cardinality is not known.
 
 `read_many` requires exactly one of `suffixes` or
 `extract_all_supported=True`. It logs and skips individual extraction errors so
