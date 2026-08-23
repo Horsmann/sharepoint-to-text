@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [Released]
+
+## [2.0.0] - 2026-08-23
 For upgrade instructions, see
 [Migrating from 1.2 to 2.0](MIGRATION__1.2_to_2.0.md).
 
@@ -38,8 +42,6 @@ For upgrade instructions, see
   conversion adapters, class-name-based serialization, and their module paths.
 - Remove the process-wide `get_zip_bomb_limits`, `set_zip_bomb_limits`, and
   `reset_zip_bomb_limits` helpers.
-
-## [Released]
 
 ## [1.2.1] - 2026-08-22
 - Dependencies updated to latest version
