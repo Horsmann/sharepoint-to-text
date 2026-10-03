@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Released]
 
+## [2.0.1] - 2026-10-03
+Updated package dependencies to latest and greatest
+
 ## [2.0.0] - 2026-08-23
 For upgrade instructions, see
 [Migrating from 1.2 to 2.0](MIGRATION__1.2_to_2.0.md).
