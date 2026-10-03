@@ -80,9 +80,6 @@ dependencies = [
     "xlrd>=2.0.2,<3",
 ]
 
-[tool.uv]
-exclude-newer = "7 days"
-
 [project.urls]
 Homepage = "https://github.com/Horsmann/sharepoint-to-text"
 Documentation = "https://github.com/Horsmann/sharepoint-to-text#readme"
